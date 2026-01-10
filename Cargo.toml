@@ -1,0 +1,57 @@
+[workspace]
+resolver = "2"
+members = [
+    "crates/core",
+    "crates/storage",
+    "crates/concurrency",
+    "crates/durability",
+    "crates/primitives",
+    "crates/engine",
+    "crates/api",
+]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.70"
+authors = ["in-mem contributors"]
+license = "MIT"
+repository = "https://github.com/anibjoshi/in-mem"
+
+[workspace.dependencies]
+# Core dependencies shared across crates
+uuid = { version = "1.6", features = ["v4", "serde"] }
+serde = { version = "1.0", features = ["derive"] }
+bincode = "1.3"
+thiserror = "1.0"
+anyhow = "1.0"
+
+# Concurrency
+parking_lot = "0.12"
+
+# Time handling
+chrono = { version = "0.4", features = ["serde"] }
+
+# Async runtime (for future network layer)
+tokio = { version = "1.35", features = ["full"] }
+
+# Testing
+proptest = "1.4"
+tempfile = "3.8"
+
+# Logging
+tracing = "0.1"
+tracing-subscriber = "0.3"
+
+[profile.dev]
+opt-level = 0
+debug = true
+
+[profile.release]
+opt-level = 3
+lto = true
+codegen-units = 1
+debug = false
+
+[profile.bench]
+inherits = "release"

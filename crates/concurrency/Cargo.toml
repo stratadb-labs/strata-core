@@ -1,0 +1,19 @@
+[package]
+name = "in-mem-concurrency"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+in-mem-core = { path = "../core" }
+in-mem-storage = { path = "../storage" }
+parking_lot = { workspace = true }
+serde = { workspace = true }
+thiserror = { workspace = true }
+tracing = { workspace = true }
+
+[dev-dependencies]
+proptest = { workspace = true }

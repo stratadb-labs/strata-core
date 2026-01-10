@@ -1,0 +1,26 @@
+[package]
+name = "in-mem-api"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+in-mem-core = { path = "../core" }
+in-mem-engine = { path = "../engine" }
+in-mem-primitives = { path = "../primitives" }
+serde = { workspace = true }
+thiserror = { workspace = true }
+tracing = { workspace = true }
+tokio = { workspace = true, optional = true }
+
+[features]
+default = ["embedded"]
+embedded = []
+rpc = ["tokio"]  # M7: RPC server
+mcp = ["tokio"]  # M8: MCP integration
+
+[dev-dependencies]
+tempfile = { workspace = true }

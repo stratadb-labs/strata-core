@@ -1,0 +1,21 @@
+[package]
+name = "in-mem-durability"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+in-mem-core = { path = "../core" }
+in-mem-storage = { path = "../storage" }
+bincode = { workspace = true }
+serde = { workspace = true }
+thiserror = { workspace = true }
+tracing = { workspace = true }
+crc32fast = "1.3"
+
+[dev-dependencies]
+proptest = { workspace = true }
+tempfile = { workspace = true }
