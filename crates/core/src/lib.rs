@@ -9,14 +9,17 @@
 //! - Error: Error type hierarchy
 //! - Traits: Core trait definitions (Storage, SnapshotView)
 
+#![warn(missing_docs)]
+#![warn(clippy::all)]
+
 // Module declarations (will be implemented in future stories)
 // pub mod types;      // Story #7, #8
 // pub mod value;      // Story #9
 // pub mod error;      // Story #10
-// pub mod traits;     // Story #11
+pub mod traits; // Story #11
 
-#![warn(missing_docs)]
-#![warn(clippy::all)]
+// Re-export commonly used traits
+pub use traits::{SnapshotView, Storage};
 
 /// Placeholder for core functionality
 /// This will be populated by stories #7-11
