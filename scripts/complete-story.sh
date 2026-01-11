@@ -2,6 +2,11 @@
 # Complete a story and create PR
 # Usage: ./scripts/complete-story.sh <story-number>
 
+# Source Rust environment if it exists
+if [ -f "$HOME/.cargo/env" ]; then
+    source "$HOME/.cargo/env"
+fi
+
 STORY_NUM=$1
 
 if [ -z "$STORY_NUM" ]; then
@@ -73,8 +78,9 @@ echo ""
 echo "🎯 Creating pull request..."
 echo ""
 
-# Create PR
-gh pr create \
+# Create PR (use full path to gh)
+GH_PATH="${GH_PATH:-/opt/homebrew/bin/gh}"
+"$GH_PATH" pr create \
     --base "$EPIC_BRANCH" \
     --head "$CURRENT_BRANCH" \
     --title "Story #${STORY_NUM}: $(git log -1 --pretty=%s | sed 's/Implement story #[0-9]*: //')" \
@@ -97,4 +103,4 @@ $(git log --oneline ${EPIC_BRANCH}..HEAD | sed 's/^/- /')
 echo ""
 echo "✅ Pull request created!"
 echo ""
-echo "View PR: gh pr view --web"
+echo "View PR: $GH_PATH pr view --web"

@@ -4,6 +4,11 @@
 
 set -e
 
+# Source Rust environment if it exists
+if [ -f "$HOME/.cargo/env" ]; then
+    source "$HOME/.cargo/env"
+fi
+
 echo "🔍 Verifying workspace structure..."
 echo ""
 
