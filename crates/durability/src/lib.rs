@@ -21,5 +21,7 @@ pub mod wal; // Story #17-20: WALEntry types, File operations, Durability modes
 
 // Re-export commonly used types
 pub use encoding::{decode_entry, encode_entry};
-pub use recovery::{replay_wal, ReplayStats};
+pub use recovery::{
+    replay_wal, validate_transactions, ReplayStats, ValidationResult, ValidationWarning,
+};
 pub use wal::{DurabilityMode, WALEntry, WAL};

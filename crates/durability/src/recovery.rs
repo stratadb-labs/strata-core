@@ -24,7 +24,8 @@ use crate::wal::{WALEntry, WAL};
 use in_mem_core::error::Result;
 use in_mem_core::types::RunId;
 use in_mem_storage::UnifiedStore;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
+use tracing::warn;
 
 /// Statistics from WAL replay
 ///
@@ -44,6 +45,8 @@ pub struct ReplayStats {
     pub incomplete_txns: usize,
     /// Number of aborted transactions discarded
     pub aborted_txns: usize,
+    /// Number of orphaned entries discarded (Write/Delete without BeginTxn)
+    pub orphaned_entries: usize,
 }
 
 /// Transaction state during replay
@@ -79,6 +82,165 @@ impl Transaction {
     }
 }
 
+// ============================================================================
+// Validation Types and Functions
+// ============================================================================
+
+/// Result of validating WAL entries before replay
+///
+/// Contains information about incomplete transactions and orphaned entries
+/// that will be discarded during replay.
+#[derive(Debug, Default)]
+pub struct ValidationResult {
+    /// Transaction IDs that are incomplete (BeginTxn without CommitTxn/AbortTxn)
+    pub incomplete_txns: Vec<u64>,
+    /// Number of orphaned entries (Write/Delete without matching BeginTxn)
+    pub orphaned_entries: usize,
+    /// Warnings generated during validation
+    pub warnings: Vec<ValidationWarning>,
+}
+
+/// A warning generated during WAL validation
+#[derive(Debug, Clone)]
+pub struct ValidationWarning {
+    /// Index of the entry in the WAL
+    pub entry_index: usize,
+    /// Description of the warning
+    pub message: String,
+}
+
+impl ValidationResult {
+    /// Returns true if no issues were found during validation
+    pub fn is_clean(&self) -> bool {
+        self.incomplete_txns.is_empty() && self.orphaned_entries == 0
+    }
+
+    /// Log all warnings to the tracing subsystem
+    pub fn log_warnings(&self) {
+        if !self.incomplete_txns.is_empty() {
+            warn!(
+                count = self.incomplete_txns.len(),
+                txn_ids = ?self.incomplete_txns,
+                "Discarding incomplete transactions (no CommitTxn)"
+            );
+        }
+
+        if self.orphaned_entries > 0 {
+            warn!(
+                count = self.orphaned_entries,
+                "Discarding orphaned entries (Write/Delete without BeginTxn)"
+            );
+        }
+
+        for warning in &self.warnings {
+            warn!(
+                entry_index = warning.entry_index,
+                message = %warning.message,
+                "Validation warning"
+            );
+        }
+    }
+}
+
+/// Validate WAL entries before replay
+///
+/// Scans entries to identify:
+/// - Incomplete transactions (BeginTxn without CommitTxn/AbortTxn)
+/// - Orphaned entries (Write/Delete without matching BeginTxn)
+/// - Duplicate BeginTxn for the same txn_id
+/// - CommitTxn without BeginTxn
+///
+/// This validation is informational - it doesn't prevent replay but logs
+/// warnings about data that will be discarded.
+///
+/// # Arguments
+///
+/// * `entries` - The WAL entries to validate
+///
+/// # Returns
+///
+/// A `ValidationResult` containing information about issues found
+pub fn validate_transactions(entries: &[WALEntry]) -> ValidationResult {
+    let mut result = ValidationResult::default();
+
+    // Track which transactions we've seen
+    let mut begun_txns: HashSet<u64> = HashSet::new();
+    let mut committed_txns: HashSet<u64> = HashSet::new();
+    let mut aborted_txns: HashSet<u64> = HashSet::new();
+
+    // Track active transaction per run_id (for orphan detection)
+    let mut active_txn_per_run: HashMap<RunId, u64> = HashMap::new();
+
+    for (idx, entry) in entries.iter().enumerate() {
+        match entry {
+            WALEntry::BeginTxn { txn_id, run_id, .. } => {
+                if begun_txns.contains(txn_id) {
+                    result.warnings.push(ValidationWarning {
+                        entry_index: idx,
+                        message: format!("Duplicate BeginTxn for txn_id {}", txn_id),
+                    });
+                }
+                begun_txns.insert(*txn_id);
+                active_txn_per_run.insert(*run_id, *txn_id);
+            }
+            WALEntry::Write { run_id, .. } | WALEntry::Delete { run_id, .. } => {
+                // Check if there's an active transaction for this run_id
+                if !active_txn_per_run.contains_key(run_id) {
+                    result.warnings.push(ValidationWarning {
+                        entry_index: idx,
+                        message: format!(
+                            "Orphaned entry: no active transaction for run_id {:?}",
+                            run_id
+                        ),
+                    });
+                    result.orphaned_entries += 1;
+                }
+            }
+            WALEntry::CommitTxn { txn_id, run_id } => {
+                if !begun_txns.contains(txn_id) {
+                    result.warnings.push(ValidationWarning {
+                        entry_index: idx,
+                        message: format!("CommitTxn without BeginTxn for txn_id {}", txn_id),
+                    });
+                }
+                committed_txns.insert(*txn_id);
+                // Clear active transaction for this run_id
+                if active_txn_per_run.get(run_id) == Some(txn_id) {
+                    active_txn_per_run.remove(run_id);
+                }
+            }
+            WALEntry::AbortTxn { txn_id, run_id } => {
+                if !begun_txns.contains(txn_id) {
+                    result.warnings.push(ValidationWarning {
+                        entry_index: idx,
+                        message: format!("AbortTxn without BeginTxn for txn_id {}", txn_id),
+                    });
+                }
+                aborted_txns.insert(*txn_id);
+                // Clear active transaction for this run_id
+                if active_txn_per_run.get(run_id) == Some(txn_id) {
+                    active_txn_per_run.remove(run_id);
+                }
+            }
+            WALEntry::Checkpoint { .. } => {
+                // Checkpoints are always valid
+            }
+        }
+    }
+
+    // Find incomplete transactions (begun but neither committed nor aborted)
+    for txn_id in &begun_txns {
+        if !committed_txns.contains(txn_id) && !aborted_txns.contains(txn_id) {
+            result.incomplete_txns.push(*txn_id);
+        }
+    }
+
+    // Sort for deterministic output
+    result.incomplete_txns.sort();
+
+    result
+}
+
 /// Replay WAL entries to restore storage state
 ///
 /// This is the main recovery function. It scans all WAL entries, groups them
@@ -110,12 +272,17 @@ pub fn replay_wal(wal: &WAL, storage: &UnifiedStore) -> Result<ReplayStats> {
     // Read all entries from WAL
     let entries = wal.read_all()?;
 
+    // Validate entries and log warnings about discarded data
+    let validation = validate_transactions(&entries);
+    validation.log_warnings();
+
     // Group entries by transaction
     let mut transactions: HashMap<u64, Transaction> = HashMap::new();
     // Track the currently active transaction for each run_id
     // When a BeginTxn comes in, it becomes the active transaction for that run_id
     let mut active_txn_per_run: HashMap<RunId, u64> = HashMap::new();
     let mut max_version: u64 = 0;
+    let mut orphaned_count: usize = 0;
 
     for entry in entries {
         // Track max version for final_version stat
@@ -135,8 +302,10 @@ pub fn replay_wal(wal: &WAL, storage: &UnifiedStore) -> Result<ReplayStats> {
                     if let Some(txn) = transactions.get_mut(&active_txn_id) {
                         txn.entries.push(entry.clone());
                     }
+                } else {
+                    // Orphaned entry - no active transaction for this run_id
+                    orphaned_count += 1;
                 }
-                // If no active transaction for this run_id, skip the entry (orphaned)
             }
             WALEntry::CommitTxn { txn_id, run_id } => {
                 // Mark transaction as committed and clear active status
@@ -187,6 +356,9 @@ pub fn replay_wal(wal: &WAL, storage: &UnifiedStore) -> Result<ReplayStats> {
             stats.incomplete_txns += 1;
         }
     }
+
+    // Record orphaned entries count
+    stats.orphaned_entries = orphaned_count;
 
     Ok(stats)
 }
@@ -270,6 +442,7 @@ mod tests {
         assert_eq!(stats.deletes_applied, 0);
         assert_eq!(stats.incomplete_txns, 0);
         assert_eq!(stats.aborted_txns, 0);
+        assert_eq!(stats.orphaned_entries, 0);
     }
 
     #[test]
@@ -662,5 +835,208 @@ mod tests {
 
         // Global version should reflect max version from WAL
         assert_eq!(store.current_version(), 300);
+    }
+
+    // ========================================
+    // Validation Tests
+    // ========================================
+
+    #[test]
+    fn test_validate_complete_transaction() {
+        let run_id = RunId::new();
+        let ns = Namespace::new(
+            "tenant".to_string(),
+            "app".to_string(),
+            "agent".to_string(),
+            run_id,
+        );
+
+        let entries = vec![
+            WALEntry::BeginTxn {
+                txn_id: 1,
+                run_id,
+                timestamp: now(),
+            },
+            WALEntry::Write {
+                run_id,
+                key: Key::new_kv(ns.clone(), "key1"),
+                value: Value::Bytes(b"v1".to_vec()),
+                version: 1,
+            },
+            WALEntry::CommitTxn { txn_id: 1, run_id },
+        ];
+
+        let result = validate_transactions(&entries);
+        assert!(result.is_clean());
+        assert!(result.incomplete_txns.is_empty());
+        assert_eq!(result.orphaned_entries, 0);
+        assert!(result.warnings.is_empty());
+    }
+
+    #[test]
+    fn test_validate_incomplete_transaction() {
+        let run_id = RunId::new();
+        let ns = Namespace::new(
+            "tenant".to_string(),
+            "app".to_string(),
+            "agent".to_string(),
+            run_id,
+        );
+
+        let entries = vec![
+            WALEntry::BeginTxn {
+                txn_id: 1,
+                run_id,
+                timestamp: now(),
+            },
+            WALEntry::Write {
+                run_id,
+                key: Key::new_kv(ns, "key1"),
+                value: Value::Bytes(b"v1".to_vec()),
+                version: 1,
+            },
+            // NO CommitTxn
+        ];
+
+        let result = validate_transactions(&entries);
+        assert!(!result.is_clean());
+        assert_eq!(result.incomplete_txns.len(), 1);
+        assert_eq!(result.incomplete_txns[0], 1);
+        assert_eq!(result.orphaned_entries, 0);
+    }
+
+    #[test]
+    fn test_validate_orphaned_entry() {
+        let run_id = RunId::new();
+        let ns = Namespace::new(
+            "tenant".to_string(),
+            "app".to_string(),
+            "agent".to_string(),
+            run_id,
+        );
+
+        // Write without BeginTxn
+        let entries = vec![WALEntry::Write {
+            run_id,
+            key: Key::new_kv(ns, "key1"),
+            value: Value::Bytes(b"v1".to_vec()),
+            version: 1,
+        }];
+
+        let result = validate_transactions(&entries);
+        assert!(!result.is_clean());
+        assert_eq!(result.orphaned_entries, 1);
+        assert_eq!(result.warnings.len(), 1);
+        assert!(result.warnings[0].message.contains("Orphaned"));
+    }
+
+    #[test]
+    fn test_validate_duplicate_begin_txn() {
+        let run_id = RunId::new();
+
+        let entries = vec![
+            WALEntry::BeginTxn {
+                txn_id: 1,
+                run_id,
+                timestamp: now(),
+            },
+            WALEntry::BeginTxn {
+                txn_id: 1,
+                run_id,
+                timestamp: now(),
+            }, // Duplicate
+            WALEntry::CommitTxn { txn_id: 1, run_id },
+        ];
+
+        let result = validate_transactions(&entries);
+        // Transaction is complete, but there's a warning about duplicate
+        assert!(result.incomplete_txns.is_empty());
+        assert_eq!(result.warnings.len(), 1);
+        assert!(result.warnings[0].message.contains("Duplicate BeginTxn"));
+    }
+
+    #[test]
+    fn test_validate_commit_without_begin() {
+        let run_id = RunId::new();
+
+        let entries = vec![WALEntry::CommitTxn { txn_id: 99, run_id }];
+
+        let result = validate_transactions(&entries);
+        assert_eq!(result.warnings.len(), 1);
+        assert!(result.warnings[0]
+            .message
+            .contains("CommitTxn without BeginTxn"));
+    }
+
+    #[test]
+    fn test_validate_abort_without_begin() {
+        let run_id = RunId::new();
+
+        let entries = vec![WALEntry::AbortTxn { txn_id: 99, run_id }];
+
+        let result = validate_transactions(&entries);
+        assert_eq!(result.warnings.len(), 1);
+        assert!(result.warnings[0]
+            .message
+            .contains("AbortTxn without BeginTxn"));
+    }
+
+    #[test]
+    fn test_validate_multiple_issues() {
+        let run_id = RunId::new();
+        let ns = Namespace::new(
+            "tenant".to_string(),
+            "app".to_string(),
+            "agent".to_string(),
+            run_id,
+        );
+
+        let entries = vec![
+            // Orphaned write (no BeginTxn yet)
+            WALEntry::Write {
+                run_id,
+                key: Key::new_kv(ns.clone(), "orphan1"),
+                value: Value::I64(1),
+                version: 1,
+            },
+            // Valid complete transaction
+            WALEntry::BeginTxn {
+                txn_id: 1,
+                run_id,
+                timestamp: now(),
+            },
+            WALEntry::Write {
+                run_id,
+                key: Key::new_kv(ns.clone(), "valid"),
+                value: Value::I64(2),
+                version: 2,
+            },
+            WALEntry::CommitTxn { txn_id: 1, run_id },
+            // Incomplete transaction
+            WALEntry::BeginTxn {
+                txn_id: 2,
+                run_id,
+                timestamp: now(),
+            },
+            WALEntry::Write {
+                run_id,
+                key: Key::new_kv(ns.clone(), "incomplete"),
+                value: Value::I64(3),
+                version: 3,
+            },
+            // No CommitTxn for txn 2
+            // Orphaned write (txn 2 ended implicitly with txn 3)
+            WALEntry::BeginTxn {
+                txn_id: 3,
+                run_id,
+                timestamp: now(),
+            },
+            // No CommitTxn for txn 3 either
+        ];
+
+        let result = validate_transactions(&entries);
+        assert!(!result.is_clean());
+        assert_eq!(result.orphaned_entries, 1); // The first write
+        assert_eq!(result.incomplete_txns.len(), 2); // txn 2 and 3
     }
 }
