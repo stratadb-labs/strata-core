@@ -151,6 +151,15 @@ pub fn decode_entry(buf: &[u8], offset: u64) -> Result<(WALEntry, usize)> {
     })?;
     let total_len = u32::from_le_bytes(len_buf) as usize;
 
+    // Validate minimum length before arithmetic (prevent underflow)
+    // Minimum valid entry: type(1) + crc(4) = 5 bytes
+    if total_len < 5 {
+        return Err(Error::Corruption(format!(
+            "offset {}: Invalid entry length {} (minimum is 5 bytes: type(1) + crc(4))",
+            offset, total_len
+        )));
+    }
+
     // Check buffer has enough bytes
     if buf.len() < 4 + total_len {
         return Err(Error::Corruption(format!(
@@ -413,5 +422,78 @@ mod tests {
         let (decoded2, consumed2) = decode_entry(&combined[consumed1..], consumed1 as u64).unwrap();
         assert_eq!(entry2, decoded2);
         assert_eq!(consumed2, encoded2.len());
+    }
+
+    #[test]
+    fn test_zero_length_entry_causes_corruption_error() {
+        // Regression test for issue #51: decoder panic on zero-length entry
+        //
+        // This can happen when:
+        // - Filesystem bugs cause trailing zeros to be appended
+        // - Pre-allocation fills unused space with zeros
+        // - Disk corruption zeros out data
+        //
+        // The decoder should return Error::Corruption instead of panicking
+        // with integer underflow when total_len < 5.
+
+        // Create buffer with zero length field
+        let mut buf = vec![0u8; 8];
+        buf[0..4].copy_from_slice(&0u32.to_le_bytes()); // length = 0
+
+        // This should return CorruptionError, NOT panic
+        let result = decode_entry(&buf, 0);
+
+        assert!(
+            result.is_err(),
+            "Zero-length entry should be rejected as corruption"
+        );
+
+        match result {
+            Err(Error::Corruption(msg)) => {
+                assert!(
+                    msg.contains("Invalid entry length 0"),
+                    "Error message should mention invalid length: {}",
+                    msg
+                );
+                assert!(
+                    msg.contains("minimum is 5"),
+                    "Error message should mention minimum size: {}",
+                    msg
+                );
+            }
+            _ => panic!("Expected Corruption error, got: {:?}", result),
+        }
+    }
+
+    #[test]
+    fn test_length_less_than_minimum_causes_corruption_error() {
+        // Test all invalid lengths from 1-4 (minimum valid is 5)
+        for invalid_len in 1..5 {
+            let mut buf = vec![0u8; 8];
+            buf[0..4].copy_from_slice(&(invalid_len as u32).to_le_bytes());
+
+            let result = decode_entry(&buf, 0);
+
+            assert!(
+                result.is_err(),
+                "Length {} should be rejected (minimum is 5)",
+                invalid_len
+            );
+
+            match result {
+                Err(Error::Corruption(msg)) => {
+                    assert!(
+                        msg.contains(&format!("Invalid entry length {}", invalid_len)),
+                        "Error should mention length {}: {}",
+                        invalid_len,
+                        msg
+                    );
+                }
+                _ => panic!(
+                    "Expected Corruption error for length {}, got: {:?}",
+                    invalid_len, result
+                ),
+            }
+        }
     }
 }
