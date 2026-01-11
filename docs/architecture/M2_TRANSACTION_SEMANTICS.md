@@ -22,8 +22,28 @@ This document defines the **semantic contract** for all M2 transaction behavior.
 
 ---
 
+## Core Invariants
+
+These invariants are the **safety checklist** for all M2 implementation. Every design decision and code path must preserve these guarantees:
+
+| Invariant | Description |
+|-----------|-------------|
+| **No partial commits** | A transaction never observes another transaction's partial writes. Either all writes are visible or none are. |
+| **All-or-nothing commit** | A transaction's writes either all succeed (commit) or all fail (abort). No partial application. |
+| **Monotonic versions** | Version numbers never decrease. Global version and key versions always increase. |
+| **Deterministic replay** | Given the same WAL, replay always produces identical state regardless of when or where it runs. |
+| **Non-blocking reads** | No transaction blocks another transaction's reads. Readers never wait for writers. |
+| **Non-blocking writes** | No transaction blocks another transaction's writes. Writers never wait (conflict detected at commit). |
+| **Read-your-writes** | A transaction always sees its own uncommitted modifications. |
+| **Snapshot consistency** | All reads within a transaction see data from a single consistent point in time. |
+
+If any code path violates these invariants, it is a bug.
+
+---
+
 ## Table of Contents
 
+0. [Core Invariants](#core-invariants)
 1. [Isolation Level Declaration](#1-isolation-level-snapshot-isolation)
 2. [Visibility Rules](#2-visibility-rules)
 3. [Conflict Detection](#3-conflict-detection)
@@ -75,6 +95,8 @@ When writing transaction code:
 - **DO** read all keys you depend on before writing (adds them to read-set)
 - **DO NOT** assume transactions execute in any particular serial order
 - **DO NOT** add extra locking to "fix" write skew unless explicitly required
+
+**⚠️ Write Skew Prevention Rule**: If your logic depends on a multi-key invariant (e.g., "balance_a + balance_b >= 100"), you MUST read ALL keys involved in that invariant before writing ANY of them. This adds all keys to your read-set, causing a conflict if any are modified concurrently.
 
 ---
 
@@ -851,14 +873,76 @@ T1 commits:
 
 ### 6.4 Version 0 Semantics
 
-Version 0 has special meaning:
+Version 0 has special meaning: **the key has never existed**.
 
 | Context | Version 0 Meaning |
 |---------|-------------------|
-| Key lookup returns version 0 | Key does not exist |
-| `read_set[key] = 0` | Transaction read a non-existent key |
-| `CAS(key, expected_version=0, value)` | Create only if key does not exist |
-| Key deleted | Key's version remains (not reset to 0), but key is marked deleted |
+| Key lookup returns version 0 | Key has never been created (not even as a tombstone) |
+| `read_set[key] = 0` | Transaction read a truly non-existent key |
+| `CAS(key, expected_version=0, value)` | Create only if key has never existed |
+
+**Important distinction**: A deleted key (tombstone) has version > 0. Only keys that have *never* been created have version 0. See Section 6.5 for tombstone semantics.
+
+### 6.5 Delete Semantics and Tombstones
+
+**M2 uses tombstone-based deletion** to enable conflict detection on deleted keys:
+
+| Aspect | Behavior |
+|--------|----------|
+| **Storage representation** | Deleted keys are stored as tombstones: `{ value: None, version: V, deleted: true }` |
+| **Version after delete** | Tombstone gets a new version (incremented at delete time) |
+| **Read behavior** | Reading a tombstoned key returns `None` |
+| **Read-set tracking** | Reading a tombstone records the tombstone's version in read_set (NOT version 0) |
+| **Conflict detection** | If tombstone version changes (key re-created or deleted again), reader conflicts |
+| **Re-creation** | Writing to a tombstoned key replaces the tombstone with a new versioned value |
+
+**Tombstone vs Never-Existed**:
+
+```
+Scenario: Key "x" was created (v10), then deleted (v20)
+
+Storage state: { key: "x", value: None, version: 20, deleted: true }
+
+T1: GET("x") → Returns None
+    read_set["x"] = 20 (tombstone version, NOT 0)
+
+T2: PUT("x", "new_value") → COMMIT
+    Storage: { key: "x", value: "new_value", version: 21 }
+
+T1: COMMIT
+    Validation: read_set["x"] = 20, current version = 21
+    20 != 21 → CONFLICT → ABORT
+```
+
+```
+Scenario: Key "y" never existed
+
+T1: GET("y") → Returns None
+    read_set["y"] = 0 (truly non-existent)
+
+T2: PUT("y", "created") → COMMIT
+    Storage: { key: "y", value: "created", version: 50 }
+
+T1: COMMIT
+    Validation: read_set["y"] = 0, current version = 50
+    0 != 50 → CONFLICT → ABORT
+```
+
+**CAS with deleted keys**:
+
+| Operation | On never-existed key | On tombstoned key (version 20) |
+|-----------|---------------------|-------------------------------|
+| `CAS(key, 0, value)` | SUCCESS (creates key) | FAILS (version 20 != 0) |
+| `CAS(key, 20, value)` | FAILS (version 0 != 20) | SUCCESS (re-creates key) |
+
+**Why tombstones matter**:
+
+1. **Conflict detection**: Without tombstones, we couldn't detect when a deleted key is re-created
+2. **Snapshot consistency**: Snapshots can distinguish "never existed" from "deleted before snapshot"
+3. **WAL replay**: Delete operations need version numbers for deterministic replay
+
+**Tombstone cleanup (M3+ consideration)**:
+Tombstones accumulate. Future milestones may add garbage collection when no active snapshots reference the tombstone. For M2, tombstones are retained indefinitely (acceptable for agent workloads).
 
 #### CAS with Version 0: Insert-If-Not-Exists
 
