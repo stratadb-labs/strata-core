@@ -17,3 +17,4 @@ tracing = { workspace = true }
 
 [dev-dependencies]
 proptest = { workspace = true }
+static_assertions = "1.1"
