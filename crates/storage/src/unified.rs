@@ -18,11 +18,13 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
 
+use chrono::Utc;
 use parking_lot::RwLock;
 
-use in_mem_core::{Key, Result, RunId, Storage, TypeTag, Value, VersionedValue};
+use in_mem_core::{Key, Result, RunId, Storage, Timestamp, TypeTag, Value, VersionedValue};
 
 use crate::index::{RunIndex, TypeIndex};
+use crate::ttl::TTLIndex;
 
 /// Unified storage backend using BTreeMap with RwLock
 ///
@@ -33,6 +35,7 @@ use crate::index::{RunIndex, TypeIndex};
 ///
 /// - `run_index`: Maps RunId → Set<Key> for efficient run-scoped queries (O(run size) vs O(total))
 /// - `type_index`: Maps TypeTag → Set<Key> for efficient type-scoped queries
+/// - `ttl_index`: Maps expiry_timestamp → Set<Key> for efficient TTL cleanup
 ///
 /// All indices are updated atomically with the main data store within the same write lock.
 #[derive(Debug)]
@@ -43,6 +46,8 @@ pub struct UnifiedStore {
     run_index: Arc<RwLock<RunIndex>>,
     /// Secondary index: TypeTag → Keys for efficient type-scoped queries
     type_index: Arc<RwLock<TypeIndex>>,
+    /// TTL index: expiry_timestamp → Keys for efficient cleanup
+    ttl_index: Arc<RwLock<TTLIndex>>,
     /// Global version counter for monotonically increasing versions
     version: AtomicU64,
 }
@@ -57,8 +62,26 @@ impl UnifiedStore {
             data: Arc::new(RwLock::new(BTreeMap::new())),
             run_index: Arc::new(RwLock::new(RunIndex::new())),
             type_index: Arc::new(RwLock::new(TypeIndex::new())),
+            ttl_index: Arc::new(RwLock::new(TTLIndex::new())),
             version: AtomicU64::new(0),
         }
+    }
+
+    /// Calculate expiry timestamp from a VersionedValue
+    ///
+    /// Returns Some(timestamp) if the value has a TTL, None otherwise.
+    fn expiry_timestamp(vv: &VersionedValue) -> Option<Timestamp> {
+        vv.ttl.map(|ttl| vv.timestamp + ttl.as_secs() as i64)
+    }
+
+    /// Find all keys that have expired before the current time
+    ///
+    /// Uses ttl_index for efficient O(expired count) lookup instead of O(total data).
+    /// Returns keys that should be cleaned up by the TTL cleaner.
+    pub fn find_expired_keys(&self) -> Result<Vec<Key>> {
+        let now = Utc::now().timestamp();
+        let ttl_idx = self.ttl_index.read();
+        Ok(ttl_idx.find_expired(now))
     }
 
     /// Scan all keys of a given type at or before max_version
@@ -133,18 +156,32 @@ impl Storage for UnifiedStore {
         let version = self.next_version();
 
         let versioned_value = VersionedValue::new(value, version, ttl);
+        let new_expiry = Self::expiry_timestamp(&versioned_value);
 
         // Acquire ALL locks (data + indices) for atomic update
         let mut data = self.data.write();
         let mut run_idx = self.run_index.write();
         let mut type_idx = self.type_index.write();
+        let mut ttl_idx = self.ttl_index.write();
+
+        // Check if key already exists with TTL (need to remove old TTL entry)
+        if let Some(old_value) = data.get(&key) {
+            if let Some(old_expiry) = Self::expiry_timestamp(old_value) {
+                ttl_idx.remove(old_expiry, &key);
+            }
+        }
 
         // Insert into main storage
         data.insert(key.clone(), versioned_value);
 
         // Update secondary indices
         run_idx.insert(key.namespace.run_id, key.clone());
-        type_idx.insert(key.type_tag, key);
+        type_idx.insert(key.type_tag, key.clone());
+
+        // Update TTL index if TTL is set
+        if let Some(expiry) = new_expiry {
+            ttl_idx.insert(expiry, key);
+        }
 
         Ok(version)
     }
@@ -154,13 +191,19 @@ impl Storage for UnifiedStore {
         let mut data = self.data.write();
         let mut run_idx = self.run_index.write();
         let mut type_idx = self.type_index.write();
+        let mut ttl_idx = self.ttl_index.write();
 
         let removed = data.remove(key);
 
-        if removed.is_some() {
+        if let Some(ref value) = removed {
             // Update secondary indices
             run_idx.remove(key.namespace.run_id, key);
             type_idx.remove(key.type_tag, key);
+
+            // Remove from TTL index if it had TTL
+            if let Some(expiry) = Self::expiry_timestamp(value) {
+                ttl_idx.remove(expiry, key);
+            }
         }
 
         Ok(removed)
@@ -871,5 +914,195 @@ mod tests {
         // type_index should have only 1 entry for this key
         let type_results = store.scan_by_type(TypeTag::KV, u64::MAX).unwrap();
         assert_eq!(type_results.len(), 1);
+    }
+
+    // ========================================
+    // TTL Index Tests (Story #14)
+    // ========================================
+
+    #[test]
+    fn test_ttl_index_insert_and_find_expired() {
+        let store = UnifiedStore::new();
+        let run_id = RunId::new();
+        let ns = Namespace::new(
+            "tenant".to_string(),
+            "app".to_string(),
+            "agent".to_string(),
+            run_id,
+        );
+
+        // Put key with TTL
+        let key = Key::new_kv(ns.clone(), "temp");
+        store
+            .put(
+                key.clone(),
+                Value::Bytes(b"data".to_vec()),
+                Some(Duration::from_secs(60)),
+            )
+            .unwrap();
+
+        // Key should exist
+        assert!(store.get(&key).unwrap().is_some());
+
+        // Key should not appear in expired list (not expired yet)
+        let expired = store.find_expired_keys().unwrap();
+        assert!(!expired.contains(&key));
+    }
+
+    #[test]
+    fn test_ttl_index_removed_on_delete() {
+        let store = UnifiedStore::new();
+        let run_id = RunId::new();
+        let ns = Namespace::new(
+            "tenant".to_string(),
+            "app".to_string(),
+            "agent".to_string(),
+            run_id,
+        );
+
+        // Put key with TTL
+        let key = Key::new_kv(ns.clone(), "temp");
+        store
+            .put(
+                key.clone(),
+                Value::Bytes(b"data".to_vec()),
+                Some(Duration::from_secs(60)),
+            )
+            .unwrap();
+
+        // Delete the key
+        store.delete(&key).unwrap();
+
+        // TTL index should be empty now
+        let ttl_idx = store.ttl_index.read();
+        assert!(ttl_idx.is_empty());
+    }
+
+    #[test]
+    fn test_ttl_index_updated_on_overwrite() {
+        let store = UnifiedStore::new();
+        let run_id = RunId::new();
+        let ns = Namespace::new(
+            "tenant".to_string(),
+            "app".to_string(),
+            "agent".to_string(),
+            run_id,
+        );
+
+        let key = Key::new_kv(ns.clone(), "temp");
+
+        // Put with TTL
+        store
+            .put(key.clone(), Value::I64(1), Some(Duration::from_secs(60)))
+            .unwrap();
+
+        // Overwrite with different TTL
+        store
+            .put(key.clone(), Value::I64(2), Some(Duration::from_secs(120)))
+            .unwrap();
+
+        // TTL index should have only 1 entry (old entry should be removed)
+        let ttl_idx = store.ttl_index.read();
+        assert_eq!(ttl_idx.len(), 1);
+    }
+
+    #[test]
+    fn test_ttl_index_not_updated_for_non_ttl_keys() {
+        let store = UnifiedStore::new();
+        let run_id = RunId::new();
+        let ns = Namespace::new(
+            "tenant".to_string(),
+            "app".to_string(),
+            "agent".to_string(),
+            run_id,
+        );
+
+        // Put key without TTL
+        let key = Key::new_kv(ns.clone(), "persistent");
+        store.put(key.clone(), Value::I64(1), None).unwrap();
+
+        // TTL index should be empty
+        let ttl_idx = store.ttl_index.read();
+        assert!(ttl_idx.is_empty());
+    }
+
+    #[test]
+    fn test_ttl_overwrite_from_ttl_to_no_ttl() {
+        let store = UnifiedStore::new();
+        let run_id = RunId::new();
+        let ns = Namespace::new(
+            "tenant".to_string(),
+            "app".to_string(),
+            "agent".to_string(),
+            run_id,
+        );
+
+        let key = Key::new_kv(ns.clone(), "temp");
+
+        // Put with TTL
+        store
+            .put(key.clone(), Value::I64(1), Some(Duration::from_secs(60)))
+            .unwrap();
+
+        // TTL index should have entry
+        {
+            let ttl_idx = store.ttl_index.read();
+            assert_eq!(ttl_idx.len(), 1);
+        }
+
+        // Overwrite without TTL
+        store.put(key.clone(), Value::I64(2), None).unwrap();
+
+        // TTL index should be empty (old entry removed, no new entry added)
+        let ttl_idx = store.ttl_index.read();
+        assert!(ttl_idx.is_empty());
+    }
+
+    #[test]
+    fn test_find_expired_keys_uses_index() {
+        // This test verifies that find_expired_keys uses the ttl_index efficiently.
+        // We add multiple keys with different TTLs and verify only expired ones are returned.
+        let store = UnifiedStore::new();
+        let run_id = RunId::new();
+        let ns = Namespace::new(
+            "tenant".to_string(),
+            "app".to_string(),
+            "agent".to_string(),
+            run_id,
+        );
+
+        // Add key with short TTL (1 second)
+        let short_key = Key::new_kv(ns.clone(), "short");
+        store
+            .put(
+                short_key.clone(),
+                Value::I64(1),
+                Some(Duration::from_secs(1)),
+            )
+            .unwrap();
+
+        // Add key with long TTL (60 seconds)
+        let long_key = Key::new_kv(ns.clone(), "long");
+        store
+            .put(
+                long_key.clone(),
+                Value::I64(2),
+                Some(Duration::from_secs(60)),
+            )
+            .unwrap();
+
+        // Add key with no TTL
+        let no_ttl_key = Key::new_kv(ns.clone(), "no_ttl");
+        store.put(no_ttl_key.clone(), Value::I64(3), None).unwrap();
+
+        // Wait for short TTL to expire
+        thread::sleep(Duration::from_millis(1100));
+
+        // Find expired keys - should only include short_key
+        let expired = store.find_expired_keys().unwrap();
+        assert_eq!(expired.len(), 1);
+        assert!(expired.contains(&short_key));
+        assert!(!expired.contains(&long_key));
+        assert!(!expired.contains(&no_ttl_key));
     }
 }

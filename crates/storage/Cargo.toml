@@ -9,6 +9,7 @@ repository.workspace = true
 
 [dependencies]
 in-mem-core = { path = "../core" }
+chrono = { workspace = true }
 parking_lot = { workspace = true }
 serde = { workspace = true }
 thiserror = { workspace = true }
