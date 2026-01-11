@@ -13,12 +13,13 @@
 #![warn(clippy::all)]
 
 // Module declarations (will be implemented in future stories)
+pub mod error; // Story #10
+pub mod traits; // Story #11
 pub mod types; // Story #7, #8
 pub mod value; // Story #9
-// pub mod error;      // Story #10
-pub mod traits; // Story #11
 
 // Re-export commonly used types and traits
+pub use error::{Error, Result};
 pub use traits::{SnapshotView, Storage};
 pub use types::{Key, Namespace, RunId, TypeTag};
 pub use value::{Timestamp, Value, VersionedValue};
