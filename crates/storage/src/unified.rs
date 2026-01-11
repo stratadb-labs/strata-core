@@ -161,6 +161,112 @@ impl UnifiedStore {
         let data = self.data.read();
         ClonedSnapshotView::new(version, data.clone())
     }
+
+    // ========================================
+    // Version-preserving methods (for replay)
+    // ========================================
+
+    /// Put with a specific version (for WAL replay only)
+    ///
+    /// Unlike `put()`, this method does NOT allocate a new version.
+    /// Instead, it uses the version from the WAL entry to ensure
+    /// the database state after replay is identical to before crash.
+    ///
+    /// # IMPORTANT
+    ///
+    /// This method should ONLY be used during WAL replay.
+    /// Normal operations should use `put()` which allocates versions.
+    ///
+    /// # Arguments
+    ///
+    /// * `key` - The key to write
+    /// * `value` - The value to write
+    /// * `version` - The exact version from the WAL entry
+    ///
+    /// # Returns
+    ///
+    /// * `Ok(())` - Write succeeded
+    pub fn put_with_version(&self, key: Key, value: Value, version: u64) -> Result<()> {
+        let versioned_value = VersionedValue::new(value, version, None);
+        let new_expiry = Self::expiry_timestamp(&versioned_value);
+
+        // Acquire ALL locks (data + indices) for atomic update
+        let mut data = self.data.write();
+        let mut run_idx = self.run_index.write();
+        let mut type_idx = self.type_index.write();
+        let mut ttl_idx = self.ttl_index.write();
+
+        // Check if key already exists with TTL (need to remove old TTL entry)
+        if let Some(old_value) = data.get(&key) {
+            if let Some(old_expiry) = Self::expiry_timestamp(old_value) {
+                ttl_idx.remove(old_expiry, &key);
+            }
+        }
+
+        // Insert into main storage
+        data.insert(key.clone(), versioned_value);
+
+        // Update secondary indices
+        run_idx.insert(key.namespace.run_id, key.clone());
+        type_idx.insert(key.type_tag, key.clone());
+
+        // Update TTL index if TTL is set
+        if let Some(expiry) = new_expiry {
+            ttl_idx.insert(expiry, key);
+        }
+
+        // Update global version to be at least this version
+        // This ensures current_version() reflects the max version in the store
+        self.version
+            .fetch_max(version, std::sync::atomic::Ordering::SeqCst);
+
+        Ok(())
+    }
+
+    /// Delete with a specific version (for WAL replay only)
+    ///
+    /// Unlike `delete()`, this method updates the global version counter
+    /// to ensure it reflects the maximum version seen during replay.
+    ///
+    /// # IMPORTANT
+    ///
+    /// This method should ONLY be used during WAL replay.
+    /// Normal operations should use `delete()`.
+    ///
+    /// # Arguments
+    ///
+    /// * `key` - The key to delete
+    /// * `version` - The version from the WAL entry
+    ///
+    /// # Returns
+    ///
+    /// * `Ok(Option<VersionedValue>)` - The deleted value, if it existed
+    pub fn delete_with_version(&self, key: &Key, version: u64) -> Result<Option<VersionedValue>> {
+        // Acquire ALL locks for atomic update
+        let mut data = self.data.write();
+        let mut run_idx = self.run_index.write();
+        let mut type_idx = self.type_index.write();
+        let mut ttl_idx = self.ttl_index.write();
+
+        let removed = data.remove(key);
+
+        if let Some(ref value) = removed {
+            // Update secondary indices
+            run_idx.remove(key.namespace.run_id, key);
+            type_idx.remove(key.type_tag, key);
+
+            // Remove from TTL index if it had TTL
+            if let Some(expiry) = Self::expiry_timestamp(value) {
+                ttl_idx.remove(expiry, key);
+            }
+        }
+
+        // Update global version to be at least this version
+        self.version
+            .fetch_max(version, std::sync::atomic::Ordering::SeqCst);
+
+        Ok(removed)
+    }
 }
 
 impl Default for UnifiedStore {
