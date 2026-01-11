@@ -351,6 +351,127 @@ impl TransactionContext {
         self.read_set.get(key).copied()
     }
 
+    // === Write Operations ===
+
+    /// Buffer a write operation
+    ///
+    /// The write is NOT applied to storage until commit.
+    /// Other transactions will NOT see this write (OCC isolation).
+    ///
+    /// # Semantics
+    /// - If the key was previously deleted in this txn, remove from delete_set
+    /// - Add/overwrite in write_set (latest value wins)
+    /// - Writes are "blind" - no read_set entry unless you explicitly read first
+    ///
+    /// # Errors
+    /// Returns `Error::InvalidState` if transaction is not active.
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// txn.put(key, Value::Bytes(b"value".to_vec()))?;
+    /// // Value is NOT visible to other transactions yet
+    /// // Will be visible after successful commit
+    /// ```
+    pub fn put(&mut self, key: Key, value: Value) -> Result<()> {
+        self.ensure_active()?;
+
+        // Remove from delete_set if previously deleted in this txn
+        self.delete_set.remove(&key);
+
+        // Add to write_set (overwrites any previous write to same key)
+        self.write_set.insert(key, value);
+        Ok(())
+    }
+
+    /// Buffer a delete operation
+    ///
+    /// The delete is NOT applied to storage until commit.
+    /// Other transactions will NOT see this delete (OCC isolation).
+    ///
+    /// # Semantics
+    /// - If the key was previously written in this txn, remove from write_set
+    /// - Add to delete_set
+    /// - At commit, creates a tombstone in storage
+    ///
+    /// # Errors
+    /// Returns `Error::InvalidState` if transaction is not active.
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// txn.delete(key)?;
+    /// // Key is NOT deleted from storage yet
+    /// // Will be deleted after successful commit
+    /// // Reading this key within this txn returns None (read-your-deletes)
+    /// ```
+    pub fn delete(&mut self, key: Key) -> Result<()> {
+        self.ensure_active()?;
+
+        // Remove from write_set if previously written in this txn
+        self.write_set.remove(&key);
+
+        // Add to delete_set
+        self.delete_set.insert(key);
+        Ok(())
+    }
+
+    /// Buffer a compare-and-swap operation
+    ///
+    /// CAS operations are validated at COMMIT time, not call time.
+    /// This allows multiple CAS operations to be batched in a single transaction.
+    ///
+    /// # Semantics
+    /// - `expected_version = 0` means "key must not exist"
+    /// - `expected_version = N` means "key must be at version N"
+    /// - CAS does NOT automatically add to read_set
+    /// - If you need read-set protection, explicitly read the key first
+    /// - Multiple CAS operations on different keys are allowed
+    ///
+    /// # Errors
+    /// Returns `Error::InvalidState` if transaction is not active.
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// // Create key only if it doesn't exist (expected_version = 0)
+    /// txn.cas(key, 0, Value::Bytes(b"initial".to_vec()))?;
+    ///
+    /// // Update key only if at version 5
+    /// txn.cas(other_key, 5, Value::Bytes(b"updated".to_vec()))?;
+    /// ```
+    pub fn cas(&mut self, key: Key, expected_version: u64, new_value: Value) -> Result<()> {
+        self.ensure_active()?;
+
+        self.cas_set.push(CASOperation {
+            key,
+            expected_version,
+            new_value,
+        });
+        Ok(())
+    }
+
+    /// Clear all buffered operations
+    ///
+    /// This is useful for retry scenarios where you want to restart
+    /// a transaction's operations without creating a new transaction.
+    ///
+    /// Clears: read_set, write_set, delete_set, cas_set
+    ///
+    /// Note: Does not change transaction state or snapshot.
+    ///
+    /// # Errors
+    /// Returns `Error::InvalidState` if transaction is not active.
+    pub fn clear_operations(&mut self) -> Result<()> {
+        self.ensure_active()?;
+
+        self.read_set.clear();
+        self.write_set.clear();
+        self.delete_set.clear();
+        self.cas_set.clear();
+        Ok(())
+    }
+
     // === State Management ===
 
     /// Check if transaction is in Active state
@@ -1105,5 +1226,409 @@ mod tests {
         };
         let cloned = original.clone();
         assert_eq!(original, cloned);
+    }
+
+    // === Write Operation Tests ===
+
+    fn create_txn_with_empty_snapshot() -> TransactionContext {
+        let snapshot = Box::new(ClonedSnapshotView::empty(100));
+        let run_id = RunId::new();
+        TransactionContext::with_snapshot(1, run_id, snapshot)
+    }
+
+    #[test]
+    fn test_put_adds_to_write_set() {
+        let ns = create_test_namespace();
+        let mut txn = create_txn_with_empty_snapshot();
+        let key = create_test_key(&ns, b"key1");
+        let value = Value::Bytes(b"value1".to_vec());
+
+        txn.put(key.clone(), value).unwrap();
+
+        assert_eq!(txn.write_count(), 1);
+        assert!(txn.write_set.contains_key(&key));
+    }
+
+    #[test]
+    fn test_put_overwrites_in_write_set() {
+        let ns = create_test_namespace();
+        let mut txn = create_txn_with_empty_snapshot();
+        let key = create_test_key(&ns, b"key1");
+
+        txn.put(key.clone(), Value::Bytes(b"v1".to_vec())).unwrap();
+        txn.put(key.clone(), Value::Bytes(b"v2".to_vec())).unwrap();
+
+        assert_eq!(txn.write_count(), 1);
+        let stored = txn.write_set.get(&key).unwrap();
+        match stored {
+            Value::Bytes(data) => assert_eq!(data, b"v2"),
+            _ => panic!("Expected Bytes"),
+        }
+    }
+
+    #[test]
+    fn test_put_removes_from_delete_set() {
+        let ns = create_test_namespace();
+        let mut txn = create_txn_with_empty_snapshot();
+        let key = create_test_key(&ns, b"key1");
+
+        txn.delete(key.clone()).unwrap();
+        assert!(txn.delete_set.contains(&key));
+        assert_eq!(txn.delete_count(), 1);
+
+        txn.put(key.clone(), Value::Bytes(b"v1".to_vec())).unwrap();
+
+        assert!(!txn.delete_set.contains(&key));
+        assert!(txn.write_set.contains_key(&key));
+        assert_eq!(txn.delete_count(), 0);
+        assert_eq!(txn.write_count(), 1);
+    }
+
+    #[test]
+    fn test_put_is_read_your_writes() {
+        let ns = create_test_namespace();
+        let mut txn = create_txn_with_empty_snapshot();
+        let key = create_test_key(&ns, b"key1");
+
+        txn.put(key.clone(), Value::String("hello".to_string()))
+            .unwrap();
+
+        // Should be able to read our own write
+        let result = txn.get(&key).unwrap();
+        assert_eq!(result, Some(Value::String("hello".to_string())));
+
+        // Should NOT be in read_set (read-your-writes)
+        assert_eq!(txn.read_count(), 0);
+    }
+
+    #[test]
+    fn test_put_fails_when_not_active() {
+        let ns = create_test_namespace();
+        let mut txn = create_txn_with_empty_snapshot();
+        let key = create_test_key(&ns, b"key1");
+
+        txn.mark_validating().unwrap();
+
+        let result = txn.put(key, Value::Bytes(b"value".to_vec()));
+        assert!(result.is_err());
+        assert!(matches!(result.unwrap_err(), Error::InvalidState(_)));
+    }
+
+    #[test]
+    fn test_delete_adds_to_delete_set() {
+        let ns = create_test_namespace();
+        let mut txn = create_txn_with_empty_snapshot();
+        let key = create_test_key(&ns, b"key1");
+
+        txn.delete(key.clone()).unwrap();
+
+        assert_eq!(txn.delete_count(), 1);
+        assert!(txn.delete_set.contains(&key));
+    }
+
+    #[test]
+    fn test_delete_removes_from_write_set() {
+        let ns = create_test_namespace();
+        let mut txn = create_txn_with_empty_snapshot();
+        let key = create_test_key(&ns, b"key1");
+
+        txn.put(key.clone(), Value::Bytes(b"v1".to_vec())).unwrap();
+        assert!(txn.write_set.contains_key(&key));
+        assert_eq!(txn.write_count(), 1);
+
+        txn.delete(key.clone()).unwrap();
+
+        assert!(!txn.write_set.contains_key(&key));
+        assert!(txn.delete_set.contains(&key));
+        assert_eq!(txn.write_count(), 0);
+        assert_eq!(txn.delete_count(), 1);
+    }
+
+    #[test]
+    fn test_delete_is_read_your_deletes() {
+        let (mut txn, _, key1, _, _) = create_txn_with_test_data();
+
+        // Key exists in snapshot
+        assert!(txn.get(&key1).unwrap().is_some());
+
+        // Delete it
+        txn.delete(key1.clone()).unwrap();
+
+        // Now it should return None (read-your-deletes)
+        assert!(txn.get(&key1).unwrap().is_none());
+    }
+
+    #[test]
+    fn test_delete_fails_when_not_active() {
+        let ns = create_test_namespace();
+        let mut txn = create_txn_with_empty_snapshot();
+        let key = create_test_key(&ns, b"key1");
+
+        txn.mark_validating().unwrap();
+
+        let result = txn.delete(key);
+        assert!(result.is_err());
+        assert!(matches!(result.unwrap_err(), Error::InvalidState(_)));
+    }
+
+    #[test]
+    fn test_cas_adds_to_cas_set() {
+        let ns = create_test_namespace();
+        let mut txn = create_txn_with_empty_snapshot();
+        let key = create_test_key(&ns, b"key1");
+        let value = Value::Bytes(b"new_value".to_vec());
+
+        txn.cas(key.clone(), 50, value.clone()).unwrap();
+
+        assert_eq!(txn.cas_count(), 1);
+        let cas_op = &txn.cas_set[0];
+        assert_eq!(cas_op.key, key);
+        assert_eq!(cas_op.expected_version, 50);
+        assert_eq!(cas_op.new_value, value);
+    }
+
+    #[test]
+    fn test_cas_version_zero_means_not_exist() {
+        let ns = create_test_namespace();
+        let mut txn = create_txn_with_empty_snapshot();
+        let key = create_test_key(&ns, b"new_key");
+
+        // CAS with expected_version = 0 means key must not exist
+        txn.cas(key.clone(), 0, Value::String("initial".to_string()))
+            .unwrap();
+
+        assert_eq!(txn.cas_count(), 1);
+        assert_eq!(txn.cas_set[0].expected_version, 0);
+    }
+
+    #[test]
+    fn test_multiple_cas_operations() {
+        let ns = create_test_namespace();
+        let mut txn = create_txn_with_empty_snapshot();
+
+        txn.cas(
+            create_test_key(&ns, b"k1"),
+            10,
+            Value::Bytes(b"v1".to_vec()),
+        )
+        .unwrap();
+        txn.cas(
+            create_test_key(&ns, b"k2"),
+            20,
+            Value::Bytes(b"v2".to_vec()),
+        )
+        .unwrap();
+        txn.cas(create_test_key(&ns, b"k3"), 0, Value::Bytes(b"v3".to_vec()))
+            .unwrap();
+
+        assert_eq!(txn.cas_count(), 3);
+
+        // Verify each CAS operation
+        assert_eq!(txn.cas_set[0].expected_version, 10);
+        assert_eq!(txn.cas_set[1].expected_version, 20);
+        assert_eq!(txn.cas_set[2].expected_version, 0);
+    }
+
+    #[test]
+    fn test_cas_does_not_add_to_read_set() {
+        let ns = create_test_namespace();
+        let mut txn = create_txn_with_empty_snapshot();
+        let key = create_test_key(&ns, b"key1");
+
+        txn.cas(key.clone(), 5, Value::String("value".to_string()))
+            .unwrap();
+
+        // CAS does NOT add to read_set
+        assert_eq!(txn.read_count(), 0);
+        assert!(txn.get_read_version(&key).is_none());
+    }
+
+    #[test]
+    fn test_cas_fails_when_not_active() {
+        let ns = create_test_namespace();
+        let mut txn = create_txn_with_empty_snapshot();
+        let key = create_test_key(&ns, b"key1");
+
+        txn.mark_validating().unwrap();
+
+        let result = txn.cas(key, 0, Value::Bytes(b"value".to_vec()));
+        assert!(result.is_err());
+        assert!(matches!(result.unwrap_err(), Error::InvalidState(_)));
+    }
+
+    #[test]
+    fn test_has_pending_operations_with_writes() {
+        let ns = create_test_namespace();
+        let mut txn = create_txn_with_empty_snapshot();
+        assert!(!txn.has_pending_operations());
+
+        txn.put(create_test_key(&ns, b"k"), Value::Bytes(b"v".to_vec()))
+            .unwrap();
+        assert!(txn.has_pending_operations());
+    }
+
+    #[test]
+    fn test_has_pending_operations_with_deletes() {
+        let ns = create_test_namespace();
+        let mut txn = create_txn_with_empty_snapshot();
+        assert!(!txn.has_pending_operations());
+
+        txn.delete(create_test_key(&ns, b"k")).unwrap();
+        assert!(txn.has_pending_operations());
+    }
+
+    #[test]
+    fn test_has_pending_operations_with_cas() {
+        let ns = create_test_namespace();
+        let mut txn = create_txn_with_empty_snapshot();
+        assert!(!txn.has_pending_operations());
+
+        txn.cas(create_test_key(&ns, b"k"), 0, Value::Bytes(b"v".to_vec()))
+            .unwrap();
+        assert!(txn.has_pending_operations());
+    }
+
+    #[test]
+    fn test_is_read_only_false_with_writes() {
+        let ns = create_test_namespace();
+        let mut txn = create_txn_with_empty_snapshot();
+        assert!(txn.is_read_only());
+
+        txn.put(create_test_key(&ns, b"k"), Value::Bytes(b"v".to_vec()))
+            .unwrap();
+        assert!(!txn.is_read_only());
+    }
+
+    #[test]
+    fn test_is_read_only_true_with_only_reads() {
+        let (mut txn, _, key1, _, _) = create_txn_with_test_data();
+
+        // Only reads
+        let _ = txn.get(&key1).unwrap();
+
+        assert!(txn.is_read_only());
+        assert!(!txn.has_pending_operations());
+    }
+
+    #[test]
+    fn test_clear_operations() {
+        let ns = create_test_namespace();
+        let mut txn = create_txn_with_empty_snapshot();
+
+        txn.put(create_test_key(&ns, b"k1"), Value::Bytes(b"v1".to_vec()))
+            .unwrap();
+        txn.delete(create_test_key(&ns, b"k2")).unwrap();
+        txn.cas(create_test_key(&ns, b"k3"), 0, Value::Bytes(b"v3".to_vec()))
+            .unwrap();
+
+        assert!(txn.has_pending_operations());
+        assert_eq!(txn.write_count(), 1);
+        assert_eq!(txn.delete_count(), 1);
+        assert_eq!(txn.cas_count(), 1);
+
+        txn.clear_operations().unwrap();
+
+        assert!(!txn.has_pending_operations());
+        assert_eq!(txn.write_count(), 0);
+        assert_eq!(txn.delete_count(), 0);
+        assert_eq!(txn.cas_count(), 0);
+        assert_eq!(txn.read_count(), 0);
+    }
+
+    #[test]
+    fn test_clear_operations_clears_read_set() {
+        let (mut txn, _, key1, _, _) = create_txn_with_test_data();
+
+        // Read a key
+        let _ = txn.get(&key1).unwrap();
+        assert_eq!(txn.read_count(), 1);
+
+        txn.clear_operations().unwrap();
+
+        assert_eq!(txn.read_count(), 0);
+    }
+
+    #[test]
+    fn test_clear_operations_fails_when_not_active() {
+        let mut txn = create_txn_with_empty_snapshot();
+        txn.mark_validating().unwrap();
+
+        let result = txn.clear_operations();
+        assert!(result.is_err());
+        assert!(matches!(result.unwrap_err(), Error::InvalidState(_)));
+    }
+
+    #[test]
+    fn test_put_then_delete_then_put() {
+        let ns = create_test_namespace();
+        let mut txn = create_txn_with_empty_snapshot();
+        let key = create_test_key(&ns, b"key1");
+
+        // Put, then delete, then put again
+        txn.put(key.clone(), Value::String("first".to_string()))
+            .unwrap();
+        assert_eq!(txn.write_count(), 1);
+        assert_eq!(txn.delete_count(), 0);
+
+        txn.delete(key.clone()).unwrap();
+        assert_eq!(txn.write_count(), 0);
+        assert_eq!(txn.delete_count(), 1);
+
+        txn.put(key.clone(), Value::String("second".to_string()))
+            .unwrap();
+        assert_eq!(txn.write_count(), 1);
+        assert_eq!(txn.delete_count(), 0);
+
+        // Should read the final value
+        let result = txn.get(&key).unwrap();
+        assert_eq!(result, Some(Value::String("second".to_string())));
+    }
+
+    #[test]
+    fn test_delete_then_put_then_delete() {
+        let ns = create_test_namespace();
+        let mut txn = create_txn_with_empty_snapshot();
+        let key = create_test_key(&ns, b"key1");
+
+        // Delete, then put, then delete again
+        txn.delete(key.clone()).unwrap();
+        assert_eq!(txn.delete_count(), 1);
+
+        txn.put(key.clone(), Value::String("value".to_string()))
+            .unwrap();
+        assert_eq!(txn.delete_count(), 0);
+        assert_eq!(txn.write_count(), 1);
+
+        txn.delete(key.clone()).unwrap();
+        assert_eq!(txn.delete_count(), 1);
+        assert_eq!(txn.write_count(), 0);
+
+        // Should read None
+        let result = txn.get(&key).unwrap();
+        assert!(result.is_none());
+    }
+
+    #[test]
+    fn test_multiple_keys_independent() {
+        let ns = create_test_namespace();
+        let mut txn = create_txn_with_empty_snapshot();
+        let key1 = create_test_key(&ns, b"key1");
+        let key2 = create_test_key(&ns, b"key2");
+        let key3 = create_test_key(&ns, b"key3");
+
+        txn.put(key1.clone(), Value::String("v1".to_string()))
+            .unwrap();
+        txn.delete(key2.clone()).unwrap();
+        txn.cas(key3.clone(), 0, Value::String("v3".to_string()))
+            .unwrap();
+
+        assert_eq!(txn.write_count(), 1);
+        assert_eq!(txn.delete_count(), 1);
+        assert_eq!(txn.cas_count(), 1);
+
+        // Each key's state is independent
+        assert!(txn.write_set.contains_key(&key1));
+        assert!(txn.delete_set.contains(&key2));
+        assert_eq!(txn.cas_set[0].key, key3);
     }
 }
