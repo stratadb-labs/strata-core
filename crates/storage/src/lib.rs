@@ -7,26 +7,12 @@
 //! - Version management with AtomicU64
 //! - ClonedSnapshotView implementation
 
-// Module declarations (will be implemented in Epic 2)
-// pub mod unified;    // Story #12
+#![warn(missing_docs)]
+#![warn(clippy::all)]
+
+pub mod unified;
 // pub mod index;      // Story #13
 // pub mod ttl;        // Story #14
 // pub mod snapshot;   // Story #15
 
-#![warn(missing_docs)]
-#![warn(clippy::all)]
-
-/// Placeholder for storage functionality
-pub fn placeholder() {
-    // This crate will contain storage implementation
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn test_placeholder() {
-        placeholder();
-    }
-}
+pub use unified::UnifiedStore;

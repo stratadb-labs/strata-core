@@ -3,10 +3,11 @@
 //! This module defines the Storage and SnapshotView traits that enable
 //! swapping implementations without breaking upper layers.
 
-// Note: We use () as placeholder for error type until Story #10 implements proper error types
-#![allow(clippy::result_unit_err)]
-
 use std::time::Duration;
+
+use crate::error::Result;
+use crate::types::{Key, RunId};
+use crate::value::{Value, VersionedValue};
 
 /// Storage abstraction for unified backend
 ///
@@ -128,24 +129,6 @@ pub trait SnapshotView: Send + Sync {
     /// Returns the version this snapshot was created at.
     fn version(&self) -> u64;
 }
-
-// Type aliases for convenience (these types will be defined in other stories)
-// For now, we use placeholder types that will be replaced when the actual types are implemented
-
-/// Placeholder for Key type (will be defined in Story #8)
-pub type Key = ();
-
-/// Placeholder for Value type (will be defined in Story #9)
-pub type Value = ();
-
-/// Placeholder for VersionedValue type (will be defined in Story #9)
-pub type VersionedValue = ();
-
-/// Placeholder for RunId type (will be defined in Story #7)
-pub type RunId = ();
-
-/// Placeholder for Result type (will be defined in Story #10)
-pub type Result<T> = std::result::Result<T, ()>;
 
 #[cfg(test)]
 mod tests {
