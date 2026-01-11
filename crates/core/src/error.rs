@@ -49,6 +49,10 @@ pub enum Error {
     /// Storage layer error
     #[error("Storage error: {0}")]
     StorageError(String),
+
+    /// Invalid state transition (M2 transactions)
+    #[error("Invalid state: {0}")]
+    InvalidState(String),
 }
 
 impl From<bincode::Error> for Error {
@@ -182,5 +186,13 @@ mod tests {
             }
             _ => panic!("Wrong error variant"),
         }
+    }
+
+    #[test]
+    fn test_error_display_invalid_state() {
+        let err = Error::InvalidState("transaction not active".to_string());
+        let msg = err.to_string();
+        assert!(msg.contains("Invalid state"));
+        assert!(msg.contains("transaction not active"));
     }
 }
