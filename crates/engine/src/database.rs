@@ -4,12 +4,18 @@
 //! - Storage initialization
 //! - WAL opening
 //! - Automatic recovery on startup
+//! - Run tracking (begin_run, end_run)
 
+use crate::run::RunTracker;
 use in_mem_core::error::{Error, Result};
+use in_mem_core::types::{Key, Namespace, RunId};
+use in_mem_core::value::{now, RunMetadataEntry, Value};
+use in_mem_core::Storage;
 use in_mem_durability::replay_wal;
-use in_mem_durability::wal::{DurabilityMode, WAL};
+use in_mem_durability::wal::{DurabilityMode, WALEntry, WAL};
 use in_mem_storage::UnifiedStore;
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 use tracing::info;
 
@@ -44,6 +50,12 @@ pub struct Database {
 
     /// Durability mode for WAL operations
     durability_mode: DurabilityMode,
+
+    /// Run tracker for active runs
+    run_tracker: Arc<RunTracker>,
+
+    /// Transaction ID counter for internal operations
+    next_txn_id: AtomicU64,
 }
 
 impl Database {
@@ -126,11 +138,16 @@ impl Database {
             "Recovery complete"
         );
 
+        // Initialize txn_id counter from 1 - each run_id + txn_id combination is unique
+        let next_txn_id = AtomicU64::new(1);
+
         Ok(Self {
             data_dir,
             storage,
             wal: Arc::new(Mutex::new(wal)),
             durability_mode,
+            run_tracker: Arc::new(RunTracker::new()),
+            next_txn_id,
         })
     }
 
@@ -170,6 +187,287 @@ impl Database {
         let wal = self.wal.lock().unwrap();
         wal.fsync()
     }
+
+    // ========================================
+    // Run Tracking Methods
+    // ========================================
+
+    /// Begin a new run
+    ///
+    /// Creates run metadata and marks the run as active.
+    /// The metadata is stored in storage and WAL for durability.
+    ///
+    /// # Arguments
+    ///
+    /// * `run_id` - Unique identifier for this run
+    /// * `tags` - Optional tags for categorization
+    ///
+    /// # Returns
+    ///
+    /// Ok(()) on success
+    pub fn begin_run(&self, run_id: RunId, tags: Vec<(String, String)>) -> Result<()> {
+        let first_version = self.storage.current_version();
+        let metadata = RunMetadataEntry {
+            run_id,
+            parent_run_id: None,
+            status: "running".to_string(),
+            created_at: now(),
+            completed_at: None,
+            first_version,
+            last_version: 0,
+            tags,
+        };
+
+        // Store metadata in storage via WAL transaction for durability
+        let ns = Namespace::new(
+            "system".to_string(),
+            "in-mem".to_string(),
+            "run-tracker".to_string(),
+            run_id,
+        );
+        let key = Key::new_run_metadata(ns, run_id);
+
+        // Write to WAL as transaction
+        let txn_id = self.next_txn_id.fetch_add(1, Ordering::SeqCst);
+        let timestamp = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_secs() as i64;
+
+        {
+            let mut wal = self.wal.lock().unwrap();
+            wal.append(&WALEntry::BeginTxn {
+                txn_id,
+                run_id,
+                timestamp,
+            })?;
+
+            // Get version for this write
+            let version = self.storage.current_version() + 1;
+
+            wal.append(&WALEntry::Write {
+                run_id,
+                key: key.clone(),
+                value: Value::RunMetadata(metadata.clone()),
+                version,
+            })?;
+
+            wal.append(&WALEntry::CommitTxn { txn_id, run_id })?;
+        }
+
+        // Apply to storage
+        self.storage
+            .put(key, Value::RunMetadata(metadata.clone()), None)?;
+
+        // Track as active
+        self.run_tracker.begin_run(metadata)?;
+
+        Ok(())
+    }
+
+    /// Begin a forked run (with parent)
+    ///
+    /// Creates run metadata with a parent reference for forked runs.
+    /// The metadata is stored in storage and WAL for durability.
+    ///
+    /// # Arguments
+    ///
+    /// * `run_id` - Unique identifier for this run
+    /// * `parent_run_id` - The parent run this was forked from
+    /// * `tags` - Optional tags for categorization
+    ///
+    /// # Returns
+    ///
+    /// Ok(()) on success
+    pub fn begin_forked_run(
+        &self,
+        run_id: RunId,
+        parent_run_id: RunId,
+        tags: Vec<(String, String)>,
+    ) -> Result<()> {
+        let first_version = self.storage.current_version();
+        let metadata = RunMetadataEntry {
+            run_id,
+            parent_run_id: Some(parent_run_id),
+            status: "running".to_string(),
+            created_at: now(),
+            completed_at: None,
+            first_version,
+            last_version: 0,
+            tags,
+        };
+
+        // Store metadata in storage via WAL transaction for durability
+        let ns = Namespace::new(
+            "system".to_string(),
+            "in-mem".to_string(),
+            "run-tracker".to_string(),
+            run_id,
+        );
+        let key = Key::new_run_metadata(ns, run_id);
+
+        // Write to WAL as transaction
+        let txn_id = self.next_txn_id.fetch_add(1, Ordering::SeqCst);
+        let timestamp = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_secs() as i64;
+
+        {
+            let mut wal = self.wal.lock().unwrap();
+            wal.append(&WALEntry::BeginTxn {
+                txn_id,
+                run_id,
+                timestamp,
+            })?;
+
+            let version = self.storage.current_version() + 1;
+
+            wal.append(&WALEntry::Write {
+                run_id,
+                key: key.clone(),
+                value: Value::RunMetadata(metadata.clone()),
+                version,
+            })?;
+
+            wal.append(&WALEntry::CommitTxn { txn_id, run_id })?;
+        }
+
+        // Apply to storage
+        self.storage
+            .put(key, Value::RunMetadata(metadata.clone()), None)?;
+
+        // Track as active
+        self.run_tracker.begin_run(metadata)?;
+
+        Ok(())
+    }
+
+    /// End a run
+    ///
+    /// Updates run metadata with completion time and final version,
+    /// then removes from active tracking. The update is persisted via WAL.
+    ///
+    /// # Arguments
+    ///
+    /// * `run_id` - The ID of the run to end
+    ///
+    /// # Returns
+    ///
+    /// Ok(()) on success (even if run was not active)
+    pub fn end_run(&self, run_id: RunId) -> Result<()> {
+        // Get metadata from active runs
+        if let Some(mut metadata) = self.run_tracker.get_active(run_id) {
+            metadata.completed_at = Some(now());
+            metadata.last_version = self.storage.current_version();
+            metadata.status = "completed".to_string();
+
+            // Update in storage via WAL transaction
+            let ns = Namespace::new(
+                "system".to_string(),
+                "in-mem".to_string(),
+                "run-tracker".to_string(),
+                run_id,
+            );
+            let key = Key::new_run_metadata(ns, run_id);
+
+            // Write to WAL as transaction
+            let txn_id = self.next_txn_id.fetch_add(1, Ordering::SeqCst);
+            let timestamp = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_secs() as i64;
+
+            {
+                let mut wal = self.wal.lock().unwrap();
+                wal.append(&WALEntry::BeginTxn {
+                    txn_id,
+                    run_id,
+                    timestamp,
+                })?;
+
+                let version = self.storage.current_version() + 1;
+
+                wal.append(&WALEntry::Write {
+                    run_id,
+                    key: key.clone(),
+                    value: Value::RunMetadata(metadata.clone()),
+                    version,
+                })?;
+
+                wal.append(&WALEntry::CommitTxn { txn_id, run_id })?;
+            }
+
+            // Apply to storage
+            self.storage.put(key, Value::RunMetadata(metadata), None)?;
+
+            // Remove from active
+            self.run_tracker.end_run(run_id)?;
+        }
+
+        Ok(())
+    }
+
+    /// Get run metadata
+    ///
+    /// Returns metadata for a run, checking active runs first,
+    /// then falling back to storage for completed runs.
+    ///
+    /// # Arguments
+    ///
+    /// * `run_id` - The ID of the run to look up
+    ///
+    /// # Returns
+    ///
+    /// Some(metadata) if found, None otherwise
+    pub fn get_run(&self, run_id: RunId) -> Result<Option<RunMetadataEntry>> {
+        // Check active runs first
+        if let Some(metadata) = self.run_tracker.get_active(run_id) {
+            return Ok(Some(metadata));
+        }
+
+        // Check storage for completed runs
+        let ns = Namespace::new(
+            "system".to_string(),
+            "in-mem".to_string(),
+            "run-tracker".to_string(),
+            run_id,
+        );
+        let key = Key::new_run_metadata(ns, run_id);
+
+        if let Some(versioned) = self.storage.get(&key)? {
+            if let Value::RunMetadata(metadata) = versioned.value {
+                return Ok(Some(metadata));
+            }
+        }
+
+        Ok(None)
+    }
+
+    /// List active run IDs
+    ///
+    /// Returns all currently active run IDs.
+    pub fn list_active_runs(&self) -> Vec<RunId> {
+        self.run_tracker.list_active()
+    }
+
+    /// Check if a run is active
+    ///
+    /// # Arguments
+    ///
+    /// * `run_id` - The ID of the run to check
+    ///
+    /// # Returns
+    ///
+    /// true if the run is currently active
+    pub fn is_run_active(&self, run_id: RunId) -> bool {
+        self.run_tracker.is_active(run_id)
+    }
+
+    /// Get the count of active runs
+    pub fn active_run_count(&self) -> usize {
+        self.run_tracker.active_count()
+    }
 }
 
 impl Drop for Database {
@@ -188,13 +486,10 @@ impl Drop for Database {
 mod tests {
     use super::*;
     use chrono::Utc;
-    use in_mem_core::types::{Key, Namespace, RunId};
-    use in_mem_core::value::Value;
-    use in_mem_core::Storage;
     use in_mem_durability::wal::WALEntry;
     use tempfile::TempDir;
 
-    fn now() -> i64 {
+    fn timestamp() -> i64 {
         Utc::now().timestamp()
     }
 
@@ -236,7 +531,7 @@ mod tests {
             wal.append(&WALEntry::BeginTxn {
                 txn_id: 1,
                 run_id,
-                timestamp: now(),
+                timestamp: timestamp(),
             })
             .unwrap();
 
@@ -291,7 +586,7 @@ mod tests {
                 .append(&WALEntry::BeginTxn {
                     txn_id: 1,
                     run_id,
-                    timestamp: now(),
+                    timestamp: timestamp(),
                 })
                 .unwrap();
 
@@ -350,7 +645,7 @@ mod tests {
             wal.append(&WALEntry::BeginTxn {
                 txn_id: 1,
                 run_id,
-                timestamp: now(),
+                timestamp: timestamp(),
             })
             .unwrap();
 
@@ -515,7 +810,7 @@ mod tests {
                 .append(&WALEntry::BeginTxn {
                     txn_id: 1,
                     run_id,
-                    timestamp: now(),
+                    timestamp: timestamp(),
                 })
                 .unwrap();
 
@@ -587,5 +882,226 @@ mod tests {
             assert_eq!(db.data_dir(), db_path);
             // Database dropped here
         }
+    }
+
+    // ========================================
+    // Run Tracking Tests
+    // ========================================
+
+    #[test]
+    fn test_run_lifecycle() {
+        let temp_dir = TempDir::new().unwrap();
+        let db = Database::open(temp_dir.path()).unwrap();
+
+        let run_id = RunId::new();
+
+        // Begin run
+        db.begin_run(run_id, vec![("env".to_string(), "test".to_string())])
+            .unwrap();
+        assert!(db.is_run_active(run_id));
+        assert_eq!(db.active_run_count(), 1);
+
+        // Get run metadata
+        let metadata = db.get_run(run_id).unwrap().unwrap();
+        assert_eq!(metadata.run_id, run_id);
+        assert_eq!(metadata.status, "running");
+        assert!(metadata.completed_at.is_none());
+        assert_eq!(metadata.tags.len(), 1);
+        assert_eq!(metadata.tags[0], ("env".to_string(), "test".to_string()));
+
+        // End run
+        db.end_run(run_id).unwrap();
+        assert!(!db.is_run_active(run_id));
+        assert_eq!(db.active_run_count(), 0);
+
+        // Metadata still retrievable from storage
+        let metadata = db.get_run(run_id).unwrap().unwrap();
+        assert_eq!(metadata.status, "completed");
+        assert!(metadata.completed_at.is_some());
+    }
+
+    #[test]
+    fn test_multiple_active_runs() {
+        let temp_dir = TempDir::new().unwrap();
+        let db = Database::open(temp_dir.path()).unwrap();
+
+        let run1 = RunId::new();
+        let run2 = RunId::new();
+        let run3 = RunId::new();
+
+        db.begin_run(run1, vec![]).unwrap();
+        db.begin_run(run2, vec![]).unwrap();
+        db.begin_run(run3, vec![]).unwrap();
+
+        assert_eq!(db.active_run_count(), 3);
+        let active = db.list_active_runs();
+        assert!(active.contains(&run1));
+        assert!(active.contains(&run2));
+        assert!(active.contains(&run3));
+
+        db.end_run(run2).unwrap();
+
+        assert_eq!(db.active_run_count(), 2);
+        let active = db.list_active_runs();
+        assert!(active.contains(&run1));
+        assert!(!active.contains(&run2));
+        assert!(active.contains(&run3));
+    }
+
+    #[test]
+    fn test_run_metadata_persistence() {
+        let temp_dir = TempDir::new().unwrap();
+        let db_path = temp_dir.path().join("db");
+
+        let run_id = RunId::new();
+
+        // Create and end run
+        {
+            let db = Database::open(&db_path).unwrap();
+            db.begin_run(run_id, vec![("key".to_string(), "value".to_string())])
+                .unwrap();
+            db.end_run(run_id).unwrap();
+            db.flush().unwrap();
+        }
+
+        // Reopen and verify metadata persisted
+        {
+            let db = Database::open(&db_path).unwrap();
+
+            // Run should not be active (in-memory tracker is fresh)
+            assert!(!db.is_run_active(run_id));
+
+            // But metadata should still be retrievable from storage
+            let metadata = db.get_run(run_id).unwrap().unwrap();
+            assert_eq!(metadata.run_id, run_id);
+            assert_eq!(metadata.status, "completed");
+            assert_eq!(metadata.tags.len(), 1);
+            assert_eq!(metadata.tags[0], ("key".to_string(), "value".to_string()));
+        }
+    }
+
+    #[test]
+    fn test_forked_run() {
+        let temp_dir = TempDir::new().unwrap();
+        let db = Database::open(temp_dir.path()).unwrap();
+
+        let parent_id = RunId::new();
+        let child_id = RunId::new();
+
+        // Start parent run
+        db.begin_run(parent_id, vec![]).unwrap();
+
+        // Fork child run
+        db.begin_forked_run(
+            child_id,
+            parent_id,
+            vec![("forked".to_string(), "true".to_string())],
+        )
+        .unwrap();
+
+        // Verify child has parent reference
+        let child = db.get_run(child_id).unwrap().unwrap();
+        assert_eq!(child.parent_run_id, Some(parent_id));
+        assert_eq!(child.tags[0], ("forked".to_string(), "true".to_string()));
+
+        // Both should be active
+        assert!(db.is_run_active(parent_id));
+        assert!(db.is_run_active(child_id));
+        assert_eq!(db.active_run_count(), 2);
+    }
+
+    #[test]
+    fn test_get_run_not_found() {
+        let temp_dir = TempDir::new().unwrap();
+        let db = Database::open(temp_dir.path()).unwrap();
+
+        let run_id = RunId::new();
+        let result = db.get_run(run_id).unwrap();
+        assert!(result.is_none());
+    }
+
+    #[test]
+    fn test_end_run_not_active() {
+        let temp_dir = TempDir::new().unwrap();
+        let db = Database::open(temp_dir.path()).unwrap();
+
+        let run_id = RunId::new();
+
+        // End run that was never started - should succeed (no-op)
+        let result = db.end_run(run_id);
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_run_version_tracking() {
+        let temp_dir = TempDir::new().unwrap();
+        let db = Database::open(temp_dir.path()).unwrap();
+
+        let run_id = RunId::new();
+
+        // Get initial version
+        let initial_version = db.storage().current_version();
+
+        // Begin run
+        db.begin_run(run_id, vec![]).unwrap();
+
+        let metadata = db.get_run(run_id).unwrap().unwrap();
+        assert_eq!(metadata.first_version, initial_version);
+
+        // Make some writes to bump version
+        let ns = Namespace::new(
+            "tenant".to_string(),
+            "app".to_string(),
+            "agent".to_string(),
+            run_id,
+        );
+        db.storage()
+            .put(Key::new_kv(ns.clone(), "key1"), Value::I64(1), None)
+            .unwrap();
+        db.storage()
+            .put(Key::new_kv(ns, "key2"), Value::I64(2), None)
+            .unwrap();
+
+        // End run
+        db.end_run(run_id).unwrap();
+
+        // Verify last_version is updated
+        let metadata = db.get_run(run_id).unwrap().unwrap();
+        assert!(metadata.last_version >= metadata.first_version);
+    }
+
+    #[test]
+    fn test_concurrent_run_tracking() {
+        use std::sync::Arc;
+        use std::thread;
+
+        let temp_dir = TempDir::new().unwrap();
+        let db = Arc::new(Database::open(temp_dir.path()).unwrap());
+
+        let mut handles = vec![];
+
+        // Spawn threads that create and end runs
+        for _ in 0..10 {
+            let db = Arc::clone(&db);
+            let handle = thread::spawn(move || {
+                let run_id = RunId::new();
+                db.begin_run(run_id, vec![]).unwrap();
+                assert!(db.is_run_active(run_id));
+
+                // Do some work
+                std::thread::sleep(std::time::Duration::from_millis(1));
+
+                db.end_run(run_id).unwrap();
+                assert!(!db.is_run_active(run_id));
+            });
+            handles.push(handle);
+        }
+
+        for handle in handles {
+            handle.join().unwrap();
+        }
+
+        // All runs should be ended
+        assert_eq!(db.active_run_count(), 0);
     }
 }

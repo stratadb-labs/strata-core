@@ -22,7 +22,7 @@ pub mod value; // Story #9
 pub use error::{Error, Result};
 pub use traits::{SnapshotView, Storage};
 pub use types::{Key, Namespace, RunId, TypeTag};
-pub use value::{Timestamp, Value, VersionedValue};
+pub use value::{now, RunMetadataEntry, Timestamp, Value, VersionedValue};
 
 /// Placeholder for core functionality
 /// This will be populated by stories #7-11

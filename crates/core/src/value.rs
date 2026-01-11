@@ -3,11 +3,51 @@
 //! This module defines:
 //! - Value: Unified enum for all primitive data types
 //! - VersionedValue: Wrapper with version, timestamp, and TTL
+//! - RunMetadataEntry: Metadata for agent runs
 //! - Associated types for structured data (events, traces, etc.)
 
+use crate::types::RunId;
 use chrono::Utc;
 use serde::{Deserialize, Serialize};
 use std::time::Duration;
+
+/// Get current timestamp in milliseconds since Unix epoch
+///
+/// Used for run metadata timestamps.
+pub fn now() -> u64 {
+    use std::time::{SystemTime, UNIX_EPOCH};
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap()
+        .as_millis() as u64
+}
+
+/// Metadata entry for an agent run
+///
+/// Tracks the lifecycle and metadata of a run, including:
+/// - Creation and completion timestamps
+/// - Version range (first_version to last_version)
+/// - Parent run (for forked runs)
+/// - Custom tags for categorization
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct RunMetadataEntry {
+    /// Unique identifier for this run
+    pub run_id: RunId,
+    /// Parent run ID (if this run was forked)
+    pub parent_run_id: Option<RunId>,
+    /// Current status (e.g., "running", "completed", "failed")
+    pub status: String,
+    /// Timestamp when the run was created (millis since epoch)
+    pub created_at: u64,
+    /// Timestamp when the run completed (millis since epoch)
+    pub completed_at: Option<u64>,
+    /// First version assigned during this run
+    pub first_version: u64,
+    /// Last version assigned during this run
+    pub last_version: u64,
+    /// Custom tags for categorization
+    pub tags: Vec<(String, String)>,
+}
 
 /// Timestamp type (Unix timestamp in seconds)
 pub type Timestamp = i64;
@@ -31,6 +71,8 @@ pub enum Value {
     Array(Vec<Value>),
     /// Map of string keys to values
     Map(std::collections::HashMap<String, Value>),
+    /// Run metadata entry
+    RunMetadata(RunMetadataEntry),
 }
 
 /// Versioned value with metadata
