@@ -581,7 +581,7 @@ fn test_large_transaction() {
                 .storage()
                 .get(&Key::new_kv(ns.clone(), format!("key_{}", i)))
                 .unwrap()
-                .expect(&format!("key_{} should exist", i));
+                .unwrap_or_else(|| panic!("key_{} should exist", i));
             assert_eq!(val.value, Value::I64(i as i64));
             assert_eq!(val.version, (i + 1) as u64);
         }
