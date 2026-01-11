@@ -38,59 +38,49 @@ You are implementing Story #12 for the in-mem database project. Epic 1 (Workspac
 ### Your Task
 Implement UnifiedStore with BTreeMap backend and version management in the `in-mem-storage` crate.
 
-### Prerequisites
-1. Clone the repository:
+### Getting Started
+
+1. **Clone the repository** (if not already cloned):
    ```bash
    git clone https://github.com/anibjoshi/in-mem.git
    cd in-mem
    ```
 
-2. Checkout develop and create your story branch:
+2. **Start the story**:
    ```bash
-   git checkout develop
-   git pull origin develop
-   git checkout -b epic-2-story-12-unified-store
+   ./scripts/start-story.sh 2 12 unified-store
    ```
 
-3. Read the following for context:
-   - `docs/architecture/M1_ARCHITECTURE.md` - Complete M1 specification
-   - `docs/development/TDD_METHODOLOGY.md` - Testing approach
-   - `docs/development/GETTING_STARTED.md` - Development workflow
-   - `crates/core/src/traits.rs` - Storage trait you're implementing
-   - `crates/core/src/types.rs` - Key, RunId, Namespace, TypeTag types
-   - `crates/core/src/value.rs` - Value and VersionedValue types
+   This automatically:
+   - Creates/checks out epic-2-storage-layer branch
+   - Creates epic-2-story-12-unified-store branch
+   - Sets up remote tracking
 
-4. View the GitHub issue for complete requirements:
+3. **Read context**:
    ```bash
    gh issue view 12
    ```
 
+   Also read:
+   - `docs/architecture/M1_ARCHITECTURE.md` - Complete M1 specification
+   - `docs/development/TDD_METHODOLOGY.md` - Testing approach
+   - `crates/core/src/traits.rs` - Storage trait you're implementing
+   - `crates/core/src/types.rs` - Key, RunId, Namespace, TypeTag types
+   - `crates/core/src/value.rs` - Value and VersionedValue types
+
 ### Implementation Steps
 
 #### Step 1: Update Cargo.toml
-Add `parking_lot` dependency to `crates/storage/Cargo.toml`:
+Edit `crates/storage/Cargo.toml`:
 ```toml
 [dependencies]
 in-mem-core = { path = "../core" }
-parking_lot = "0.12"
+parking_lot = "0.12"  # More efficient RwLock
 ```
 
-#### Step 2: Create unified.rs
-Implement `crates/storage/src/unified.rs` with:
-- `UnifiedStore` struct with `Arc<RwLock<BTreeMap<Key, VersionedValue>>>`
-- `AtomicU64` for global version counter
-- Implement all Storage trait methods:
-  - `get()` - filters out expired values
-  - `get_versioned()` - respects max_version and expiration
-  - `put()` - assigns next version atomically
-  - `delete()` - removes key
-  - `scan_prefix()` - BTreeMap range scan
-  - `scan_by_run()` - filter by namespace.run_id
-  - `current_version()` - returns last assigned version
-  - `find_expired_keys()` - finds TTL-expired keys
+#### Step 2: Write Tests First (TDD)
+Create tests in `crates/storage/src/unified.rs` (#[cfg(test)] module):
 
-#### Step 3: Write Tests First (TDD)
-Write these tests BEFORE implementing (in `unified.rs` #[cfg(test)] module):
 1. `test_store_creation` - empty store, current_version=0
 2. `test_put_and_get` - basic write and read
 3. `test_version_monotonicity` - versions increase 1,2,3...
@@ -101,22 +91,64 @@ Write these tests BEFORE implementing (in `unified.rs` #[cfg(test)] module):
 8. `test_scan_by_run` - filters by run_id
 9. `test_concurrent_writes` - 10 threads × 100 writes = 1000 versions
 
-#### Step 4: Implement to Pass Tests
-Implement UnifiedStore methods to make all tests pass. Key points:
-- Version allocation BEFORE acquiring write lock (allocate first, write second)
-- TTL check in `is_expired()` helper method
-- `scan_prefix` uses BTreeMap `.range(prefix..)` with `.take_while()`
-- `scan_by_run` filters by `key.namespace.run_id`
+#### Step 3: Implement UnifiedStore
+Create `crates/storage/src/unified.rs`:
 
-#### Step 5: Update lib.rs
-Update `crates/storage/src/lib.rs`:
+```rust
+use in_mem_core::{
+    error::Result,
+    traits::Storage,
+    types::{Key, RunId},
+    value::{Value, VersionedValue},
+};
+use parking_lot::RwLock;
+use std::collections::BTreeMap;
+use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::Arc;
+use std::time::Duration;
+
+pub struct UnifiedStore {
+    data: Arc<RwLock<BTreeMap<Key, VersionedValue>>>,
+    global_version: AtomicU64,
+}
+
+impl UnifiedStore {
+    pub fn new() -> Self {
+        Self {
+            data: Arc::new(RwLock::new(BTreeMap::new())),
+            global_version: AtomicU64::new(1),
+        }
+    }
+
+    fn next_version(&self) -> u64 {
+        self.global_version.fetch_add(1, Ordering::SeqCst)
+    }
+
+    fn is_expired(value: &VersionedValue) -> bool {
+        value.is_expired()
+    }
+}
+
+impl Storage for UnifiedStore {
+    // Implement all trait methods
+    // See GitHub issue #12 for complete implementation
+}
+
+#[cfg(test)]
+mod tests {
+    // Add all 9 tests here
+}
+```
+
+#### Step 4: Update lib.rs
+Edit `crates/storage/src/lib.rs`:
 ```rust
 pub mod unified;
 
 pub use unified::UnifiedStore;
 ```
 
-#### Step 6: Verify
+#### Step 5: Verify Locally
 ```bash
 # Build
 cargo build -p in-mem-storage
@@ -131,40 +163,39 @@ cargo clippy -p in-mem-storage -- -D warnings
 cargo fmt -p in-mem-storage
 ```
 
-### Acceptance Criteria
+### When Complete
+
+Run the completion script:
+```bash
+./scripts/complete-story.sh 12
+```
+
+This automatically:
+- Runs all quality checks (build, test, clippy, format)
+- Pushes your branch
+- Creates PR to epic-2-storage-layer
+- Generates PR description with changes
+
+Then comment on issue #12 with your PR link and notify other Claudes that Story #12 is ready for stories #13-15 to begin.
+
+### Critical Requirements
+
 - [ ] All 9 unit tests pass
-- [ ] Version numbers are monotonically increasing (1, 2, 3, ...)
-- [ ] TTL expiration works correctly
+- [ ] Version numbers monotonically increase (1, 2, 3, ...)
+- [ ] TTL expiration works
 - [ ] scan_prefix returns only matching keys
 - [ ] scan_by_run filters by run_id
-- [ ] Concurrent writes work (test with 10 threads)
+- [ ] Concurrent writes work (10 threads test)
 - [ ] 100% test coverage for unified.rs
 - [ ] No clippy warnings
-- [ ] All code formatted with cargo fmt
-
-### When Complete
-1. Run the complete-story script:
-   ```bash
-   ./scripts/complete-story.sh 12
-   ```
-
-2. Comment on GitHub issue #12 with your PR link
-
-3. **IMPORTANT**: Notify other Claudes that Story #12 is complete so they can start #13, #14, #15 in parallel
+- [ ] Code formatted with cargo fmt
 
 ### Notes
-- **Known limitation**: This implementation overwrites old versions (no version history). Acceptable for MVP.
-- **Known bottleneck**: RwLock will contend under high concurrency. Storage trait allows future replacement.
-- Use `parking_lot::RwLock` instead of `std::sync::RwLock` (more efficient)
-- TTL expiration is logical (values filtered at read time, not physically deleted)
 
-### Questions?
-- Check `docs/architecture/M1_ARCHITECTURE.md` Section 6 (Storage Layer)
-- Check `docs/development/TDD_METHODOLOGY.md` for testing approach
-- Ask in GitHub issue #12 comments if blocked
-
-### Repository
-https://github.com/anibjoshi/in-mem
+- **Known limitation**: Overwrites old versions (no version history). Acceptable for MVP.
+- **Known bottleneck**: RwLock will contend under high load. Storage trait allows future replacement.
+- Use `parking_lot::RwLock` (more efficient than std)
+- TTL expiration is logical (filtered at read time)
 
 ---
 
@@ -176,62 +207,78 @@ You are implementing Story #13 for the in-mem database project. Story #12 (Unifi
 ### Your Task
 Add run_index and type_index secondary indices to UnifiedStore for efficient run-scoped and type-scoped queries.
 
-### Prerequisites
-1. **WAIT FOR STORY #12 TO MERGE** to `epic-2-storage-layer` branch
+### Getting Started
 
-2. Once #12 is merged, pull and create your branch:
+1. **WAIT FOR STORY #12 TO MERGE** to epic-2-storage-layer branch
+
+2. **Start your story**:
    ```bash
-   git checkout epic-2-storage-layer
-   git pull origin epic-2-storage-layer
-   git checkout -b epic-2-story-13-secondary-indices
+   ./scripts/start-story.sh 2 13 secondary-indices
    ```
 
-3. Read context:
-   - `docs/architecture/M1_ARCHITECTURE.md` - Storage layer design
-   - `crates/storage/src/unified.rs` - UnifiedStore implementation (from #12)
-   - `crates/core/src/types.rs` - RunId, TypeTag types
-
-4. View the GitHub issue:
+3. **Read context**:
    ```bash
    gh issue view 13
    ```
 
+   Also read:
+   - `crates/storage/src/unified.rs` - UnifiedStore from #12
+   - `crates/core/src/types.rs` - RunId, TypeTag types
+
 ### Implementation Steps
 
 #### Step 1: Create index.rs
-Create `crates/storage/src/index.rs` with:
-- `RunIndex` - maps RunId → HashSet<Key>
-- `TypeIndex` - maps TypeTag → HashSet<Key>
-- Methods: `insert()`, `remove()`, `get_keys()`
+Create `crates/storage/src/index.rs`:
+
+```rust
+use in_mem_core::types::{Key, RunId, TypeTag};
+use std::collections::{HashMap, HashSet};
+
+pub struct RunIndex {
+    index: HashMap<RunId, HashSet<Key>>,
+}
+
+impl RunIndex {
+    pub fn new() -> Self { /* ... */ }
+    pub fn insert(&mut self, run_id: RunId, key: Key) { /* ... */ }
+    pub fn remove(&mut self, run_id: RunId, key: &Key) { /* ... */ }
+    pub fn get_keys(&self, run_id: &RunId) -> Option<&HashSet<Key>> { /* ... */ }
+}
+
+pub struct TypeIndex {
+    index: HashMap<TypeTag, HashSet<Key>>,
+}
+
+impl TypeIndex {
+    pub fn new() -> Self { /* ... */ }
+    pub fn insert(&mut self, type_tag: TypeTag, key: Key) { /* ... */ }
+    pub fn remove(&mut self, type_tag: TypeTag, key: &Key) { /* ... */ }
+    pub fn get_keys(&self, type_tag: &TypeTag) -> Option<&HashSet<Key>> { /* ... */ }
+}
+```
 
 #### Step 2: Modify UnifiedStore
-Update `crates/storage/src/unified.rs` to:
+Update `crates/storage/src/unified.rs`:
 - Add `run_index: RunIndex` field
 - Add `type_index: TypeIndex` field
 - Update `put()` to insert into both indices
 - Update `delete()` to remove from both indices
-- Update `scan_by_run()` to use run_index (much faster)
-- Add `scan_by_type()` method using type_index
+- Update `scan_by_run()` to use run_index (faster)
+- Add `scan_by_type()` method
 
-#### Step 3: Write Tests First (TDD)
-Add tests to `index.rs`:
+#### Step 3: Write Tests
+Add to `index.rs`:
 1. `test_run_index_insert_and_get`
 2. `test_run_index_remove`
 3. `test_type_index_insert_and_get`
 4. `test_type_index_remove`
 
-Add tests to `unified.rs`:
-5. `test_scan_by_run_uses_index` - verify faster lookup
-6. `test_scan_by_type` - all events, all KV entries, etc.
-7. `test_indices_stay_consistent` - put+delete keeps indices in sync
+Add to `unified.rs`:
+5. `test_scan_by_run_uses_index`
+6. `test_scan_by_type`
+7. `test_indices_stay_consistent`
 
-#### Step 4: Implement to Pass Tests
-Implement index structures and update UnifiedStore methods.
-
-**Key point**: All index updates must happen within the same write lock as the main BTreeMap (atomic updates).
-
-#### Step 5: Update lib.rs
-Update `crates/storage/src/lib.rs`:
+#### Step 4: Update lib.rs
 ```rust
 pub mod unified;
 pub mod index;
@@ -240,94 +287,107 @@ pub use unified::UnifiedStore;
 pub use index::{RunIndex, TypeIndex};
 ```
 
-#### Step 6: Verify
+#### Step 5: Verify
 ```bash
 cargo test -p in-mem-storage
 cargo clippy -p in-mem-storage -- -D warnings
 cargo fmt -p in-mem-storage
 ```
 
-### Acceptance Criteria
-- [ ] RunIndex and TypeIndex implemented
-- [ ] UnifiedStore.put() updates both indices
-- [ ] UnifiedStore.delete() removes from both indices
-- [ ] scan_by_run() uses run_index (O(run size) not O(total data))
-- [ ] scan_by_type() implemented and works
-- [ ] All 7 tests pass
-- [ ] Indices stay consistent (verified by test)
-
 ### When Complete
 ```bash
 ./scripts/complete-story.sh 13
 ```
 
-### Notes
-- **Critical**: Index updates must be atomic with main storage (same write lock)
-- Use `HashMap<RunId, HashSet<Key>>` for run_index
-- Use `HashMap<TypeTag, HashSet<Key>>` for type_index
+### Critical Requirements
 
-### Repository
-https://github.com/anibjoshi/in-mem
+- [ ] RunIndex and TypeIndex implemented
+- [ ] put() updates both indices atomically
+- [ ] delete() removes from both indices
+- [ ] scan_by_run() uses index (O(run size) not O(total))
+- [ ] scan_by_type() works
+- [ ] All 7 tests pass
+- [ ] Indices stay consistent
 
 ---
 
 ## Prompt 3: Story #14 - TTL Index (WAIT FOR #12)
 
 ### Context
-You are implementing Story #14 for the in-mem database project. Story #12 (UnifiedStore) is complete. You are now adding TTL index and cleanup subsystem.
+You are implementing Story #14 for the in-mem database project. Story #12 (UnifiedStore) is complete. You are now adding TTL index for efficient cleanup.
 
 ### Your Task
 Add TTL index to UnifiedStore for efficient TTL expiration cleanup.
 
-### Prerequisites
-1. **WAIT FOR STORY #12 TO MERGE** to `epic-2-storage-layer` branch
+### Getting Started
 
-2. Once #12 is merged, pull and create your branch:
+1. **WAIT FOR STORY #12 TO MERGE**
+
+2. **Start your story**:
    ```bash
-   git checkout epic-2-storage-layer
-   git pull origin epic-2-storage-layer
-   git checkout -b epic-2-story-14-ttl-index
+   ./scripts/start-story.sh 2 14 ttl-index
    ```
 
-3. Read context:
-   - `docs/architecture/M1_ARCHITECTURE.md` - TTL cleanup design
-   - `crates/storage/src/unified.rs` - UnifiedStore implementation
-   - GitHub issue #14 for complete requirements
+3. **Read context**:
+   ```bash
+   gh issue view 14
+   ```
 
 ### Implementation Steps
 
 #### Step 1: Create ttl.rs
-Create `crates/storage/src/ttl.rs` with:
-- `TTLIndex` - maps Instant (expiry_time) → HashSet<Key>
-- Methods: `insert()`, `remove()`, `find_expired()`
-- Use `BTreeMap<Instant, HashSet<Key>>` for sorted expiry times
+Create `crates/storage/src/ttl.rs`:
+
+```rust
+use in_mem_core::types::Key;
+use std::collections::{BTreeMap, HashSet};
+use std::time::Instant;
+
+pub struct TTLIndex {
+    index: BTreeMap<Instant, HashSet<Key>>,
+}
+
+impl TTLIndex {
+    pub fn new() -> Self { /* ... */ }
+    pub fn insert(&mut self, expiry: Instant, key: Key) { /* ... */ }
+    pub fn remove(&mut self, expiry: Instant, key: &Key) { /* ... */ }
+    pub fn find_expired(&self, now: Instant) -> Vec<Key> { /* ... */ }
+}
+```
 
 #### Step 2: Modify UnifiedStore
 Update `crates/storage/src/unified.rs`:
 - Add `ttl_index: TTLIndex` field
 - Update `put()` with TTL to insert into ttl_index
 - Update `delete()` to remove from ttl_index
-- Update `find_expired_keys()` to use ttl_index (not full scan)
+- Update `find_expired_keys()` to use index
 
-#### Step 3: Add TTLCleaner Background Task
+#### Step 3: Add TTLCleaner
 Create `crates/storage/src/cleaner.rs`:
-- `TTLCleaner` struct with background thread
-- Periodically calls `find_expired_keys()` and deletes them
-- Uses transactions for deletions (proper coordination)
+```rust
+use crate::unified::UnifiedStore;
+use std::sync::Arc;
+use std::time::Duration;
 
-**CRITICAL**: TTL cleanup must use transactions, not direct storage mutation (avoids races).
+pub struct TTLCleaner {
+    store: Arc<UnifiedStore>,
+    check_interval: Duration,
+}
 
-#### Step 4: Write Tests First (TDD)
-Add tests:
+impl TTLCleaner {
+    pub fn start(store: Arc<UnifiedStore>) -> std::thread::JoinHandle<()> {
+        // Background thread that calls find_expired_keys() and deletes
+    }
+}
+```
+
+#### Step 4: Write Tests
 1. `test_ttl_index_insert_and_find_expired`
 2. `test_ttl_index_remove`
-3. `test_find_expired_keys_uses_index` - verify O(expired) not O(total)
-4. `test_ttl_cleaner_deletes_expired` - integration test
+3. `test_find_expired_keys_uses_index`
+4. `test_ttl_cleaner_deletes_expired`
 
-#### Step 5: Implement to Pass Tests
-Implement TTLIndex and TTLCleaner.
-
-#### Step 6: Update lib.rs
+#### Step 5: Update lib.rs
 ```rust
 pub mod unified;
 pub mod ttl;
@@ -338,32 +398,25 @@ pub use ttl::TTLIndex;
 pub use cleaner::TTLCleaner;
 ```
 
-#### Step 7: Verify
+#### Step 6: Verify
 ```bash
 cargo test -p in-mem-storage
 cargo clippy -p in-mem-storage -- -D warnings
 cargo fmt -p in-mem-storage
 ```
 
-### Acceptance Criteria
-- [ ] TTLIndex using BTreeMap<Instant, HashSet<Key>>
-- [ ] find_expired_keys() uses index (O(expired) not O(total))
-- [ ] TTLCleaner background task works
-- [ ] Cleanup uses transactions (not direct mutation)
-- [ ] All tests pass
-
 ### When Complete
 ```bash
 ./scripts/complete-story.sh 14
 ```
 
-### Notes
-- **Design**: TTL expiration is LOGICAL delete, not physical
-- TTL cleanup runs in background thread
-- Cleanup uses transactions to avoid races with active writes
+### Critical Requirements
 
-### Repository
-https://github.com/anibjoshi/in-mem
+- [ ] TTLIndex using BTreeMap<Instant, HashSet<Key>>
+- [ ] find_expired_keys() uses index (O(expired) not O(total))
+- [ ] TTLCleaner background task works
+- [ ] Cleanup uses transactions (not direct mutation)
+- [ ] All tests pass
 
 ---
 
@@ -375,56 +428,81 @@ You are implementing Story #15 for the in-mem database project. Story #12 (Unifi
 ### Your Task
 Implement ClonedSnapshotView that creates version-bounded views of storage for transactions.
 
-### Prerequisites
-1. **WAIT FOR STORY #12 TO MERGE** to `epic-2-storage-layer` branch
+### Getting Started
 
-2. Once #12 is merged, pull and create your branch:
+1. **WAIT FOR STORY #12 TO MERGE**
+
+2. **Start your story**:
    ```bash
-   git checkout epic-2-storage-layer
-   git pull origin epic-2-storage-layer
-   git checkout -b epic-2-story-15-snapshot-view
+   ./scripts/start-story.sh 2 15 snapshot-view
    ```
 
-3. Read context:
-   - `docs/architecture/M1_ARCHITECTURE.md` - Snapshot design
+3. **Read context**:
+   ```bash
+   gh issue view 15
+   ```
+
+   Also read:
    - `crates/core/src/traits.rs` - SnapshotView trait
-   - `crates/storage/src/unified.rs` - UnifiedStore implementation
-   - GitHub issue #15
+   - `crates/storage/src/unified.rs` - UnifiedStore
 
 ### Implementation Steps
 
 #### Step 1: Create snapshot.rs
-Create `crates/storage/src/snapshot.rs` with:
-- `ClonedSnapshotView` struct
-- Fields: `version: u64`, `data: Arc<BTreeMap<Key, VersionedValue>>`
-- Implements `SnapshotView` trait
+Create `crates/storage/src/snapshot.rs`:
 
-#### Step 2: Implement SnapshotView Methods
-Implement trait methods:
-- `get()` - lookup in cloned data
-- `scan_prefix()` - range scan on cloned data
-- `version()` - return snapshot version
+```rust
+use in_mem_core::{
+    traits::SnapshotView,
+    types::Key,
+    value::VersionedValue,
+};
+use std::collections::BTreeMap;
+use std::sync::Arc;
 
-#### Step 3: Add create_snapshot to UnifiedStore
+pub struct ClonedSnapshotView {
+    version: u64,
+    data: Arc<BTreeMap<Key, VersionedValue>>,
+}
+
+impl ClonedSnapshotView {
+    pub fn new(version: u64, data: BTreeMap<Key, VersionedValue>) -> Self {
+        Self {
+            version,
+            data: Arc::new(data),
+        }
+    }
+}
+
+impl SnapshotView for ClonedSnapshotView {
+    fn get(&self, key: &Key) -> Option<VersionedValue> { /* ... */ }
+    fn scan_prefix(&self, prefix: &Key) -> Vec<(Key, VersionedValue)> { /* ... */ }
+    fn version(&self) -> u64 { self.version }
+}
+```
+
+#### Step 2: Add create_snapshot to UnifiedStore
 Update `crates/storage/src/unified.rs`:
-- Add `create_snapshot(&self) -> ClonedSnapshotView` method
-- Acquires read lock, clones BTreeMap, returns snapshot
-- Snapshot version = current_version()
 
-#### Step 4: Write Tests First (TDD)
-Add tests to `snapshot.rs`:
-1. `test_snapshot_creation` - snapshot has correct version
-2. `test_snapshot_get` - reads from frozen data
+```rust
+impl UnifiedStore {
+    pub fn create_snapshot(&self) -> ClonedSnapshotView {
+        let data = self.data.read();
+        let version = self.current_version();
+        ClonedSnapshotView::new(version, data.clone())
+    }
+}
+```
+
+#### Step 3: Write Tests
+Add to `snapshot.rs`:
+1. `test_snapshot_creation`
+2. `test_snapshot_get`
 3. `test_snapshot_isolation` - writes after snapshot don't appear
-4. `test_snapshot_scan_prefix` - range queries work
-5. `test_snapshot_is_immutable` - multiple readers don't interfere
+4. `test_snapshot_scan_prefix`
+5. `test_snapshot_is_immutable`
 
-#### Step 5: Implement to Pass Tests
-Implement ClonedSnapshotView and create_snapshot method.
-
-**Key point**: Snapshot is a deep clone of the BTreeMap at a specific version. Expensive but correct for MVP.
-
-#### Step 6: Update lib.rs
+#### Step 4: Update lib.rs
 ```rust
 pub mod unified;
 pub mod snapshot;
@@ -433,32 +511,25 @@ pub use unified::UnifiedStore;
 pub use snapshot::ClonedSnapshotView;
 ```
 
-#### Step 7: Verify
+#### Step 5: Verify
 ```bash
 cargo test -p in-mem-storage
 cargo clippy -p in-mem-storage -- -D warnings
 cargo fmt -p in-mem-storage
 ```
 
-### Acceptance Criteria
-- [ ] ClonedSnapshotView implements SnapshotView trait
-- [ ] create_snapshot() clones BTreeMap and captures version
-- [ ] Snapshots are isolated (writes don't appear)
-- [ ] All 5 tests pass
-- [ ] No clippy warnings
-
 ### When Complete
 ```bash
 ./scripts/complete-story.sh 15
 ```
 
-### Notes
-- **Known limitation**: Deep clone is expensive (full BTreeMap copy)
-- SnapshotView trait abstraction allows lazy implementation later
-- For MVP, correctness > performance
+### Critical Requirements
 
-### Repository
-https://github.com/anibjoshi/in-mem
+- [ ] ClonedSnapshotView implements SnapshotView trait
+- [ ] create_snapshot() clones BTreeMap at specific version
+- [ ] Snapshots are isolated (writes don't appear)
+- [ ] All 5 tests pass
+- [ ] No clippy warnings
 
 ---
 
@@ -470,92 +541,87 @@ You are implementing Story #16 for the in-mem database project. Stories #12-15 a
 ### Your Task
 Add comprehensive storage integration tests covering all edge cases, concurrent access, and stress scenarios.
 
-### Prerequisites
-1. **WAIT FOR STORIES #12, #13, #14, #15 TO MERGE** to `epic-2-storage-layer` branch
+### Getting Started
 
-2. Once all dependencies merge, pull and create your branch:
+1. **WAIT FOR STORIES #12, #13, #14, #15 TO MERGE**
+
+2. **Start your story**:
    ```bash
-   git checkout epic-2-storage-layer
-   git pull origin epic-2-storage-layer
-   git checkout -b epic-2-story-16-storage-tests
+   ./scripts/start-story.sh 2 16 storage-tests
    ```
 
-3. Read context:
-   - All prior story implementations (#12-15)
-   - `docs/development/TDD_METHODOLOGY.md` - Testing strategy
-   - GitHub issue #16
+3. **Read context**:
+   ```bash
+   gh issue view 16
+   ```
+
+   Also review all prior implementations (#12-15)
 
 ### Implementation Steps
 
 #### Step 1: Create Integration Test File
-Create `crates/storage/tests/integration_tests.rs` with comprehensive tests:
+Create `crates/storage/tests/integration_tests.rs`:
 
-1. **Edge Cases**:
-   - Empty keys, empty values
-   - Very large values (MB-sized)
-   - Unicode keys, binary keys
-   - Maximum version number (u64::MAX)
+**Edge Cases**:
+- Empty keys, empty values
+- Very large values (MB-sized)
+- Unicode keys, binary keys
+- Maximum version number (u64::MAX)
 
-2. **Concurrent Access**:
-   - 100 threads × 1000 writes
-   - Read-heavy workload (90% reads, 10% writes)
-   - Write-heavy workload (10% reads, 90% writes)
-   - Mixed workload with deletes
+**Concurrent Access**:
+- 100 threads × 1000 writes
+- Read-heavy workload (90% reads, 10% writes)
+- Write-heavy workload (10% reads, 90% writes)
+- Mixed workload with deletes
 
-3. **TTL and Expiration**:
-   - Expired values don't appear in scans
-   - find_expired_keys is efficient
-   - TTL cleanup doesn't race with writes
+**TTL and Expiration**:
+- Expired values don't appear in scans
+- find_expired_keys is efficient
+- TTL cleanup doesn't race with writes
 
-4. **Snapshot Isolation**:
-   - Snapshots don't see later writes
-   - Multiple concurrent snapshots work
-   - Large snapshot doesn't crash
+**Snapshot Isolation**:
+- Snapshots don't see later writes
+- Multiple concurrent snapshots work
+- Large snapshot doesn't crash
 
-5. **Index Consistency**:
-   - After 10000 random operations, indices match main storage
-   - Scan via index matches scan via full iteration
-   - Delete removes from all indices
+**Index Consistency**:
+- After 10000 random operations, indices match main storage
+- Scan via index matches scan via full iteration
+- Delete removes from all indices
 
-6. **Version Ordering**:
-   - Versions are globally monotonic
-   - No version collisions under heavy concurrency
-   - current_version() is always accurate
+**Version Ordering**:
+- Versions are globally monotonic
+- No version collisions under heavy concurrency
+- current_version() is always accurate
 
-#### Step 2: Add Property-Based Tests (Optional but Recommended)
-Use `proptest` or `quickcheck` for property-based testing:
-- Random operation sequences maintain consistency
-- Invariants hold after arbitrary operations
-
-#### Step 3: Add Stress Tests
+#### Step 2: Create Stress Tests
 Create `crates/storage/tests/stress_tests.rs`:
 - Insert 1 million keys
 - Scan with 100000 results
 - Concurrent snapshot creation under load
 
-#### Step 4: Add Regression Tests
-Any bugs found during development should have regression tests.
-
-#### Step 5: Verify Coverage
+#### Step 3: Verify Coverage
 ```bash
-# Generate coverage report
 cargo tarpaulin -p in-mem-storage --out Html
-
-# Open coverage report
 open tarpaulin-report.html
-
-# Ensure ≥85% coverage for storage layer
+# Ensure ≥85% coverage
 ```
 
-#### Step 6: Run All Tests
+#### Step 4: Run All Tests
 ```bash
 cargo test -p in-mem-storage --all
-cargo test -p in-mem-storage --all --release  # Release mode
+cargo test -p in-mem-storage --all --release
 cargo clippy -p in-mem-storage -- -D warnings
 cargo fmt -p in-mem-storage
 ```
 
-### Acceptance Criteria
+### When Complete
+```bash
+./scripts/complete-story.sh 16
+```
+
+### Critical Requirements
+
 - [ ] ≥85% test coverage for storage layer
 - [ ] All edge cases tested
 - [ ] Concurrent access tests pass (no data races)
@@ -566,19 +632,6 @@ cargo fmt -p in-mem-storage
 - [ ] All tests pass in release mode
 - [ ] No clippy warnings
 
-### When Complete
-```bash
-./scripts/complete-story.sh 16
-```
-
-### Notes
-- Focus on **correctness** (race conditions, consistency) over performance
-- Test **failure scenarios** (expired keys, missing keys, concurrent deletes)
-- Use `cargo test --release` to catch optimization bugs
-
-### Repository
-https://github.com/anibjoshi/in-mem
-
 ---
 
 ## Coordination Notes
@@ -586,33 +639,29 @@ https://github.com/anibjoshi/in-mem
 ### For Claude Working on Story #12
 - You are **blocking** stories #13, #14, #15
 - **Prioritize completion** - get your PR merged ASAP
-- Comment on issue #12 when your PR is ready for review
-- Ping in issues #13, #14, #15: "Story #12 merged, you can start"
+- After running `./scripts/complete-story.sh 12`, comment on issues #13, #14, #15: "Story #12 merged, you can start"
 
 ### For Claudes Working on Stories #13, #14, #15
-- **Wait for story #12 PR to merge** to epic branch before starting
+- **Wait for story #12 PR to merge** to epic branch
 - You can work in **parallel** with each other (different files)
-- If you finish before others, help review their PRs
+- Use `./scripts/start-story.sh 2 <story-num> <description>` to begin
+- Use `./scripts/complete-story.sh <story-num>` when done
 - All three must merge before #16 can start
 
 ### For Claude Working on Story #16
-- **Wait for stories #12, #13, #14, #15 to merge** before starting
+- **Wait for stories #12, #13, #14, #15 to merge**
 - Your tests should cover all prior implementations
-- Focus on integration tests (multiple components working together)
-- This is the quality gate for Epic 2
-
-### Communication Protocol
-1. Comment on your GitHub issue when starting work
-2. Comment when blocked on dependencies
-3. Comment when PR is ready for review
-4. Comment when merged (notify downstream dependencies)
+- Focus on integration tests (multiple components together)
+- Use `./scripts/start-story.sh 2 16 storage-tests` to begin
+- Use `./scripts/complete-story.sh 16` when done
 
 ---
 
 ## Epic 2 Completion
 
 After all 5 stories merge to `epic-2-storage-layer`:
-1. Run epic review process:
+
+1. Run epic review:
    ```bash
    ./scripts/review-epic.sh 2
    ```
@@ -622,7 +671,7 @@ After all 5 stories merge to `epic-2-storage-layer`:
 3. If approved, merge to develop:
    ```bash
    git checkout develop
-   git merge epic-2-storage-layer
+   git merge epic-2-storage-layer --no-ff
    git push origin develop
    ```
 
@@ -639,6 +688,6 @@ After all 5 stories merge to `epic-2-storage-layer`:
 
 ---
 
-**Epic 2 Repository**: https://github.com/anibjoshi/in-mem
-**Epic 2 Branch**: `epic-2-storage-layer`
-**Epic 2 Issue**: #2
+**Repository**: https://github.com/anibjoshi/in-mem
+**Epic Branch**: `epic-2-storage-layer`
+**Epic Issue**: #2
