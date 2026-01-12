@@ -20,4 +20,4 @@ pub mod database;
 // pub mod run;          // Story #29
 
 pub use coordinator::{TransactionCoordinator, TransactionMetrics};
-pub use database::Database;
+pub use database::{Database, RetryConfig};

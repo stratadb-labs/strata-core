@@ -32,7 +32,81 @@ use in_mem_durability::wal::{DurabilityMode, WAL};
 use in_mem_storage::UnifiedStore;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
+use std::time::Duration;
 use tracing::info;
+
+/// Configuration for transaction retry behavior
+///
+/// Per spec Section 4.3: Implicit transactions include automatic retry on conflict.
+/// This configuration controls the retry behavior for transactions.
+///
+/// # Example
+/// ```ignore
+/// let config = RetryConfig {
+///     max_retries: 5,
+///     base_delay_ms: 10,
+///     max_delay_ms: 200,
+/// };
+/// db.transaction_with_retry(run_id, config, |txn| { ... })?;
+/// ```
+#[derive(Debug, Clone)]
+pub struct RetryConfig {
+    /// Maximum number of retry attempts (0 = no retries)
+    pub max_retries: usize,
+    /// Base delay between retries in milliseconds (exponential backoff)
+    pub base_delay_ms: u64,
+    /// Maximum delay between retries in milliseconds
+    pub max_delay_ms: u64,
+}
+
+impl Default for RetryConfig {
+    fn default() -> Self {
+        Self {
+            max_retries: 3,
+            base_delay_ms: 10,
+            max_delay_ms: 100,
+        }
+    }
+}
+
+impl RetryConfig {
+    /// Create a new RetryConfig with default values
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// Create a RetryConfig with no retries
+    pub fn no_retry() -> Self {
+        Self {
+            max_retries: 0,
+            ..Default::default()
+        }
+    }
+
+    /// Set maximum number of retries
+    pub fn with_max_retries(mut self, max_retries: usize) -> Self {
+        self.max_retries = max_retries;
+        self
+    }
+
+    /// Set base delay for exponential backoff
+    pub fn with_base_delay_ms(mut self, base_delay_ms: u64) -> Self {
+        self.base_delay_ms = base_delay_ms;
+        self
+    }
+
+    /// Set maximum delay between retries
+    pub fn with_max_delay_ms(mut self, max_delay_ms: u64) -> Self {
+        self.max_delay_ms = max_delay_ms;
+        self
+    }
+
+    /// Calculate delay for a given attempt (exponential backoff)
+    fn calculate_delay(&self, attempt: usize) -> Duration {
+        let delay_ms = self.base_delay_ms.saturating_mul(1 << attempt);
+        Duration::from_millis(delay_ms.min(self.max_delay_ms))
+    }
+}
 
 /// Main database struct with transaction support
 ///
@@ -253,6 +327,90 @@ impl Database {
                 Err(e)
             }
         }
+    }
+
+    /// Execute a transaction with automatic retry on conflict
+    ///
+    /// Per spec Section 4.3: Implicit transactions include automatic retry on conflict.
+    /// This method provides explicit retry control for transactions that may conflict.
+    ///
+    /// The closure is called repeatedly until either:
+    /// - The transaction commits successfully
+    /// - A non-conflict error occurs (not retried)
+    /// - Maximum retries are exceeded
+    ///
+    /// # Arguments
+    /// * `run_id` - RunId for namespace isolation
+    /// * `config` - Retry configuration (max retries, delays)
+    /// * `f` - Closure that performs transaction operations (must be `Fn`, not `FnOnce`)
+    ///
+    /// # Returns
+    /// * `Ok(T)` - Closure return value on successful commit
+    /// * `Err` - On non-conflict error or max retries exceeded
+    ///
+    /// # Example
+    /// ```ignore
+    /// let config = RetryConfig::default();
+    /// let result = db.transaction_with_retry(run_id, config, |txn| {
+    ///     let val = txn.get(&key)?;
+    ///     txn.put(key.clone(), Value::I64(val.value + 1))?;
+    ///     Ok(())
+    /// })?;
+    /// ```
+    pub fn transaction_with_retry<F, T>(
+        &self,
+        run_id: RunId,
+        config: RetryConfig,
+        f: F,
+    ) -> Result<T>
+    where
+        F: Fn(&mut TransactionContext) -> Result<T>,
+    {
+        let mut last_error = None;
+
+        for attempt in 0..=config.max_retries {
+            let mut txn = self.begin_transaction(run_id);
+
+            // Execute closure
+            match f(&mut txn) {
+                Ok(value) => {
+                    // Try to commit
+                    match self.commit_transaction(&mut txn) {
+                        Ok(()) => return Ok(value),
+                        Err(e) if e.is_conflict() && attempt < config.max_retries => {
+                            // Conflict during commit - will retry
+                            last_error = Some(e);
+                            std::thread::sleep(config.calculate_delay(attempt));
+                            continue;
+                        }
+                        Err(e) => {
+                            // Non-conflict error or max retries reached
+                            let _ = txn.mark_aborted(format!("Commit error: {}", e));
+                            self.coordinator.record_abort();
+                            return Err(e);
+                        }
+                    }
+                }
+                Err(e) if e.is_conflict() && attempt < config.max_retries => {
+                    // Conflict from closure - will retry
+                    let _ = txn.mark_aborted(format!("Closure conflict: {}", e));
+                    self.coordinator.record_abort();
+                    last_error = Some(e);
+                    std::thread::sleep(config.calculate_delay(attempt));
+                    continue;
+                }
+                Err(e) => {
+                    // Non-conflict error or max retries reached
+                    let _ = txn.mark_aborted(format!("Closure error: {}", e));
+                    self.coordinator.record_abort();
+                    return Err(e);
+                }
+            }
+        }
+
+        // Max retries exceeded
+        Err(last_error
+            .unwrap_or_else(|| Error::TransactionConflict("Max retries exceeded".to_string())))
     }
 
     /// Begin a new transaction (for manual control)
@@ -1257,5 +1415,256 @@ mod tests {
         // Delete
         db.delete(run_id, key.clone()).unwrap();
         assert!(db.get(&key).unwrap().is_none());
+    }
+
+    // ========================================================================
+    // Retry Tests (Story #101)
+    // ========================================================================
+
+    #[test]
+    fn test_retry_config_default() {
+        let config = RetryConfig::default();
+        assert_eq!(config.max_retries, 3);
+        assert_eq!(config.base_delay_ms, 10);
+        assert_eq!(config.max_delay_ms, 100);
+    }
+
+    #[test]
+    fn test_retry_config_builder() {
+        let config = RetryConfig::new()
+            .with_max_retries(5)
+            .with_base_delay_ms(20)
+            .with_max_delay_ms(200);
+
+        assert_eq!(config.max_retries, 5);
+        assert_eq!(config.base_delay_ms, 20);
+        assert_eq!(config.max_delay_ms, 200);
+    }
+
+    #[test]
+    fn test_retry_config_no_retry() {
+        let config = RetryConfig::no_retry();
+        assert_eq!(config.max_retries, 0);
+    }
+
+    #[test]
+    fn test_retry_config_delay_calculation() {
+        let config = RetryConfig {
+            max_retries: 5,
+            base_delay_ms: 10,
+            max_delay_ms: 100,
+        };
+
+        // Exponential backoff: 10, 20, 40, 80, 100 (capped)
+        assert_eq!(config.calculate_delay(0).as_millis(), 10);
+        assert_eq!(config.calculate_delay(1).as_millis(), 20);
+        assert_eq!(config.calculate_delay(2).as_millis(), 40);
+        assert_eq!(config.calculate_delay(3).as_millis(), 80);
+        assert_eq!(config.calculate_delay(4).as_millis(), 100); // Capped at max
+        assert_eq!(config.calculate_delay(5).as_millis(), 100); // Still capped
+    }
+
+    #[test]
+    fn test_transaction_with_retry_success() {
+        let temp_dir = TempDir::new().unwrap();
+        let db = Database::open(temp_dir.path().join("db")).unwrap();
+
+        let run_id = RunId::new();
+        let ns = create_test_namespace(run_id);
+        let key = Key::new_kv(ns, "retry_success");
+
+        // Transaction with retry that succeeds on first try
+        let result = db.transaction_with_retry(run_id, RetryConfig::default(), |txn| {
+            txn.put(key.clone(), Value::I64(42))?;
+            Ok(42)
+        });
+
+        assert_eq!(result.unwrap(), 42);
+
+        // Verify stored
+        let stored = db.get(&key).unwrap().unwrap();
+        assert_eq!(stored.value, Value::I64(42));
+    }
+
+    #[test]
+    fn test_transaction_with_retry_non_conflict_error_not_retried() {
+        use std::sync::atomic::{AtomicU64, Ordering};
+
+        let temp_dir = TempDir::new().unwrap();
+        let db = Database::open(temp_dir.path().join("db")).unwrap();
+
+        let run_id = RunId::new();
+        let attempts = AtomicU64::new(0);
+
+        let result: Result<()> =
+            db.transaction_with_retry(run_id, RetryConfig::default(), |_txn| {
+                attempts.fetch_add(1, Ordering::Relaxed);
+                Err(Error::InvalidState("not a conflict".to_string()))
+            });
+
+        // Should only try once (non-conflict errors don't retry)
+        assert_eq!(attempts.load(Ordering::Relaxed), 1);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_transaction_with_retry_conflict_is_retried() {
+        use std::sync::atomic::{AtomicU64, Ordering};
+
+        let temp_dir = TempDir::new().unwrap();
+        let db = Database::open(temp_dir.path().join("db")).unwrap();
+
+        let run_id = RunId::new();
+        let ns = create_test_namespace(run_id);
+        let key = Key::new_kv(ns, "retry_conflict");
+        let attempts = AtomicU64::new(0);
+
+        let config = RetryConfig {
+            max_retries: 2,
+            base_delay_ms: 1, // Short delay for tests
+            max_delay_ms: 10,
+        };
+
+        // Conflict on first 2 attempts, succeed on third
+        let result: Result<()> = db.transaction_with_retry(run_id, config, |txn| {
+            let count = attempts.fetch_add(1, Ordering::Relaxed);
+            if count < 2 {
+                Err(Error::TransactionConflict("simulated conflict".to_string()))
+            } else {
+                txn.put(key.clone(), Value::I64(count as i64))?;
+                Ok(())
+            }
+        });
+
+        assert!(result.is_ok());
+        assert_eq!(attempts.load(Ordering::Relaxed), 3); // Tried 3 times
+    }
+
+    #[test]
+    fn test_transaction_with_retry_max_retries_exceeded() {
+        use std::sync::atomic::{AtomicU64, Ordering};
+
+        let temp_dir = TempDir::new().unwrap();
+        let db = Database::open(temp_dir.path().join("db")).unwrap();
+
+        let run_id = RunId::new();
+        let attempts = AtomicU64::new(0);
+
+        let config = RetryConfig {
+            max_retries: 2,
+            base_delay_ms: 1,
+            max_delay_ms: 10,
+        };
+
+        // Always return conflict
+        let result: Result<()> = db.transaction_with_retry(run_id, config, |_txn| {
+            attempts.fetch_add(1, Ordering::Relaxed);
+            Err(Error::TransactionConflict("always conflict".to_string()))
+        });
+
+        // Should try 3 times (initial + 2 retries)
+        assert_eq!(attempts.load(Ordering::Relaxed), 3);
+        assert!(result.is_err());
+        assert!(result.unwrap_err().is_conflict());
+    }
+
+    #[test]
+    fn test_transaction_with_retry_no_retry_config() {
+        use std::sync::atomic::{AtomicU64, Ordering};
+
+        let temp_dir = TempDir::new().unwrap();
+        let db = Database::open(temp_dir.path().join("db")).unwrap();
+
+        let run_id = RunId::new();
+        let attempts = AtomicU64::new(0);
+
+        // No retries configured
+        let result: Result<()> =
+            db.transaction_with_retry(run_id, RetryConfig::no_retry(), |_txn| {
+                attempts.fetch_add(1, Ordering::Relaxed);
+                Err(Error::TransactionConflict("conflict".to_string()))
+            });
+
+        // Should try exactly once
+        assert_eq!(attempts.load(Ordering::Relaxed), 1);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_transaction_with_retry_returns_value() {
+        let temp_dir = TempDir::new().unwrap();
+        let db = Database::open(temp_dir.path().join("db")).unwrap();
+
+        let run_id = RunId::new();
+        let ns = create_test_namespace(run_id);
+        let key = Key::new_kv(ns, "return_value");
+
+        // Pre-populate
+        db.put(run_id, key.clone(), Value::I64(100)).unwrap();
+
+        // Transaction returns a value
+        // Note: txn.get() returns Option<Value>, not Option<VersionedValue>
+        let result: Result<i64> =
+            db.transaction_with_retry(run_id, RetryConfig::default(), |txn| {
+                let val = txn.get(&key)?.unwrap();
+                if let Value::I64(n) = val {
+                    Ok(n)
+                } else {
+                    Err(Error::InvalidState("wrong type".to_string()))
+                }
+            });
+
+        assert_eq!(result.unwrap(), 100);
+    }
+
+    #[test]
+    fn test_transaction_with_retry_read_modify_write() {
+        use std::sync::atomic::{AtomicU64, Ordering};
+
+        let temp_dir = TempDir::new().unwrap();
+        let db = Database::open(temp_dir.path().join("db")).unwrap();
+
+        let run_id = RunId::new();
+        let ns = create_test_namespace(run_id);
+        let key = Key::new_kv(ns, "counter");
+        let attempts = AtomicU64::new(0);
+
+        // Initialize counter
+        db.put(run_id, key.clone(), Value::I64(0)).unwrap();
+
+        let config = RetryConfig {
+            max_retries: 5,
+            base_delay_ms: 1,
+            max_delay_ms: 10,
+        };
+
+        // Simulate conflict on first attempt, then succeed
+        // Note: txn.get() returns Option<Value>, not Option<VersionedValue>
+        let result = db.transaction_with_retry(run_id, config, |txn| {
+            let count = attempts.fetch_add(1, Ordering::Relaxed);
+
+            // Read
+            let val = txn.get(&key)?.unwrap();
+            let n = match val {
+                Value::I64(n) => n,
+                _ => return Err(Error::InvalidState("wrong type".to_string())),
+            };
+
+            // Simulate conflict on first attempt
+            if count == 0 {
+                return Err(Error::TransactionConflict("simulated conflict".to_string()));
+            }
+
+            // Write incremented value
+            txn.put(key.clone(), Value::I64(n + 1))?;
+            Ok(n + 1)
+        });
+
+        assert_eq!(result.unwrap(), 1);
+        assert_eq!(attempts.load(Ordering::Relaxed), 2); // Tried twice
+
+        // Verify final value
+        let stored = db.get(&key).unwrap().unwrap();
+        assert_eq!(stored.value, Value::I64(1));
     }
 }
