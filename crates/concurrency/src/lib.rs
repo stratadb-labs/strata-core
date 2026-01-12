@@ -3,6 +3,7 @@
 //! This crate implements optimistic concurrency control (OCC) with:
 //! - TransactionContext: Read/write set tracking
 //! - TransactionManager: Atomic commit coordination
+//! - RecoveryCoordinator: Database recovery from WAL
 //! - Snapshot isolation via ClonedSnapshotView
 //! - Conflict detection at commit time (Story #83)
 //! - Compare-and-swap (CAS) operations
@@ -12,12 +13,14 @@
 #![warn(clippy::all)]
 
 pub mod manager;
+pub mod recovery;
 pub mod snapshot;
 pub mod transaction;
 pub mod validation;
 pub mod wal_writer;
 
 pub use manager::TransactionManager;
+pub use recovery::{RecoveryCoordinator, RecoveryResult, RecoveryStats};
 pub use snapshot::ClonedSnapshotView;
 pub use transaction::{
     ApplyResult, CASOperation, CommitError, PendingOperations, TransactionContext,
