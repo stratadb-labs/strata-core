@@ -1624,4 +1624,414 @@ mod tests {
             .unwrap()
             .is_none());
     }
+
+    // ========================================
+    // Transaction Recovery Tests (Story #95)
+    // ========================================
+
+    #[test]
+    fn test_interleaved_transaction_recovery() {
+        // Per spec: WAL entries may be interleaved from concurrent transactions.
+        // Recovery groups by txn_id correctly.
+        let temp_dir = TempDir::new().unwrap();
+        let wal_path = temp_dir.path().join("interleaved.wal");
+
+        let run_id = RunId::new();
+        let ns = Namespace::new(
+            "tenant".to_string(),
+            "app".to_string(),
+            "agent".to_string(),
+            run_id,
+        );
+
+        // Write interleaved sequence
+        {
+            let mut wal = WAL::open(&wal_path, DurabilityMode::Strict).unwrap();
+
+            // BeginTxn for both transactions
+            wal.append(&WALEntry::BeginTxn {
+                txn_id: 1,
+                run_id,
+                timestamp: now(),
+            })
+            .unwrap();
+            wal.append(&WALEntry::BeginTxn {
+                txn_id: 2,
+                run_id,
+                timestamp: now(),
+            })
+            .unwrap();
+
+            // Interleaved writes
+            wal.append(&WALEntry::Write {
+                run_id,
+                key: Key::new_kv(ns.clone(), "from_txn1"),
+                value: Value::I64(1),
+                version: 100,
+            })
+            .unwrap();
+            wal.append(&WALEntry::Write {
+                run_id,
+                key: Key::new_kv(ns.clone(), "from_txn2"),
+                value: Value::I64(2),
+                version: 200,
+            })
+            .unwrap();
+            wal.append(&WALEntry::Write {
+                run_id,
+                key: Key::new_kv(ns.clone(), "also_from_txn1"),
+                value: Value::I64(11),
+                version: 100,
+            })
+            .unwrap();
+
+            // Commits
+            wal.append(&WALEntry::CommitTxn { txn_id: 1, run_id })
+                .unwrap();
+            wal.append(&WALEntry::CommitTxn { txn_id: 2, run_id })
+                .unwrap();
+        }
+
+        // Replay
+        let wal = WAL::open(&wal_path, DurabilityMode::Strict).unwrap();
+        let store = UnifiedStore::new();
+        let stats = replay_wal(&wal, &store).unwrap();
+
+        // Both transactions should be applied
+        assert_eq!(stats.txns_applied, 2);
+        assert_eq!(stats.writes_applied, 3);
+        assert_eq!(stats.final_version, 200);
+
+        // All keys should exist
+        assert!(store
+            .get(&Key::new_kv(ns.clone(), "from_txn1"))
+            .unwrap()
+            .is_some());
+        assert!(store
+            .get(&Key::new_kv(ns.clone(), "from_txn2"))
+            .unwrap()
+            .is_some());
+        assert!(store
+            .get(&Key::new_kv(ns.clone(), "also_from_txn1"))
+            .unwrap()
+            .is_some());
+    }
+
+    #[test]
+    fn test_multiple_runs_independent_recovery() {
+        // Transactions from different runs are independent.
+        // Even if one run's transaction is incomplete, other run's should apply.
+        let temp_dir = TempDir::new().unwrap();
+        let wal_path = temp_dir.path().join("multi_run.wal");
+
+        let run_a = RunId::new();
+        let run_b = RunId::new();
+
+        let ns_a = Namespace::new(
+            "tenant".to_string(),
+            "app".to_string(),
+            "agent".to_string(),
+            run_a,
+        );
+        let ns_b = Namespace::new(
+            "tenant".to_string(),
+            "app".to_string(),
+            "agent".to_string(),
+            run_b,
+        );
+
+        {
+            let mut wal = WAL::open(&wal_path, DurabilityMode::Strict).unwrap();
+
+            // Run A: Committed transaction
+            wal.append(&WALEntry::BeginTxn {
+                txn_id: 1,
+                run_id: run_a,
+                timestamp: now(),
+            })
+            .unwrap();
+            wal.append(&WALEntry::Write {
+                run_id: run_a,
+                key: Key::new_kv(ns_a.clone(), "key_a"),
+                value: Value::String("from_run_a".to_string()),
+                version: 10,
+            })
+            .unwrap();
+            wal.append(&WALEntry::CommitTxn {
+                txn_id: 1,
+                run_id: run_a,
+            })
+            .unwrap();
+
+            // Run B: Incomplete transaction (simulates crash)
+            wal.append(&WALEntry::BeginTxn {
+                txn_id: 2,
+                run_id: run_b,
+                timestamp: now(),
+            })
+            .unwrap();
+            wal.append(&WALEntry::Write {
+                run_id: run_b,
+                key: Key::new_kv(ns_b.clone(), "key_b"),
+                value: Value::String("from_run_b".to_string()),
+                version: 20,
+            })
+            .unwrap();
+            // NO CommitTxn - incomplete
+        }
+
+        // Replay
+        let wal = WAL::open(&wal_path, DurabilityMode::Strict).unwrap();
+        let store = UnifiedStore::new();
+        let stats = replay_wal(&wal, &store).unwrap();
+
+        // Run A should be applied, Run B discarded
+        assert_eq!(stats.txns_applied, 1);
+        assert_eq!(stats.incomplete_txns, 1);
+        assert_eq!(stats.writes_applied, 1);
+
+        // key_a should exist, key_b should NOT
+        assert!(store.get(&Key::new_kv(ns_a, "key_a")).unwrap().is_some());
+        assert!(store.get(&Key::new_kv(ns_b, "key_b")).unwrap().is_none());
+    }
+
+    #[test]
+    fn test_delete_version_preserved_in_storage() {
+        // Per spec: Delete operations preserve versions during recovery.
+        // After delete, the storage should update its current_version to reflect the delete.
+        let temp_dir = TempDir::new().unwrap();
+        let wal_path = temp_dir.path().join("delete_version.wal");
+
+        let run_id = RunId::new();
+        let ns = Namespace::new(
+            "tenant".to_string(),
+            "app".to_string(),
+            "agent".to_string(),
+            run_id,
+        );
+        let key = Key::new_kv(ns.clone(), "to_be_deleted");
+
+        {
+            let mut wal = WAL::open(&wal_path, DurabilityMode::Strict).unwrap();
+
+            wal.append(&WALEntry::BeginTxn {
+                txn_id: 1,
+                run_id,
+                timestamp: now(),
+            })
+            .unwrap();
+
+            // Write at version 100
+            wal.append(&WALEntry::Write {
+                run_id,
+                key: key.clone(),
+                value: Value::String("initial".to_string()),
+                version: 100,
+            })
+            .unwrap();
+
+            // Delete at version 150 (higher than write)
+            wal.append(&WALEntry::Delete {
+                run_id,
+                key: key.clone(),
+                version: 150,
+            })
+            .unwrap();
+
+            wal.append(&WALEntry::CommitTxn { txn_id: 1, run_id })
+                .unwrap();
+        }
+
+        // Replay
+        let wal = WAL::open(&wal_path, DurabilityMode::Strict).unwrap();
+        let store = UnifiedStore::new();
+        let stats = replay_wal(&wal, &store).unwrap();
+
+        assert_eq!(stats.writes_applied, 1);
+        assert_eq!(stats.deletes_applied, 1);
+        // Final version should be max of all operations (150 from delete)
+        assert_eq!(stats.final_version, 150);
+
+        // Key should be deleted
+        assert!(store.get(&key).unwrap().is_none());
+
+        // Storage current_version should be 150
+        assert_eq!(store.current_version(), 150);
+    }
+
+    #[test]
+    fn test_interleaved_with_one_incomplete() {
+        // Interleaved transactions from different runs where one is incomplete.
+        // The complete transaction should apply, incomplete should be discarded.
+        // NOTE: Each run_id can only have one active transaction at a time,
+        // so we use different run_ids to test true interleaving.
+        let temp_dir = TempDir::new().unwrap();
+        let wal_path = temp_dir.path().join("interleaved_incomplete.wal");
+
+        let run_complete = RunId::new();
+        let run_incomplete = RunId::new();
+
+        let ns_complete = Namespace::new(
+            "tenant".to_string(),
+            "app".to_string(),
+            "agent".to_string(),
+            run_complete,
+        );
+        let ns_incomplete = Namespace::new(
+            "tenant".to_string(),
+            "app".to_string(),
+            "agent".to_string(),
+            run_incomplete,
+        );
+
+        {
+            let mut wal = WAL::open(&wal_path, DurabilityMode::Strict).unwrap();
+
+            // Start both transactions (from different runs)
+            wal.append(&WALEntry::BeginTxn {
+                txn_id: 1,
+                run_id: run_complete,
+                timestamp: now(),
+            })
+            .unwrap();
+            wal.append(&WALEntry::BeginTxn {
+                txn_id: 2,
+                run_id: run_incomplete,
+                timestamp: now(),
+            })
+            .unwrap();
+
+            // Interleaved writes
+            wal.append(&WALEntry::Write {
+                run_id: run_complete,
+                key: Key::new_kv(ns_complete.clone(), "complete_txn_key"),
+                value: Value::I64(100),
+                version: 100,
+            })
+            .unwrap();
+            wal.append(&WALEntry::Write {
+                run_id: run_incomplete,
+                key: Key::new_kv(ns_incomplete.clone(), "incomplete_txn_key"),
+                value: Value::I64(200),
+                version: 200,
+            })
+            .unwrap();
+
+            // Only txn 1 commits
+            wal.append(&WALEntry::CommitTxn {
+                txn_id: 1,
+                run_id: run_complete,
+            })
+            .unwrap();
+            // txn 2 never commits - incomplete
+        }
+
+        // Replay
+        let wal = WAL::open(&wal_path, DurabilityMode::Strict).unwrap();
+        let store = UnifiedStore::new();
+        let stats = replay_wal(&wal, &store).unwrap();
+
+        assert_eq!(stats.txns_applied, 1);
+        assert_eq!(stats.incomplete_txns, 1);
+        // Only the write from txn 1 should be applied
+        // The write from txn 2 should NOT be applied despite being in WAL
+        assert_eq!(stats.writes_applied, 1);
+
+        // complete_txn_key should exist (from txn 1)
+        assert!(store
+            .get(&Key::new_kv(ns_complete, "complete_txn_key"))
+            .unwrap()
+            .is_some());
+        // incomplete_txn_key should NOT exist (from incomplete txn 2)
+        assert!(store
+            .get(&Key::new_kv(ns_incomplete, "incomplete_txn_key"))
+            .unwrap()
+            .is_none());
+    }
+
+    #[test]
+    fn test_multiple_writes_same_key_different_transactions() {
+        // Multiple transactions write to the same key.
+        // Final state should reflect all writes in order.
+        let temp_dir = TempDir::new().unwrap();
+        let wal_path = temp_dir.path().join("multi_write_same_key.wal");
+
+        let run_id = RunId::new();
+        let ns = Namespace::new(
+            "tenant".to_string(),
+            "app".to_string(),
+            "agent".to_string(),
+            run_id,
+        );
+        let key = Key::new_kv(ns.clone(), "contested_key");
+
+        {
+            let mut wal = WAL::open(&wal_path, DurabilityMode::Strict).unwrap();
+
+            // Txn 1: Write initial value
+            wal.append(&WALEntry::BeginTxn {
+                txn_id: 1,
+                run_id,
+                timestamp: now(),
+            })
+            .unwrap();
+            wal.append(&WALEntry::Write {
+                run_id,
+                key: key.clone(),
+                value: Value::String("first".to_string()),
+                version: 10,
+            })
+            .unwrap();
+            wal.append(&WALEntry::CommitTxn { txn_id: 1, run_id })
+                .unwrap();
+
+            // Txn 2: Overwrite with new value
+            wal.append(&WALEntry::BeginTxn {
+                txn_id: 2,
+                run_id,
+                timestamp: now(),
+            })
+            .unwrap();
+            wal.append(&WALEntry::Write {
+                run_id,
+                key: key.clone(),
+                value: Value::String("second".to_string()),
+                version: 20,
+            })
+            .unwrap();
+            wal.append(&WALEntry::CommitTxn { txn_id: 2, run_id })
+                .unwrap();
+
+            // Txn 3: Final value
+            wal.append(&WALEntry::BeginTxn {
+                txn_id: 3,
+                run_id,
+                timestamp: now(),
+            })
+            .unwrap();
+            wal.append(&WALEntry::Write {
+                run_id,
+                key: key.clone(),
+                value: Value::String("final".to_string()),
+                version: 30,
+            })
+            .unwrap();
+            wal.append(&WALEntry::CommitTxn { txn_id: 3, run_id })
+                .unwrap();
+        }
+
+        // Replay
+        let wal = WAL::open(&wal_path, DurabilityMode::Strict).unwrap();
+        let store = UnifiedStore::new();
+        let stats = replay_wal(&wal, &store).unwrap();
+
+        assert_eq!(stats.txns_applied, 3);
+        assert_eq!(stats.writes_applied, 3);
+        assert_eq!(stats.final_version, 30);
+
+        // Final value should be "final" with version 30
+        let stored = store.get(&key).unwrap().unwrap();
+        assert_eq!(stored.value, Value::String("final".to_string()));
+        assert_eq!(stored.version, 30);
+    }
 }
