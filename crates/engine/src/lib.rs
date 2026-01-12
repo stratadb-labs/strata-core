@@ -15,8 +15,9 @@
 #![warn(missing_docs)]
 #![warn(clippy::all)]
 
+pub mod coordinator;
 pub mod database;
 // pub mod run;          // Story #29
-// pub mod coordinator;  // M4
 
+pub use coordinator::{TransactionCoordinator, TransactionMetrics};
 pub use database::Database;

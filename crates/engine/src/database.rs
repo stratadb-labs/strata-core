@@ -19,9 +19,9 @@
 //!
 //! Per spec Section 4: Implicit transactions wrap M1-style operations.
 
+use crate::coordinator::{TransactionCoordinator, TransactionMetrics};
 use in_mem_concurrency::{
-    validate_transaction, RecoveryCoordinator, TransactionContext, TransactionManager,
-    TransactionWALWriter,
+    validate_transaction, RecoveryCoordinator, TransactionContext, TransactionWALWriter,
 };
 use in_mem_core::error::{Error, Result};
 use in_mem_core::traits::Storage;
@@ -69,10 +69,10 @@ pub struct Database {
     /// Write-ahead log (protected by mutex for exclusive access)
     wal: Arc<Mutex<WAL>>,
 
-    /// Transaction manager for version and ID allocation
+    /// Transaction coordinator for lifecycle management, version allocation, and metrics
     ///
     /// Per spec Section 6.1: Single monotonic counter for the entire database.
-    txn_manager: TransactionManager,
+    coordinator: TransactionCoordinator,
 }
 
 impl Database {
@@ -144,7 +144,7 @@ impl Database {
         let wal_path = wal_dir.join("current.wal");
 
         // Use RecoveryCoordinator for proper transaction-aware recovery
-        // This replays the WAL and initializes the TransactionManager
+        // This replays the WAL and initializes version tracking
         let recovery = RecoveryCoordinator::new(wal_path.clone());
         let result = recovery.recover()?;
 
@@ -160,11 +160,14 @@ impl Database {
         // Re-open WAL for appending (recovery opened read-only)
         let wal = WAL::open(&wal_path, durability_mode)?;
 
+        // Create coordinator from recovery result (preserves version continuity)
+        let coordinator = TransactionCoordinator::from_recovery(&result);
+
         Ok(Self {
             data_dir,
             storage: Arc::new(result.storage),
             wal: Arc::new(Mutex::new(wal)),
-            txn_manager: result.txn_manager,
+            coordinator,
         })
     }
 
@@ -244,6 +247,7 @@ impl Database {
             Err(e) => {
                 // Abort on error (just discard, per spec no AbortTxn in WAL for user aborts)
                 let _ = txn.mark_aborted(format!("Closure error: {}", e));
+                self.coordinator.record_abort();
                 Err(e)
             }
         }
@@ -267,10 +271,7 @@ impl Database {
     /// db.commit_transaction(&mut txn)?;
     /// ```
     pub fn begin_transaction(&self, run_id: RunId) -> TransactionContext {
-        let txn_id = self.txn_manager.next_txn_id();
-        let snapshot = self.storage.create_snapshot();
-
-        TransactionContext::with_snapshot(txn_id, run_id, Box::new(snapshot))
+        self.coordinator.start_transaction(run_id, &self.storage)
     }
 
     /// Commit a transaction
@@ -298,6 +299,7 @@ impl Database {
 
         if !validation.is_valid() {
             let _ = txn.mark_aborted(format!("Validation failed: {:?}", validation.conflicts));
+            self.coordinator.record_abort();
             return Err(Error::TransactionConflict(format!(
                 "Conflicts: {:?}",
                 validation.conflicts
@@ -305,7 +307,7 @@ impl Database {
         }
 
         // 2. Allocate commit version
-        let commit_version = self.txn_manager.allocate_version();
+        let commit_version = self.coordinator.allocate_commit_version();
 
         // 3. Write to WAL
         {
@@ -338,13 +340,24 @@ impl Database {
 
         // Mark committed
         txn.mark_committed()?;
+        self.coordinator.record_commit();
 
         Ok(())
     }
 
-    /// Get the transaction manager (for testing/internal use)
-    pub fn txn_manager(&self) -> &TransactionManager {
-        &self.txn_manager
+    /// Get the transaction coordinator (for metrics/testing)
+    pub fn coordinator(&self) -> &TransactionCoordinator {
+        &self.coordinator
+    }
+
+    /// Get transaction metrics
+    ///
+    /// Returns statistics about transaction lifecycle including:
+    /// - Active count
+    /// - Total started/committed/aborted
+    /// - Commit rate
+    pub fn metrics(&self) -> TransactionMetrics {
+        self.coordinator.metrics()
     }
 }
 
@@ -800,14 +813,54 @@ mod tests {
     }
 
     #[test]
-    fn test_txn_manager_accessor() {
+    fn test_coordinator_accessor() {
         let temp_dir = TempDir::new().unwrap();
         let db = Database::open(temp_dir.path().join("db")).unwrap();
 
-        // TxnManager should be accessible
-        let _txn_manager = db.txn_manager();
+        // Coordinator should be accessible
+        let _coordinator = db.coordinator();
         // Initial version should be 0 for empty database
-        assert_eq!(db.txn_manager().current_version(), 0);
+        assert_eq!(db.coordinator().current_version(), 0);
+    }
+
+    #[test]
+    fn test_transaction_metrics() {
+        let temp_dir = TempDir::new().unwrap();
+        let db = Database::open(temp_dir.path().join("db")).unwrap();
+
+        let run_id = RunId::new();
+        let ns = create_test_namespace(run_id);
+
+        // Initial metrics should be zero
+        let initial_metrics = db.metrics();
+        assert_eq!(initial_metrics.total_started, 0);
+        assert_eq!(initial_metrics.total_committed, 0);
+        assert_eq!(initial_metrics.total_aborted, 0);
+
+        // Commit a transaction
+        db.transaction(run_id, |txn| {
+            txn.put(Key::new_kv(ns.clone(), "key1"), Value::I64(1))?;
+            Ok(())
+        })
+        .unwrap();
+
+        let after_commit = db.metrics();
+        assert_eq!(after_commit.total_started, 1);
+        assert_eq!(after_commit.total_committed, 1);
+        assert_eq!(after_commit.total_aborted, 0);
+        assert_eq!(after_commit.commit_rate, 1.0);
+
+        // Abort a transaction
+        let _: Result<()> = db.transaction(run_id, |txn| {
+            txn.put(Key::new_kv(ns.clone(), "key2"), Value::I64(2))?;
+            Err(Error::InvalidState("intentional abort".to_string()))
+        });
+
+        let after_abort = db.metrics();
+        assert_eq!(after_abort.total_started, 2);
+        assert_eq!(after_abort.total_committed, 1);
+        assert_eq!(after_abort.total_aborted, 1);
+        assert_eq!(after_abort.commit_rate, 0.5);
     }
 
     #[test]
