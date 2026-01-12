@@ -628,4 +628,627 @@ mod tests {
         let result = coordinator.recover().unwrap();
         assert_eq!(result.stats.from_checkpoint, false);
     }
+
+    // ========================================
+    // Crash Scenario Tests (Story #96)
+    // ========================================
+    //
+    // Per spec Section 5.5:
+    // "If a crash occurs during commit:
+    //  - Sees BeginTxn for txn_id 42
+    //  - Sees Write entries for txn_id 42
+    //  - Does NOT see CommitTxn for txn_id 42
+    //  - Conclusion: Transaction 42 is INCOMPLETE
+    //  - Action: DISCARD all entries for txn_id 42
+    //  - Result: Keys are NOT modified"
+
+    /// Scenario 1: Crash before any WAL activity
+    /// Expected: Empty database
+    #[test]
+    fn test_crash_before_any_activity() {
+        let temp_dir = TempDir::new().unwrap();
+        let wal_path = temp_dir.path().join("empty.wal");
+
+        // Create WAL file but write nothing
+        let _wal = WAL::open(&wal_path, DurabilityMode::Strict).unwrap();
+        drop(_wal);
+
+        // Recovery
+        let coordinator = RecoveryCoordinator::new(wal_path);
+        let result = coordinator.recover().unwrap();
+
+        assert_eq!(result.stats.txns_replayed, 0);
+        assert_eq!(result.stats.final_version, 0);
+        assert_eq!(result.stats.incomplete_txns, 0);
+        assert_eq!(result.txn_manager.current_version(), 0);
+    }
+
+    /// Scenario 2: Crash after BeginTxn, before any writes
+    /// Expected: Transaction discarded (no writes to apply anyway)
+    #[test]
+    fn test_crash_after_begin_before_writes() {
+        let temp_dir = TempDir::new().unwrap();
+        let wal_path = temp_dir.path().join("begin_only.wal");
+
+        let run_id = RunId::new();
+
+        {
+            let mut wal = WAL::open(&wal_path, DurabilityMode::Strict).unwrap();
+            wal.append(&WALEntry::BeginTxn {
+                txn_id: 1,
+                run_id,
+                timestamp: now(),
+            })
+            .unwrap();
+            // CRASH - no writes, no commit
+        }
+
+        let coordinator = RecoveryCoordinator::new(wal_path);
+        let result = coordinator.recover().unwrap();
+
+        assert_eq!(result.stats.txns_replayed, 0);
+        assert_eq!(result.stats.incomplete_txns, 1);
+        assert_eq!(result.stats.writes_applied, 0);
+    }
+
+    /// Scenario 3: Crash mid-writes
+    /// Expected: ALL writes from this transaction discarded (all-or-nothing)
+    #[test]
+    fn test_crash_mid_writes() {
+        let temp_dir = TempDir::new().unwrap();
+        let wal_path = temp_dir.path().join("mid_writes.wal");
+
+        let run_id = RunId::new();
+        let ns = create_test_namespace(run_id);
+
+        {
+            let mut wal = WAL::open(&wal_path, DurabilityMode::Strict).unwrap();
+
+            wal.append(&WALEntry::BeginTxn {
+                txn_id: 1,
+                run_id,
+                timestamp: now(),
+            })
+            .unwrap();
+
+            // Some writes completed
+            wal.append(&WALEntry::Write {
+                run_id,
+                key: Key::new_kv(ns.clone(), "key1"),
+                value: Value::I64(1),
+                version: 10,
+            })
+            .unwrap();
+            wal.append(&WALEntry::Write {
+                run_id,
+                key: Key::new_kv(ns.clone(), "key2"),
+                value: Value::I64(2),
+                version: 10,
+            })
+            .unwrap();
+            // CRASH - more writes planned but not written, no commit
+        }
+
+        let coordinator = RecoveryCoordinator::new(wal_path);
+        let result = coordinator.recover().unwrap();
+
+        // ALL writes discarded (all-or-nothing)
+        assert_eq!(result.stats.txns_replayed, 0);
+        assert_eq!(result.stats.incomplete_txns, 1);
+        assert_eq!(result.stats.writes_applied, 0);
+
+        // Keys should NOT exist
+        assert!(result
+            .storage
+            .get(&Key::new_kv(ns.clone(), "key1"))
+            .unwrap()
+            .is_none());
+        assert!(result
+            .storage
+            .get(&Key::new_kv(ns.clone(), "key2"))
+            .unwrap()
+            .is_none());
+    }
+
+    /// Scenario 4: Crash after all writes, before CommitTxn
+    /// Expected: Transaction discarded
+    #[test]
+    fn test_crash_after_writes_before_commit() {
+        let temp_dir = TempDir::new().unwrap();
+        let wal_path = temp_dir.path().join("no_commit.wal");
+
+        let run_id = RunId::new();
+        let ns = create_test_namespace(run_id);
+
+        {
+            let mut wal = WAL::open(&wal_path, DurabilityMode::Strict).unwrap();
+
+            wal.append(&WALEntry::BeginTxn {
+                txn_id: 1,
+                run_id,
+                timestamp: now(),
+            })
+            .unwrap();
+
+            wal.append(&WALEntry::Write {
+                run_id,
+                key: Key::new_kv(ns.clone(), "key1"),
+                value: Value::I64(1),
+                version: 10,
+            })
+            .unwrap();
+
+            // CRASH - about to write CommitTxn but didn't
+        }
+
+        let coordinator = RecoveryCoordinator::new(wal_path);
+        let result = coordinator.recover().unwrap();
+
+        assert_eq!(result.stats.txns_replayed, 0);
+        assert_eq!(result.stats.incomplete_txns, 1);
+
+        // Key should NOT exist
+        assert!(result
+            .storage
+            .get(&Key::new_kv(ns, "key1"))
+            .unwrap()
+            .is_none());
+    }
+
+    /// Scenario 5: Crash after CommitTxn written to WAL
+    /// Expected: Transaction IS durable, MUST be recovered
+    ///
+    /// Per spec: "If crash occurs after step 8: Transaction is durable,
+    /// replayed on recovery."
+    #[test]
+    fn test_crash_after_commit_written() {
+        let temp_dir = TempDir::new().unwrap();
+        let wal_path = temp_dir.path().join("committed_crash.wal");
+
+        let run_id = RunId::new();
+        let ns = create_test_namespace(run_id);
+
+        {
+            let mut wal = WAL::open(&wal_path, DurabilityMode::Strict).unwrap();
+
+            wal.append(&WALEntry::BeginTxn {
+                txn_id: 1,
+                run_id,
+                timestamp: now(),
+            })
+            .unwrap();
+
+            wal.append(&WALEntry::Write {
+                run_id,
+                key: Key::new_kv(ns.clone(), "durable_key"),
+                value: Value::String("must_exist".to_string()),
+                version: 100,
+            })
+            .unwrap();
+
+            wal.append(&WALEntry::CommitTxn { txn_id: 1, run_id })
+                .unwrap();
+
+            // CRASH - after commit marker written
+            // (Storage may not have been updated yet in real scenario)
+        }
+
+        let coordinator = RecoveryCoordinator::new(wal_path);
+        let result = coordinator.recover().unwrap();
+
+        // Transaction MUST be recovered
+        assert_eq!(result.stats.txns_replayed, 1);
+        assert_eq!(result.stats.incomplete_txns, 0);
+
+        // Key MUST exist with correct value and version
+        let stored = result
+            .storage
+            .get(&Key::new_kv(ns, "durable_key"))
+            .unwrap()
+            .unwrap();
+        assert_eq!(stored.value, Value::String("must_exist".to_string()));
+        assert_eq!(stored.version, 100);
+    }
+
+    /// Scenario 6: One committed, one incomplete
+    /// Expected: Committed applies, incomplete discarded
+    #[test]
+    fn test_crash_one_committed_one_incomplete() {
+        let temp_dir = TempDir::new().unwrap();
+        let wal_path = temp_dir.path().join("one_each.wal");
+
+        let run_id = RunId::new();
+        let ns = create_test_namespace(run_id);
+
+        {
+            let mut wal = WAL::open(&wal_path, DurabilityMode::Strict).unwrap();
+
+            // Committed transaction
+            wal.append(&WALEntry::BeginTxn {
+                txn_id: 1,
+                run_id,
+                timestamp: now(),
+            })
+            .unwrap();
+            wal.append(&WALEntry::Write {
+                run_id,
+                key: Key::new_kv(ns.clone(), "committed"),
+                value: Value::I64(1),
+                version: 10,
+            })
+            .unwrap();
+            wal.append(&WALEntry::CommitTxn { txn_id: 1, run_id })
+                .unwrap();
+
+            // Incomplete transaction
+            wal.append(&WALEntry::BeginTxn {
+                txn_id: 2,
+                run_id,
+                timestamp: now(),
+            })
+            .unwrap();
+            wal.append(&WALEntry::Write {
+                run_id,
+                key: Key::new_kv(ns.clone(), "uncommitted"),
+                value: Value::I64(2),
+                version: 20,
+            })
+            .unwrap();
+            // CRASH - no commit
+        }
+
+        let coordinator = RecoveryCoordinator::new(wal_path);
+        let result = coordinator.recover().unwrap();
+
+        assert_eq!(result.stats.txns_replayed, 1);
+        assert_eq!(result.stats.incomplete_txns, 1);
+
+        assert!(result
+            .storage
+            .get(&Key::new_kv(ns.clone(), "committed"))
+            .unwrap()
+            .is_some());
+        assert!(result
+            .storage
+            .get(&Key::new_kv(ns.clone(), "uncommitted"))
+            .unwrap()
+            .is_none());
+    }
+
+    /// Scenario 7: Multiple incomplete transactions
+    /// Expected: All discarded
+    #[test]
+    fn test_crash_multiple_incomplete() {
+        let temp_dir = TempDir::new().unwrap();
+        let wal_path = temp_dir.path().join("multi_incomplete.wal");
+
+        let run_a = RunId::new();
+        let run_b = RunId::new();
+        let run_c = RunId::new();
+        let ns_a = create_test_namespace(run_a);
+        let ns_b = create_test_namespace(run_b);
+        let ns_c = create_test_namespace(run_c);
+
+        {
+            let mut wal = WAL::open(&wal_path, DurabilityMode::Strict).unwrap();
+
+            // Three incomplete transactions from different runs
+            wal.append(&WALEntry::BeginTxn {
+                txn_id: 1,
+                run_id: run_a,
+                timestamp: now(),
+            })
+            .unwrap();
+            wal.append(&WALEntry::Write {
+                run_id: run_a,
+                key: Key::new_kv(ns_a.clone(), "key_a"),
+                value: Value::I64(1),
+                version: 10,
+            })
+            .unwrap();
+            // NO commit
+
+            wal.append(&WALEntry::BeginTxn {
+                txn_id: 2,
+                run_id: run_b,
+                timestamp: now(),
+            })
+            .unwrap();
+            wal.append(&WALEntry::Write {
+                run_id: run_b,
+                key: Key::new_kv(ns_b.clone(), "key_b"),
+                value: Value::I64(2),
+                version: 20,
+            })
+            .unwrap();
+            // NO commit
+
+            wal.append(&WALEntry::BeginTxn {
+                txn_id: 3,
+                run_id: run_c,
+                timestamp: now(),
+            })
+            .unwrap();
+            wal.append(&WALEntry::Write {
+                run_id: run_c,
+                key: Key::new_kv(ns_c.clone(), "key_c"),
+                value: Value::I64(3),
+                version: 30,
+            })
+            .unwrap();
+            // NO commit
+        }
+
+        let coordinator = RecoveryCoordinator::new(wal_path);
+        let result = coordinator.recover().unwrap();
+
+        // All three should be incomplete
+        assert_eq!(result.stats.txns_replayed, 0);
+        assert_eq!(result.stats.incomplete_txns, 3);
+        assert_eq!(result.stats.writes_applied, 0);
+
+        // No keys should exist
+        assert!(result
+            .storage
+            .get(&Key::new_kv(ns_a, "key_a"))
+            .unwrap()
+            .is_none());
+        assert!(result
+            .storage
+            .get(&Key::new_kv(ns_b, "key_b"))
+            .unwrap()
+            .is_none());
+        assert!(result
+            .storage
+            .get(&Key::new_kv(ns_c, "key_c"))
+            .unwrap()
+            .is_none());
+    }
+
+    /// Scenario 8: Recovery is idempotent
+    /// Expected: Recovering twice gives same result
+    #[test]
+    fn test_crash_recovery_idempotent() {
+        let temp_dir = TempDir::new().unwrap();
+        let wal_path = temp_dir.path().join("idempotent.wal");
+
+        let run_id = RunId::new();
+        let ns = create_test_namespace(run_id);
+
+        {
+            let mut wal = WAL::open(&wal_path, DurabilityMode::Strict).unwrap();
+
+            wal.append(&WALEntry::BeginTxn {
+                txn_id: 1,
+                run_id,
+                timestamp: now(),
+            })
+            .unwrap();
+            wal.append(&WALEntry::Write {
+                run_id,
+                key: Key::new_kv(ns.clone(), "key"),
+                value: Value::I64(42),
+                version: 100,
+            })
+            .unwrap();
+            wal.append(&WALEntry::CommitTxn { txn_id: 1, run_id })
+                .unwrap();
+        }
+
+        // Recover first time
+        let coordinator = RecoveryCoordinator::new(wal_path.clone());
+        let result1 = coordinator.recover().unwrap();
+
+        // Recover second time (simulates restart)
+        let coordinator = RecoveryCoordinator::new(wal_path);
+        let result2 = coordinator.recover().unwrap();
+
+        // Results should be identical
+        assert_eq!(result1.stats.txns_replayed, result2.stats.txns_replayed);
+        assert_eq!(result1.stats.final_version, result2.stats.final_version);
+        assert_eq!(result1.stats.writes_applied, result2.stats.writes_applied);
+
+        let v1 = result1
+            .storage
+            .get(&Key::new_kv(ns.clone(), "key"))
+            .unwrap()
+            .unwrap();
+        let v2 = result2
+            .storage
+            .get(&Key::new_kv(ns.clone(), "key"))
+            .unwrap()
+            .unwrap();
+        assert_eq!(v1.value, v2.value);
+        assert_eq!(v1.version, v2.version);
+    }
+
+    /// Scenario 9: Crash with deletes
+    /// Expected: Incomplete delete transaction discarded, committed one applies
+    #[test]
+    fn test_crash_with_delete_operations() {
+        let temp_dir = TempDir::new().unwrap();
+        let wal_path = temp_dir.path().join("crash_delete.wal");
+
+        let run_id = RunId::new();
+        let ns = create_test_namespace(run_id);
+
+        {
+            let mut wal = WAL::open(&wal_path, DurabilityMode::Strict).unwrap();
+
+            // Txn 1: Committed - write and delete
+            wal.append(&WALEntry::BeginTxn {
+                txn_id: 1,
+                run_id,
+                timestamp: now(),
+            })
+            .unwrap();
+            wal.append(&WALEntry::Write {
+                run_id,
+                key: Key::new_kv(ns.clone(), "to_delete"),
+                value: Value::I64(1),
+                version: 10,
+            })
+            .unwrap();
+            wal.append(&WALEntry::Delete {
+                run_id,
+                key: Key::new_kv(ns.clone(), "to_delete"),
+                version: 11,
+            })
+            .unwrap();
+            wal.append(&WALEntry::CommitTxn { txn_id: 1, run_id })
+                .unwrap();
+
+            // Txn 2: Incomplete - has a delete but didn't commit
+            wal.append(&WALEntry::BeginTxn {
+                txn_id: 2,
+                run_id,
+                timestamp: now(),
+            })
+            .unwrap();
+            wal.append(&WALEntry::Write {
+                run_id,
+                key: Key::new_kv(ns.clone(), "should_exist"),
+                value: Value::I64(2),
+                version: 20,
+            })
+            .unwrap();
+            // CRASH before commit
+        }
+
+        let coordinator = RecoveryCoordinator::new(wal_path);
+        let result = coordinator.recover().unwrap();
+
+        assert_eq!(result.stats.txns_replayed, 1);
+        assert_eq!(result.stats.incomplete_txns, 1);
+        assert_eq!(result.stats.deletes_applied, 1);
+
+        // to_delete should be deleted (from committed txn)
+        assert!(result
+            .storage
+            .get(&Key::new_kv(ns.clone(), "to_delete"))
+            .unwrap()
+            .is_none());
+
+        // should_exist should NOT exist (from incomplete txn)
+        assert!(result
+            .storage
+            .get(&Key::new_kv(ns.clone(), "should_exist"))
+            .unwrap()
+            .is_none());
+    }
+
+    /// Scenario 10: Interleaved crash scenario - Two runs, one commits, one crashes
+    #[test]
+    fn test_crash_interleaved_runs() {
+        let temp_dir = TempDir::new().unwrap();
+        let wal_path = temp_dir.path().join("interleaved_crash.wal");
+
+        let run_ok = RunId::new();
+        let run_crash = RunId::new();
+        let ns_ok = create_test_namespace(run_ok);
+        let ns_crash = create_test_namespace(run_crash);
+
+        {
+            let mut wal = WAL::open(&wal_path, DurabilityMode::Strict).unwrap();
+
+            // Interleaved operations from two runs
+            wal.append(&WALEntry::BeginTxn {
+                txn_id: 1,
+                run_id: run_ok,
+                timestamp: now(),
+            })
+            .unwrap();
+            wal.append(&WALEntry::BeginTxn {
+                txn_id: 2,
+                run_id: run_crash,
+                timestamp: now(),
+            })
+            .unwrap();
+
+            // Both make writes
+            wal.append(&WALEntry::Write {
+                run_id: run_ok,
+                key: Key::new_kv(ns_ok.clone(), "ok_key"),
+                value: Value::I64(1),
+                version: 10,
+            })
+            .unwrap();
+            wal.append(&WALEntry::Write {
+                run_id: run_crash,
+                key: Key::new_kv(ns_crash.clone(), "crash_key"),
+                value: Value::I64(2),
+                version: 20,
+            })
+            .unwrap();
+
+            // Only run_ok commits
+            wal.append(&WALEntry::CommitTxn {
+                txn_id: 1,
+                run_id: run_ok,
+            })
+            .unwrap();
+            // run_crash never commits - simulates crash during its commit
+        }
+
+        let coordinator = RecoveryCoordinator::new(wal_path);
+        let result = coordinator.recover().unwrap();
+
+        assert_eq!(result.stats.txns_replayed, 1);
+        assert_eq!(result.stats.incomplete_txns, 1);
+
+        // ok_key exists, crash_key doesn't
+        assert!(result
+            .storage
+            .get(&Key::new_kv(ns_ok, "ok_key"))
+            .unwrap()
+            .is_some());
+        assert!(result
+            .storage
+            .get(&Key::new_kv(ns_crash, "crash_key"))
+            .unwrap()
+            .is_none());
+    }
+
+    /// Scenario 11: Recovery version counter initialization
+    /// Expected: TransactionManager version matches WAL max version
+    #[test]
+    fn test_crash_recovery_version_counter() {
+        let temp_dir = TempDir::new().unwrap();
+        let wal_path = temp_dir.path().join("version_counter.wal");
+
+        let run_id = RunId::new();
+        let ns = create_test_namespace(run_id);
+
+        {
+            let mut wal = WAL::open(&wal_path, DurabilityMode::Strict).unwrap();
+
+            // Create transaction with high version
+            wal.append(&WALEntry::BeginTxn {
+                txn_id: 1,
+                run_id,
+                timestamp: now(),
+            })
+            .unwrap();
+            wal.append(&WALEntry::Write {
+                run_id,
+                key: Key::new_kv(ns.clone(), "key"),
+                value: Value::I64(1),
+                version: 999,
+            })
+            .unwrap();
+            wal.append(&WALEntry::CommitTxn { txn_id: 1, run_id })
+                .unwrap();
+        }
+
+        let coordinator = RecoveryCoordinator::new(wal_path);
+        let result = coordinator.recover().unwrap();
+
+        // TransactionManager must have correct version
+        assert_eq!(result.txn_manager.current_version(), 999);
+        assert_eq!(result.stats.final_version, 999);
+
+        // New transactions should get versions > 999
+        let next_version = result.txn_manager.current_version() + 1;
+        assert!(next_version > 999);
+    }
 }
