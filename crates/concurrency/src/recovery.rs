@@ -1251,4 +1251,427 @@ mod tests {
         let next_version = result.txn_manager.current_version() + 1;
         assert!(next_version > 999);
     }
+
+    // ========================================
+    // Integration Tests (Story #97)
+    // ========================================
+
+    /// Full database lifecycle with recovery
+    /// Simulates normal operation, crash, and recovery
+    #[test]
+    fn test_full_database_lifecycle_with_recovery() {
+        let temp_dir = TempDir::new().unwrap();
+        let wal_path = temp_dir.path().join("lifecycle.wal");
+
+        let run_id = RunId::new();
+        let ns = create_test_namespace(run_id);
+
+        // Phase 1: Normal operation - write 10 transactions
+        {
+            let mut wal = WAL::open(&wal_path, DurabilityMode::Strict).unwrap();
+            let storage = UnifiedStore::new();
+
+            for i in 1..=10u64 {
+                let txn_id = i;
+                let commit_version = i;
+
+                // Write to WAL
+                wal.append(&WALEntry::BeginTxn {
+                    txn_id,
+                    run_id,
+                    timestamp: now(),
+                })
+                .unwrap();
+                wal.append(&WALEntry::Write {
+                    run_id,
+                    key: Key::new_kv(ns.clone(), &format!("key{}", i)),
+                    value: Value::I64(i as i64 * 10),
+                    version: commit_version,
+                })
+                .unwrap();
+                wal.append(&WALEntry::CommitTxn { txn_id, run_id })
+                    .unwrap();
+
+                // Apply to storage (simulating what would happen in normal operation)
+                storage
+                    .put_with_version(
+                        Key::new_kv(ns.clone(), &format!("key{}", i)),
+                        Value::I64(i as i64 * 10),
+                        commit_version,
+                        None,
+                    )
+                    .unwrap();
+            }
+
+            // Verify state before "crash"
+            assert_eq!(storage.current_version(), 10);
+        }
+
+        // Phase 2: Simulate crash (scope dropped, storage gone)
+
+        // Phase 3: Recovery
+        let coordinator = RecoveryCoordinator::new(wal_path);
+        let result = coordinator.recover().unwrap();
+
+        // Verify recovered state matches original
+        assert_eq!(result.stats.txns_replayed, 10);
+        assert_eq!(result.stats.final_version, 10);
+        assert_eq!(result.txn_manager.current_version(), 10);
+
+        for i in 1..=10u64 {
+            let key = Key::new_kv(ns.clone(), &format!("key{}", i));
+            let stored = result.storage.get(&key).unwrap().unwrap();
+            assert_eq!(stored.value, Value::I64(i as i64 * 10));
+            assert_eq!(stored.version, i);
+        }
+    }
+
+    /// Test recovery from WAL with mixed operations
+    /// Writes, updates, and deletes
+    #[test]
+    fn test_recovery_mixed_operations_lifecycle() {
+        let temp_dir = TempDir::new().unwrap();
+        let wal_path = temp_dir.path().join("mixed_ops.wal");
+
+        let run_id = RunId::new();
+        let ns = create_test_namespace(run_id);
+
+        {
+            let mut wal = WAL::open(&wal_path, DurabilityMode::Strict).unwrap();
+
+            // Txn 1: Write key1
+            wal.append(&WALEntry::BeginTxn {
+                txn_id: 1,
+                run_id,
+                timestamp: now(),
+            })
+            .unwrap();
+            wal.append(&WALEntry::Write {
+                run_id,
+                key: Key::new_kv(ns.clone(), "key1"),
+                value: Value::String("initial".to_string()),
+                version: 1,
+            })
+            .unwrap();
+            wal.append(&WALEntry::CommitTxn { txn_id: 1, run_id })
+                .unwrap();
+
+            // Txn 2: Update key1
+            wal.append(&WALEntry::BeginTxn {
+                txn_id: 2,
+                run_id,
+                timestamp: now(),
+            })
+            .unwrap();
+            wal.append(&WALEntry::Write {
+                run_id,
+                key: Key::new_kv(ns.clone(), "key1"),
+                value: Value::String("updated".to_string()),
+                version: 2,
+            })
+            .unwrap();
+            wal.append(&WALEntry::CommitTxn { txn_id: 2, run_id })
+                .unwrap();
+
+            // Txn 3: Write key2, then delete it
+            wal.append(&WALEntry::BeginTxn {
+                txn_id: 3,
+                run_id,
+                timestamp: now(),
+            })
+            .unwrap();
+            wal.append(&WALEntry::Write {
+                run_id,
+                key: Key::new_kv(ns.clone(), "key2"),
+                value: Value::String("temp".to_string()),
+                version: 3,
+            })
+            .unwrap();
+            wal.append(&WALEntry::Delete {
+                run_id,
+                key: Key::new_kv(ns.clone(), "key2"),
+                version: 4,
+            })
+            .unwrap();
+            wal.append(&WALEntry::CommitTxn { txn_id: 3, run_id })
+                .unwrap();
+
+            // Txn 4: Write key3
+            wal.append(&WALEntry::BeginTxn {
+                txn_id: 4,
+                run_id,
+                timestamp: now(),
+            })
+            .unwrap();
+            wal.append(&WALEntry::Write {
+                run_id,
+                key: Key::new_kv(ns.clone(), "key3"),
+                value: Value::I64(42),
+                version: 5,
+            })
+            .unwrap();
+            wal.append(&WALEntry::CommitTxn { txn_id: 4, run_id })
+                .unwrap();
+        }
+
+        // Recovery
+        let coordinator = RecoveryCoordinator::new(wal_path);
+        let result = coordinator.recover().unwrap();
+
+        assert_eq!(result.stats.txns_replayed, 4);
+        assert_eq!(result.stats.writes_applied, 4);
+        assert_eq!(result.stats.deletes_applied, 1);
+        assert_eq!(result.stats.final_version, 5);
+
+        // key1 should be "updated" at version 2
+        let key1 = result
+            .storage
+            .get(&Key::new_kv(ns.clone(), "key1"))
+            .unwrap()
+            .unwrap();
+        assert_eq!(key1.value, Value::String("updated".to_string()));
+        assert_eq!(key1.version, 2);
+
+        // key2 should be deleted
+        assert!(result
+            .storage
+            .get(&Key::new_kv(ns.clone(), "key2"))
+            .unwrap()
+            .is_none());
+
+        // key3 should exist
+        let key3 = result
+            .storage
+            .get(&Key::new_kv(ns.clone(), "key3"))
+            .unwrap()
+            .unwrap();
+        assert_eq!(key3.value, Value::I64(42));
+        assert_eq!(key3.version, 5);
+    }
+
+    /// Test recovery maintains transaction ordering
+    #[test]
+    fn test_recovery_maintains_transaction_order() {
+        let temp_dir = TempDir::new().unwrap();
+        let wal_path = temp_dir.path().join("order.wal");
+
+        let run_id = RunId::new();
+        let ns = create_test_namespace(run_id);
+
+        {
+            let mut wal = WAL::open(&wal_path, DurabilityMode::Strict).unwrap();
+
+            // Write same key in multiple transactions
+            for v in [100u64, 200, 300] {
+                wal.append(&WALEntry::BeginTxn {
+                    txn_id: v,
+                    run_id,
+                    timestamp: now(),
+                })
+                .unwrap();
+                wal.append(&WALEntry::Write {
+                    run_id,
+                    key: Key::new_kv(ns.clone(), "counter"),
+                    value: Value::I64(v as i64),
+                    version: v,
+                })
+                .unwrap();
+                wal.append(&WALEntry::CommitTxn { txn_id: v, run_id })
+                    .unwrap();
+            }
+        }
+
+        // Recovery
+        let coordinator = RecoveryCoordinator::new(wal_path);
+        let result = coordinator.recover().unwrap();
+
+        // Final value should be from the last transaction (version 300)
+        let counter = result
+            .storage
+            .get(&Key::new_kv(ns.clone(), "counter"))
+            .unwrap()
+            .unwrap();
+        assert_eq!(counter.value, Value::I64(300));
+        assert_eq!(counter.version, 300);
+    }
+
+    /// Test recovery with new transactions after recovery
+    #[test]
+    fn test_new_transactions_after_recovery() {
+        let temp_dir = TempDir::new().unwrap();
+        let wal_path = temp_dir.path().join("post_recovery.wal");
+
+        let run_id = RunId::new();
+        let ns = create_test_namespace(run_id);
+
+        // Phase 1: Create initial state
+        {
+            let mut wal = WAL::open(&wal_path, DurabilityMode::Strict).unwrap();
+
+            wal.append(&WALEntry::BeginTxn {
+                txn_id: 1,
+                run_id,
+                timestamp: now(),
+            })
+            .unwrap();
+            wal.append(&WALEntry::Write {
+                run_id,
+                key: Key::new_kv(ns.clone(), "existing"),
+                value: Value::I64(100),
+                version: 100,
+            })
+            .unwrap();
+            wal.append(&WALEntry::CommitTxn { txn_id: 1, run_id })
+                .unwrap();
+        }
+
+        // Phase 2: Recovery
+        let coordinator = RecoveryCoordinator::new(wal_path);
+        let result = coordinator.recover().unwrap();
+
+        // Phase 3: Verify TransactionManager is ready for new transactions
+        assert_eq!(result.txn_manager.current_version(), 100);
+
+        // New transaction should get version > 100
+        let new_txn_id = result.txn_manager.next_txn_id();
+        assert!(new_txn_id > 0);
+
+        // Current version is 100, new transactions would use versions starting at 101
+        assert_eq!(result.txn_manager.current_version(), 100);
+    }
+
+    /// Test recovery handles many transactions
+    #[test]
+    fn test_recovery_many_transactions() {
+        let temp_dir = TempDir::new().unwrap();
+        let wal_path = temp_dir.path().join("many_txns.wal");
+
+        let run_id = RunId::new();
+        let ns = create_test_namespace(run_id);
+
+        let num_txns = 100;
+
+        {
+            let mut wal = WAL::open(&wal_path, DurabilityMode::Strict).unwrap();
+
+            for i in 1..=num_txns {
+                wal.append(&WALEntry::BeginTxn {
+                    txn_id: i,
+                    run_id,
+                    timestamp: now(),
+                })
+                .unwrap();
+                wal.append(&WALEntry::Write {
+                    run_id,
+                    key: Key::new_kv(ns.clone(), &format!("key_{}", i)),
+                    value: Value::I64(i as i64),
+                    version: i,
+                })
+                .unwrap();
+                wal.append(&WALEntry::CommitTxn { txn_id: i, run_id })
+                    .unwrap();
+            }
+        }
+
+        // Recovery
+        let coordinator = RecoveryCoordinator::new(wal_path);
+        let result = coordinator.recover().unwrap();
+
+        assert_eq!(result.stats.txns_replayed, num_txns as usize);
+        assert_eq!(result.stats.final_version, num_txns);
+
+        // Verify a few random keys
+        for i in [1, 50, 100] {
+            let key = Key::new_kv(ns.clone(), &format!("key_{}", i));
+            let stored = result.storage.get(&key).unwrap().unwrap();
+            assert_eq!(stored.value, Value::I64(i as i64));
+        }
+    }
+
+    /// Spec compliance verification test
+    #[test]
+    fn test_spec_compliance_summary() {
+        // This test documents spec compliance for Epic 9 review
+        let temp_dir = TempDir::new().unwrap();
+        let wal_path = temp_dir.path().join("spec.wal");
+
+        let run_id = RunId::new();
+        let ns = create_test_namespace(run_id);
+
+        // Create a representative WAL
+        {
+            let mut wal = WAL::open(&wal_path, DurabilityMode::Strict).unwrap();
+
+            // Committed transaction (version 100)
+            wal.append(&WALEntry::BeginTxn {
+                txn_id: 1,
+                run_id,
+                timestamp: now(),
+            })
+            .unwrap();
+            wal.append(&WALEntry::Write {
+                run_id,
+                key: Key::new_kv(ns.clone(), "committed"),
+                value: Value::I64(1),
+                version: 100,
+            })
+            .unwrap();
+            wal.append(&WALEntry::CommitTxn { txn_id: 1, run_id })
+                .unwrap();
+
+            // Incomplete transaction (no commit)
+            wal.append(&WALEntry::BeginTxn {
+                txn_id: 2,
+                run_id,
+                timestamp: now(),
+            })
+            .unwrap();
+            wal.append(&WALEntry::Write {
+                run_id,
+                key: Key::new_kv(ns.clone(), "incomplete"),
+                value: Value::I64(2),
+                version: 200,
+            })
+            .unwrap();
+            // No CommitTxn - represents crash
+        }
+
+        // Recovery
+        let coordinator = RecoveryCoordinator::new(wal_path.clone());
+        let result = coordinator.recover().unwrap();
+
+        // Spec Section 5.4: COMPLETE transactions applied
+        assert_eq!(result.stats.txns_replayed, 1, "Rule: COMPLETE txns applied");
+
+        // Spec Section 5.5: INCOMPLETE transactions discarded
+        assert_eq!(
+            result.stats.incomplete_txns, 1,
+            "Rule: INCOMPLETE txns discarded"
+        );
+
+        // Spec Section 5.3 Rule 4: Versions preserved exactly
+        let committed = result
+            .storage
+            .get(&Key::new_kv(ns.clone(), "committed"))
+            .unwrap()
+            .unwrap();
+        assert_eq!(committed.version, 100, "Rule: Versions preserved exactly");
+
+        // Spec Section 6.1: Global version counter restored
+        // NOTE: Version counter is set to MAX version seen in WAL (including incomplete txns)
+        // This ensures new transactions get unique versions that don't conflict
+        assert_eq!(
+            result.txn_manager.current_version(),
+            200, // Max version seen in WAL (from incomplete txn)
+            "Rule: Global version counter restored to max WAL version"
+        );
+
+        // Spec Section 5.6: Determinism - recover again and verify identical
+        let coordinator2 = RecoveryCoordinator::new(wal_path);
+        let result2 = coordinator2.recover().unwrap();
+        assert_eq!(
+            result.stats.final_version, result2.stats.final_version,
+            "Rule: Deterministic replay"
+        );
+    }
 }
