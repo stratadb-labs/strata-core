@@ -11,6 +11,7 @@
 
 use in_mem_core::traits::Storage;
 use in_mem_core::types::Key;
+use in_mem_core::value::Value;
 use std::collections::HashMap;
 
 /// Types of conflicts that can occur during transaction validation
@@ -127,6 +128,47 @@ pub fn validate_read_set<S: Storage>(read_set: &HashMap<Key, u64>, store: &S) ->
     }
 
     result
+}
+
+/// Validate the write-set against current storage state
+///
+/// Per spec Section 3.2 Scenario 1 (Blind Write):
+/// - Blind writes (write without read) do NOT conflict
+/// - First-committer-wins is based on READ-SET, not write-set
+///
+/// This function always returns OK because:
+/// - If key was read → conflict detected by validate_read_set()
+/// - If key was NOT read (blind write) → no conflict
+///
+/// # Arguments
+/// * `write_set` - Keys to be written with their new values
+/// * `_read_set` - Keys that were read (for context, not used)
+/// * `_start_version` - Transaction's start version (not used)
+/// * `_store` - Storage to check (not used)
+///
+/// # Returns
+/// ValidationResult (always valid for pure blind writes)
+#[allow(clippy::ptr_arg)]
+pub fn validate_write_set<S: Storage>(
+    write_set: &HashMap<Key, Value>,
+    _read_set: &HashMap<Key, u64>,
+    _start_version: u64,
+    _store: &S,
+) -> ValidationResult {
+    // Per spec: Blind writes do NOT conflict
+    // Write-write conflict is only detected when the key was ALSO READ
+    // That case is handled by validate_read_set()
+    //
+    // From spec Section 3.2:
+    // "First-committer-wins is based on the READ-SET, not the write-set."
+
+    // Note: We could add optional write-write conflict detection here
+    // for keys in BOTH write_set AND read_set, but that's redundant
+    // with read-set validation. Keeping this simple per spec.
+
+    let _ = write_set; // Acknowledge parameter (used for type checking)
+
+    ValidationResult::ok()
 }
 
 #[cfg(test)]
@@ -526,6 +568,149 @@ mod tests {
             let result = validate_read_set(&read_set, &store);
 
             assert!(result.is_valid());
+        }
+    }
+
+    // === Write-Set Validation Tests ===
+
+    mod write_set_tests {
+        use super::*;
+        use in_mem_core::value::Value;
+        use in_mem_storage::UnifiedStore;
+
+        fn create_test_store() -> UnifiedStore {
+            UnifiedStore::new()
+        }
+
+        fn create_test_namespace() -> Namespace {
+            Namespace::new("t".into(), "a".into(), "g".into(), RunId::new())
+        }
+
+        fn create_key(ns: &Namespace, name: &[u8]) -> Key {
+            Key::new(ns.clone(), TypeTag::KV, name.to_vec())
+        }
+
+        #[test]
+        fn test_validate_write_set_empty() {
+            let store = create_test_store();
+            let write_set: HashMap<Key, Value> = HashMap::new();
+            let read_set: HashMap<Key, u64> = HashMap::new();
+
+            let result = validate_write_set(&write_set, &read_set, 100, &store);
+
+            assert!(result.is_valid());
+        }
+
+        #[test]
+        fn test_validate_write_set_blind_write_no_conflict() {
+            let store = create_test_store();
+            let ns = create_test_namespace();
+            let key = create_key(&ns, b"key1");
+
+            // Put initial value
+            store
+                .put(key.clone(), Value::Bytes(b"initial".to_vec()), None)
+                .unwrap();
+            let start_version = store.current_version();
+
+            // Another transaction modified the key
+            store
+                .put(key.clone(), Value::Bytes(b"concurrent".to_vec()), None)
+                .unwrap();
+
+            // Our write_set has the key (blind write - not in read_set)
+            let mut write_set = HashMap::new();
+            write_set.insert(key.clone(), Value::Bytes(b"our_write".to_vec()));
+            let read_set: HashMap<Key, u64> = HashMap::new(); // Empty - blind write
+
+            // Per spec: Blind writes do NOT conflict
+            let result = validate_write_set(&write_set, &read_set, start_version, &store);
+
+            assert!(result.is_valid(), "Blind writes should not conflict");
+        }
+
+        #[test]
+        fn test_validate_write_set_multiple_blind_writes() {
+            let store = create_test_store();
+            let ns = create_test_namespace();
+            let key1 = create_key(&ns, b"key1");
+            let key2 = create_key(&ns, b"key2");
+
+            // Put initial values
+            store
+                .put(key1.clone(), Value::Bytes(b"v1".to_vec()), None)
+                .unwrap();
+            store
+                .put(key2.clone(), Value::Bytes(b"v1".to_vec()), None)
+                .unwrap();
+            let start_version = store.current_version();
+
+            // Both modified by concurrent transaction
+            store
+                .put(key1.clone(), Value::Bytes(b"v2".to_vec()), None)
+                .unwrap();
+            store
+                .put(key2.clone(), Value::Bytes(b"v2".to_vec()), None)
+                .unwrap();
+
+            // Blind writes to both
+            let mut write_set = HashMap::new();
+            write_set.insert(key1, Value::Bytes(b"our1".to_vec()));
+            write_set.insert(key2, Value::Bytes(b"our2".to_vec()));
+            let read_set: HashMap<Key, u64> = HashMap::new();
+
+            let result = validate_write_set(&write_set, &read_set, start_version, &store);
+
+            assert!(result.is_valid());
+        }
+
+        #[test]
+        fn test_validate_write_set_to_new_key() {
+            let store = create_test_store();
+            let ns = create_test_namespace();
+            let key = create_key(&ns, b"new_key");
+
+            let mut write_set = HashMap::new();
+            write_set.insert(key, Value::Bytes(b"new_value".to_vec()));
+            let read_set: HashMap<Key, u64> = HashMap::new();
+
+            let result = validate_write_set(&write_set, &read_set, 100, &store);
+
+            assert!(result.is_valid());
+        }
+
+        /// This test documents that write-set validation alone doesn't detect conflicts.
+        /// The read-set validation is what catches write-write conflicts on read keys.
+        #[test]
+        fn test_write_set_validation_does_not_detect_read_key_conflicts() {
+            let store = create_test_store();
+            let ns = create_test_namespace();
+            let key = create_key(&ns, b"key1");
+
+            store
+                .put(key.clone(), Value::Bytes(b"initial".to_vec()), None)
+                .unwrap();
+            let read_version = store.get(&key).unwrap().unwrap().version;
+            let start_version = store.current_version();
+
+            // Key modified by concurrent transaction
+            store
+                .put(key.clone(), Value::Bytes(b"concurrent".to_vec()), None)
+                .unwrap();
+
+            // Key in BOTH read_set AND write_set
+            let mut write_set = HashMap::new();
+            write_set.insert(key.clone(), Value::Bytes(b"our_write".to_vec()));
+            let mut read_set = HashMap::new();
+            read_set.insert(key.clone(), read_version);
+
+            // Write-set validation still returns OK
+            let write_result = validate_write_set(&write_set, &read_set, start_version, &store);
+            assert!(write_result.is_valid());
+
+            // But read-set validation catches the conflict
+            let read_result = validate_read_set(&read_set, &store);
+            assert!(!read_result.is_valid());
         }
     }
 }
