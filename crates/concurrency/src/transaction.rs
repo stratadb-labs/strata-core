@@ -7,6 +7,7 @@
 //! See `docs/architecture/M2_TRANSACTION_SEMANTICS.md` for the full specification.
 
 use crate::validation::{validate_transaction, ValidationResult};
+use crate::wal_writer::TransactionWALWriter;
 use in_mem_core::error::{Error, Result};
 use in_mem_core::traits::{SnapshotView, Storage};
 use in_mem_core::types::{Key, RunId};
@@ -747,6 +748,52 @@ impl TransactionContext {
         }
 
         Ok(result)
+    }
+
+    /// Write all transaction operations to WAL
+    ///
+    /// Per spec Section 5:
+    /// - Write/Delete entries for all buffered operations
+    /// - Version numbers are preserved exactly
+    ///
+    /// # Arguments
+    /// * `wal_writer` - WAL writer configured for this transaction
+    /// * `commit_version` - Version to assign to all writes
+    ///
+    /// # Preconditions
+    /// - Transaction must be in Committed state (validation passed)
+    ///
+    /// # Errors
+    /// - Error::InvalidState if transaction is not in Committed state
+    /// - Errors from WAL write operations
+    pub fn write_to_wal(
+        &self,
+        wal_writer: &mut TransactionWALWriter,
+        commit_version: u64,
+    ) -> Result<()> {
+        if !self.is_committed() {
+            return Err(Error::InvalidState(format!(
+                "Cannot write to WAL: transaction {} is {:?}, must be Committed",
+                self.txn_id, self.status
+            )));
+        }
+
+        // Write puts
+        for (key, value) in &self.write_set {
+            wal_writer.write_put(key.clone(), value.clone(), commit_version)?;
+        }
+
+        // Write deletes
+        for key in &self.delete_set {
+            wal_writer.write_delete(key.clone(), commit_version)?;
+        }
+
+        // Write CAS operations (as puts with the new value)
+        for cas_op in &self.cas_set {
+            wal_writer.write_put(cas_op.key.clone(), cas_op.new_value.clone(), commit_version)?;
+        }
+
+        Ok(())
     }
 
     // === Introspection ===
@@ -2347,6 +2394,218 @@ mod tests {
             };
 
             assert_eq!(result.total_operations(), 10);
+        }
+    }
+
+    // === Write to WAL Tests ===
+
+    mod write_to_wal_tests {
+        use super::*;
+        use crate::wal_writer::TransactionWALWriter;
+        use in_mem_durability::wal::{DurabilityMode, WALEntry, WAL};
+        use in_mem_storage::UnifiedStore;
+        use tempfile::TempDir;
+
+        fn create_test_store() -> UnifiedStore {
+            UnifiedStore::new()
+        }
+
+        fn create_test_wal() -> (WAL, TempDir) {
+            let temp_dir = TempDir::new().unwrap();
+            let wal_path = temp_dir.path().join("test.wal");
+            let wal = WAL::open(&wal_path, DurabilityMode::default()).unwrap();
+            (wal, temp_dir)
+        }
+
+        fn create_txn_with_store(store: &UnifiedStore) -> TransactionContext {
+            let snapshot = store.create_snapshot();
+            let run_id = RunId::new();
+            TransactionContext::with_snapshot(1, run_id, Box::new(snapshot))
+        }
+
+        #[test]
+        fn test_write_to_wal_empty_transaction() {
+            let store = create_test_store();
+            let (mut wal, _temp) = create_test_wal();
+
+            let mut txn = create_txn_with_store(&store);
+            txn.commit(&store).expect("commit failed");
+
+            let mut writer = TransactionWALWriter::new(&mut wal, 1, txn.run_id);
+            writer.write_begin().unwrap();
+            txn.write_to_wal(&mut writer, 100).unwrap();
+            writer.write_commit().unwrap();
+
+            let entries = wal.read_all().unwrap();
+            assert_eq!(entries.len(), 2); // BeginTxn + CommitTxn
+        }
+
+        #[test]
+        fn test_write_to_wal_with_puts() {
+            let store = create_test_store();
+            let ns = create_test_namespace();
+            let key1 = create_test_key(&ns, b"key1");
+            let key2 = create_test_key(&ns, b"key2");
+            let (mut wal, _temp) = create_test_wal();
+
+            let mut txn = create_txn_with_store(&store);
+            txn.put(key1.clone(), Value::I64(1)).expect("put failed");
+            txn.put(key2.clone(), Value::I64(2)).expect("put failed");
+            txn.commit(&store).expect("commit failed");
+
+            let mut writer = TransactionWALWriter::new(&mut wal, 1, txn.run_id);
+            writer.write_begin().unwrap();
+            txn.write_to_wal(&mut writer, 100).unwrap();
+            writer.write_commit().unwrap();
+
+            let entries = wal.read_all().unwrap();
+            assert_eq!(entries.len(), 4); // BeginTxn + 2 Write + CommitTxn
+
+            // Verify write entries have correct version
+            let write_count = entries
+                .iter()
+                .filter(|e| matches!(e, WALEntry::Write { version: 100, .. }))
+                .count();
+            assert_eq!(write_count, 2);
+        }
+
+        #[test]
+        fn test_write_to_wal_with_delete() {
+            let store = create_test_store();
+            let ns = create_test_namespace();
+            let key = create_test_key(&ns, b"key");
+            let (mut wal, _temp) = create_test_wal();
+
+            store
+                .put(key.clone(), Value::I64(100), None)
+                .expect("put failed");
+
+            let mut txn = create_txn_with_store(&store);
+            txn.delete(key.clone()).expect("delete failed");
+            txn.commit(&store).expect("commit failed");
+
+            let mut writer = TransactionWALWriter::new(&mut wal, 1, txn.run_id);
+            writer.write_begin().unwrap();
+            txn.write_to_wal(&mut writer, 100).unwrap();
+            writer.write_commit().unwrap();
+
+            let entries = wal.read_all().unwrap();
+            assert_eq!(entries.len(), 3); // BeginTxn + Delete + CommitTxn
+
+            // Verify delete entry
+            let delete_entry = entries
+                .iter()
+                .find(|e| matches!(e, WALEntry::Delete { .. }))
+                .expect("No delete entry found");
+            if let WALEntry::Delete { version, .. } = delete_entry {
+                assert_eq!(*version, 100);
+            }
+        }
+
+        #[test]
+        fn test_write_to_wal_with_cas() {
+            let store = create_test_store();
+            let ns = create_test_namespace();
+            let key = create_test_key(&ns, b"counter");
+            let (mut wal, _temp) = create_test_wal();
+
+            store
+                .put(key.clone(), Value::I64(0), None)
+                .expect("put failed");
+            let v1 = store.get(&key).expect("get failed").unwrap().version;
+
+            let mut txn = create_txn_with_store(&store);
+            txn.cas(key.clone(), v1, Value::I64(1)).expect("cas failed");
+            txn.commit(&store).expect("commit failed");
+
+            let mut writer = TransactionWALWriter::new(&mut wal, 1, txn.run_id);
+            writer.write_begin().unwrap();
+            txn.write_to_wal(&mut writer, 100).unwrap();
+            writer.write_commit().unwrap();
+
+            let entries = wal.read_all().unwrap();
+            // CAS is written as a Write entry
+            assert_eq!(entries.len(), 3); // BeginTxn + Write (CAS) + CommitTxn
+        }
+
+        #[test]
+        fn test_write_to_wal_fails_if_not_committed() {
+            let store = create_test_store();
+            let (mut wal, _temp) = create_test_wal();
+
+            let txn = create_txn_with_store(&store);
+
+            let mut writer = TransactionWALWriter::new(&mut wal, 1, txn.run_id);
+            let result = txn.write_to_wal(&mut writer, 100);
+
+            assert!(result.is_err());
+        }
+
+        #[test]
+        fn test_write_to_wal_entries_include_run_id() {
+            let store = create_test_store();
+            let ns = create_test_namespace();
+            let key = create_test_key(&ns, b"key");
+            let (mut wal, _temp) = create_test_wal();
+
+            let mut txn = create_txn_with_store(&store);
+            let run_id = txn.run_id;
+            txn.put(key.clone(), Value::I64(42)).expect("put failed");
+            txn.commit(&store).expect("commit failed");
+
+            let mut writer = TransactionWALWriter::new(&mut wal, 1, run_id);
+            writer.write_begin().unwrap();
+            txn.write_to_wal(&mut writer, 100).unwrap();
+            writer.write_commit().unwrap();
+
+            let entries = wal.read_all().unwrap();
+
+            // All entries should have the same run_id
+            for entry in &entries {
+                assert_eq!(entry.run_id(), Some(run_id));
+            }
+        }
+
+        #[test]
+        fn test_write_to_wal_mixed_operations() {
+            let store = create_test_store();
+            let ns = create_test_namespace();
+            let key1 = create_test_key(&ns, b"put_key");
+            let key2 = create_test_key(&ns, b"delete_key");
+            let key3 = create_test_key(&ns, b"cas_key");
+            let (mut wal, _temp) = create_test_wal();
+
+            // Setup: pre-existing keys
+            store
+                .put(key2.clone(), Value::I64(200), None)
+                .expect("put failed");
+            store
+                .put(key3.clone(), Value::I64(300), None)
+                .expect("put failed");
+            let v3 = store.get(&key3).expect("get failed").unwrap().version;
+
+            let mut txn = create_txn_with_store(&store);
+            txn.put(key1.clone(), Value::I64(1)).expect("put failed");
+            txn.delete(key2.clone()).expect("delete failed");
+            txn.cas(key3.clone(), v3, Value::I64(301))
+                .expect("cas failed");
+            txn.commit(&store).expect("commit failed");
+
+            let mut writer = TransactionWALWriter::new(&mut wal, 1, txn.run_id);
+            writer.write_begin().unwrap();
+            txn.write_to_wal(&mut writer, 50).unwrap();
+            writer.write_commit().unwrap();
+
+            let entries = wal.read_all().unwrap();
+            // BeginTxn + Write (put) + Delete + Write (CAS) + CommitTxn = 5
+            assert_eq!(entries.len(), 5);
+
+            // Verify all write/delete entries have version 50
+            for entry in &entries {
+                if let Some(version) = entry.version() {
+                    assert_eq!(version, 50);
+                }
+            }
         }
     }
 }

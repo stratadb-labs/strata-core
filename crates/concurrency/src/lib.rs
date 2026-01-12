@@ -12,6 +12,7 @@
 pub mod snapshot;
 pub mod transaction;
 pub mod validation;
+pub mod wal_writer;
 
 pub use snapshot::ClonedSnapshotView;
 pub use transaction::{
@@ -21,6 +22,7 @@ pub use validation::{
     validate_cas_set, validate_read_set, validate_transaction, validate_write_set, ConflictType,
     ValidationResult,
 };
+pub use wal_writer::TransactionWALWriter;
 
 // Re-export the SnapshotView trait from core for convenience
 pub use in_mem_core::traits::SnapshotView;
