@@ -48,6 +48,52 @@ pub struct ReplayStats {
     pub aborted_txns: usize,
     /// Number of orphaned entries discarded (Write/Delete without BeginTxn)
     pub orphaned_entries: usize,
+    /// Number of transactions skipped by filter
+    pub txns_filtered: usize,
+}
+
+/// Options for WAL replay
+///
+/// Allows filtering and controlling replay behavior.
+#[derive(Default, Clone)]
+pub struct ReplayOptions {
+    /// Only replay transactions for this run_id (None = all)
+    pub filter_run_id: Option<RunId>,
+    /// Stop replay at this version (None = replay all)
+    ///
+    /// Transactions with commit_version > stop_at_version will not be applied.
+    pub stop_at_version: Option<u64>,
+    /// Callback for progress reporting (called after each transaction)
+    ///
+    /// Note: Using Arc<dyn Fn> for thread-safe callback support.
+    pub progress_callback: Option<std::sync::Arc<dyn Fn(ReplayProgress) + Send + Sync>>,
+}
+
+impl std::fmt::Debug for ReplayOptions {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("ReplayOptions")
+            .field("filter_run_id", &self.filter_run_id)
+            .field("stop_at_version", &self.stop_at_version)
+            .field("progress_callback", &self.progress_callback.as_ref().map(|_| "<callback>"))
+            .finish()
+    }
+}
+
+/// Progress information during replay
+///
+/// Provided to progress callbacks after each transaction is processed.
+#[derive(Debug, Clone)]
+pub struct ReplayProgress {
+    /// Transaction ID being processed
+    pub current_txn_id: u64,
+    /// Total transactions found so far (committed + incomplete + aborted)
+    pub total_txns_found: usize,
+    /// Transactions applied so far
+    pub txns_applied: usize,
+    /// Current max version seen
+    pub current_version: u64,
+    /// Whether this transaction was applied (true) or skipped (false)
+    pub was_applied: bool,
 }
 
 /// Transaction state during replay
@@ -270,6 +316,54 @@ pub fn validate_transactions(entries: &[WALEntry]) -> ValidationResult {
 /// println!("Applied {} transactions, {} writes", stats.txns_applied, stats.writes_applied);
 /// ```
 pub fn replay_wal(wal: &WAL, storage: &UnifiedStore) -> Result<ReplayStats> {
+    replay_wal_with_options(wal, storage, ReplayOptions::default())
+}
+
+/// Replay WAL entries with filtering and progress options
+///
+/// Extended version of `replay_wal` that supports:
+/// - Filtering by run_id (only replay transactions for a specific run)
+/// - Stopping at a specific version
+/// - Progress callbacks for monitoring replay progress
+///
+/// # Arguments
+///
+/// * `wal` - The WAL to replay from
+/// * `storage` - The storage to apply transactions to
+/// * `options` - Replay options for filtering and callbacks
+///
+/// # Returns
+///
+/// * `Ok(ReplayStats)` - Statistics about the replay including filtered count
+/// * `Err` - If reading WAL or applying transactions fails
+///
+/// # Example
+///
+/// ```ignore
+/// use in_mem_durability::recovery::{replay_wal_with_options, ReplayOptions};
+/// use in_mem_durability::wal::{WAL, DurabilityMode};
+/// use in_mem_storage::UnifiedStore;
+/// use std::sync::Arc;
+///
+/// let wal = WAL::open("data/wal/segment.wal", DurabilityMode::default())?;
+/// let storage = UnifiedStore::new();
+///
+/// let options = ReplayOptions {
+///     filter_run_id: Some(my_run_id),
+///     stop_at_version: Some(100),
+///     progress_callback: Some(Arc::new(|progress| {
+///         println!("Replayed txn {}", progress.current_txn_id);
+///     })),
+/// };
+///
+/// let stats = replay_wal_with_options(&wal, &storage, options)?;
+/// println!("Applied {} transactions, filtered {}", stats.txns_applied, stats.txns_filtered);
+/// ```
+pub fn replay_wal_with_options(
+    wal: &WAL,
+    storage: &UnifiedStore,
+    options: ReplayOptions,
+) -> Result<ReplayStats> {
     // Read all entries from WAL
     let entries = wal.read_all()?;
 
@@ -345,16 +439,71 @@ pub fn replay_wal(wal: &WAL, storage: &UnifiedStore) -> Result<ReplayStats> {
     let mut txn_ids: Vec<u64> = transactions.keys().copied().collect();
     txn_ids.sort();
 
+    let total_txns = txn_ids.len();
+
     for txn_id in txn_ids {
         let txn = transactions.get(&txn_id).unwrap();
 
+        // Determine if this transaction should be applied
+        let mut was_applied = false;
+
         if txn.committed {
+            // Check run_id filter
+            if let Some(filter_run_id) = &options.filter_run_id {
+                if txn.run_id != *filter_run_id {
+                    stats.txns_filtered += 1;
+                    // Still call progress callback even for filtered transactions
+                    if let Some(ref callback) = options.progress_callback {
+                        callback(ReplayProgress {
+                            current_txn_id: txn_id,
+                            total_txns_found: total_txns,
+                            txns_applied: stats.txns_applied,
+                            current_version: stats.final_version,
+                            was_applied: false,
+                        });
+                    }
+                    continue;
+                }
+            }
+
+            // Check stop_at_version - get max version from transaction entries
+            let txn_max_version = get_transaction_max_version(txn);
+            if let Some(stop_version) = options.stop_at_version {
+                if txn_max_version > stop_version {
+                    stats.txns_filtered += 1;
+                    // Call progress callback
+                    if let Some(ref callback) = options.progress_callback {
+                        callback(ReplayProgress {
+                            current_txn_id: txn_id,
+                            total_txns_found: total_txns,
+                            txns_applied: stats.txns_applied,
+                            current_version: stats.final_version,
+                            was_applied: false,
+                        });
+                    }
+                    continue;
+                }
+            }
+
+            // Apply the transaction
             apply_transaction(storage, txn, &mut stats)?;
+            was_applied = true;
         } else if txn.aborted {
             stats.aborted_txns += 1;
         } else {
             // Incomplete transaction (no CommitTxn or AbortTxn)
             stats.incomplete_txns += 1;
+        }
+
+        // Call progress callback
+        if let Some(ref callback) = options.progress_callback {
+            callback(ReplayProgress {
+                current_txn_id: txn_id,
+                total_txns_found: total_txns,
+                txns_applied: stats.txns_applied,
+                current_version: stats.final_version,
+                was_applied,
+            });
         }
     }
 
@@ -362,6 +511,15 @@ pub fn replay_wal(wal: &WAL, storage: &UnifiedStore) -> Result<ReplayStats> {
     stats.orphaned_entries = orphaned_count;
 
     Ok(stats)
+}
+
+/// Get the maximum version from a transaction's entries
+fn get_transaction_max_version(txn: &Transaction) -> u64 {
+    txn.entries
+        .iter()
+        .filter_map(|entry| entry.version())
+        .max()
+        .unwrap_or(0)
 }
 
 /// Apply a committed transaction to storage
@@ -1039,5 +1197,431 @@ mod tests {
         assert!(!result.is_clean());
         assert_eq!(result.orphaned_entries, 1); // The first write
         assert_eq!(result.incomplete_txns.len(), 2); // txn 2 and 3
+    }
+
+    // ========================================
+    // Replay with Options Tests
+    // ========================================
+
+    #[test]
+    fn test_replay_with_run_id_filter() {
+        let temp_dir = TempDir::new().unwrap();
+        let wal_path = temp_dir.path().join("run_filter.wal");
+
+        let run_id_1 = RunId::new();
+        let run_id_2 = RunId::new();
+
+        let ns1 = Namespace::new(
+            "tenant".to_string(),
+            "app".to_string(),
+            "agent".to_string(),
+            run_id_1,
+        );
+        let ns2 = Namespace::new(
+            "tenant".to_string(),
+            "app".to_string(),
+            "agent".to_string(),
+            run_id_2,
+        );
+
+        // Write transactions for two different runs
+        {
+            let mut wal = WAL::open(&wal_path, DurabilityMode::Strict).unwrap();
+
+            // Txn 1 - run_id_1
+            wal.append(&WALEntry::BeginTxn {
+                txn_id: 1,
+                run_id: run_id_1,
+                timestamp: now(),
+            })
+            .unwrap();
+            wal.append(&WALEntry::Write {
+                run_id: run_id_1,
+                key: Key::new_kv(ns1.clone(), "key1"),
+                value: Value::I64(1),
+                version: 1,
+            })
+            .unwrap();
+            wal.append(&WALEntry::CommitTxn {
+                txn_id: 1,
+                run_id: run_id_1,
+            })
+            .unwrap();
+
+            // Txn 2 - run_id_2
+            wal.append(&WALEntry::BeginTxn {
+                txn_id: 2,
+                run_id: run_id_2,
+                timestamp: now(),
+            })
+            .unwrap();
+            wal.append(&WALEntry::Write {
+                run_id: run_id_2,
+                key: Key::new_kv(ns2.clone(), "key2"),
+                value: Value::I64(2),
+                version: 2,
+            })
+            .unwrap();
+            wal.append(&WALEntry::CommitTxn {
+                txn_id: 2,
+                run_id: run_id_2,
+            })
+            .unwrap();
+
+            // Txn 3 - run_id_1 again
+            wal.append(&WALEntry::BeginTxn {
+                txn_id: 3,
+                run_id: run_id_1,
+                timestamp: now(),
+            })
+            .unwrap();
+            wal.append(&WALEntry::Write {
+                run_id: run_id_1,
+                key: Key::new_kv(ns1.clone(), "key3"),
+                value: Value::I64(3),
+                version: 3,
+            })
+            .unwrap();
+            wal.append(&WALEntry::CommitTxn {
+                txn_id: 3,
+                run_id: run_id_1,
+            })
+            .unwrap();
+        }
+
+        // Replay with filter for run_id_1 only
+        let wal = WAL::open(&wal_path, DurabilityMode::Strict).unwrap();
+        let store = UnifiedStore::new();
+
+        let options = ReplayOptions {
+            filter_run_id: Some(run_id_1),
+            ..Default::default()
+        };
+
+        let stats = replay_wal_with_options(&wal, &store, options).unwrap();
+
+        // Should apply txn 1 and 3, filter out txn 2
+        assert_eq!(stats.txns_applied, 2);
+        assert_eq!(stats.txns_filtered, 1);
+        assert_eq!(stats.writes_applied, 2);
+
+        // Verify only run_id_1 keys exist
+        assert!(store
+            .get(&Key::new_kv(ns1.clone(), "key1"))
+            .unwrap()
+            .is_some());
+        assert!(store.get(&Key::new_kv(ns2, "key2")).unwrap().is_none()); // Filtered out
+        assert!(store.get(&Key::new_kv(ns1, "key3")).unwrap().is_some());
+    }
+
+    #[test]
+    fn test_replay_with_stop_at_version() {
+        let temp_dir = TempDir::new().unwrap();
+        let wal_path = temp_dir.path().join("stop_version.wal");
+
+        let run_id = RunId::new();
+        let ns = Namespace::new(
+            "tenant".to_string(),
+            "app".to_string(),
+            "agent".to_string(),
+            run_id,
+        );
+
+        // Write transactions with increasing versions
+        {
+            let mut wal = WAL::open(&wal_path, DurabilityMode::Strict).unwrap();
+
+            // Txn 1 - version 10
+            wal.append(&WALEntry::BeginTxn {
+                txn_id: 1,
+                run_id,
+                timestamp: now(),
+            })
+            .unwrap();
+            wal.append(&WALEntry::Write {
+                run_id,
+                key: Key::new_kv(ns.clone(), "key1"),
+                value: Value::I64(1),
+                version: 10,
+            })
+            .unwrap();
+            wal.append(&WALEntry::CommitTxn { txn_id: 1, run_id })
+                .unwrap();
+
+            // Txn 2 - version 20
+            wal.append(&WALEntry::BeginTxn {
+                txn_id: 2,
+                run_id,
+                timestamp: now(),
+            })
+            .unwrap();
+            wal.append(&WALEntry::Write {
+                run_id,
+                key: Key::new_kv(ns.clone(), "key2"),
+                value: Value::I64(2),
+                version: 20,
+            })
+            .unwrap();
+            wal.append(&WALEntry::CommitTxn { txn_id: 2, run_id })
+                .unwrap();
+
+            // Txn 3 - version 30
+            wal.append(&WALEntry::BeginTxn {
+                txn_id: 3,
+                run_id,
+                timestamp: now(),
+            })
+            .unwrap();
+            wal.append(&WALEntry::Write {
+                run_id,
+                key: Key::new_kv(ns.clone(), "key3"),
+                value: Value::I64(3),
+                version: 30,
+            })
+            .unwrap();
+            wal.append(&WALEntry::CommitTxn { txn_id: 3, run_id })
+                .unwrap();
+        }
+
+        // Replay stopping at version 25 (should include txn 1 and 2, not 3)
+        let wal = WAL::open(&wal_path, DurabilityMode::Strict).unwrap();
+        let store = UnifiedStore::new();
+
+        let options = ReplayOptions {
+            stop_at_version: Some(25),
+            ..Default::default()
+        };
+
+        let stats = replay_wal_with_options(&wal, &store, options).unwrap();
+
+        assert_eq!(stats.txns_applied, 2);
+        assert_eq!(stats.txns_filtered, 1);
+        assert_eq!(stats.writes_applied, 2);
+
+        // Verify only key1 and key2 exist
+        assert!(store
+            .get(&Key::new_kv(ns.clone(), "key1"))
+            .unwrap()
+            .is_some());
+        assert!(store
+            .get(&Key::new_kv(ns.clone(), "key2"))
+            .unwrap()
+            .is_some());
+        assert!(store.get(&Key::new_kv(ns, "key3")).unwrap().is_none()); // Stopped before
+    }
+
+    #[test]
+    fn test_replay_with_progress_callback() {
+        use std::sync::{Arc, Mutex};
+
+        let temp_dir = TempDir::new().unwrap();
+        let wal_path = temp_dir.path().join("progress.wal");
+
+        let run_id = RunId::new();
+        let ns = Namespace::new(
+            "tenant".to_string(),
+            "app".to_string(),
+            "agent".to_string(),
+            run_id,
+        );
+
+        // Write 3 committed transactions
+        {
+            let mut wal = WAL::open(&wal_path, DurabilityMode::Strict).unwrap();
+
+            for i in 1..=3 {
+                wal.append(&WALEntry::BeginTxn {
+                    txn_id: i,
+                    run_id,
+                    timestamp: now(),
+                })
+                .unwrap();
+                wal.append(&WALEntry::Write {
+                    run_id,
+                    key: Key::new_kv(ns.clone(), &format!("key{}", i)),
+                    value: Value::I64(i as i64),
+                    version: i,
+                })
+                .unwrap();
+                wal.append(&WALEntry::CommitTxn { txn_id: i, run_id })
+                    .unwrap();
+            }
+        }
+
+        // Replay with progress callback
+        let wal = WAL::open(&wal_path, DurabilityMode::Strict).unwrap();
+        let store = UnifiedStore::new();
+
+        let progress_log: Arc<Mutex<Vec<ReplayProgress>>> = Arc::new(Mutex::new(Vec::new()));
+        let log_clone = progress_log.clone();
+
+        let options = ReplayOptions {
+            progress_callback: Some(Arc::new(move |progress| {
+                log_clone.lock().unwrap().push(progress);
+            })),
+            ..Default::default()
+        };
+
+        let stats = replay_wal_with_options(&wal, &store, options).unwrap();
+
+        assert_eq!(stats.txns_applied, 3);
+
+        // Verify progress callback was called for each transaction
+        let log = progress_log.lock().unwrap();
+        assert_eq!(log.len(), 3);
+
+        // First callback
+        assert_eq!(log[0].current_txn_id, 1);
+        assert_eq!(log[0].total_txns_found, 3);
+        assert_eq!(log[0].txns_applied, 1);
+        assert!(log[0].was_applied);
+
+        // Second callback
+        assert_eq!(log[1].current_txn_id, 2);
+        assert_eq!(log[1].txns_applied, 2);
+        assert!(log[1].was_applied);
+
+        // Third callback
+        assert_eq!(log[2].current_txn_id, 3);
+        assert_eq!(log[2].txns_applied, 3);
+        assert!(log[2].was_applied);
+    }
+
+    #[test]
+    fn test_replay_combined_filters() {
+        let temp_dir = TempDir::new().unwrap();
+        let wal_path = temp_dir.path().join("combined.wal");
+
+        let run_id_target = RunId::new();
+        let run_id_other = RunId::new();
+
+        let ns_target = Namespace::new(
+            "tenant".to_string(),
+            "app".to_string(),
+            "agent".to_string(),
+            run_id_target,
+        );
+        let ns_other = Namespace::new(
+            "tenant".to_string(),
+            "app".to_string(),
+            "agent".to_string(),
+            run_id_other,
+        );
+
+        // Write mix of transactions
+        {
+            let mut wal = WAL::open(&wal_path, DurabilityMode::Strict).unwrap();
+
+            // Txn 1 - target run, version 10 (should apply)
+            wal.append(&WALEntry::BeginTxn {
+                txn_id: 1,
+                run_id: run_id_target,
+                timestamp: now(),
+            })
+            .unwrap();
+            wal.append(&WALEntry::Write {
+                run_id: run_id_target,
+                key: Key::new_kv(ns_target.clone(), "key1"),
+                value: Value::I64(1),
+                version: 10,
+            })
+            .unwrap();
+            wal.append(&WALEntry::CommitTxn {
+                txn_id: 1,
+                run_id: run_id_target,
+            })
+            .unwrap();
+
+            // Txn 2 - other run, version 15 (filtered by run_id)
+            wal.append(&WALEntry::BeginTxn {
+                txn_id: 2,
+                run_id: run_id_other,
+                timestamp: now(),
+            })
+            .unwrap();
+            wal.append(&WALEntry::Write {
+                run_id: run_id_other,
+                key: Key::new_kv(ns_other.clone(), "key2"),
+                value: Value::I64(2),
+                version: 15,
+            })
+            .unwrap();
+            wal.append(&WALEntry::CommitTxn {
+                txn_id: 2,
+                run_id: run_id_other,
+            })
+            .unwrap();
+
+            // Txn 3 - target run, version 20 (should apply)
+            wal.append(&WALEntry::BeginTxn {
+                txn_id: 3,
+                run_id: run_id_target,
+                timestamp: now(),
+            })
+            .unwrap();
+            wal.append(&WALEntry::Write {
+                run_id: run_id_target,
+                key: Key::new_kv(ns_target.clone(), "key3"),
+                value: Value::I64(3),
+                version: 20,
+            })
+            .unwrap();
+            wal.append(&WALEntry::CommitTxn {
+                txn_id: 3,
+                run_id: run_id_target,
+            })
+            .unwrap();
+
+            // Txn 4 - target run, version 30 (filtered by stop_at_version)
+            wal.append(&WALEntry::BeginTxn {
+                txn_id: 4,
+                run_id: run_id_target,
+                timestamp: now(),
+            })
+            .unwrap();
+            wal.append(&WALEntry::Write {
+                run_id: run_id_target,
+                key: Key::new_kv(ns_target.clone(), "key4"),
+                value: Value::I64(4),
+                version: 30,
+            })
+            .unwrap();
+            wal.append(&WALEntry::CommitTxn {
+                txn_id: 4,
+                run_id: run_id_target,
+            })
+            .unwrap();
+        }
+
+        // Replay with both filters
+        let wal = WAL::open(&wal_path, DurabilityMode::Strict).unwrap();
+        let store = UnifiedStore::new();
+
+        let options = ReplayOptions {
+            filter_run_id: Some(run_id_target),
+            stop_at_version: Some(25),
+            ..Default::default()
+        };
+
+        let stats = replay_wal_with_options(&wal, &store, options).unwrap();
+
+        // Txn 1 and 3 applied, txn 2 filtered by run_id, txn 4 filtered by version
+        assert_eq!(stats.txns_applied, 2);
+        assert_eq!(stats.txns_filtered, 2);
+
+        // Verify only key1 and key3 exist
+        assert!(store
+            .get(&Key::new_kv(ns_target.clone(), "key1"))
+            .unwrap()
+            .is_some());
+        assert!(store.get(&Key::new_kv(ns_other, "key2")).unwrap().is_none());
+        assert!(store
+            .get(&Key::new_kv(ns_target.clone(), "key3"))
+            .unwrap()
+            .is_some());
+        assert!(store
+            .get(&Key::new_kv(ns_target, "key4"))
+            .unwrap()
+            .is_none());
     }
 }
