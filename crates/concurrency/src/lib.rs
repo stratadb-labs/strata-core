@@ -20,7 +20,8 @@ pub mod wal_writer;
 pub use manager::TransactionManager;
 pub use snapshot::ClonedSnapshotView;
 pub use transaction::{
-    ApplyResult, CASOperation, CommitError, TransactionContext, TransactionStatus,
+    ApplyResult, CASOperation, CommitError, PendingOperations, TransactionContext,
+    TransactionStatus,
 };
 pub use validation::{
     validate_cas_set, validate_read_set, validate_transaction, validate_write_set, ConflictType,

@@ -74,6 +74,33 @@ impl ApplyResult {
     }
 }
 
+/// Summary of pending operations that would be rolled back on abort
+///
+/// This is useful for debugging, logging, or providing feedback before
+/// aborting a transaction. It shows what operations are buffered and
+/// would be discarded if the transaction were aborted.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct PendingOperations {
+    /// Number of pending put operations
+    pub puts: usize,
+    /// Number of pending delete operations
+    pub deletes: usize,
+    /// Number of pending CAS operations
+    pub cas: usize,
+}
+
+impl PendingOperations {
+    /// Total number of pending operations
+    pub fn total(&self) -> usize {
+        self.puts + self.deletes + self.cas
+    }
+
+    /// Check if there are no pending operations
+    pub fn is_empty(&self) -> bool {
+        self.total() == 0
+    }
+}
+
 /// Status of a transaction in its lifecycle
 ///
 /// State transitions:
@@ -618,10 +645,14 @@ impl TransactionContext {
         }
     }
 
-    /// Transition to Aborted state
+    /// Abort the transaction and clean up
+    ///
+    /// Per spec:
+    /// - Aborted transactions write nothing to storage
+    /// - Aborted transactions write nothing to WAL (M2)
+    /// - All buffered operations are discarded
     ///
     /// Can be called from `Active` (user abort) or `Validating` (conflict detected).
-    /// Buffered writes are discarded - they were never applied to storage.
     ///
     /// # Arguments
     /// * `reason` - Human-readable reason for abort
@@ -644,8 +675,30 @@ impl TransactionContext {
             ))),
             _ => {
                 self.status = TransactionStatus::Aborted { reason };
+
+                // Clear all buffered operations per spec
+                // Aborted transactions write nothing
+                self.write_set.clear();
+                self.delete_set.clear();
+                self.cas_set.clear();
+
+                // Note: read_set is kept for debugging/diagnostics
+
                 Ok(())
             }
+        }
+    }
+
+    /// Get summary of pending operations
+    ///
+    /// Useful for debugging and logging before abort/commit.
+    /// Returns counts of buffered operations that would be applied on commit
+    /// or discarded on abort.
+    pub fn pending_operations(&self) -> PendingOperations {
+        PendingOperations {
+            puts: self.write_set.len(),
+            deletes: self.delete_set.len(),
+            cas: self.cas_set.len(),
         }
     }
 
@@ -2412,6 +2465,264 @@ mod tests {
             };
 
             assert_eq!(result.total_operations(), 10);
+        }
+    }
+
+    // === Rollback Tests ===
+
+    mod rollback_tests {
+        use super::*;
+        use in_mem_storage::UnifiedStore;
+
+        fn create_test_store() -> UnifiedStore {
+            UnifiedStore::new()
+        }
+
+        fn create_txn_with_snapshot(store: &UnifiedStore) -> TransactionContext {
+            let run_id = RunId::new();
+            TransactionContext::with_snapshot(
+                store.current_version(),
+                run_id,
+                Box::new(store.create_snapshot()),
+            )
+        }
+
+        fn create_test_namespace() -> Namespace {
+            let run_id = RunId::new();
+            Namespace::new("t".into(), "a".into(), "g".into(), run_id)
+        }
+
+        fn create_key(ns: &Namespace, name: &str) -> Key {
+            Key::new(ns.clone(), TypeTag::KV, name.as_bytes().to_vec())
+        }
+
+        #[test]
+        fn test_abort_clears_write_set() {
+            let store = create_test_store();
+            let ns = create_test_namespace();
+            let key = create_key(&ns, "key");
+
+            let mut txn = create_txn_with_snapshot(&store);
+            txn.put(key.clone(), Value::I64(42)).unwrap();
+
+            assert_eq!(txn.write_count(), 1);
+
+            txn.mark_aborted("Test abort".to_string()).unwrap();
+
+            assert_eq!(txn.write_count(), 0);
+            assert!(matches!(txn.status, TransactionStatus::Aborted { .. }));
+        }
+
+        #[test]
+        fn test_abort_clears_delete_set() {
+            let store = create_test_store();
+            let ns = create_test_namespace();
+            let key = create_key(&ns, "key");
+
+            store.put(key.clone(), Value::I64(100), None).unwrap();
+
+            let mut txn = create_txn_with_snapshot(&store);
+            txn.delete(key.clone()).unwrap();
+
+            assert_eq!(txn.delete_count(), 1);
+
+            txn.mark_aborted("Test abort".to_string()).unwrap();
+
+            assert_eq!(txn.delete_count(), 0);
+        }
+
+        #[test]
+        fn test_abort_clears_cas_set() {
+            let store = create_test_store();
+            let ns = create_test_namespace();
+            let key = create_key(&ns, "counter");
+
+            store.put(key.clone(), Value::I64(0), None).unwrap();
+            let version = store.get(&key).unwrap().unwrap().version;
+
+            let mut txn = create_txn_with_snapshot(&store);
+            txn.cas(key.clone(), version, Value::I64(1)).unwrap();
+
+            assert_eq!(txn.cas_count(), 1);
+
+            txn.mark_aborted("Test abort".to_string()).unwrap();
+
+            assert_eq!(txn.cas_count(), 0);
+        }
+
+        #[test]
+        fn test_abort_preserves_read_set() {
+            let store = create_test_store();
+            let ns = create_test_namespace();
+            let key = create_key(&ns, "key");
+
+            store.put(key.clone(), Value::I64(100), None).unwrap();
+
+            let mut txn = create_txn_with_snapshot(&store);
+            let _ = txn.get(&key).unwrap();
+
+            assert!(!txn.read_set.is_empty());
+
+            txn.mark_aborted("Test abort".to_string()).unwrap();
+
+            // Read set is preserved for debugging
+            assert!(!txn.read_set.is_empty());
+        }
+
+        #[test]
+        fn test_can_rollback_from_active() {
+            let store = create_test_store();
+            let txn = create_txn_with_snapshot(&store);
+
+            assert!(txn.can_rollback());
+        }
+
+        #[test]
+        fn test_can_rollback_from_validating() {
+            let store = create_test_store();
+            let mut txn = create_txn_with_snapshot(&store);
+            txn.status = TransactionStatus::Validating;
+
+            assert!(txn.can_rollback());
+        }
+
+        #[test]
+        fn test_cannot_rollback_committed() {
+            let store = create_test_store();
+            let mut txn = create_txn_with_snapshot(&store);
+            txn.status = TransactionStatus::Committed;
+
+            assert!(!txn.can_rollback());
+        }
+
+        #[test]
+        fn test_cannot_rollback_aborted() {
+            let store = create_test_store();
+            let mut txn = create_txn_with_snapshot(&store);
+            txn.mark_aborted("already aborted".to_string()).unwrap();
+
+            assert!(!txn.can_rollback());
+        }
+
+        #[test]
+        fn test_pending_operations_empty() {
+            let store = create_test_store();
+            let txn = create_txn_with_snapshot(&store);
+
+            let pending = txn.pending_operations();
+            assert_eq!(pending.puts, 0);
+            assert_eq!(pending.deletes, 0);
+            assert_eq!(pending.cas, 0);
+            assert_eq!(pending.total(), 0);
+            assert!(pending.is_empty());
+        }
+
+        #[test]
+        fn test_pending_operations_with_writes() {
+            let store = create_test_store();
+            let ns = create_test_namespace();
+            let key = create_key(&ns, "key");
+
+            let mut txn = create_txn_with_snapshot(&store);
+            txn.put(key.clone(), Value::I64(1)).unwrap();
+
+            let pending = txn.pending_operations();
+            assert_eq!(pending.puts, 1);
+            assert_eq!(pending.deletes, 0);
+            assert_eq!(pending.cas, 0);
+            assert_eq!(pending.total(), 1);
+            assert!(!pending.is_empty());
+        }
+
+        #[test]
+        fn test_pending_operations_with_mixed_ops() {
+            let store = create_test_store();
+            let ns = create_test_namespace();
+            let key1 = create_key(&ns, "key1");
+            let key2 = create_key(&ns, "key2");
+            let key3 = create_key(&ns, "key3");
+
+            store.put(key2.clone(), Value::I64(100), None).unwrap();
+            store.put(key3.clone(), Value::I64(0), None).unwrap();
+            let v3 = store.get(&key3).unwrap().unwrap().version;
+
+            let mut txn = create_txn_with_snapshot(&store);
+            txn.put(key1.clone(), Value::I64(1)).unwrap();
+            txn.delete(key2.clone()).unwrap();
+            txn.cas(key3.clone(), v3, Value::I64(1)).unwrap();
+
+            let pending = txn.pending_operations();
+            assert_eq!(pending.puts, 1);
+            assert_eq!(pending.deletes, 1);
+            assert_eq!(pending.cas, 1);
+            assert_eq!(pending.total(), 3);
+            assert!(!pending.is_empty());
+        }
+
+        #[test]
+        fn test_pending_operations_cleared_after_abort() {
+            let store = create_test_store();
+            let ns = create_test_namespace();
+            let key = create_key(&ns, "key");
+
+            let mut txn = create_txn_with_snapshot(&store);
+            txn.put(key.clone(), Value::I64(1)).unwrap();
+
+            assert_eq!(txn.pending_operations().total(), 1);
+
+            txn.mark_aborted("abort".to_string()).unwrap();
+
+            let pending = txn.pending_operations();
+            assert_eq!(pending.total(), 0);
+            assert!(pending.is_empty());
+        }
+
+        #[test]
+        fn test_pending_operations_debug() {
+            let pending = PendingOperations {
+                puts: 3,
+                deletes: 2,
+                cas: 1,
+            };
+
+            let debug_str = format!("{:?}", pending);
+            assert!(debug_str.contains("3"));
+            assert!(debug_str.contains("2"));
+            assert!(debug_str.contains("1"));
+        }
+
+        #[test]
+        fn test_pending_operations_equality() {
+            let p1 = PendingOperations {
+                puts: 1,
+                deletes: 2,
+                cas: 3,
+            };
+            let p2 = PendingOperations {
+                puts: 1,
+                deletes: 2,
+                cas: 3,
+            };
+            let p3 = PendingOperations {
+                puts: 0,
+                deletes: 2,
+                cas: 3,
+            };
+
+            assert_eq!(p1, p2);
+            assert_ne!(p1, p3);
+        }
+
+        #[test]
+        fn test_pending_operations_clone() {
+            let p1 = PendingOperations {
+                puts: 1,
+                deletes: 2,
+                cas: 3,
+            };
+            let p2 = p1;
+
+            assert_eq!(p1, p2);
         }
     }
 
