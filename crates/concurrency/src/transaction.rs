@@ -13,6 +13,7 @@ use in_mem_core::traits::{SnapshotView, Storage};
 use in_mem_core::types::{Key, RunId};
 use in_mem_core::value::Value;
 use std::collections::{BTreeMap, HashMap, HashSet};
+use std::time::{Duration, Instant};
 
 /// Error type for commit failures
 ///
@@ -218,6 +219,10 @@ pub struct TransactionContext {
     // State
     /// Current transaction status
     pub status: TransactionStatus,
+
+    // Timing
+    /// When this transaction was created
+    start_time: Instant,
 }
 
 impl TransactionContext {
@@ -254,6 +259,7 @@ impl TransactionContext {
             delete_set: HashSet::new(),
             cas_set: Vec::new(),
             status: TransactionStatus::Active,
+            start_time: Instant::now(),
         }
     }
 
@@ -292,6 +298,7 @@ impl TransactionContext {
             delete_set: HashSet::new(),
             cas_set: Vec::new(),
             status: TransactionStatus::Active,
+            start_time: Instant::now(),
         }
     }
 
@@ -589,6 +596,52 @@ impl TransactionContext {
             self.status,
             TransactionStatus::Active | TransactionStatus::Validating
         )
+    }
+
+    // === Timeout Support ===
+
+    /// Check if this transaction has exceeded the given timeout
+    ///
+    /// Returns true if the elapsed time since transaction creation
+    /// exceeds the specified timeout duration.
+    ///
+    /// # Arguments
+    /// * `timeout` - Maximum allowed duration for this transaction
+    ///
+    /// # Example
+    /// ```
+    /// use in_mem_concurrency::TransactionContext;
+    /// use in_mem_core::types::RunId;
+    /// use std::time::Duration;
+    ///
+    /// let run_id = RunId::new();
+    /// let txn = TransactionContext::new(1, run_id, 100);
+    ///
+    /// // Should not be expired immediately
+    /// assert!(!txn.is_expired(Duration::from_secs(1)));
+    /// ```
+    pub fn is_expired(&self, timeout: Duration) -> bool {
+        self.start_time.elapsed() > timeout
+    }
+
+    /// Get the elapsed time since transaction started
+    ///
+    /// Returns the duration since this transaction was created.
+    ///
+    /// # Example
+    /// ```
+    /// use in_mem_concurrency::TransactionContext;
+    /// use in_mem_core::types::RunId;
+    /// use std::time::Duration;
+    ///
+    /// let run_id = RunId::new();
+    /// let txn = TransactionContext::new(1, run_id, 100);
+    ///
+    /// // Elapsed should be very small initially
+    /// assert!(txn.elapsed() < Duration::from_secs(1));
+    /// ```
+    pub fn elapsed(&self) -> Duration {
+        self.start_time.elapsed()
     }
 
     /// Check if transaction can accept operations

@@ -413,6 +413,77 @@ impl Database {
             .unwrap_or_else(|| Error::TransactionConflict("Max retries exceeded".to_string())))
     }
 
+    /// Execute a transaction with timeout
+    ///
+    /// If the transaction exceeds the timeout, it will be aborted
+    /// before commit is attempted.
+    ///
+    /// # Arguments
+    /// * `run_id` - RunId for namespace isolation
+    /// * `timeout` - Maximum duration for the transaction
+    /// * `f` - Closure that performs transaction operations
+    ///
+    /// # Returns
+    /// * `Ok(T)` - Closure return value on successful commit
+    /// * `Err(TransactionTimeout)` - Transaction exceeded timeout
+    /// * `Err` - On validation conflict or closure error
+    ///
+    /// # Example
+    /// ```ignore
+    /// use std::time::Duration;
+    ///
+    /// let result = db.transaction_with_timeout(
+    ///     run_id,
+    ///     Duration::from_secs(5),
+    ///     |txn| {
+    ///         txn.put(key, value)?;
+    ///         Ok(())
+    ///     },
+    /// )?;
+    /// ```
+    pub fn transaction_with_timeout<F, T>(
+        &self,
+        run_id: RunId,
+        timeout: Duration,
+        f: F,
+    ) -> Result<T>
+    where
+        F: FnOnce(&mut TransactionContext) -> Result<T>,
+    {
+        let mut txn = self.begin_transaction(run_id);
+
+        // Execute closure
+        let result = f(&mut txn);
+
+        match result {
+            Ok(value) => {
+                // Check timeout before commit
+                if txn.is_expired(timeout) {
+                    let elapsed = txn.elapsed();
+                    let _ = txn.mark_aborted(format!(
+                        "Transaction timeout: elapsed {:?}, limit {:?}",
+                        elapsed, timeout
+                    ));
+                    self.coordinator.record_abort();
+                    return Err(Error::TransactionTimeout(format!(
+                        "Transaction exceeded timeout of {:?} (elapsed: {:?})",
+                        timeout, elapsed
+                    )));
+                }
+
+                // Commit on success
+                self.commit_transaction(&mut txn)?;
+                Ok(value)
+            }
+            Err(e) => {
+                // Abort on error
+                let _ = txn.mark_aborted(format!("Closure error: {}", e));
+                self.coordinator.record_abort();
+                Err(e)
+            }
+        }
+    }
+
     /// Begin a new transaction (for manual control)
     ///
     /// Returns a TransactionContext that must be manually committed or aborted.
@@ -1666,5 +1737,133 @@ mod tests {
         // Verify final value
         let stored = db.get(&key).unwrap().unwrap();
         assert_eq!(stored.value, Value::I64(1));
+    }
+
+    // ========================================================================
+    // Timeout Tests (Story #102)
+    // ========================================================================
+
+    #[test]
+    fn test_transaction_is_expired() {
+        use std::thread;
+
+        let temp_dir = TempDir::new().unwrap();
+        let db = Database::open(temp_dir.path().join("db")).unwrap();
+
+        let run_id = RunId::new();
+        let txn = db.begin_transaction(run_id);
+
+        // Should not be expired immediately
+        assert!(!txn.is_expired(Duration::from_secs(1)));
+
+        // Sleep briefly
+        thread::sleep(Duration::from_millis(50));
+
+        // Should be expired with very short timeout
+        assert!(txn.is_expired(Duration::from_millis(10)));
+
+        // Should not be expired with longer timeout
+        assert!(!txn.is_expired(Duration::from_secs(10)));
+    }
+
+    #[test]
+    fn test_transaction_with_timeout_success() {
+        let temp_dir = TempDir::new().unwrap();
+        let db = Database::open(temp_dir.path().join("db")).unwrap();
+
+        let run_id = RunId::new();
+        let ns = create_test_namespace(run_id);
+        let key = Key::new_kv(ns, "timeout_success");
+
+        // Transaction completes within timeout
+        let result = db.transaction_with_timeout(run_id, Duration::from_secs(5), |txn| {
+            txn.put(key.clone(), Value::I64(42))?;
+            Ok(42)
+        });
+
+        assert!(result.is_ok());
+        assert_eq!(result.unwrap(), 42);
+
+        // Verify stored
+        let stored = db.get(&key).unwrap().unwrap();
+        assert_eq!(stored.value, Value::I64(42));
+    }
+
+    #[test]
+    fn test_transaction_with_timeout_expired() {
+        use std::thread;
+
+        let temp_dir = TempDir::new().unwrap();
+        let db = Database::open(temp_dir.path().join("db")).unwrap();
+
+        let run_id = RunId::new();
+        let ns = create_test_namespace(run_id);
+        let key = Key::new_kv(ns, "timeout_expired");
+
+        // Transaction exceeds timeout
+        let result: Result<()> = db.transaction_with_timeout(
+            run_id,
+            Duration::from_millis(10), // Very short timeout
+            |txn| {
+                txn.put(key.clone(), Value::I64(999))?;
+                // Sleep to exceed timeout
+                thread::sleep(Duration::from_millis(50));
+                Ok(())
+            },
+        );
+
+        assert!(result.is_err());
+        let err = result.unwrap_err();
+        assert!(err.is_timeout());
+
+        // Data should NOT be committed
+        assert!(db.get(&key).unwrap().is_none());
+    }
+
+    #[test]
+    fn test_transaction_with_timeout_normal_not_affected() {
+        let temp_dir = TempDir::new().unwrap();
+        let db = Database::open(temp_dir.path().join("db")).unwrap();
+
+        let run_id = RunId::new();
+        let ns = create_test_namespace(run_id);
+
+        // Run many quick transactions with timeout
+        for i in 0..100 {
+            let key = Key::new_kv(ns.clone(), &format!("key_{}", i));
+            let result = db.transaction_with_timeout(run_id, Duration::from_secs(5), |txn| {
+                txn.put(key.clone(), Value::I64(i as i64))?;
+                Ok(())
+            });
+            assert!(result.is_ok());
+        }
+
+        // All should be stored
+        for i in 0..100 {
+            let key = Key::new_kv(ns.clone(), &format!("key_{}", i));
+            let val = db.get(&key).unwrap().unwrap();
+            assert_eq!(val.value, Value::I64(i as i64));
+        }
+    }
+
+    #[test]
+    fn test_transaction_elapsed() {
+        use std::thread;
+
+        let temp_dir = TempDir::new().unwrap();
+        let db = Database::open(temp_dir.path().join("db")).unwrap();
+
+        let run_id = RunId::new();
+        let txn = db.begin_transaction(run_id);
+
+        // Elapsed should be very small initially
+        let initial = txn.elapsed();
+        assert!(initial < Duration::from_millis(100));
+
+        // After sleep, elapsed should increase
+        thread::sleep(Duration::from_millis(50));
+        let after = txn.elapsed();
+        assert!(after >= Duration::from_millis(50));
+        assert!(after > initial);
     }
 }

@@ -57,6 +57,10 @@ pub enum Error {
     /// Transaction conflict detected during commit (M2)
     #[error("Transaction conflict: {0}")]
     TransactionConflict(String),
+
+    /// Transaction exceeded timeout (M2)
+    #[error("Transaction timeout: {0}")]
+    TransactionTimeout(String),
 }
 
 impl From<bincode::Error> for Error {
@@ -71,6 +75,14 @@ impl Error {
     /// Used for retry logic - only conflict errors should be retried.
     pub fn is_conflict(&self) -> bool {
         matches!(self, Error::TransactionConflict(_))
+    }
+
+    /// Check if this error is a transaction timeout
+    ///
+    /// Used to identify when a transaction was aborted due to exceeding
+    /// its time limit.
+    pub fn is_timeout(&self) -> bool {
+        matches!(self, Error::TransactionTimeout(_))
     }
 }
 
@@ -224,5 +236,24 @@ mod tests {
 
         assert!(conflict.is_conflict());
         assert!(!not_conflict.is_conflict());
+    }
+
+    #[test]
+    fn test_error_display_transaction_timeout() {
+        let err = Error::TransactionTimeout("exceeded 5s limit".to_string());
+        let msg = err.to_string();
+        assert!(msg.contains("Transaction timeout"));
+        assert!(msg.contains("exceeded 5s limit"));
+    }
+
+    #[test]
+    fn test_is_timeout() {
+        let timeout = Error::TransactionTimeout("timed out".to_string());
+        let not_timeout = Error::InvalidState("state".to_string());
+        let conflict = Error::TransactionConflict("conflict".to_string());
+
+        assert!(timeout.is_timeout());
+        assert!(!not_timeout.is_timeout());
+        assert!(!conflict.is_timeout());
     }
 }
