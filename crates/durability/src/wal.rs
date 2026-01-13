@@ -532,17 +532,22 @@ impl WAL {
         let mut entries = Vec::new();
         let mut file_offset = start_offset;
 
-        // Read file in chunks
+        // Buffer to hold data, including leftover bytes from previous iteration
+        let mut buf = Vec::new();
+        let mut read_buf = vec![0u8; 64 * 1024]; // 64KB read buffer
+
+        // Read file in chunks, handling entries that span buffer boundaries
         loop {
-            // Read into buffer
-            let mut buf = vec![0u8; 64 * 1024]; // 64KB buffer
-            let bytes_read = reader.read(&mut buf)?;
+            // Read more data into read_buf
+            let bytes_read = reader.read(&mut read_buf)?;
 
             if bytes_read == 0 {
-                break; // EOF
+                // EOF - any remaining bytes in buf are an incomplete entry (partial write)
+                break;
             }
 
-            buf.truncate(bytes_read);
+            // Append new data to existing buffer (which may contain leftover bytes)
+            buf.extend_from_slice(&read_buf[..bytes_read]);
 
             // Decode entries from buffer
             let mut offset_in_buf = 0;
@@ -554,17 +559,23 @@ impl WAL {
                         file_offset += bytes_consumed as u64;
                     }
                     Err(_) => {
-                        // Could be incomplete entry at end or corruption
-                        // If buffer wasn't full, we're at EOF - incomplete entry is expected
-                        if bytes_read < buf.capacity() {
-                            // EOF, incomplete entry at end is expected (partial write)
-                            return Ok(entries);
-                        }
-                        // Buffer was full but decode failed - might need more data
-                        // For simplicity, break and return what we have
-                        return Ok(entries);
+                        // Decode failed - could be incomplete entry or corruption
+                        // Keep the remaining bytes and read more data
+                        break;
                     }
                 }
+            }
+
+            // Remove consumed bytes from buffer, keeping any leftover for next iteration
+            if offset_in_buf > 0 {
+                buf.drain(..offset_in_buf);
+            }
+
+            // If we read less than a full buffer and still have leftover bytes,
+            // we're at EOF with an incomplete entry (partial write at end of file)
+            if bytes_read < read_buf.len() && !buf.is_empty() {
+                // EOF with incomplete entry - this is expected (partial write)
+                break;
             }
         }
 

@@ -157,9 +157,86 @@ impl UnifiedStore {
     /// assert!(snapshot.get(&key2).unwrap().is_none());
     /// ```
     pub fn create_snapshot(&self) -> ClonedSnapshotView {
-        let version = self.current_version();
+        // IMPORTANT: Acquire read lock BEFORE reading version to prevent race condition.
+        // If we read version first, another thread could:
+        // 1. Complete a write with version N
+        // 2. Call fetch_max(N) to update storage version
+        // 3. Release write lock
+        // Meanwhile we'd have read version N-1 but then clone data with version N,
+        // causing snapshot reads to incorrectly return None (N > N-1).
         let data = self.data.read();
+        let version = self.current_version();
         ClonedSnapshotView::new(version, data.clone())
+    }
+
+    /// Apply a batch of writes and deletes atomically
+    ///
+    /// This method holds the write lock during ALL operations, ensuring that
+    /// no snapshot can see a partial transaction. This is critical for
+    /// transaction atomicity.
+    ///
+    /// # Arguments
+    /// * `writes` - Vector of (key, value) pairs to write
+    /// * `deletes` - Vector of keys to delete
+    /// * `version` - The version to assign to all operations
+    ///
+    /// # Atomicity
+    ///
+    /// All writes and deletes are applied under a single write lock acquisition.
+    /// Other threads cannot see intermediate states.
+    pub fn apply_batch(
+        &self,
+        writes: &[(Key, Value)],
+        deletes: &[Key],
+        version: u64,
+    ) -> Result<()> {
+        // Acquire ALL locks ONCE for the entire batch
+        let mut data = self.data.write();
+        let mut run_idx = self.run_index.write();
+        let mut type_idx = self.type_index.write();
+        let mut ttl_idx = self.ttl_index.write();
+
+        // Apply all writes
+        for (key, value) in writes {
+            let versioned_value = VersionedValue::new(value.clone(), version, None);
+
+            // Check if key already exists with TTL (need to remove old TTL entry)
+            if let Some(old_value) = data.get(key) {
+                if let Some(old_expiry) = Self::expiry_timestamp(old_value) {
+                    ttl_idx.remove(old_expiry, key);
+                }
+            }
+
+            // Insert into main storage
+            data.insert(key.clone(), versioned_value);
+
+            // Update secondary indices
+            run_idx.insert(key.namespace.run_id, key.clone());
+            type_idx.insert(key.type_tag, key.clone());
+        }
+
+        // Apply all deletes
+        for key in deletes {
+            let removed = data.remove(key);
+
+            if let Some(ref value) = removed {
+                // Update secondary indices
+                run_idx.remove(key.namespace.run_id, key);
+                type_idx.remove(key.type_tag, key);
+
+                // Remove from TTL index if it had TTL
+                if let Some(expiry) = Self::expiry_timestamp(value) {
+                    ttl_idx.remove(expiry, key);
+                }
+            }
+        }
+
+        // Update global version to be at least this version
+        // This ensures current_version() reflects the max version in the store
+        self.version
+            .fetch_max(version, std::sync::atomic::Ordering::SeqCst);
+
+        Ok(())
     }
 }
 

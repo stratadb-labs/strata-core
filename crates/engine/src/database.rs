@@ -103,7 +103,10 @@ impl RetryConfig {
 
     /// Calculate delay for a given attempt (exponential backoff)
     fn calculate_delay(&self, attempt: usize) -> Duration {
-        let delay_ms = self.base_delay_ms.saturating_mul(1 << attempt);
+        // Cap the shift to prevent overflow (1 << 63 is the max for u64)
+        let shift = attempt.min(63);
+        let multiplier = 1u64 << shift;
+        let delay_ms = self.base_delay_ms.saturating_mul(multiplier);
         Duration::from_millis(delay_ms.min(self.max_delay_ms))
     }
 }
@@ -580,23 +583,24 @@ impl Database {
             wal_writer.write_commit()?;
         }
 
-        // 4. Apply to storage
-        for (key, value) in &txn.write_set {
-            self.storage
-                .put_with_version(key.clone(), value.clone(), commit_version, None)?;
-        }
-        for key in &txn.delete_set {
-            self.storage.delete_with_version(key, commit_version)?;
-        }
-        // CAS operations are applied as puts after validation
+        // 4. Apply to storage atomically
+        // All writes and deletes are applied in a single batch to ensure atomicity.
+        // This prevents other threads from seeing partial transaction states.
+        let mut all_writes: Vec<_> = txn
+            .write_set
+            .iter()
+            .map(|(k, v)| (k.clone(), v.clone()))
+            .collect();
+
+        // CAS operations are also writes after validation
         for cas_op in &txn.cas_set {
-            self.storage.put_with_version(
-                cas_op.key.clone(),
-                cas_op.new_value.clone(),
-                commit_version,
-                None,
-            )?;
+            all_writes.push((cas_op.key.clone(), cas_op.new_value.clone()));
         }
+
+        let all_deletes: Vec<_> = txn.delete_set.iter().cloned().collect();
+
+        self.storage
+            .apply_batch(&all_writes, &all_deletes, commit_version)?;
 
         // Mark committed
         txn.mark_committed()?;
