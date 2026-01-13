@@ -219,6 +219,10 @@ pub fn validate_cas_set<S: Storage>(cas_set: &[CASOperation], store: &S) -> Vali
 /// 2. Validates write-set: currently no-op (blind writes don't conflict)
 /// 3. Validates CAS-set: ensures expected versions still match
 ///
+/// **Per spec Section 3.2 Scenario 3**: Read-only transactions ALWAYS succeed.
+/// If a transaction has no writes (empty write_set, delete_set, and cas_set),
+/// validation is skipped entirely and the transaction succeeds.
+///
 /// # Arguments
 /// * `txn` - Transaction to validate (should be in Validating state for correctness,
 ///   but this function doesn't enforce that)
@@ -229,9 +233,16 @@ pub fn validate_cas_set<S: Storage>(cas_set: &[CASOperation], store: &S) -> Vali
 ///
 /// # Spec Reference
 /// - Section 3.1: When conflicts occur
-/// - Section 3.2: Conflict scenarios
+/// - Section 3.2: Conflict scenarios (including read-only transaction rule)
 /// - Section 3.3: First-committer-wins rule
 pub fn validate_transaction<S: Storage>(txn: &TransactionContext, store: &S) -> ValidationResult {
+    // Per spec Section 3.2 Scenario 3: Read-only transactions ALWAYS commit.
+    // "Read-Only Transaction: T1 only reads keys, never writes any → ALWAYS COMMITS"
+    // "Why: Read-only transactions have no writes to validate. They simply return their snapshot view."
+    if txn.is_read_only() {
+        return ValidationResult::ok();
+    }
+
     let mut result = ValidationResult::ok();
 
     // 1. Validate read-set (detects read-write conflicts)

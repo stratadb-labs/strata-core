@@ -2040,17 +2040,11 @@ mod tests {
                 .put(key.clone(), Value::I64(200), None)
                 .expect("put failed");
 
-            // Per spec Section 3.1: Read-write conflict
+            // Per spec Section 3.2 Scenario 3: Read-only transactions ALWAYS commit.
+            // They only see their snapshot view and have no writes to validate.
             let result = txn.commit(&store);
-            assert!(result.is_err());
-            assert!(txn.is_aborted());
-
-            if let Err(CommitError::ValidationFailed(validation)) = result {
-                assert!(!validation.is_valid());
-                assert_eq!(validation.conflict_count(), 1);
-            } else {
-                panic!("Expected ValidationFailed error");
-            }
+            assert!(result.is_ok());
+            assert!(txn.is_committed());
         }
 
         #[test]
@@ -2284,6 +2278,8 @@ mod tests {
 
             let mut txn = create_txn_with_store(&store);
             let _ = txn.get(&key).expect("get failed");
+            // Add a write to make this NOT a read-only transaction
+            txn.put(key.clone(), Value::I64(150)).expect("put failed");
 
             // Concurrent modification
             store

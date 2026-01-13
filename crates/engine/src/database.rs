@@ -149,6 +149,12 @@ pub struct Database {
     ///
     /// Per spec Section 6.1: Single monotonic counter for the entire database.
     coordinator: TransactionCoordinator,
+
+    /// Commit lock to serialize validation + WAL write + storage apply
+    ///
+    /// This ensures atomicity of the commit sequence and prevents CAS race conditions.
+    /// Per spec Section 3.3: First-committer-wins requires atomic validate-and-commit.
+    commit_lock: Mutex<()>,
 }
 
 impl Database {
@@ -244,6 +250,7 @@ impl Database {
             storage: Arc::new(result.storage),
             wal: Arc::new(Mutex::new(wal)),
             coordinator,
+            commit_lock: Mutex::new(()),
         })
     }
 
@@ -524,7 +531,12 @@ impl Database {
     /// - `TransactionConflict` - Read-write or CAS conflict detected
     /// - `InvalidState` - Transaction not in Active state
     pub fn commit_transaction(&self, txn: &mut TransactionContext) -> Result<()> {
-        // 1. Validate
+        // Acquire commit lock to serialize validate → WAL → storage sequence
+        // This prevents CAS race conditions where multiple transactions pass validation
+        // before any of them writes to storage.
+        let _commit_guard = self.commit_lock.lock().unwrap();
+
+        // 1. Validate (under commit lock)
         txn.mark_validating()?;
         let validation = validate_transaction(txn, self.storage.as_ref());
 
@@ -723,6 +735,34 @@ impl Database {
             txn.cas(key.clone(), expected_version, new_value.clone())?;
             Ok(())
         })
+    }
+
+    /// Gracefully close the database
+    ///
+    /// Ensures all WAL entries are flushed to disk before returning.
+    /// This should be called before dropping the database for guaranteed durability.
+    pub fn close(&self) -> Result<()> {
+        let wal = self.wal.lock().unwrap();
+        wal.fsync()
+    }
+}
+
+impl Drop for Database {
+    fn drop(&mut self) {
+        // Attempt to sync WAL on drop. This is a best-effort fallback;
+        // users should call close() explicitly for guaranteed durability.
+        match self.wal.lock() {
+            Ok(wal) => {
+                if let Err(e) = wal.fsync() {
+                    // Log error but don't panic - we're in drop
+                    eprintln!("WARNING: Failed to sync WAL on database drop: {}", e);
+                    tracing::error!("Failed to sync WAL on database drop: {}", e);
+                }
+            }
+            Err(e) => {
+                eprintln!("WARNING: Failed to acquire WAL lock on database drop: {}", e);
+            }
+        }
     }
 }
 

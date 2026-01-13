@@ -303,6 +303,9 @@ mod conflict_detection {
     /// Per spec Section 3.1 Condition 1: Read-Write Conflict
     /// "T1 read key K and recorded version V in its read_set
     ///  At commit time, the current storage version of K is V' where V' != V"
+    ///
+    /// Note: Per spec Section 3.2 Scenario 3, read-only transactions ALWAYS commit.
+    /// This test adds a write to make it a read-write transaction.
     #[test]
     fn test_read_write_conflict_aborts() {
         let store = UnifiedStore::new();
@@ -316,6 +319,8 @@ mod conflict_detection {
         // T1 begins and reads the key
         let mut txn1 = begin_transaction(&store, 1, run_id);
         let _ = txn1.get(&key).unwrap(); // Records version 1 in read_set
+        // Add a write to make this NOT a read-only transaction
+        txn1.put(key.clone(), Value::I64(150)).unwrap();
 
         // T2 commits, changing the version to 2
         store.put(key.clone(), Value::I64(200), None).unwrap();
@@ -954,6 +959,10 @@ mod regression_tests {
     use super::*;
 
     /// Regression: Read-set should track version 0 for non-existent keys
+    ///
+    /// Note: Per spec Section 3.2 Scenario 3, read-only transactions ALWAYS commit.
+    /// This test adds a write to make it a read-write transaction to properly test
+    /// the conflict detection for version 0.
     #[test]
     fn test_read_nonexistent_key_tracks_version_0() {
         let store = UnifiedStore::new();
@@ -970,6 +979,9 @@ mod regression_tests {
         // read_set should have version 0
         assert!(txn.read_set.contains_key(&key));
         assert_eq!(*txn.read_set.get(&key).unwrap(), 0);
+
+        // Add a write to make this NOT a read-only transaction
+        txn.put(key.clone(), Value::I64(999)).unwrap();
 
         // If someone creates the key, we should conflict
         store.put(key.clone(), Value::I64(1), None).unwrap();
