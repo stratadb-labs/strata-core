@@ -29,6 +29,16 @@ impl RunId {
         Self(Uuid::from_bytes(bytes))
     }
 
+    /// Parse a RunId from a string representation
+    ///
+    /// Accepts standard UUID format (with or without hyphens).
+    ///
+    /// # Errors
+    /// Returns None if the string is not a valid UUID.
+    pub fn from_string(s: &str) -> Option<Self> {
+        Uuid::parse_str(s).ok().map(Self)
+    }
+
     /// Get the raw bytes of this RunId
     pub fn as_bytes(&self) -> &[u8; 16] {
         self.0.as_bytes()
