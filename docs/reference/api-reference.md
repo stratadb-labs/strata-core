@@ -1,6 +1,6 @@
 # API Reference
 
-Complete API reference for **in-mem** v0.1.0 (M1 Foundation).
+Complete API reference for **in-mem** v0.2.0 (M2 Transactions).
 
 ## Core Types
 
@@ -240,6 +240,295 @@ pub fn flush(&self) -> Result<()>
 **Example**:
 ```rust
 db.flush()?; // Ensure all writes are durable
+```
+
+---
+
+## Transactions (M2)
+
+### Transaction API
+
+**in-mem** provides Optimistic Concurrency Control (OCC) with snapshot isolation. Transactions enable atomic multi-key operations with automatic conflict detection.
+
+#### `transaction`
+
+Execute a transaction with automatic commit/abort handling.
+
+```rust
+pub fn transaction<F, T>(&self, run_id: RunId, f: F) -> Result<T>
+where
+    F: FnOnce(&mut TransactionContext) -> Result<T>
+```
+
+**Parameters**:
+- `run_id`: Run ID for namespace isolation
+- `f`: Closure that performs transaction operations
+
+**Returns**: `Result<T>` - Closure return value on successful commit
+
+**Example**:
+```rust
+let result = db.transaction(run_id, |txn| {
+    let val = txn.get(&key)?;
+    txn.put(key.clone(), Value::I64(42))?;
+    Ok(val)
+})?;
+```
+
+**Behavior**:
+- On success: Transaction is committed atomically
+- On error: Transaction is aborted (all changes discarded)
+- On conflict: Returns `Error::TransactionConflict`
+
+#### `transaction_with_retry`
+
+Execute a transaction with automatic retry on conflict.
+
+```rust
+pub fn transaction_with_retry<F, T>(
+    &self,
+    run_id: RunId,
+    config: RetryConfig,
+    f: F,
+) -> Result<T>
+where
+    F: Fn(&mut TransactionContext) -> Result<T>
+```
+
+**Parameters**:
+- `run_id`: Run ID for namespace isolation
+- `config`: Retry configuration (max retries, backoff delays)
+- `f`: Closure that performs transaction operations (must be `Fn`, not `FnOnce`)
+
+**Returns**: `Result<T>` - Closure return value on successful commit
+
+**Example**:
+```rust
+let config = RetryConfig::default(); // 3 retries with exponential backoff
+let result = db.transaction_with_retry(run_id, config, |txn| {
+    let val = txn.get(&counter_key)?;
+    let new_val = val.map(|v| v.as_i64().unwrap_or(0) + 1).unwrap_or(1);
+    txn.put(counter_key.clone(), Value::I64(new_val))?;
+    Ok(new_val)
+})?;
+```
+
+**Behavior**:
+- Retries on `TransactionConflict` up to `max_retries` times
+- Uses exponential backoff between retries
+- Non-conflict errors are not retried
+
+#### `transaction_with_timeout`
+
+Execute a transaction with a time limit.
+
+```rust
+pub fn transaction_with_timeout<F, T>(
+    &self,
+    run_id: RunId,
+    timeout: Duration,
+    f: F,
+) -> Result<T>
+where
+    F: FnOnce(&mut TransactionContext) -> Result<T>
+```
+
+**Parameters**:
+- `run_id`: Run ID for namespace isolation
+- `timeout`: Maximum duration for the transaction
+- `f`: Closure that performs transaction operations
+
+**Returns**:
+- `Ok(T)` - Closure return value on successful commit
+- `Err(TransactionTimeout)` - Transaction exceeded timeout
+
+**Example**:
+```rust
+use std::time::Duration;
+
+let result = db.transaction_with_timeout(
+    run_id,
+    Duration::from_secs(5),
+    |txn| {
+        // Long-running operation
+        txn.put(key, value)?;
+        Ok(())
+    },
+)?;
+```
+
+#### `cas`
+
+Compare-and-swap: Atomic conditional update based on version.
+
+```rust
+pub fn cas(
+    &self,
+    run_id: RunId,
+    key: Key,
+    expected_version: u64,
+    new_value: Value,
+) -> Result<()>
+```
+
+**Parameters**:
+- `run_id`: Run ID for namespace isolation
+- `key`: Key to update
+- `expected_version`: Version that must match current version (0 for create-if-absent)
+- `new_value`: New value to write
+
+**Returns**:
+- `Ok(())` - Update successful
+- `Err(TransactionConflict)` - Version mismatch
+
+**Example**:
+```rust
+// Get current version
+let vv = db.get(run_id, &key)?.unwrap();
+
+// Atomic update only if version matches
+db.cas(run_id, key, vv.version, Value::I64(new_val))?;
+```
+
+**Use Cases**:
+- Optimistic locking
+- Counters
+- Resource claiming (version 0 = create if absent)
+
+---
+
+### `TransactionContext`
+
+Context for executing operations within a transaction. Provides snapshot isolation.
+
+```rust
+pub struct TransactionContext {
+    // Internal fields (opaque)
+}
+```
+
+#### Methods
+
+##### `get`
+
+Read a value within the transaction snapshot.
+
+```rust
+pub fn get(&mut self, key: &Key) -> Result<Option<Value>>
+```
+
+**Parameters**:
+- `key`: Key to read
+
+**Returns**: `Result<Option<Value>>` - Value at transaction start time, or pending write if exists
+
+**Behavior**:
+- Returns value from snapshot (point-in-time view)
+- If key was written in this transaction, returns the pending write
+- Adds key to read-set for conflict detection
+
+##### `put`
+
+Write a value within the transaction.
+
+```rust
+pub fn put(&mut self, key: Key, value: Value) -> Result<()>
+```
+
+**Parameters**:
+- `key`: Key to write
+- `value`: Value to write
+
+**Returns**: `Result<()>`
+
+**Behavior**:
+- Buffers write until commit
+- Adds key to write-set
+- Visible to subsequent `get` calls in same transaction
+
+##### `delete`
+
+Delete a key within the transaction.
+
+```rust
+pub fn delete(&mut self, key: Key) -> Result<()>
+```
+
+**Parameters**:
+- `key`: Key to delete
+
+**Returns**: `Result<()>`
+
+**Behavior**:
+- Buffers delete until commit
+- Subsequent `get` in same transaction returns `None`
+
+##### `cas`
+
+Compare-and-swap within a transaction.
+
+```rust
+pub fn cas(
+    &mut self,
+    key: Key,
+    expected_version: u64,
+    new_value: Value,
+) -> Result<()>
+```
+
+**Parameters**:
+- `key`: Key to update
+- `expected_version`: Version that must match
+- `new_value`: New value to write
+
+**Returns**: `Result<()>`
+
+**Behavior**:
+- Validates version at commit time
+- Can be combined with other operations in same transaction
+
+---
+
+### `RetryConfig`
+
+Configuration for transaction retry behavior.
+
+```rust
+pub struct RetryConfig {
+    pub max_retries: usize,
+    pub base_delay_ms: u64,
+    pub max_delay_ms: u64,
+}
+```
+
+#### Fields
+
+- `max_retries`: Maximum retry attempts (0 = no retries)
+- `base_delay_ms`: Base delay between retries (exponential backoff)
+- `max_delay_ms`: Maximum delay cap
+
+#### Default
+
+```rust
+impl Default for RetryConfig {
+    fn default() -> Self {
+        Self {
+            max_retries: 3,
+            base_delay_ms: 10,
+            max_delay_ms: 100,
+        }
+    }
+}
+```
+
+**Example**:
+```rust
+// Custom retry config
+let config = RetryConfig {
+    max_retries: 5,
+    base_delay_ms: 20,
+    max_delay_ms: 500,
+};
 ```
 
 ---
@@ -501,28 +790,49 @@ All errors in **in-mem** use this type.
 
 ```rust
 pub enum Error {
-    Io(std::io::Error),
-    Serialization(bincode::Error),
+    IoError(std::io::Error),
+    SerializationError(String),
+    KeyNotFound(Key),
+    VersionMismatch { expected: u64, actual: u64 },
     Corruption(String),
-    KeyNotFound(Vec<u8>),
     InvalidOperation(String),
-    // ... other variants
+    TransactionAborted(RunId),
+    StorageError(String),
+    InvalidState(String),
+    TransactionConflict(String),    // M2
+    TransactionTimeout(String),     // M2
 }
 ```
 
 **Common Errors**:
 
-- `Error::Io`: File system errors (permissions, disk full)
-- `Error::Serialization`: Value encoding/decoding failed
+- `Error::IoError`: File system errors (permissions, disk full)
+- `Error::SerializationError`: Value encoding/decoding failed
 - `Error::Corruption`: WAL corruption detected
-- `Error::KeyNotFound`: Key doesn't exist (get operations)
+- `Error::KeyNotFound`: Key doesn't exist
 - `Error::InvalidOperation`: Invalid operation for current state
+- `Error::TransactionConflict`: OCC conflict detected during commit (M2)
+- `Error::TransactionTimeout`: Transaction exceeded time limit (M2)
+- `Error::InvalidState`: Invalid transaction state transition (M2)
+- `Error::VersionMismatch`: CAS version mismatch
+
+**Error Methods**:
+```rust
+impl Error {
+    /// Check if error is a transaction conflict (retryable)
+    pub fn is_conflict(&self) -> bool;
+
+    /// Check if error is a transaction timeout
+    pub fn is_timeout(&self) -> bool;
+}
+```
 
 **Example**:
 ```rust
-match db.get(run_id, b"key") {
-    Ok(Some(value)) => println!("Found: {:?}", value),
-    Ok(None) => println!("Not found"),
+match db.transaction(run_id, |txn| { /* ... */ }) {
+    Ok(value) => println!("Success: {:?}", value),
+    Err(e) if e.is_conflict() => println!("Conflict - retry"),
+    Err(e) if e.is_timeout() => println!("Timed out"),
     Err(Error::Corruption(msg)) => eprintln!("Corruption: {}", msg),
     Err(e) => eprintln!("Error: {:?}", e),
 }
@@ -609,11 +919,38 @@ let handle2 = thread::spawn({
 });
 ```
 
-**Concurrency Model**: M1 uses RwLock for simplicity. Writers block readers. M2 will introduce OCC (Optimistic Concurrency Control) for non-blocking reads.
+**Concurrency Model**: M2 uses Optimistic Concurrency Control (OCC) with snapshot isolation:
+- Readers never block writers
+- Writers never block readers
+- Conflicts are detected at commit time (first-committer-wins)
+- Conflicting transactions are aborted and can be retried
 
 ---
 
 ## Version History
+
+### v0.2.0 (M2 Transactions) - 2026-01-14
+
+**Transaction support**:
+- ✅ Optimistic Concurrency Control (OCC)
+- ✅ Snapshot isolation (point-in-time consistent reads)
+- ✅ Multi-key atomic transactions
+- ✅ Compare-and-swap (CAS) operations
+- ✅ Transaction retry with exponential backoff
+- ✅ Transaction timeout support
+- ✅ First-committer-wins conflict resolution
+- ✅ WAL-based crash recovery for transactions
+- ✅ 630+ tests
+
+**Performance** (verified by benchmarks):
+- Read throughput: 3.87M ops/s (hot key)
+- Transaction commit: 37K txns/s (canonical workload)
+- CAS operations: 47.5K ops/s
+- Conflict success rate: >95% under contention
+
+**Limitations**:
+- In-memory only (no disk-based storage)
+- No event log, state machine, trace primitives (M3)
 
 ### v0.1.0 (M1 Foundation) - 2026-01-11
 

@@ -220,28 +220,63 @@ On database open:
 
 ## Concurrency
 
-### M1: RwLock
+### M2: Optimistic Concurrency Control (OCC) ✅
 
-Simple reader-writer lock:
-- Multiple readers OR one writer
-- Writers block readers
-- Readers block writers
+**in-mem** uses OCC with snapshot isolation for non-blocking concurrency:
 
-**Performance**: Acceptable for M1 (single-agent workloads). Will contend under high load.
-
-### M2: Optimistic Concurrency Control (OCC)
-
-Coming in M2:
+#### Transaction Lifecycle
 
 1. **Begin Transaction**: Take snapshot of current version
-2. **Execute**: Read from snapshot, buffer writes
-3. **Validate**: Check no conflicting writes occurred
-4. **Commit**: Apply writes if validation passes, retry if conflicts
+2. **Execute**: Read from snapshot, buffer writes locally
+3. **Validate**: Check no conflicting writes occurred since snapshot
+4. **Commit**: Apply writes atomically if validation passes
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│                    Transaction Timeline                      │
+├─────────────────────────────────────────────────────────────┤
+│  BEGIN          EXECUTE              VALIDATE    COMMIT     │
+│    │               │                    │          │        │
+│    ▼               ▼                    ▼          ▼        │
+│  [snapshot]  [read from snapshot]  [check for]  [apply     │
+│              [buffer writes]        conflicts]   writes]    │
+└─────────────────────────────────────────────────────────────┘
+```
+
+#### Conflict Detection
+
+Three types of conflicts are detected at commit time:
+
+1. **Read-Write Conflict**: Key read by transaction was modified by another committed transaction
+2. **Write-Write Conflict**: Key written by transaction was also written by another committed transaction
+3. **CAS Conflict**: Version mismatch for compare-and-swap operations
+
+#### First-Committer-Wins
+
+When two transactions conflict, the first to commit succeeds. The second transaction is aborted and can be retried.
+
+```
+T1: begin ────── read(k) ────────────────── commit ✓
+T2: begin ──────────────── write(k) ─────────────── commit ✗ (conflict)
+                                                        │
+                                                   retry ───── commit ✓
+```
+
+#### Performance Characteristics
+
+| Metric | Result |
+|--------|--------|
+| Read throughput (hot key) | 3.87M ops/s |
+| Transaction commit (readN_write1/10) | 37K txns/s |
+| CAS operations | 47.5K ops/s |
+| Conflict success rate (4 threads, same key) | >95% |
+| MVCC version scaling | O(1) for latest read |
 
 **Benefits**:
 - Readers never block writers
 - Writers never block readers
-- Only conflicts retry
+- High throughput under low-to-moderate contention
+- Automatic retry for conflicts
 
 ## Run Lifecycle
 
@@ -299,21 +334,30 @@ pub struct RunMetadata {
 - Global version counter: AtomicU64 contention
 - Snapshot creation: Clones entire BTreeMap
 
-### M2 Targets (with OCC)
+### M2 Results (with OCC) ✅
 
-- put: ~10K ops/sec (conflicts may cause retries)
-- get: ~500K ops/sec (no blocking)
-- Concurrent writes: 4-8 cores utilized
+| Operation | Throughput | Notes |
+|-----------|------------|-------|
+| get (hot key) | 3.87M ops/s | 19x above acceptable |
+| get (uniform) | 1.63M ops/s | 33x above acceptable |
+| put (overwrite) | 45.8K ops/s | 4.5x above acceptable |
+| transaction (readN_write1/10) | 37K txns/s | Canonical agent workload |
+| CAS | 47.5K ops/s | First-committer-wins |
+| conflict/same_key (4 threads) | >95% success | Under high contention |
 
-## Known Limitations (M1)
+## Known Limitations (M2)
 
 | Limitation | Impact | Mitigation |
 |------------|--------|------------|
 | In-memory only | Can't exceed RAM | M6 will add disk-based storage |
-| RwLock | Writers block readers | M2 OCC for non-blocking reads |
 | Global version counter | AtomicU64 contention | Can shard per namespace later |
-| Snapshot cloning | Memory overhead | Lazy snapshots in M3 |
-| No transactions | No atomic multi-key ops | M2 will add OCC transactions |
+| Snapshot cloning | Memory overhead | Lazy snapshots in future |
+| Insert performance | ~200 ops/s for new keys | Due to fsync per operation in strict mode |
+
+**Resolved in M2**:
+- ✅ RwLock blocking → OCC non-blocking reads
+- ✅ No transactions → Full OCC transaction support
+- ✅ No CAS → Compare-and-swap with first-committer-wins
 
 **Design for Evolution**: All limitations have clear migration paths enabled by trait abstractions.
 
@@ -390,12 +434,14 @@ pub struct RunMetadata {
 
 ## Future Roadmap
 
-### M2: Transactions (Week 3)
-- Optimistic Concurrency Control
-- Snapshot isolation
-- Multi-key transactions
+### M2: Transactions ✅ COMPLETE
+- ✅ Optimistic Concurrency Control
+- ✅ Snapshot isolation
+- ✅ Multi-key transactions
+- ✅ CAS operations
+- ✅ WAL recovery for transactions
 
-### M3: Primitives (Week 4)
+### M3: Primitives
 - Event Log with chaining
 - State Machine with CAS
 - Trace Store for reasoning
@@ -427,5 +473,5 @@ pub struct RunMetadata {
 
 ---
 
-**Current Version**: 0.1.0 (M1 Foundation)
-**Architecture Status**: Production-ready for embedded use
+**Current Version**: 0.2.0 (M2 Transactions)
+**Architecture Status**: Production-ready for embedded use with full transaction support
