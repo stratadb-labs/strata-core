@@ -1,3 +1,8 @@
+[package]
+name = "in-mem"
+version = "0.1.0"
+edition = "2021"
+
 [workspace]
 resolver = "2"
 members = [
@@ -57,3 +62,26 @@ debug = false
 
 [profile.bench]
 inherits = "release"
+
+[dependencies]
+in-mem-core = { path = "crates/core" }
+in-mem-storage = { path = "crates/storage" }
+in-mem-concurrency = { path = "crates/concurrency" }
+in-mem-durability = { path = "crates/durability" }
+in-mem-engine = { path = "crates/engine" }
+
+[dev-dependencies]
+criterion = "0.5"
+tempfile = { workspace = true }
+
+[[bench]]
+name = "comprehensive_benchmarks"
+harness = false
+
+[[bench]]
+name = "m1_storage"
+harness = false
+
+[[bench]]
+name = "m2_transactions"
+harness = false

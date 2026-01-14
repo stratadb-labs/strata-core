@@ -32,11 +32,20 @@ fi
 
 # Epic name mapping
 declare -A EPIC_NAMES
+# M1 Epics
 EPIC_NAMES[1]="workspace-core-types"
 EPIC_NAMES[2]="storage-layer"
 EPIC_NAMES[3]="wal-implementation"
 EPIC_NAMES[4]="basic-recovery"
 EPIC_NAMES[5]="database-engine"
+# M2 Epics
+EPIC_NAMES[6]="transaction-foundations"
+EPIC_NAMES[7]="transaction-semantics"
+EPIC_NAMES[8]="durability-commit"
+EPIC_NAMES[9]="recovery-support"
+EPIC_NAMES[10]="database-api-integration"
+EPIC_NAMES[11]="backwards-compatibility"
+EPIC_NAMES[12]="occ-validation-benchmarking"
 
 EPIC_NAME=${EPIC_NAMES[$EPIC_NUM]}
 EPIC_BRANCH="epic-${EPIC_NUM}-${EPIC_NAME}"
@@ -44,6 +53,16 @@ EPIC_BRANCH="epic-${EPIC_NUM}-${EPIC_NAME}"
 echo "✓ Story branch: $CURRENT_BRANCH"
 echo "✓ Epic branch: $EPIC_BRANCH"
 echo ""
+
+# M2-specific spec compliance reminder (epics 6-12)
+if [ "$EPIC_NUM" -ge 6 ] && [ "$EPIC_NUM" -le 12 ]; then
+    echo "🔴 M2 SPEC COMPLIANCE CHECK"
+    echo "   Before completing this story, verify:"
+    echo "   - Code complies with docs/architecture/M2_TRANSACTION_SEMANTICS.md"
+    echo "   - Tests validate spec-compliant behavior"
+    echo "   - No deviations from the spec for ANY reason"
+    echo ""
+fi
 
 # Run checks
 echo "🧪 Running tests..."
@@ -80,11 +99,34 @@ echo ""
 
 # Create PR (use full path to gh)
 GH_PATH="${GH_PATH:-/opt/homebrew/bin/gh}"
-"$GH_PATH" pr create \
-    --base "$EPIC_BRANCH" \
-    --head "$CURRENT_BRANCH" \
-    --title "Story #${STORY_NUM}: $(git log -1 --pretty=%s | sed 's/Implement story #[0-9]*: //')" \
-    --body "Implements #${STORY_NUM}
+# Build PR body based on milestone
+if [ "$EPIC_NUM" -ge 6 ] && [ "$EPIC_NUM" -le 12 ]; then
+    # M2 PR body with spec compliance section
+    PR_BODY="Implements #${STORY_NUM}
+
+## Changes
+$(git log --oneline ${EPIC_BRANCH}..HEAD | sed 's/^/- /')
+
+## M2 Spec Compliance
+- [ ] Code complies with \`docs/architecture/M2_TRANSACTION_SEMANTICS.md\`
+- [ ] Isolation level: Snapshot Isolation (NOT Serializability)
+- [ ] Visibility rules match spec exactly
+- [ ] Conflict detection follows spec
+- [ ] No spec deviations for any reason
+
+## Testing
+- [x] Tests pass: \`cargo test --all\`
+- [x] Formatting: \`cargo fmt --all -- --check\`
+- [x] Linting: \`cargo clippy --all -- -D warnings\`
+
+## Checklist
+- [x] Code written
+- [x] Tests added
+- [x] Documentation updated
+- [x] CI ready to pass"
+else
+    # M1 PR body (original)
+    PR_BODY="Implements #${STORY_NUM}
 
 ## Changes
 $(git log --oneline ${EPIC_BRANCH}..HEAD | sed 's/^/- /')
@@ -99,6 +141,13 @@ $(git log --oneline ${EPIC_BRANCH}..HEAD | sed 's/^/- /')
 - [x] Tests added
 - [x] Documentation updated
 - [x] CI ready to pass"
+fi
+
+"$GH_PATH" pr create \
+    --base "$EPIC_BRANCH" \
+    --head "$CURRENT_BRANCH" \
+    --title "Story #${STORY_NUM}: $(git log -1 --pretty=%s | sed 's/Implement story #[0-9]*: //')" \
+    --body "$PR_BODY"
 
 echo ""
 echo "✅ Pull request created!"

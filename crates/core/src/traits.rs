@@ -88,6 +88,48 @@ pub trait Storage: Send + Sync {
     /// Returns the highest version assigned so far.
     /// Used for creating snapshots at current version.
     fn current_version(&self) -> u64;
+
+    /// Put a value with a specific version
+    ///
+    /// Used by transaction commit to apply writes with the commit version.
+    /// Unlike `put()`, this does NOT allocate a new version - it uses the
+    /// provided version directly.
+    ///
+    /// Per spec Section 6.1: All keys in a transaction get the same commit version.
+    ///
+    /// # Arguments
+    /// * `key` - The key to write
+    /// * `value` - The value to write
+    /// * `version` - The exact version to assign to this write
+    /// * `ttl` - Optional time-to-live for the value
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the storage operation fails.
+    fn put_with_version(
+        &self,
+        key: Key,
+        value: Value,
+        version: u64,
+        ttl: Option<Duration>,
+    ) -> Result<()>;
+
+    /// Delete a key with a specific version (creates tombstone)
+    ///
+    /// Used by transaction commit to apply deletes with the commit version.
+    /// Per spec Section 6.5: Deleted keys get versioned tombstones.
+    ///
+    /// # Arguments
+    /// * `key` - The key to delete
+    /// * `version` - The version for this delete operation
+    ///
+    /// # Returns
+    /// The deleted value if it existed, None otherwise.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the storage operation fails.
+    fn delete_with_version(&self, key: &Key, version: u64) -> Result<Option<VersionedValue>>;
 }
 
 /// Snapshot view abstraction for snapshot isolation

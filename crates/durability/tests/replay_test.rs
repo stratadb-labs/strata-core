@@ -831,3 +831,260 @@ fn test_replay_deterministic_order() {
         }
     }
 }
+
+// ============================================================================
+// Bug Reproduction Tests - Issue #145 WAL Recovery Data Loss
+// ============================================================================
+
+#[test]
+fn test_replay_twenty_sequential_transactions() {
+    // This test reproduces the bug where only 10 of 20 transactions are replayed
+    let temp_dir = TempDir::new().unwrap();
+    let wal_path = temp_dir.path().join("twenty_txns.wal");
+
+    let run_id = RunId::new();
+    let ns = test_namespace(run_id);
+
+    const NUM_TRANSACTIONS: u64 = 20;
+
+    // Write 20 sequential transactions: each has Begin -> Write -> Commit
+    {
+        let mut wal = WAL::open(&wal_path, DurabilityMode::Strict).unwrap();
+
+        for i in 1..=NUM_TRANSACTIONS {
+            wal.append(&WALEntry::BeginTxn {
+                txn_id: i,
+                run_id,
+                timestamp: now(),
+            })
+            .unwrap();
+
+            wal.append(&WALEntry::Write {
+                run_id,
+                key: Key::new_kv(ns.clone(), format!("key{}", i)),
+                value: Value::I64(i as i64),
+                version: i,
+            })
+            .unwrap();
+
+            wal.append(&WALEntry::CommitTxn { txn_id: i, run_id })
+                .unwrap();
+        }
+
+        wal.fsync().unwrap();
+    }
+
+    // Read back entries to verify they're all there
+    {
+        let wal = WAL::open(&wal_path, DurabilityMode::Strict).unwrap();
+        let entries = wal.read_all().unwrap();
+        assert_eq!(
+            entries.len(),
+            NUM_TRANSACTIONS as usize * 3,
+            "Should have {} entries (3 per transaction)",
+            NUM_TRANSACTIONS * 3
+        );
+    }
+
+    // Replay to storage
+    let wal = WAL::open(&wal_path, DurabilityMode::Strict).unwrap();
+    let store = UnifiedStore::new();
+    let stats = replay_wal(&wal, &store).unwrap();
+
+    // Verify all transactions were replayed
+    assert_eq!(
+        stats.txns_applied, NUM_TRANSACTIONS as usize,
+        "Expected {} transactions applied, got {}",
+        NUM_TRANSACTIONS, stats.txns_applied
+    );
+    assert_eq!(
+        stats.writes_applied, NUM_TRANSACTIONS as usize,
+        "Expected {} writes applied, got {}",
+        NUM_TRANSACTIONS, stats.writes_applied
+    );
+    assert_eq!(stats.incomplete_txns, 0, "Should have no incomplete transactions");
+    assert_eq!(stats.aborted_txns, 0, "Should have no aborted transactions");
+
+    // Verify all keys exist
+    for i in 1..=NUM_TRANSACTIONS {
+        let key = Key::new_kv(ns.clone(), format!("key{}", i));
+        let result = store.get(&key).unwrap();
+        assert!(
+            result.is_some(),
+            "key{} should exist after replay",
+            i
+        );
+        let vv = result.unwrap();
+        assert_eq!(
+            vv.value,
+            Value::I64(i as i64),
+            "key{} should have value {}",
+            i,
+            i
+        );
+        assert_eq!(vv.version, i, "key{} should have version {}", i, i);
+    }
+}
+
+#[test]
+fn test_replay_many_sequential_transactions_same_run() {
+    // Test with 100 transactions to ensure no off-by-one or boundary issues
+    let temp_dir = TempDir::new().unwrap();
+    let wal_path = temp_dir.path().join("hundred_txns.wal");
+
+    let run_id = RunId::new();
+    let ns = test_namespace(run_id);
+
+    const NUM_TRANSACTIONS: u64 = 100;
+
+    {
+        let mut wal = WAL::open(&wal_path, DurabilityMode::Strict).unwrap();
+
+        for i in 1..=NUM_TRANSACTIONS {
+            wal.append(&WALEntry::BeginTxn {
+                txn_id: i,
+                run_id,
+                timestamp: now(),
+            })
+            .unwrap();
+
+            wal.append(&WALEntry::Write {
+                run_id,
+                key: Key::new_kv(ns.clone(), format!("k{}", i)),
+                value: Value::Bytes(vec![i as u8]),
+                version: i,
+            })
+            .unwrap();
+
+            wal.append(&WALEntry::CommitTxn { txn_id: i, run_id })
+                .unwrap();
+        }
+
+        wal.fsync().unwrap();
+    }
+
+    // Replay
+    let wal = WAL::open(&wal_path, DurabilityMode::Strict).unwrap();
+    let store = UnifiedStore::new();
+    let stats = replay_wal(&wal, &store).unwrap();
+
+    assert_eq!(
+        stats.txns_applied, NUM_TRANSACTIONS as usize,
+        "All {} transactions should be applied",
+        NUM_TRANSACTIONS
+    );
+    assert_eq!(stats.incomplete_txns, 0);
+    assert_eq!(stats.final_version, NUM_TRANSACTIONS);
+    assert_eq!(store.current_version(), NUM_TRANSACTIONS);
+
+    // Verify all keys
+    for i in 1..=NUM_TRANSACTIONS {
+        let key = Key::new_kv(ns.clone(), format!("k{}", i));
+        assert!(
+            store.get(&key).unwrap().is_some(),
+            "k{} should exist",
+            i
+        );
+    }
+}
+
+#[test]
+fn test_replay_appended_wal_multiple_sessions() {
+    // Simulates multiple database sessions appending to the same WAL file
+    // This is the pattern that was failing: each session adds transactions,
+    // but on recovery only half were being replayed
+    let temp_dir = TempDir::new().unwrap();
+    let wal_path = temp_dir.path().join("multi_session.wal");
+
+    let run_id = RunId::new();
+    let ns = test_namespace(run_id);
+
+    // Session 1: Write 10 transactions
+    {
+        let mut wal = WAL::open(&wal_path, DurabilityMode::Strict).unwrap();
+        for i in 1..=10u64 {
+            wal.append(&WALEntry::BeginTxn {
+                txn_id: i,
+                run_id,
+                timestamp: now(),
+            })
+            .unwrap();
+            wal.append(&WALEntry::Write {
+                run_id,
+                key: Key::new_kv(ns.clone(), format!("session1_key{}", i)),
+                value: Value::I64(i as i64),
+                version: i,
+            })
+            .unwrap();
+            wal.append(&WALEntry::CommitTxn { txn_id: i, run_id })
+                .unwrap();
+        }
+        wal.fsync().unwrap();
+    }
+
+    // Verify session 1 entries
+    {
+        let wal = WAL::open(&wal_path, DurabilityMode::Strict).unwrap();
+        let entries = wal.read_all().unwrap();
+        assert_eq!(entries.len(), 30, "Session 1: 10 txns * 3 entries = 30");
+    }
+
+    // Session 2: Append 10 more transactions (txn_id continues from 11)
+    {
+        let mut wal = WAL::open(&wal_path, DurabilityMode::Strict).unwrap();
+        for i in 11..=20u64 {
+            wal.append(&WALEntry::BeginTxn {
+                txn_id: i,
+                run_id,
+                timestamp: now(),
+            })
+            .unwrap();
+            wal.append(&WALEntry::Write {
+                run_id,
+                key: Key::new_kv(ns.clone(), format!("session2_key{}", i)),
+                value: Value::I64(i as i64),
+                version: i,
+            })
+            .unwrap();
+            wal.append(&WALEntry::CommitTxn { txn_id: i, run_id })
+                .unwrap();
+        }
+        wal.fsync().unwrap();
+    }
+
+    // Verify all entries present
+    {
+        let wal = WAL::open(&wal_path, DurabilityMode::Strict).unwrap();
+        let entries = wal.read_all().unwrap();
+        assert_eq!(entries.len(), 60, "Should have 60 entries (20 txns * 3)");
+
+        // Count commits
+        let commits = entries.iter().filter(|e| matches!(e, WALEntry::CommitTxn { .. })).count();
+        assert_eq!(commits, 20, "Should have 20 commit entries");
+    }
+
+    // Replay to storage
+    let wal = WAL::open(&wal_path, DurabilityMode::Strict).unwrap();
+    let store = UnifiedStore::new();
+    let stats = replay_wal(&wal, &store).unwrap();
+
+    // This is the assertion that was failing: only 10 of 20 were replayed
+    assert_eq!(
+        stats.txns_applied, 20,
+        "All 20 transactions should be applied, got {}",
+        stats.txns_applied
+    );
+    assert_eq!(stats.writes_applied, 20);
+    assert_eq!(stats.incomplete_txns, 0);
+    assert_eq!(stats.aborted_txns, 0);
+
+    // Verify all keys exist
+    for i in 1..=10u64 {
+        let key = Key::new_kv(ns.clone(), format!("session1_key{}", i));
+        assert!(store.get(&key).unwrap().is_some(), "session1_key{} should exist", i);
+    }
+    for i in 11..=20u64 {
+        let key = Key::new_kv(ns.clone(), format!("session2_key{}", i));
+        assert!(store.get(&key).unwrap().is_some(), "session2_key{} should exist", i);
+    }
+}

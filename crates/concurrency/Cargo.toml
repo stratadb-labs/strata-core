@@ -10,6 +10,8 @@ repository.workspace = true
 [dependencies]
 in-mem-core = { path = "../core" }
 in-mem-storage = { path = "../storage" }
+in-mem-durability = { path = "../durability" }
+chrono = { workspace = true }
 parking_lot = { workspace = true }
 serde = { workspace = true }
 thiserror = { workspace = true }
@@ -17,3 +19,5 @@ tracing = { workspace = true }
 
 [dev-dependencies]
 proptest = { workspace = true }
+static_assertions = "1.1"
+tempfile = { workspace = true }

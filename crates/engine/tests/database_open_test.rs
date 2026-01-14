@@ -695,3 +695,123 @@ fn test_empty_database_reopen() {
         assert_eq!(db.storage().current_version(), 0);
     }
 }
+
+// ============================================================================
+// Bug reproduction: Issue #145 - WAL Recovery Data Loss
+// Tests to reproduce the scenario where only half of transactions are recovered
+// ============================================================================
+
+#[test]
+fn test_multiple_crash_cycles_with_high_level_api() {
+    // This test verifies that data persists correctly across multiple
+    // database open/close cycles (simulating crashes and recoveries).
+    // Regression test for the bug where duplicate txn_ids across sessions
+    // caused data loss during WAL replay.
+    let temp_dir = TempDir::new().unwrap();
+    let db_path = temp_dir.path().join("multi_cycle_test");
+
+    let run_id = RunId::new();
+    let ns = Namespace::new(
+        "tenant".to_string(),
+        "app".to_string(),
+        "agent".to_string(),
+        run_id,
+    );
+
+    const NUM_CYCLES: usize = 5;
+    const KEYS_PER_CYCLE: usize = 10;
+
+    for cycle in 0..NUM_CYCLES {
+        // Open database and write keys
+        {
+            let db = Database::open_with_mode(&db_path, DurabilityMode::Strict)
+                .expect("Failed to open database");
+
+            for i in 0..KEYS_PER_CYCLE {
+                let key = Key::new_kv(ns.clone(), format!("cycle{}_key{}", cycle, i));
+                let value = Value::I64((cycle * 100 + i) as i64);
+                db.put(run_id, key, value).expect("Put should succeed");
+            }
+            // Database is dropped here - simulates crash
+        }
+
+        // Reopen and verify ALL previous data survived
+        {
+            let db = Database::open_with_mode(&db_path, DurabilityMode::Strict)
+                .expect("Failed to reopen database");
+
+            // Verify all keys from all cycles up to and including current cycle
+            for prev_cycle in 0..=cycle {
+                for i in 0..KEYS_PER_CYCLE {
+                    let key = Key::new_kv(ns.clone(), format!("cycle{}_key{}", prev_cycle, i));
+                    let result = db.get(&key).expect("Get should not fail");
+
+                    assert!(
+                        result.is_some(),
+                        "Key cycle{}_key{} should exist after cycle {} (current cycle: {})",
+                        prev_cycle, i, cycle, cycle
+                    );
+
+                    let vv = result.unwrap();
+                    let expected = Value::I64((prev_cycle * 100 + i) as i64);
+                    assert_eq!(
+                        vv.value, expected,
+                        "Key cycle{}_key{} has wrong value",
+                        prev_cycle, i
+                    );
+                }
+            }
+        }
+    }
+}
+
+#[test]
+fn test_twenty_sequential_puts_recover() {
+    // Minimal reproduction: 20 puts in sequence, then verify all 20 are recovered
+    let temp_dir = TempDir::new().unwrap();
+    let db_path = temp_dir.path().join("twenty_puts_test");
+
+    let run_id = RunId::new();
+    let ns = Namespace::new(
+        "tenant".to_string(),
+        "app".to_string(),
+        "agent".to_string(),
+        run_id,
+    );
+
+    const NUM_PUTS: usize = 20;
+
+    // Write 20 keys using high-level API
+    {
+        let db = Database::open_with_mode(&db_path, DurabilityMode::Strict)
+            .expect("Failed to open database");
+
+        for i in 0..NUM_PUTS {
+            let key = Key::new_kv(ns.clone(), format!("key{}", i));
+            db.put(run_id, key, Value::I64(i as i64))
+                .expect("Put should succeed");
+        }
+
+        // No explicit flush - relies on Strict mode
+    }
+
+    // Reopen and verify
+    {
+        let db = Database::open_with_mode(&db_path, DurabilityMode::Strict)
+            .expect("Failed to reopen database");
+
+        let mut recovered_count = 0;
+        for i in 0..NUM_PUTS {
+            let key = Key::new_kv(ns.clone(), format!("key{}", i));
+            if db.get(&key).unwrap().is_some() {
+                recovered_count += 1;
+            }
+        }
+
+        assert_eq!(
+            recovered_count, NUM_PUTS,
+            "Expected all {} keys to be recovered, but only {} were found",
+            NUM_PUTS, recovered_count
+        );
+    }
+}
