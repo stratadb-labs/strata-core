@@ -46,6 +46,14 @@ EPIC_NAMES[9]="recovery-support"
 EPIC_NAMES[10]="database-api-integration"
 EPIC_NAMES[11]="backwards-compatibility"
 EPIC_NAMES[12]="occ-validation-benchmarking"
+# M3 Epics
+EPIC_NAMES[13]="primitives-foundation"
+EPIC_NAMES[14]="kvstore-primitive"
+EPIC_NAMES[15]="eventlog-primitive"
+EPIC_NAMES[16]="statecell-primitive"
+EPIC_NAMES[17]="tracestore-primitive"
+EPIC_NAMES[18]="runindex-primitive"
+EPIC_NAMES[19]="integration-validation"
 
 EPIC_NAME=${EPIC_NAMES[$EPIC_NUM]}
 EPIC_BRANCH="epic-${EPIC_NUM}-${EPIC_NAME}"
@@ -54,12 +62,21 @@ echo "✓ Story branch: $CURRENT_BRANCH"
 echo "✓ Epic branch: $EPIC_BRANCH"
 echo ""
 
-# M2-specific spec compliance reminder (epics 6-12)
+# Milestone-specific spec compliance reminder
 if [ "$EPIC_NUM" -ge 6 ] && [ "$EPIC_NUM" -le 12 ]; then
     echo "🔴 M2 SPEC COMPLIANCE CHECK"
     echo "   Before completing this story, verify:"
     echo "   - Code complies with docs/architecture/M2_TRANSACTION_SEMANTICS.md"
     echo "   - Tests validate spec-compliant behavior"
+    echo "   - No deviations from the spec for ANY reason"
+    echo ""
+elif [ "$EPIC_NUM" -ge 13 ] && [ "$EPIC_NUM" -le 19 ]; then
+    echo "🔴 M3 SPEC COMPLIANCE CHECK"
+    echo "   Before completing this story, verify:"
+    echo "   - Code complies with docs/architecture/M3_ARCHITECTURE.md"
+    echo "   - Primitives are stateless facades (only Arc<Database>)"
+    echo "   - All operations scoped to RunId"
+    echo "   - Invariants enforced by primitives"
     echo "   - No deviations from the spec for ANY reason"
     echo ""
 fi
@@ -100,7 +117,31 @@ echo ""
 # Create PR (use full path to gh)
 GH_PATH="${GH_PATH:-/opt/homebrew/bin/gh}"
 # Build PR body based on milestone
-if [ "$EPIC_NUM" -ge 6 ] && [ "$EPIC_NUM" -le 12 ]; then
+if [ "$EPIC_NUM" -ge 13 ] && [ "$EPIC_NUM" -le 19 ]; then
+    # M3 PR body with spec compliance section
+    PR_BODY="Implements #${STORY_NUM}
+
+## Changes
+$(git log --oneline ${EPIC_BRANCH}..HEAD | sed 's/^/- /')
+
+## M3 Spec Compliance
+- [ ] Code complies with \`docs/architecture/M3_ARCHITECTURE.md\`
+- [ ] Primitive is stateless facade (only holds Arc<Database>)
+- [ ] All operations scoped to RunId
+- [ ] Invariants enforced by primitive
+- [ ] No spec deviations for any reason
+
+## Testing
+- [x] Tests pass: \`cargo test --all\`
+- [x] Formatting: \`cargo fmt --all -- --check\`
+- [x] Linting: \`cargo clippy --all -- -D warnings\`
+
+## Checklist
+- [x] Code written
+- [x] Tests added
+- [x] Documentation updated
+- [x] CI ready to pass"
+elif [ "$EPIC_NUM" -ge 6 ] && [ "$EPIC_NUM" -le 12 ]; then
     # M2 PR body with spec compliance section
     PR_BODY="Implements #${STORY_NUM}
 

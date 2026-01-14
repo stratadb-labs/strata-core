@@ -28,6 +28,14 @@ EPIC_NAMES[9]="recovery-support"
 EPIC_NAMES[10]="database-api-integration"
 EPIC_NAMES[11]="backwards-compatibility"
 EPIC_NAMES[12]="occ-validation-benchmarking"
+# M3 Epics
+EPIC_NAMES[13]="primitives-foundation"
+EPIC_NAMES[14]="kvstore-primitive"
+EPIC_NAMES[15]="eventlog-primitive"
+EPIC_NAMES[16]="statecell-primitive"
+EPIC_NAMES[17]="tracestore-primitive"
+EPIC_NAMES[18]="runindex-primitive"
+EPIC_NAMES[19]="integration-validation"
 
 EPIC_NAME=${EPIC_NAMES[$EPIC_NUM]}
 EPIC_BRANCH="epic-${EPIC_NUM}-${EPIC_NAME}"
@@ -67,9 +75,14 @@ echo "1. Implement the story"
 echo "2. Write tests"
 echo "3. Run: ./scripts/complete-story.sh $STORY_NUM"
 
-# M2-specific reminder (epics 6-12)
+# Milestone-specific reminders
 if [ "$EPIC_NUM" -ge 6 ] && [ "$EPIC_NUM" -le 12 ]; then
     echo ""
     echo "🔴 M2 REMINDER: Read docs/architecture/M2_TRANSACTION_SEMANTICS.md"
     echo "   This spec is GOSPEL. No deviations allowed."
+elif [ "$EPIC_NUM" -ge 13 ] && [ "$EPIC_NUM" -le 19 ]; then
+    echo ""
+    echo "🔴 M3 REMINDER: Read docs/architecture/M3_ARCHITECTURE.md"
+    echo "   This spec is GOSPEL. No deviations allowed."
+    echo "   See also: docs/prompts/M3_PROMPT_HEADER.md"
 fi
