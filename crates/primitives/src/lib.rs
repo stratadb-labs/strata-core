@@ -51,7 +51,7 @@ pub mod trace;
 // Re-exports - primitives are exported as they're implemented
 pub use event_log::{ChainVerification, Event, EventLog};
 pub use kv::{KVStore, KVTransaction};
-// pub use state_cell::{StateCell, State};
+pub use state_cell::{State, StateCell};
 // pub use trace::{TraceStore, Trace, TraceType};
 // pub use run_index::{RunIndex, RunMetadata, RunStatus};
 
