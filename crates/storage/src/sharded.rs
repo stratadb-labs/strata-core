@@ -188,7 +188,7 @@ impl ShardedStore {
         let run_id = key.namespace.run_id;
         self.shards
             .entry(run_id)
-            .or_insert_with(Shard::new)
+            .or_default()
             .data
             .insert(key, value);
     }
@@ -555,6 +555,237 @@ impl std::fmt::Debug for ShardedSnapshot {
             .field("shard_count", &self.store.shard_count())
             .field("total_entries", &self.store.total_entries())
             .finish()
+    }
+}
+
+// ============================================================================
+// Storage Trait Implementation (Story #231)
+// ============================================================================
+
+use in_mem_core::error::Result;
+use in_mem_core::traits::Storage;
+use in_mem_core::value::Value;
+use std::time::Duration;
+
+impl Storage for ShardedStore {
+    /// Get current value for key (latest version)
+    ///
+    /// Returns None if key doesn't exist or is expired.
+    fn get(&self, key: &Key) -> Result<Option<VersionedValue>> {
+        let run_id = key.namespace.run_id;
+        Ok(self.shards
+            .get(&run_id)
+            .and_then(|shard| {
+                shard.data.get(key).and_then(|vv| {
+                    if !vv.is_expired() {
+                        Some(vv.clone())
+                    } else {
+                        None
+                    }
+                })
+            }))
+    }
+
+    /// Get value at or before specified version (for snapshot isolation)
+    ///
+    /// Returns the value if version <= max_version and not expired.
+    fn get_versioned(&self, key: &Key, max_version: u64) -> Result<Option<VersionedValue>> {
+        let run_id = key.namespace.run_id;
+        Ok(self.shards
+            .get(&run_id)
+            .and_then(|shard| {
+                shard.data.get(key).and_then(|vv| {
+                    if vv.version <= max_version && !vv.is_expired() {
+                        Some(vv.clone())
+                    } else {
+                        None
+                    }
+                })
+            }))
+    }
+
+    /// Put key-value pair with optional TTL
+    ///
+    /// Allocates a new version and returns it.
+    fn put(&self, key: Key, value: Value, ttl: Option<Duration>) -> Result<u64> {
+        use chrono::Utc;
+
+        let version = self.next_version();
+        let timestamp = Utc::now().timestamp();
+
+        let versioned = VersionedValue {
+            value,
+            version,
+            timestamp,
+            ttl,
+        };
+
+        let run_id = key.namespace.run_id;
+        self.shards
+            .entry(run_id)
+            .or_default()
+            .data
+            .insert(key, versioned);
+
+        Ok(version)
+    }
+
+    /// Delete key
+    ///
+    /// Returns the deleted value if it existed.
+    fn delete(&self, key: &Key) -> Result<Option<VersionedValue>> {
+        let run_id = key.namespace.run_id;
+        Ok(self.shards
+            .get_mut(&run_id)
+            .and_then(|mut shard| shard.data.remove(key)))
+    }
+
+    /// Scan keys with given prefix at or before max_version
+    ///
+    /// Results are sorted by key order.
+    fn scan_prefix(&self, prefix: &Key, max_version: u64) -> Result<Vec<(Key, VersionedValue)>> {
+        let run_id = prefix.namespace.run_id;
+        Ok(self.shards
+            .get(&run_id)
+            .map(|shard| {
+                let mut results: Vec<_> = shard
+                    .data
+                    .iter()
+                    .filter(|(k, vv)| {
+                        k.starts_with(prefix) && vv.version <= max_version && !vv.is_expired()
+                    })
+                    .map(|(k, v)| (k.clone(), v.clone()))
+                    .collect();
+
+                results.sort_by(|(a, _), (b, _)| a.cmp(b));
+                results
+            })
+            .unwrap_or_default())
+    }
+
+    /// Scan all keys for a given run_id at or before max_version
+    ///
+    /// Returns all entries for the run, filtered by version.
+    fn scan_by_run(&self, run_id: RunId, max_version: u64) -> Result<Vec<(Key, VersionedValue)>> {
+        Ok(self.shards
+            .get(&run_id)
+            .map(|shard| {
+                let mut results: Vec<_> = shard
+                    .data
+                    .iter()
+                    .filter(|(_, vv)| vv.version <= max_version && !vv.is_expired())
+                    .map(|(k, v)| (k.clone(), v.clone()))
+                    .collect();
+
+                results.sort_by(|(a, _), (b, _)| a.cmp(b));
+                results
+            })
+            .unwrap_or_default())
+    }
+
+    /// Get current global version
+    fn current_version(&self) -> u64 {
+        self.version.load(Ordering::Acquire)
+    }
+
+    /// Put a value with a specific version
+    ///
+    /// Used by transaction commit to apply writes with the commit version.
+    fn put_with_version(
+        &self,
+        key: Key,
+        value: Value,
+        version: u64,
+        ttl: Option<Duration>,
+    ) -> Result<()> {
+        use chrono::Utc;
+
+        let timestamp = Utc::now().timestamp();
+
+        let versioned = VersionedValue {
+            value,
+            version,
+            timestamp,
+            ttl,
+        };
+
+        let run_id = key.namespace.run_id;
+        self.shards
+            .entry(run_id)
+            .or_default()
+            .data
+            .insert(key, versioned);
+
+        // Update global version to be at least this version
+        self.version.fetch_max(version, Ordering::AcqRel);
+
+        Ok(())
+    }
+
+    /// Delete a key with a specific version (creates tombstone conceptually)
+    ///
+    /// Used by transaction commit to apply deletes.
+    fn delete_with_version(&self, key: &Key, _version: u64) -> Result<Option<VersionedValue>> {
+        // For ShardedStore, we actually remove the key
+        // (tombstones would require storing deleted markers)
+        let run_id = key.namespace.run_id;
+        Ok(self.shards
+            .get_mut(&run_id)
+            .and_then(|mut shard| shard.data.remove(key)))
+    }
+}
+
+// ============================================================================
+// SnapshotView Trait Implementation (Story #231)
+// ============================================================================
+
+use in_mem_core::traits::SnapshotView;
+
+impl SnapshotView for ShardedSnapshot {
+    /// Get value from snapshot
+    ///
+    /// Returns value at or before the snapshot version.
+    fn get(&self, key: &Key) -> Result<Option<VersionedValue>> {
+        let run_id = key.namespace.run_id;
+        Ok(self.store.shards
+            .get(&run_id)
+            .and_then(|shard| {
+                shard.data.get(key).and_then(|vv| {
+                    if vv.version <= self.version && !vv.is_expired() {
+                        Some(vv.clone())
+                    } else {
+                        None
+                    }
+                })
+            }))
+    }
+
+    /// Scan keys with prefix from snapshot
+    ///
+    /// Returns all matching keys at or before snapshot version.
+    fn scan_prefix(&self, prefix: &Key) -> Result<Vec<(Key, VersionedValue)>> {
+        let run_id = prefix.namespace.run_id;
+        Ok(self.store.shards
+            .get(&run_id)
+            .map(|shard| {
+                let mut results: Vec<_> = shard
+                    .data
+                    .iter()
+                    .filter(|(k, vv)| {
+                        k.starts_with(prefix) && vv.version <= self.version && !vv.is_expired()
+                    })
+                    .map(|(k, v)| (k.clone(), v.clone()))
+                    .collect();
+
+                results.sort_by(|(a, _), (b, _)| a.cmp(b));
+                results
+            })
+            .unwrap_or_default())
+    }
+
+    /// Get snapshot version
+    fn version(&self) -> u64 {
+        self.version
     }
 }
 
@@ -1319,5 +1550,204 @@ mod tests {
             "Snapshot too slow: {}ns (target: <500ns in release)",
             avg_ns
         );
+    }
+
+    // ========================================================================
+    // Story #231: Storage Trait Implementation Tests
+    // ========================================================================
+
+    #[test]
+    fn test_storage_trait_get_put() {
+        use in_mem_core::traits::Storage;
+        use in_mem_core::value::Value;
+        use in_mem_core::types::Namespace;
+
+        let store = ShardedStore::new();
+        let run_id = RunId::new();
+        let ns = Namespace::for_run(run_id);
+        let key = Key::new_kv(ns, "test_key");
+
+        // Put via Storage trait
+        let version = Storage::put(&store, key.clone(), Value::I64(42), None).unwrap();
+        assert_eq!(version, 1);
+
+        // Get via Storage trait
+        let result = Storage::get(&store, &key).unwrap();
+        assert!(result.is_some());
+        assert_eq!(result.unwrap().value, Value::I64(42));
+    }
+
+    #[test]
+    fn test_storage_trait_get_versioned() {
+        use in_mem_core::traits::Storage;
+        use in_mem_core::value::Value;
+        use in_mem_core::types::Namespace;
+
+        let store = ShardedStore::new();
+        let run_id = RunId::new();
+        let ns = Namespace::for_run(run_id);
+        let key = Key::new_kv(ns, "test_key");
+
+        // Put with version 1
+        Storage::put(&store, key.clone(), Value::I64(42), None).unwrap();
+
+        // Get with max_version 1 - should return value
+        let result = Storage::get_versioned(&store, &key, 1).unwrap();
+        assert!(result.is_some());
+
+        // Get with max_version 0 - should return None (version 1 > 0)
+        let result = Storage::get_versioned(&store, &key, 0).unwrap();
+        assert!(result.is_none());
+    }
+
+    #[test]
+    fn test_storage_trait_delete() {
+        use in_mem_core::traits::Storage;
+        use in_mem_core::value::Value;
+        use in_mem_core::types::Namespace;
+
+        let store = ShardedStore::new();
+        let run_id = RunId::new();
+        let ns = Namespace::for_run(run_id);
+        let key = Key::new_kv(ns, "test_key");
+
+        Storage::put(&store, key.clone(), Value::I64(42), None).unwrap();
+        assert!(Storage::get(&store, &key).unwrap().is_some());
+
+        // Delete via Storage trait
+        let deleted = Storage::delete(&store, &key).unwrap();
+        assert!(deleted.is_some());
+        assert!(Storage::get(&store, &key).unwrap().is_none());
+    }
+
+    #[test]
+    fn test_storage_trait_scan_prefix() {
+        use in_mem_core::traits::Storage;
+        use in_mem_core::value::Value;
+        use in_mem_core::types::Namespace;
+
+        let store = ShardedStore::new();
+        let run_id = RunId::new();
+        let ns = Namespace::for_run(run_id);
+
+        // Insert keys with different prefixes
+        Storage::put(&store, Key::new_kv(ns.clone(), "user:alice"), Value::I64(1), None).unwrap();
+        Storage::put(&store, Key::new_kv(ns.clone(), "user:bob"), Value::I64(2), None).unwrap();
+        Storage::put(&store, Key::new_kv(ns.clone(), "config:timeout"), Value::I64(3), None).unwrap();
+
+        // Scan with "user:" prefix
+        let prefix = Key::new_kv(ns.clone(), "user:");
+        let results = Storage::scan_prefix(&store, &prefix, u64::MAX).unwrap();
+
+        assert_eq!(results.len(), 2);
+    }
+
+    #[test]
+    fn test_storage_trait_scan_by_run() {
+        use in_mem_core::traits::Storage;
+        use in_mem_core::value::Value;
+        use in_mem_core::types::Namespace;
+
+        let store = ShardedStore::new();
+        let run1 = RunId::new();
+        let run2 = RunId::new();
+
+        // Insert data for two runs
+        let ns1 = Namespace::for_run(run1);
+        let ns2 = Namespace::for_run(run2);
+
+        Storage::put(&store, Key::new_kv(ns1.clone(), "key1"), Value::I64(1), None).unwrap();
+        Storage::put(&store, Key::new_kv(ns1.clone(), "key2"), Value::I64(2), None).unwrap();
+        Storage::put(&store, Key::new_kv(ns2.clone(), "key1"), Value::I64(3), None).unwrap();
+
+        // Scan run1
+        let results = Storage::scan_by_run(&store, run1, u64::MAX).unwrap();
+        assert_eq!(results.len(), 2);
+
+        // Scan run2
+        let results = Storage::scan_by_run(&store, run2, u64::MAX).unwrap();
+        assert_eq!(results.len(), 1);
+    }
+
+    #[test]
+    fn test_storage_trait_put_with_version() {
+        use in_mem_core::traits::Storage;
+        use in_mem_core::value::Value;
+        use in_mem_core::types::Namespace;
+
+        let store = ShardedStore::new();
+        let run_id = RunId::new();
+        let ns = Namespace::for_run(run_id);
+        let key = Key::new_kv(ns, "test_key");
+
+        // Put with specific version 42
+        Storage::put_with_version(&store, key.clone(), Value::I64(100), 42, None).unwrap();
+
+        // Verify version is 42
+        let result = Storage::get(&store, &key).unwrap().unwrap();
+        assert_eq!(result.version, 42);
+
+        // current_version should be updated
+        assert!(Storage::current_version(&store) >= 42);
+    }
+
+    #[test]
+    fn test_snapshot_view_trait() {
+        use in_mem_core::traits::{Storage, SnapshotView};
+        use in_mem_core::value::Value;
+        use in_mem_core::types::Namespace;
+
+        let store = Arc::new(ShardedStore::new());
+        let run_id = RunId::new();
+        let ns = Namespace::for_run(run_id);
+
+        // Put at version 1
+        let key1 = Key::new_kv(ns.clone(), "key1");
+        Storage::put(&*store, key1.clone(), Value::I64(1), None).unwrap();
+
+        // Create snapshot at version 1
+        let snapshot = store.snapshot();
+        assert_eq!(SnapshotView::version(&snapshot), 1);
+
+        // Put at version 2
+        let key2 = Key::new_kv(ns.clone(), "key2");
+        Storage::put(&*store, key2.clone(), Value::I64(2), None).unwrap();
+
+        // Snapshot should only see key1 (version 1) via MVCC filtering
+        let snap_key1 = SnapshotView::get(&snapshot, &key1).unwrap();
+        assert!(snap_key1.is_some());
+
+        // key2 has version 2, but snapshot is at version 1
+        // It will be visible since we're reading from shared storage
+        // but won't pass version filter
+        let snap_key2 = SnapshotView::get(&snapshot, &key2).unwrap();
+        // Note: key2 has version 2, snapshot version is 1, so it should be None
+        assert!(snap_key2.is_none(), "key2 should not be visible at version 1");
+    }
+
+    #[test]
+    fn test_snapshot_view_scan_prefix() {
+        use in_mem_core::traits::{Storage, SnapshotView};
+        use in_mem_core::value::Value;
+        use in_mem_core::types::Namespace;
+
+        let store = Arc::new(ShardedStore::new());
+        let run_id = RunId::new();
+        let ns = Namespace::for_run(run_id);
+
+        // Put two keys at version 1
+        Storage::put(&*store, Key::new_kv(ns.clone(), "user:alice"), Value::I64(1), None).unwrap();
+        Storage::put(&*store, Key::new_kv(ns.clone(), "user:bob"), Value::I64(2), None).unwrap();
+
+        let snapshot = store.snapshot();
+
+        // Put another key at version 3
+        Storage::put(&*store, Key::new_kv(ns.clone(), "user:charlie"), Value::I64(3), None).unwrap();
+
+        // Scan prefix via snapshot - should only see 2 keys at snapshot version
+        let prefix = Key::new_kv(ns.clone(), "user:");
+        let results = SnapshotView::scan_prefix(&snapshot, &prefix).unwrap();
+
+        assert_eq!(results.len(), 2, "Snapshot should only see keys at version <= 2");
     }
 }
