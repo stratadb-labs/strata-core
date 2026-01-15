@@ -7,8 +7,8 @@
 # generates the Redis competitiveness report.
 #
 # Reference Platform:
-#   - Linux (Ubuntu 22.04+)
-#   - AMD Ryzen 7 5800X3D or equivalent
+#   - Linux (Ubuntu 24.04.2 LTS)
+#   - AMD Ryzen 7 7800X3D 8-Core Processor (16 logical cores)
 #   - 64GB DDR5 RAM
 #   - Performance governor
 #   - Pinned cores for contention tests
