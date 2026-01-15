@@ -73,6 +73,7 @@ in-mem-engine = { path = "crates/engine" }
 [dev-dependencies]
 criterion = "0.5"
 tempfile = { workspace = true }
+in-mem-primitives = { path = "crates/primitives" }
 
 [[bench]]
 name = "comprehensive_benchmarks"
