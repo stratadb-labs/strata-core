@@ -116,7 +116,9 @@ impl BenchEnvironment {
 
     /// Check if running on reference platform
     fn check_reference_platform(os: &OsInfo, cpu: &CpuInfo, governor: &GovernorInfo) -> bool {
-        let is_linux = os.name.to_lowercase().contains("linux");
+        // Check if running on Linux - the OS name may be the distro name (e.g., "Ubuntu")
+        // rather than containing "Linux", so we also check the kernel
+        let is_linux = cfg!(target_os = "linux");
         let is_performance = governor.is_performance;
         let has_enough_cores = cpu.cores >= 8;
 
