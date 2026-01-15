@@ -28,7 +28,7 @@ pub mod unified;
 
 pub use cleaner::TTLCleaner;
 pub use index::{RunIndex, TypeIndex};
-pub use sharded::{Shard, ShardedStore};
+pub use sharded::{Shard, ShardedSnapshot, ShardedStore};
 pub use snapshot::ClonedSnapshotView;
 pub use ttl::TTLIndex;
 pub use unified::UnifiedStore;
