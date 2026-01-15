@@ -31,7 +31,7 @@ pub mod instrumentation;
 
 pub use coordinator::{TransactionCoordinator, TransactionMetrics};
 pub use database::{Database, DatabaseBuilder, RetryConfig};
-pub use durability::{CommitData, Durability, DurabilityMode};
+pub use durability::{CommitData, Durability, DurabilityMode, InMemoryDurability, StrictDurability};
 pub use instrumentation::PerfTrace;
 
 #[cfg(feature = "perf-trace")]
