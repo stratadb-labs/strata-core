@@ -364,11 +364,7 @@ impl ShardedStore {
     }
 
     /// Count entries of a specific type for a run
-    pub fn count_by_type(
-        &self,
-        run_id: &RunId,
-        type_tag: in_mem_core::types::TypeTag,
-    ) -> usize {
+    pub fn count_by_type(&self, run_id: &RunId, type_tag: in_mem_core::types::TypeTag) -> usize {
         self.shards
             .get(run_id)
             .map(|shard| {
@@ -573,17 +569,15 @@ impl Storage for ShardedStore {
     /// Returns None if key doesn't exist or is expired.
     fn get(&self, key: &Key) -> Result<Option<VersionedValue>> {
         let run_id = key.namespace.run_id;
-        Ok(self.shards
-            .get(&run_id)
-            .and_then(|shard| {
-                shard.data.get(key).and_then(|vv| {
-                    if !vv.is_expired() {
-                        Some(vv.clone())
-                    } else {
-                        None
-                    }
-                })
-            }))
+        Ok(self.shards.get(&run_id).and_then(|shard| {
+            shard.data.get(key).and_then(|vv| {
+                if !vv.is_expired() {
+                    Some(vv.clone())
+                } else {
+                    None
+                }
+            })
+        }))
     }
 
     /// Get value at or before specified version (for snapshot isolation)
@@ -591,17 +585,15 @@ impl Storage for ShardedStore {
     /// Returns the value if version <= max_version and not expired.
     fn get_versioned(&self, key: &Key, max_version: u64) -> Result<Option<VersionedValue>> {
         let run_id = key.namespace.run_id;
-        Ok(self.shards
-            .get(&run_id)
-            .and_then(|shard| {
-                shard.data.get(key).and_then(|vv| {
-                    if vv.version <= max_version && !vv.is_expired() {
-                        Some(vv.clone())
-                    } else {
-                        None
-                    }
-                })
-            }))
+        Ok(self.shards.get(&run_id).and_then(|shard| {
+            shard.data.get(key).and_then(|vv| {
+                if vv.version <= max_version && !vv.is_expired() {
+                    Some(vv.clone())
+                } else {
+                    None
+                }
+            })
+        }))
     }
 
     /// Put key-value pair with optional TTL
@@ -635,7 +627,8 @@ impl Storage for ShardedStore {
     /// Returns the deleted value if it existed.
     fn delete(&self, key: &Key) -> Result<Option<VersionedValue>> {
         let run_id = key.namespace.run_id;
-        Ok(self.shards
+        Ok(self
+            .shards
             .get_mut(&run_id)
             .and_then(|mut shard| shard.data.remove(key)))
     }
@@ -645,7 +638,8 @@ impl Storage for ShardedStore {
     /// Results are sorted by key order.
     fn scan_prefix(&self, prefix: &Key, max_version: u64) -> Result<Vec<(Key, VersionedValue)>> {
         let run_id = prefix.namespace.run_id;
-        Ok(self.shards
+        Ok(self
+            .shards
             .get(&run_id)
             .map(|shard| {
                 let mut results: Vec<_> = shard
@@ -667,7 +661,8 @@ impl Storage for ShardedStore {
     ///
     /// Returns all entries for the run, filtered by version.
     fn scan_by_run(&self, run_id: RunId, max_version: u64) -> Result<Vec<(Key, VersionedValue)>> {
-        Ok(self.shards
+        Ok(self
+            .shards
             .get(&run_id)
             .map(|shard| {
                 let mut results: Vec<_> = shard
@@ -729,7 +724,8 @@ impl Storage for ShardedStore {
         // For ShardedStore, we actually remove the key
         // (tombstones would require storing deleted markers)
         let run_id = key.namespace.run_id;
-        Ok(self.shards
+        Ok(self
+            .shards
             .get_mut(&run_id)
             .and_then(|mut shard| shard.data.remove(key)))
     }
@@ -747,17 +743,15 @@ impl SnapshotView for ShardedSnapshot {
     /// Returns value at or before the snapshot version.
     fn get(&self, key: &Key) -> Result<Option<VersionedValue>> {
         let run_id = key.namespace.run_id;
-        Ok(self.store.shards
-            .get(&run_id)
-            .and_then(|shard| {
-                shard.data.get(key).and_then(|vv| {
-                    if vv.version <= self.version && !vv.is_expired() {
-                        Some(vv.clone())
-                    } else {
-                        None
-                    }
-                })
-            }))
+        Ok(self.store.shards.get(&run_id).and_then(|shard| {
+            shard.data.get(key).and_then(|vv| {
+                if vv.version <= self.version && !vv.is_expired() {
+                    Some(vv.clone())
+                } else {
+                    None
+                }
+            })
+        }))
     }
 
     /// Scan keys with prefix from snapshot
@@ -765,7 +759,9 @@ impl SnapshotView for ShardedSnapshot {
     /// Returns all matching keys at or before snapshot version.
     fn scan_prefix(&self, prefix: &Key) -> Result<Vec<(Key, VersionedValue)>> {
         let run_id = prefix.namespace.run_id;
-        Ok(self.store.shards
+        Ok(self
+            .store
+            .shards
             .get(&run_id)
             .map(|shard| {
                 let mut results: Vec<_> = shard
@@ -1010,10 +1006,7 @@ mod tests {
         store.put(key3.clone(), create_versioned_value(Value::I64(999), 1));
 
         // Apply batch
-        let writes = vec![
-            (key1.clone(), Value::I64(1)),
-            (key2.clone(), Value::I64(2)),
-        ];
+        let writes = vec![(key1.clone(), Value::I64(1)), (key2.clone(), Value::I64(2))];
         let deletes = vec![key3.clone()];
 
         store.apply_batch(&writes, &deletes, 2);
@@ -1112,8 +1105,8 @@ mod tests {
 
     #[test]
     fn test_list_by_prefix() {
-        use in_mem_core::value::Value;
         use in_mem_core::types::Namespace;
+        use in_mem_core::value::Value;
 
         let store = ShardedStore::new();
         let run_id = RunId::new();
@@ -1150,8 +1143,8 @@ mod tests {
 
     #[test]
     fn test_list_by_prefix_empty() {
-        use in_mem_core::value::Value;
         use in_mem_core::types::Namespace;
+        use in_mem_core::value::Value;
 
         let store = ShardedStore::new();
         let run_id = RunId::new();
@@ -1176,8 +1169,8 @@ mod tests {
 
     #[test]
     fn test_list_by_type() {
-        use in_mem_core::value::Value;
         use in_mem_core::types::{Namespace, TypeTag};
+        use in_mem_core::value::Value;
 
         let store = ShardedStore::new();
         let run_id = RunId::new();
@@ -1226,8 +1219,8 @@ mod tests {
 
     #[test]
     fn test_count_by_type() {
-        use in_mem_core::value::Value;
         use in_mem_core::types::{Namespace, TypeTag};
+        use in_mem_core::value::Value;
 
         let store = ShardedStore::new();
         let run_id = RunId::new();
@@ -1267,9 +1260,18 @@ mod tests {
         let run3 = RunId::new();
 
         // Insert data for 3 runs
-        store.put(create_test_key(run1, "k1"), create_versioned_value(Value::I64(1), 1));
-        store.put(create_test_key(run2, "k1"), create_versioned_value(Value::I64(2), 1));
-        store.put(create_test_key(run3, "k1"), create_versioned_value(Value::I64(3), 1));
+        store.put(
+            create_test_key(run1, "k1"),
+            create_versioned_value(Value::I64(1), 1),
+        );
+        store.put(
+            create_test_key(run2, "k1"),
+            create_versioned_value(Value::I64(2), 1),
+        );
+        store.put(
+            create_test_key(run3, "k1"),
+            create_versioned_value(Value::I64(3), 1),
+        );
 
         let run_ids = store.run_ids();
         assert_eq!(run_ids.len(), 3);
@@ -1312,8 +1314,8 @@ mod tests {
 
     #[test]
     fn test_list_sorted_order() {
-        use in_mem_core::value::Value;
         use in_mem_core::types::Namespace;
+        use in_mem_core::value::Value;
 
         let store = ShardedStore::new();
         let run_id = RunId::new();
@@ -1530,7 +1532,10 @@ mod tests {
         let run_id = RunId::new();
         for i in 0..1000 {
             let key = create_test_key(run_id, &format!("key{}", i));
-            store.put(key, create_versioned_value(in_mem_core::value::Value::I64(i), 1));
+            store.put(
+                key,
+                create_versioned_value(in_mem_core::value::Value::I64(i), 1),
+            );
         }
 
         // Measure snapshot creation time
@@ -1559,8 +1564,8 @@ mod tests {
     #[test]
     fn test_storage_trait_get_put() {
         use in_mem_core::traits::Storage;
-        use in_mem_core::value::Value;
         use in_mem_core::types::Namespace;
+        use in_mem_core::value::Value;
 
         let store = ShardedStore::new();
         let run_id = RunId::new();
@@ -1580,8 +1585,8 @@ mod tests {
     #[test]
     fn test_storage_trait_get_versioned() {
         use in_mem_core::traits::Storage;
-        use in_mem_core::value::Value;
         use in_mem_core::types::Namespace;
+        use in_mem_core::value::Value;
 
         let store = ShardedStore::new();
         let run_id = RunId::new();
@@ -1603,8 +1608,8 @@ mod tests {
     #[test]
     fn test_storage_trait_delete() {
         use in_mem_core::traits::Storage;
-        use in_mem_core::value::Value;
         use in_mem_core::types::Namespace;
+        use in_mem_core::value::Value;
 
         let store = ShardedStore::new();
         let run_id = RunId::new();
@@ -1623,17 +1628,35 @@ mod tests {
     #[test]
     fn test_storage_trait_scan_prefix() {
         use in_mem_core::traits::Storage;
-        use in_mem_core::value::Value;
         use in_mem_core::types::Namespace;
+        use in_mem_core::value::Value;
 
         let store = ShardedStore::new();
         let run_id = RunId::new();
         let ns = Namespace::for_run(run_id);
 
         // Insert keys with different prefixes
-        Storage::put(&store, Key::new_kv(ns.clone(), "user:alice"), Value::I64(1), None).unwrap();
-        Storage::put(&store, Key::new_kv(ns.clone(), "user:bob"), Value::I64(2), None).unwrap();
-        Storage::put(&store, Key::new_kv(ns.clone(), "config:timeout"), Value::I64(3), None).unwrap();
+        Storage::put(
+            &store,
+            Key::new_kv(ns.clone(), "user:alice"),
+            Value::I64(1),
+            None,
+        )
+        .unwrap();
+        Storage::put(
+            &store,
+            Key::new_kv(ns.clone(), "user:bob"),
+            Value::I64(2),
+            None,
+        )
+        .unwrap();
+        Storage::put(
+            &store,
+            Key::new_kv(ns.clone(), "config:timeout"),
+            Value::I64(3),
+            None,
+        )
+        .unwrap();
 
         // Scan with "user:" prefix
         let prefix = Key::new_kv(ns.clone(), "user:");
@@ -1645,8 +1668,8 @@ mod tests {
     #[test]
     fn test_storage_trait_scan_by_run() {
         use in_mem_core::traits::Storage;
-        use in_mem_core::value::Value;
         use in_mem_core::types::Namespace;
+        use in_mem_core::value::Value;
 
         let store = ShardedStore::new();
         let run1 = RunId::new();
@@ -1656,9 +1679,27 @@ mod tests {
         let ns1 = Namespace::for_run(run1);
         let ns2 = Namespace::for_run(run2);
 
-        Storage::put(&store, Key::new_kv(ns1.clone(), "key1"), Value::I64(1), None).unwrap();
-        Storage::put(&store, Key::new_kv(ns1.clone(), "key2"), Value::I64(2), None).unwrap();
-        Storage::put(&store, Key::new_kv(ns2.clone(), "key1"), Value::I64(3), None).unwrap();
+        Storage::put(
+            &store,
+            Key::new_kv(ns1.clone(), "key1"),
+            Value::I64(1),
+            None,
+        )
+        .unwrap();
+        Storage::put(
+            &store,
+            Key::new_kv(ns1.clone(), "key2"),
+            Value::I64(2),
+            None,
+        )
+        .unwrap();
+        Storage::put(
+            &store,
+            Key::new_kv(ns2.clone(), "key1"),
+            Value::I64(3),
+            None,
+        )
+        .unwrap();
 
         // Scan run1
         let results = Storage::scan_by_run(&store, run1, u64::MAX).unwrap();
@@ -1672,8 +1713,8 @@ mod tests {
     #[test]
     fn test_storage_trait_put_with_version() {
         use in_mem_core::traits::Storage;
-        use in_mem_core::value::Value;
         use in_mem_core::types::Namespace;
+        use in_mem_core::value::Value;
 
         let store = ShardedStore::new();
         let run_id = RunId::new();
@@ -1693,9 +1734,9 @@ mod tests {
 
     #[test]
     fn test_snapshot_view_trait() {
-        use in_mem_core::traits::{Storage, SnapshotView};
-        use in_mem_core::value::Value;
+        use in_mem_core::traits::{SnapshotView, Storage};
         use in_mem_core::types::Namespace;
+        use in_mem_core::value::Value;
 
         let store = Arc::new(ShardedStore::new());
         let run_id = RunId::new();
@@ -1722,32 +1763,57 @@ mod tests {
         // but won't pass version filter
         let snap_key2 = SnapshotView::get(&snapshot, &key2).unwrap();
         // Note: key2 has version 2, snapshot version is 1, so it should be None
-        assert!(snap_key2.is_none(), "key2 should not be visible at version 1");
+        assert!(
+            snap_key2.is_none(),
+            "key2 should not be visible at version 1"
+        );
     }
 
     #[test]
     fn test_snapshot_view_scan_prefix() {
-        use in_mem_core::traits::{Storage, SnapshotView};
-        use in_mem_core::value::Value;
+        use in_mem_core::traits::{SnapshotView, Storage};
         use in_mem_core::types::Namespace;
+        use in_mem_core::value::Value;
 
         let store = Arc::new(ShardedStore::new());
         let run_id = RunId::new();
         let ns = Namespace::for_run(run_id);
 
         // Put two keys at version 1
-        Storage::put(&*store, Key::new_kv(ns.clone(), "user:alice"), Value::I64(1), None).unwrap();
-        Storage::put(&*store, Key::new_kv(ns.clone(), "user:bob"), Value::I64(2), None).unwrap();
+        Storage::put(
+            &*store,
+            Key::new_kv(ns.clone(), "user:alice"),
+            Value::I64(1),
+            None,
+        )
+        .unwrap();
+        Storage::put(
+            &*store,
+            Key::new_kv(ns.clone(), "user:bob"),
+            Value::I64(2),
+            None,
+        )
+        .unwrap();
 
         let snapshot = store.snapshot();
 
         // Put another key at version 3
-        Storage::put(&*store, Key::new_kv(ns.clone(), "user:charlie"), Value::I64(3), None).unwrap();
+        Storage::put(
+            &*store,
+            Key::new_kv(ns.clone(), "user:charlie"),
+            Value::I64(3),
+            None,
+        )
+        .unwrap();
 
         // Scan prefix via snapshot - should only see 2 keys at snapshot version
         let prefix = Key::new_kv(ns.clone(), "user:");
         let results = SnapshotView::scan_prefix(&snapshot, &prefix).unwrap();
 
-        assert_eq!(results.len(), 2, "Snapshot should only see keys at version <= 2");
+        assert_eq!(
+            results.len(),
+            2,
+            "Snapshot should only see keys at version <= 2"
+        );
     }
 }
