@@ -43,6 +43,7 @@
 
 pub mod event_log;
 pub mod extensions;
+pub mod json_store;
 pub mod kv;
 pub mod run_index;
 pub mod state_cell;
@@ -50,6 +51,7 @@ pub mod trace;
 
 // Re-exports - primitives are exported as they're implemented
 pub use event_log::{ChainVerification, Event, EventLog};
+pub use json_store::JsonStore;
 pub use kv::{KVStore, KVTransaction};
 pub use run_index::{RunIndex, RunMetadata, RunStatus};
 pub use state_cell::{State, StateCell};
