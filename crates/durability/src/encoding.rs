@@ -34,6 +34,16 @@ const TYPE_COMMIT_TXN: u8 = 4;
 const TYPE_ABORT_TXN: u8 = 5;
 const TYPE_CHECKPOINT: u8 = 6;
 
+// JSON entry type tags (0x20 range) - M5
+/// JSON document creation entry
+pub const TYPE_JSON_CREATE: u8 = 0x20;
+/// JSON set value at path entry
+pub const TYPE_JSON_SET: u8 = 0x21;
+/// JSON delete value at path entry
+pub const TYPE_JSON_DELETE: u8 = 0x22;
+/// JSON destroy (delete entire document) entry
+pub const TYPE_JSON_DESTROY: u8 = 0x23;
+
 /// Encode WAL entry to bytes
 ///
 /// Format: `[length: u32][type: u8][payload: bytes][crc32: u32]`
@@ -68,6 +78,11 @@ pub fn encode_entry(entry: &WALEntry) -> Result<Vec<u8>> {
         WALEntry::CommitTxn { .. } => TYPE_COMMIT_TXN,
         WALEntry::AbortTxn { .. } => TYPE_ABORT_TXN,
         WALEntry::Checkpoint { .. } => TYPE_CHECKPOINT,
+        // JSON operations (M5)
+        WALEntry::JsonCreate { .. } => TYPE_JSON_CREATE,
+        WALEntry::JsonSet { .. } => TYPE_JSON_SET,
+        WALEntry::JsonDelete { .. } => TYPE_JSON_DELETE,
+        WALEntry::JsonDestroy { .. } => TYPE_JSON_DESTROY,
     };
 
     // Serialize payload with bincode
@@ -217,6 +232,11 @@ pub fn decode_entry(buf: &[u8], offset: u64) -> Result<(WALEntry, usize)> {
         WALEntry::CommitTxn { .. } => TYPE_COMMIT_TXN,
         WALEntry::AbortTxn { .. } => TYPE_ABORT_TXN,
         WALEntry::Checkpoint { .. } => TYPE_CHECKPOINT,
+        // JSON operations (M5)
+        WALEntry::JsonCreate { .. } => TYPE_JSON_CREATE,
+        WALEntry::JsonSet { .. } => TYPE_JSON_SET,
+        WALEntry::JsonDelete { .. } => TYPE_JSON_DELETE,
+        WALEntry::JsonDestroy { .. } => TYPE_JSON_DESTROY,
     };
 
     if type_tag != expected_type {

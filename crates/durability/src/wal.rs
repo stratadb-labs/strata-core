@@ -38,7 +38,8 @@
 use crate::encoding::{decode_entry, encode_entry};
 use in_mem_core::{
     error::{Error, Result},
-    types::{Key, RunId},
+    json::JsonPath,
+    types::{JsonDocId, Key, RunId},
     value::{Timestamp, Value},
 };
 use serde::{Deserialize, Serialize};
@@ -132,6 +133,67 @@ pub enum WALEntry {
         /// Runs that were active at checkpoint time
         active_runs: Vec<RunId>,
     },
+
+    // ========================================================================
+    // JSON Operations (M5) - Entry types 0x20-0x23
+    // ========================================================================
+    /// Create new JSON document (0x20)
+    ///
+    /// Records creation of a new JSON document with initial value.
+    /// The value is stored as msgpack-serialized bytes for WAL compatibility.
+    JsonCreate {
+        /// Run this operation belongs to
+        run_id: RunId,
+        /// Document identifier
+        doc_id: JsonDocId,
+        /// Initial JSON value (msgpack serialized)
+        value_bytes: Vec<u8>,
+        /// Version assigned to this document
+        version: u64,
+        /// Timestamp when created
+        timestamp: Timestamp,
+    },
+
+    /// Set value at path in JSON document (0x21)
+    ///
+    /// Records a path-level mutation to a JSON document.
+    /// The value is stored as msgpack-serialized bytes for WAL compatibility.
+    JsonSet {
+        /// Run this operation belongs to
+        run_id: RunId,
+        /// Document identifier
+        doc_id: JsonDocId,
+        /// Path to set value at
+        path: JsonPath,
+        /// New value at path (msgpack serialized)
+        value_bytes: Vec<u8>,
+        /// New document version after this operation
+        version: u64,
+    },
+
+    /// Delete value at path in JSON document (0x22)
+    ///
+    /// Records deletion of a value at a path within a document.
+    JsonDelete {
+        /// Run this operation belongs to
+        run_id: RunId,
+        /// Document identifier
+        doc_id: JsonDocId,
+        /// Path to delete
+        path: JsonPath,
+        /// New document version after this operation
+        version: u64,
+    },
+
+    /// Destroy entire JSON document (0x23)
+    ///
+    /// Records complete deletion of a JSON document.
+    JsonDestroy {
+        /// Run this operation belongs to
+        run_id: RunId,
+        /// Document identifier
+        doc_id: JsonDocId,
+    },
 }
 
 impl WALEntry {
@@ -147,6 +209,11 @@ impl WALEntry {
             WALEntry::CommitTxn { run_id, .. } => Some(*run_id),
             WALEntry::AbortTxn { run_id, .. } => Some(*run_id),
             WALEntry::Checkpoint { .. } => None, // Checkpoint tracks multiple runs
+            // JSON operations (M5)
+            WALEntry::JsonCreate { run_id, .. } => Some(*run_id),
+            WALEntry::JsonSet { run_id, .. } => Some(*run_id),
+            WALEntry::JsonDelete { run_id, .. } => Some(*run_id),
+            WALEntry::JsonDestroy { run_id, .. } => Some(*run_id),
         }
     }
 
@@ -166,12 +233,16 @@ impl WALEntry {
     /// Get version (if applicable)
     ///
     /// Returns the version for entries that track versions:
-    /// Write, Delete, Checkpoint.
+    /// Write, Delete, Checkpoint, JsonCreate, JsonSet, JsonDelete.
     pub fn version(&self) -> Option<u64> {
         match self {
             WALEntry::Write { version, .. } => Some(*version),
             WALEntry::Delete { version, .. } => Some(*version),
             WALEntry::Checkpoint { version, .. } => Some(*version),
+            // JSON operations with version (M5)
+            WALEntry::JsonCreate { version, .. } => Some(*version),
+            WALEntry::JsonSet { version, .. } => Some(*version),
+            WALEntry::JsonDelete { version, .. } => Some(*version),
             _ => None,
         }
     }
@@ -1321,5 +1392,134 @@ mod tests {
         assert!(!mode.requires_wal());
         assert!(!mode.requires_immediate_fsync());
         assert!(mode.description().contains("persistence"));
+    }
+
+    // ========================================================================
+    // JSON Entry Type Tests (Story #278)
+    // ========================================================================
+
+    use in_mem_core::json::JsonPath;
+    use in_mem_core::types::JsonDocId;
+
+    #[test]
+    fn test_json_create_entry() {
+        let run_id = RunId::new();
+        let doc_id = JsonDocId::new();
+        // Simulate msgpack-serialized empty object
+        let value_bytes = vec![0x80]; // msgpack empty map
+
+        let entry = WALEntry::JsonCreate {
+            run_id,
+            doc_id,
+            value_bytes,
+            version: 1,
+            timestamp: now(),
+        };
+
+        assert_eq!(entry.run_id(), Some(run_id));
+        assert_eq!(entry.version(), Some(1));
+        assert!(!entry.is_txn_boundary());
+        assert!(!entry.is_checkpoint());
+        assert_eq!(entry.txn_id(), None);
+    }
+
+    #[test]
+    fn test_json_set_entry() {
+        let run_id = RunId::new();
+        let doc_id = JsonDocId::new();
+        let path = "user.name".parse::<JsonPath>().unwrap();
+        // Simulate msgpack-serialized string "Alice"
+        let value_bytes = b"\xa5Alice".to_vec();
+
+        let entry = WALEntry::JsonSet {
+            run_id,
+            doc_id,
+            path: path.clone(),
+            value_bytes,
+            version: 2,
+        };
+
+        assert_eq!(entry.run_id(), Some(run_id));
+        assert_eq!(entry.version(), Some(2));
+        assert!(!entry.is_txn_boundary());
+        assert!(!entry.is_checkpoint());
+
+        if let WALEntry::JsonSet {
+            path: p, version, ..
+        } = entry
+        {
+            assert_eq!(p, path);
+            assert_eq!(version, 2);
+        } else {
+            panic!("Expected JsonSet variant");
+        }
+    }
+
+    #[test]
+    fn test_json_delete_entry() {
+        let run_id = RunId::new();
+        let doc_id = JsonDocId::new();
+        let path = "temp.field".parse::<JsonPath>().unwrap();
+
+        let entry = WALEntry::JsonDelete {
+            run_id,
+            doc_id,
+            path,
+            version: 3,
+        };
+
+        assert_eq!(entry.run_id(), Some(run_id));
+        assert_eq!(entry.version(), Some(3));
+        assert!(!entry.is_txn_boundary());
+        assert!(!entry.is_checkpoint());
+    }
+
+    #[test]
+    fn test_json_destroy_entry() {
+        let run_id = RunId::new();
+        let doc_id = JsonDocId::new();
+
+        let entry = WALEntry::JsonDestroy { run_id, doc_id };
+
+        assert_eq!(entry.run_id(), Some(run_id));
+        assert_eq!(entry.version(), None); // JsonDestroy has no version
+        assert!(!entry.is_txn_boundary());
+        assert!(!entry.is_checkpoint());
+    }
+
+    #[test]
+    fn test_json_entries_serialize() {
+        let run_id = RunId::new();
+        let doc_id = JsonDocId::new();
+
+        let entries = vec![
+            WALEntry::JsonCreate {
+                run_id,
+                doc_id,
+                value_bytes: vec![0x80], // msgpack empty map
+                version: 1,
+                timestamp: now(),
+            },
+            WALEntry::JsonSet {
+                run_id,
+                doc_id,
+                path: "name".parse().unwrap(),
+                value_bytes: b"\xa4test".to_vec(), // msgpack string "test"
+                version: 2,
+            },
+            WALEntry::JsonDelete {
+                run_id,
+                doc_id,
+                path: "temp".parse().unwrap(),
+                version: 3,
+            },
+            WALEntry::JsonDestroy { run_id, doc_id },
+        ];
+
+        for entry in entries {
+            let encoded = bincode::serialize(&entry).expect("serialization failed");
+            let decoded: WALEntry = bincode::deserialize(&encoded).expect("deserialization failed");
+            assert_eq!(entry, decoded);
+        }
     }
 }

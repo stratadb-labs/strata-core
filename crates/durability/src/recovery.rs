@@ -238,7 +238,12 @@ pub fn validate_transactions(entries: &[WALEntry]) -> ValidationResult {
                 begun_txns.insert(*txn_id);
                 active_txn_per_run.insert(*run_id, *txn_id);
             }
-            WALEntry::Write { run_id, .. } | WALEntry::Delete { run_id, .. } => {
+            WALEntry::Write { run_id, .. }
+            | WALEntry::Delete { run_id, .. }
+            | WALEntry::JsonCreate { run_id, .. }
+            | WALEntry::JsonSet { run_id, .. }
+            | WALEntry::JsonDelete { run_id, .. }
+            | WALEntry::JsonDestroy { run_id, .. } => {
                 // Check if there's an active transaction for this run_id
                 if !active_txn_per_run.contains_key(run_id) {
                     result.warnings.push(ValidationWarning {
@@ -425,7 +430,12 @@ pub fn replay_wal_with_options<S: Storage + ?Sized>(
                 // Map (run_id, txn_id) -> internal_id for commit/abort lookup
                 txn_id_to_internal.insert((*run_id, *txn_id), internal_id);
             }
-            WALEntry::Write { run_id, .. } | WALEntry::Delete { run_id, .. } => {
+            WALEntry::Write { run_id, .. }
+            | WALEntry::Delete { run_id, .. }
+            | WALEntry::JsonCreate { run_id, .. }
+            | WALEntry::JsonSet { run_id, .. }
+            | WALEntry::JsonDelete { run_id, .. }
+            | WALEntry::JsonDestroy { run_id, .. } => {
                 // Add to the currently active transaction for this run_id
                 if let Some(&internal_id) = active_txn_per_run.get(run_id) {
                     if let Some(txn) = transactions.get_mut(&internal_id) {
