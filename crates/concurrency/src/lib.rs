@@ -27,8 +27,8 @@ pub use transaction::{
     PendingOperations, TransactionContext, TransactionStatus,
 };
 pub use validation::{
-    validate_cas_set, validate_read_set, validate_transaction, validate_write_set, ConflictType,
-    ValidationResult,
+    validate_cas_set, validate_json_set, validate_read_set, validate_transaction,
+    validate_write_set, ConflictType, ValidationResult,
 };
 pub use wal_writer::TransactionWALWriter;
 

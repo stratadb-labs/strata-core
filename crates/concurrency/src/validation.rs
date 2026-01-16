@@ -47,6 +47,20 @@ pub enum ConflictType {
         /// Current version in storage at validation time
         current_version: u64,
     },
+
+    /// JSON document conflict: document version changed since read
+    ///
+    /// From M5 spec: Conflict occurs when a JSON document read during
+    /// the transaction has been modified by another transaction.
+    /// This is conservative (document-level) conflict detection.
+    JsonDocConflict {
+        /// The key of the JSON document with a conflict
+        key: Key,
+        /// Document version when read (snapshot version)
+        snapshot_version: u64,
+        /// Current document version at validation time
+        current_version: u64,
+    },
 }
 
 /// Result of transaction validation
@@ -212,15 +226,59 @@ pub fn validate_cas_set<S: Storage>(cas_set: &[CASOperation], store: &S) -> Vali
     result
 }
 
+/// Validate JSON document versions against current storage state
+///
+/// Per M5 spec: JSON conflict detection is document-level (conservative).
+/// If any JSON document read during the transaction has been modified,
+/// the transaction must abort.
+///
+/// # Arguments
+/// * `json_snapshot_versions` - Document keys and their versions at read time
+/// * `store` - Storage to check current versions against
+///
+/// # Returns
+/// ValidationResult with any JsonDocConflicts found
+pub fn validate_json_set<S: Storage>(
+    json_snapshot_versions: Option<&HashMap<Key, u64>>,
+    store: &S,
+) -> ValidationResult {
+    let mut result = ValidationResult::ok();
+
+    let Some(versions) = json_snapshot_versions else {
+        return result; // No JSON operations = no JSON conflicts
+    };
+
+    for (key, snapshot_version) in versions {
+        // Get current version from storage
+        let current_version = match store.get(key) {
+            Ok(Some(vv)) => vv.version,
+            Ok(None) => 0, // Document deleted = version 0
+            Err(_) => 0,   // Storage error = treat as deleted
+        };
+
+        // Check if version changed since transaction read it
+        if current_version != *snapshot_version {
+            result.conflicts.push(ConflictType::JsonDocConflict {
+                key: key.clone(),
+                snapshot_version: *snapshot_version,
+                current_version,
+            });
+        }
+    }
+
+    result
+}
+
 /// Validate a complete transaction against current storage state
 ///
 /// Per spec Section 3 (Conflict Detection):
 /// 1. Validates read-set: detects read-write conflicts (first-committer-wins)
 /// 2. Validates write-set: currently no-op (blind writes don't conflict)
 /// 3. Validates CAS-set: ensures expected versions still match
+/// 4. Validates JSON-set: ensures JSON document versions haven't changed (M5)
 ///
 /// **Per spec Section 3.2 Scenario 3**: Read-only transactions ALWAYS succeed.
-/// If a transaction has no writes (empty write_set, delete_set, and cas_set),
+/// If a transaction has no writes (empty write_set, delete_set, cas_set, and json_writes),
 /// validation is skipped entirely and the transaction succeeds.
 ///
 /// # Arguments
@@ -235,11 +293,13 @@ pub fn validate_cas_set<S: Storage>(cas_set: &[CASOperation], store: &S) -> Vali
 /// - Section 3.1: When conflicts occur
 /// - Section 3.2: Conflict scenarios (including read-only transaction rule)
 /// - Section 3.3: First-committer-wins rule
+/// - M5: JSON document-level conflict detection
 pub fn validate_transaction<S: Storage>(txn: &TransactionContext, store: &S) -> ValidationResult {
     // Per spec Section 3.2 Scenario 3: Read-only transactions ALWAYS commit.
     // "Read-Only Transaction: T1 only reads keys, never writes any → ALWAYS COMMITS"
     // "Why: Read-only transactions have no writes to validate. They simply return their snapshot view."
-    if txn.is_read_only() {
+    // Note: We also need to check for JSON writes
+    if txn.is_read_only() && txn.json_writes().is_empty() {
         return ValidationResult::ok();
     }
 
@@ -258,6 +318,9 @@ pub fn validate_transaction<S: Storage>(txn: &TransactionContext, store: &S) -> 
 
     // 3. Validate CAS-set (detects version mismatches)
     result.merge(validate_cas_set(&txn.cas_set, store));
+
+    // 4. Validate JSON-set (detects JSON document version changes)
+    result.merge(validate_json_set(txn.json_snapshot_versions(), store));
 
     result
 }
@@ -1040,6 +1103,144 @@ mod tests {
 
             assert!(!result.is_valid());
             assert_eq!(result.conflict_count(), 1); // Only key1 conflicts
+        }
+    }
+
+    // === JSON Validation Tests (M5 Story #285) ===
+    mod json_validation_tests {
+        use super::*;
+        use in_mem_core::types::TypeTag;
+        use in_mem_core::JsonDocId;
+        use in_mem_storage::UnifiedStore;
+
+        fn create_json_test_store() -> UnifiedStore {
+            UnifiedStore::new()
+        }
+
+        fn create_json_test_namespace() -> Namespace {
+            Namespace::new("test".into(), "app".into(), "agent".into(), RunId::new())
+        }
+
+        fn create_json_key(ns: &Namespace, doc_id: &JsonDocId) -> Key {
+            Key::new(ns.clone(), TypeTag::Json, doc_id.as_bytes().to_vec())
+        }
+
+        #[test]
+        fn test_validate_json_set_none() {
+            let store = create_json_test_store();
+            let result = validate_json_set(None, &store);
+            assert!(result.is_valid());
+        }
+
+        #[test]
+        fn test_validate_json_set_empty() {
+            let store = create_json_test_store();
+            let versions = HashMap::new();
+            let result = validate_json_set(Some(&versions), &store);
+            assert!(result.is_valid());
+        }
+
+        #[test]
+        fn test_validate_json_set_version_match() {
+            let store = create_json_test_store();
+            let ns = create_json_test_namespace();
+            let doc_id = JsonDocId::new();
+            let key = create_json_key(&ns, &doc_id);
+
+            // Add document to store
+            store.put(key.clone(), Value::Bytes(b"{}".to_vec()), None).unwrap();
+            let version = store.get(&key).unwrap().unwrap().version;
+
+            // Create snapshot versions matching current state
+            let mut versions = HashMap::new();
+            versions.insert(key, version);
+
+            let result = validate_json_set(Some(&versions), &store);
+            assert!(result.is_valid());
+        }
+
+        #[test]
+        fn test_validate_json_set_version_mismatch() {
+            let store = create_json_test_store();
+            let ns = create_json_test_namespace();
+            let doc_id = JsonDocId::new();
+            let key = create_json_key(&ns, &doc_id);
+
+            // Add document to store
+            store.put(key.clone(), Value::Bytes(b"{}".to_vec()), None).unwrap();
+            let old_version = store.get(&key).unwrap().unwrap().version;
+
+            // Modify the document
+            store.put(key.clone(), Value::Bytes(b"{\"updated\":true}".to_vec()), None).unwrap();
+
+            // Use old version in snapshot
+            let mut versions = HashMap::new();
+            versions.insert(key, old_version);
+
+            let result = validate_json_set(Some(&versions), &store);
+            assert!(!result.is_valid());
+            assert_eq!(result.conflict_count(), 1);
+
+            match &result.conflicts[0] {
+                ConflictType::JsonDocConflict { snapshot_version, .. } => {
+                    assert_eq!(*snapshot_version, old_version);
+                }
+                _ => panic!("Expected JsonDocConflict"),
+            }
+        }
+
+        #[test]
+        fn test_validate_json_set_document_deleted() {
+            let store = create_json_test_store();
+            let ns = create_json_test_namespace();
+            let doc_id = JsonDocId::new();
+            let key = create_json_key(&ns, &doc_id);
+
+            // Add document to store
+            store.put(key.clone(), Value::Bytes(b"{}".to_vec()), None).unwrap();
+            let version = store.get(&key).unwrap().unwrap().version;
+
+            // Delete the document
+            store.delete(&key).unwrap();
+
+            // Use old version in snapshot
+            let mut versions = HashMap::new();
+            versions.insert(key, version);
+
+            let result = validate_json_set(Some(&versions), &store);
+            assert!(!result.is_valid());
+            assert_eq!(result.conflict_count(), 1);
+
+            // Deleted document should show current_version = 0
+            match &result.conflicts[0] {
+                ConflictType::JsonDocConflict { current_version, .. } => {
+                    assert_eq!(*current_version, 0);
+                }
+                _ => panic!("Expected JsonDocConflict"),
+            }
+        }
+
+        #[test]
+        fn test_json_doc_conflict_creation() {
+            let key = create_test_key(b"doc");
+            let conflict = ConflictType::JsonDocConflict {
+                key: key.clone(),
+                snapshot_version: 10,
+                current_version: 15,
+            };
+
+            match conflict {
+                ConflictType::JsonDocConflict {
+                    key: k,
+                    snapshot_version,
+                    current_version,
+                } => {
+                    assert_eq!(k, key);
+                    assert_eq!(snapshot_version, 10);
+                    assert_eq!(current_version, 15);
+                }
+                _ => panic!("Wrong conflict type"),
+            }
         }
     }
 }
