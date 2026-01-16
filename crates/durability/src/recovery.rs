@@ -24,7 +24,6 @@ use crate::wal::{WALEntry, WAL};
 use in_mem_core::error::Result;
 use in_mem_core::traits::Storage;
 use in_mem_core::types::RunId;
-use in_mem_storage::UnifiedStore;
 use std::collections::{HashMap, HashSet};
 use tracing::warn;
 
@@ -324,7 +323,7 @@ pub fn validate_transactions(entries: &[WALEntry]) -> ValidationResult {
 /// let stats = replay_wal(&wal, &storage)?;
 /// println!("Applied {} transactions, {} writes", stats.txns_applied, stats.writes_applied);
 /// ```
-pub fn replay_wal(wal: &WAL, storage: &UnifiedStore) -> Result<ReplayStats> {
+pub fn replay_wal<S: Storage + ?Sized>(wal: &WAL, storage: &S) -> Result<ReplayStats> {
     replay_wal_with_options(wal, storage, ReplayOptions::default())
 }
 
@@ -368,9 +367,9 @@ pub fn replay_wal(wal: &WAL, storage: &UnifiedStore) -> Result<ReplayStats> {
 /// let stats = replay_wal_with_options(&wal, &storage, options)?;
 /// println!("Applied {} transactions, filtered {}", stats.txns_applied, stats.txns_filtered);
 /// ```
-pub fn replay_wal_with_options(
+pub fn replay_wal_with_options<S: Storage + ?Sized>(
     wal: &WAL,
-    storage: &UnifiedStore,
+    storage: &S,
     options: ReplayOptions,
 ) -> Result<ReplayStats> {
     // Read all entries from WAL
@@ -579,8 +578,8 @@ fn get_transaction_max_version(txn: &Transaction) -> u64 {
 ///
 /// * `Ok(())` - If all operations succeeded
 /// * `Err` - If any operation fails
-fn apply_transaction(
-    storage: &UnifiedStore,
+fn apply_transaction<S: Storage + ?Sized>(
+    storage: &S,
     txn: &Transaction,
     stats: &mut ReplayStats,
 ) -> Result<()> {
@@ -621,6 +620,7 @@ mod tests {
     use in_mem_core::types::{Key, Namespace};
     use in_mem_core::value::Value;
     use in_mem_core::Storage; // Need trait in scope for .get() and .current_version()
+    use in_mem_storage::UnifiedStore; // Used in tests (still implements Storage)
     use tempfile::TempDir;
 
     /// Helper to get current timestamp

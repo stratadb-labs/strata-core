@@ -11,13 +11,33 @@
 //! - Run management
 //! - Cross-layer coordination (storage + WAL + recovery)
 //! - Replay logic
+//!
+//! # M4 Performance Instrumentation
+//!
+//! Enable the `perf-trace` feature for per-operation timing:
+//!
+//! ```bash
+//! cargo build --features perf-trace
+//! ```
 
 #![warn(missing_docs)]
 #![warn(clippy::all)]
 
 pub mod coordinator;
 pub mod database;
+pub mod durability;
+pub mod instrumentation;
+pub mod transaction;
 // pub mod run;          // Story #29
 
 pub use coordinator::{TransactionCoordinator, TransactionMetrics};
-pub use database::{Database, RetryConfig};
+pub use database::{Database, DatabaseBuilder, RetryConfig};
+pub use durability::{
+    BufferedDurability, CommitData, Durability, DurabilityMode, InMemoryDurability,
+    StrictDurability,
+};
+pub use instrumentation::PerfTrace;
+pub use transaction::{TransactionPool, MAX_POOL_SIZE};
+
+#[cfg(feature = "perf-trace")]
+pub use instrumentation::{PerfBreakdown, PerfStats};

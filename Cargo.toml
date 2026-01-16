@@ -33,6 +33,9 @@ anyhow = "1.0"
 
 # Concurrency
 parking_lot = "0.12"
+dashmap = "5"
+rustc-hash = "1.1"
+smallvec = "1.11"
 
 # Time handling
 chrono = { version = "0.4", features = ["serde"] }
@@ -63,6 +66,10 @@ debug = false
 [profile.bench]
 inherits = "release"
 
+[features]
+default = []
+perf-trace = []  # Enable per-layer timing instrumentation for M4
+
 [dependencies]
 in-mem-core = { path = "crates/core" }
 in-mem-storage = { path = "crates/storage" }
@@ -73,6 +80,10 @@ in-mem-engine = { path = "crates/engine" }
 [dev-dependencies]
 criterion = "0.5"
 tempfile = { workspace = true }
+chrono = { workspace = true }
+serde_json = { workspace = true }
+rustc-hash = { workspace = true }
+in-mem-primitives = { path = "crates/primitives" }
 
 [[bench]]
 name = "comprehensive_benchmarks"
@@ -84,4 +95,20 @@ harness = false
 
 [[bench]]
 name = "m2_transactions"
+harness = false
+
+[[bench]]
+name = "m3_primitives"
+harness = false
+
+[[bench]]
+name = "m4_performance"
+harness = false
+
+[[bench]]
+name = "m4_facade_tax"
+harness = false
+
+[[bench]]
+name = "m4_contention"
 harness = false

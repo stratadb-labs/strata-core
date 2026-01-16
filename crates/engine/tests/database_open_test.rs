@@ -749,7 +749,10 @@ fn test_multiple_crash_cycles_with_high_level_api() {
                     assert!(
                         result.is_some(),
                         "Key cycle{}_key{} should exist after cycle {} (current cycle: {})",
-                        prev_cycle, i, cycle, cycle
+                        prev_cycle,
+                        i,
+                        cycle,
+                        cycle
                     );
 
                     let vv = result.unwrap();

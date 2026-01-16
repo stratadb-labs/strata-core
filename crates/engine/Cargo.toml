@@ -7,15 +7,21 @@ authors.workspace = true
 license.workspace = true
 repository.workspace = true
 
+[features]
+default = []
+perf-trace = []  # Enable per-layer timing instrumentation for M4
+
 [dependencies]
 in-mem-core = { path = "../core" }
 in-mem-storage = { path = "../storage" }
 in-mem-concurrency = { path = "../concurrency" }
 in-mem-durability = { path = "../durability" }
+dashmap = { workspace = true }
 parking_lot = { workspace = true }
 serde = { workspace = true }
 thiserror = { workspace = true }
 tracing = { workspace = true }
+uuid = { workspace = true }
 
 [dev-dependencies]
 tempfile = { workspace = true }

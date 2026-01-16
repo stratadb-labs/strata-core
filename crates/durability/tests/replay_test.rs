@@ -902,18 +902,17 @@ fn test_replay_twenty_sequential_transactions() {
         "Expected {} writes applied, got {}",
         NUM_TRANSACTIONS, stats.writes_applied
     );
-    assert_eq!(stats.incomplete_txns, 0, "Should have no incomplete transactions");
+    assert_eq!(
+        stats.incomplete_txns, 0,
+        "Should have no incomplete transactions"
+    );
     assert_eq!(stats.aborted_txns, 0, "Should have no aborted transactions");
 
     // Verify all keys exist
     for i in 1..=NUM_TRANSACTIONS {
         let key = Key::new_kv(ns.clone(), format!("key{}", i));
         let result = store.get(&key).unwrap();
-        assert!(
-            result.is_some(),
-            "key{} should exist after replay",
-            i
-        );
+        assert!(result.is_some(), "key{} should exist after replay", i);
         let vv = result.unwrap();
         assert_eq!(
             vv.value,
@@ -980,11 +979,7 @@ fn test_replay_many_sequential_transactions_same_run() {
     // Verify all keys
     for i in 1..=NUM_TRANSACTIONS {
         let key = Key::new_kv(ns.clone(), format!("k{}", i));
-        assert!(
-            store.get(&key).unwrap().is_some(),
-            "k{} should exist",
-            i
-        );
+        assert!(store.get(&key).unwrap().is_some(), "k{} should exist", i);
     }
 }
 
@@ -1059,7 +1054,10 @@ fn test_replay_appended_wal_multiple_sessions() {
         assert_eq!(entries.len(), 60, "Should have 60 entries (20 txns * 3)");
 
         // Count commits
-        let commits = entries.iter().filter(|e| matches!(e, WALEntry::CommitTxn { .. })).count();
+        let commits = entries
+            .iter()
+            .filter(|e| matches!(e, WALEntry::CommitTxn { .. }))
+            .count();
         assert_eq!(commits, 20, "Should have 20 commit entries");
     }
 
@@ -1081,10 +1079,18 @@ fn test_replay_appended_wal_multiple_sessions() {
     // Verify all keys exist
     for i in 1..=10u64 {
         let key = Key::new_kv(ns.clone(), format!("session1_key{}", i));
-        assert!(store.get(&key).unwrap().is_some(), "session1_key{} should exist", i);
+        assert!(
+            store.get(&key).unwrap().is_some(),
+            "session1_key{} should exist",
+            i
+        );
     }
     for i in 11..=20u64 {
         let key = Key::new_kv(ns.clone(), format!("session2_key{}", i));
-        assert!(store.get(&key).unwrap().is_some(), "session2_key{} should exist", i);
+        assert!(
+            store.get(&key).unwrap().is_some(),
+            "session2_key{} should exist",
+            i
+        );
     }
 }
