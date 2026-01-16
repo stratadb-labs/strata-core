@@ -165,8 +165,31 @@ impl StateCell {
         })
     }
 
-    /// Read current state
+    /// Read current state (FAST PATH)
+    ///
+    /// Bypasses full transaction overhead for read-only access.
+    /// Uses direct snapshot read which maintains snapshot isolation.
     pub fn read(&self, run_id: &RunId, name: &str) -> Result<Option<State>> {
+        use in_mem_core::traits::SnapshotView;
+
+        let snapshot = self.db.storage().create_snapshot();
+        let key = self.key_for(run_id, name);
+
+        match snapshot.get(&key)? {
+            Some(vv) => {
+                let state: State = from_stored_value(&vv.value).map_err(|e| {
+                    in_mem_core::error::Error::SerializationError(e.to_string())
+                })?;
+                Ok(Some(state))
+            }
+            None => Ok(None),
+        }
+    }
+
+    /// Read current state (with full transaction)
+    ///
+    /// Use this when you need transaction semantics.
+    pub fn read_in_transaction(&self, run_id: &RunId, name: &str) -> Result<Option<State>> {
         self.db.transaction(*run_id, |txn| {
             let key = self.key_for(run_id, name);
             match txn.get(&key)? {
@@ -198,9 +221,15 @@ impl StateCell {
         })
     }
 
-    /// Check if a cell exists
+    /// Check if a cell exists (FAST PATH)
+    ///
+    /// Uses direct snapshot read which maintains snapshot isolation.
     pub fn exists(&self, run_id: &RunId, name: &str) -> Result<bool> {
-        Ok(self.read(run_id, name)?.is_some())
+        use in_mem_core::traits::SnapshotView;
+
+        let snapshot = self.db.storage().create_snapshot();
+        let key = self.key_for(run_id, name);
+        Ok(snapshot.get(&key)?.is_some())
     }
 
     /// List all cell names in run
@@ -887,5 +916,70 @@ mod tests {
         // Verify both were written
         let state = sc.read(&run_id, "counter").unwrap().unwrap();
         assert_eq!(state.value, Value::I64(1));
+    }
+
+    // ========== Fast Path Tests (Story #238) ==========
+
+    #[test]
+    fn test_fast_read_returns_correct_value() {
+        let (_temp, _db, sc) = setup();
+        let run_id = RunId::new();
+
+        sc.init(&run_id, "cell", Value::I64(42)).unwrap();
+
+        let state = sc.read(&run_id, "cell").unwrap().unwrap();
+        assert_eq!(state.value, Value::I64(42));
+        assert_eq!(state.version, 1);
+    }
+
+    #[test]
+    fn test_fast_read_returns_none_for_missing() {
+        let (_temp, _db, sc) = setup();
+        let run_id = RunId::new();
+
+        let state = sc.read(&run_id, "nonexistent").unwrap();
+        assert!(state.is_none());
+    }
+
+    #[test]
+    fn test_fast_read_equals_transaction_read() {
+        let (_temp, _db, sc) = setup();
+        let run_id = RunId::new();
+
+        sc.init(&run_id, "cell", Value::String("test".into()))
+            .unwrap();
+
+        let fast = sc.read(&run_id, "cell").unwrap();
+        let txn = sc.read_in_transaction(&run_id, "cell").unwrap();
+
+        assert_eq!(fast, txn);
+    }
+
+    #[test]
+    fn test_fast_exists_uses_fast_path() {
+        let (_temp, _db, sc) = setup();
+        let run_id = RunId::new();
+
+        assert!(!sc.exists(&run_id, "cell").unwrap());
+
+        sc.init(&run_id, "cell", Value::Null).unwrap();
+
+        assert!(sc.exists(&run_id, "cell").unwrap());
+    }
+
+    #[test]
+    fn test_fast_read_run_isolation() {
+        let (_temp, _db, sc) = setup();
+        let run1 = RunId::new();
+        let run2 = RunId::new();
+
+        sc.init(&run1, "shared", Value::I64(1)).unwrap();
+        sc.init(&run2, "shared", Value::I64(2)).unwrap();
+
+        let state1 = sc.read(&run1, "shared").unwrap().unwrap();
+        let state2 = sc.read(&run2, "shared").unwrap().unwrap();
+
+        assert_eq!(state1.value, Value::I64(1));
+        assert_eq!(state2.value, Value::I64(2));
     }
 }

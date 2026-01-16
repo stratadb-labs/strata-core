@@ -247,8 +247,32 @@ impl EventLog {
 
     // ========== Read Operations (Story #176) ==========
 
-    /// Read a single event by sequence number
+    /// Read a single event by sequence number (FAST PATH)
+    ///
+    /// Bypasses full transaction overhead for read-only access.
+    /// Uses direct snapshot read which maintains snapshot isolation.
     pub fn read(&self, run_id: &RunId, sequence: u64) -> Result<Option<Event>> {
+        use in_mem_core::traits::SnapshotView;
+
+        let snapshot = self.db.storage().create_snapshot();
+        let ns = self.namespace_for_run(run_id);
+        let event_key = Key::new_event(ns, sequence);
+
+        match snapshot.get(&event_key)? {
+            Some(vv) => {
+                let event: Event = from_stored_value(&vv.value).map_err(|e| {
+                    in_mem_core::error::Error::SerializationError(e.to_string())
+                })?;
+                Ok(Some(event))
+            }
+            None => Ok(None),
+        }
+    }
+
+    /// Read a single event by sequence number (with full transaction)
+    ///
+    /// Use this when you need transaction semantics (e.g., consistent multi-read).
+    pub fn read_in_transaction(&self, run_id: &RunId, sequence: u64) -> Result<Option<Event>> {
         self.db.transaction(*run_id, |txn| {
             let ns = self.namespace_for_run(run_id);
             let event_key = Key::new_event(ns, sequence);
@@ -313,22 +337,25 @@ impl EventLog {
         })
     }
 
-    /// Get the current length of the log
+    /// Get the current length of the log (FAST PATH)
+    ///
+    /// Bypasses full transaction overhead for read-only access.
     pub fn len(&self, run_id: &RunId) -> Result<u64> {
-        self.db.transaction(*run_id, |txn| {
-            let ns = self.namespace_for_run(run_id);
-            let meta_key = Key::new_event_meta(ns);
+        use in_mem_core::traits::SnapshotView;
 
-            let meta: EventLogMeta = match txn.get(&meta_key)? {
-                Some(v) => from_stored_value(&v).unwrap_or_else(|_| EventLogMeta::default()),
-                None => EventLogMeta::default(),
-            };
+        let snapshot = self.db.storage().create_snapshot();
+        let ns = self.namespace_for_run(run_id);
+        let meta_key = Key::new_event_meta(ns);
 
-            Ok(meta.next_sequence)
-        })
+        let meta: EventLogMeta = match snapshot.get(&meta_key)? {
+            Some(vv) => from_stored_value(&vv.value).unwrap_or_else(|_| EventLogMeta::default()),
+            None => EventLogMeta::default(),
+        };
+
+        Ok(meta.next_sequence)
     }
 
-    /// Check if log is empty
+    /// Check if log is empty (FAST PATH)
     pub fn is_empty(&self, run_id: &RunId) -> Result<bool> {
         Ok(self.len(run_id)? == 0)
     }
@@ -887,5 +914,77 @@ mod tests {
             Ok(())
         })
         .unwrap();
+    }
+
+    // ========== Fast Path Tests (Story #238) ==========
+
+    #[test]
+    fn test_fast_read_returns_correct_value() {
+        let (_temp, _db, log) = setup();
+        let run_id = RunId::new();
+
+        log.append(&run_id, "test", Value::String("data".into()))
+            .unwrap();
+
+        let event = log.read(&run_id, 0).unwrap().unwrap();
+        assert_eq!(event.event_type, "test");
+        assert_eq!(event.payload, Value::String("data".into()));
+    }
+
+    #[test]
+    fn test_fast_read_returns_none_for_missing() {
+        let (_temp, _db, log) = setup();
+        let run_id = RunId::new();
+
+        let event = log.read(&run_id, 999).unwrap();
+        assert!(event.is_none());
+    }
+
+    #[test]
+    fn test_fast_read_equals_transaction_read() {
+        let (_temp, _db, log) = setup();
+        let run_id = RunId::new();
+
+        log.append(&run_id, "test", Value::I64(42)).unwrap();
+
+        let fast = log.read(&run_id, 0).unwrap();
+        let txn = log.read_in_transaction(&run_id, 0).unwrap();
+
+        assert_eq!(fast, txn);
+    }
+
+    #[test]
+    fn test_fast_len_returns_correct_count() {
+        let (_temp, _db, log) = setup();
+        let run_id = RunId::new();
+
+        assert_eq!(log.len(&run_id).unwrap(), 0);
+
+        log.append(&run_id, "test", Value::Null).unwrap();
+        assert_eq!(log.len(&run_id).unwrap(), 1);
+
+        log.append(&run_id, "test", Value::Null).unwrap();
+        log.append(&run_id, "test", Value::Null).unwrap();
+        assert_eq!(log.len(&run_id).unwrap(), 3);
+    }
+
+    #[test]
+    fn test_fast_read_run_isolation() {
+        let (_temp, _db, log) = setup();
+        let run1 = RunId::new();
+        let run2 = RunId::new();
+
+        log.append(&run1, "run1", Value::I64(1)).unwrap();
+        log.append(&run2, "run2", Value::I64(2)).unwrap();
+
+        // Each run sees only its own events
+        let event1 = log.read(&run1, 0).unwrap().unwrap();
+        let event2 = log.read(&run2, 0).unwrap().unwrap();
+
+        assert_eq!(event1.event_type, "run1");
+        assert_eq!(event2.event_type, "run2");
+
+        // Cross-run reads return None
+        assert!(log.read(&run1, 1).unwrap().is_none());
     }
 }

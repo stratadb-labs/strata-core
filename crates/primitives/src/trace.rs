@@ -363,7 +363,10 @@ impl TraceStore {
         })
     }
 
-    /// Get a trace by ID
+    /// Get a trace by ID (FAST PATH)
+    ///
+    /// Bypasses full transaction overhead for read-only access.
+    /// Uses direct snapshot read which maintains snapshot isolation.
     ///
     /// ## Returns
     /// - `Some(trace)` if found
@@ -372,6 +375,25 @@ impl TraceStore {
     /// ## Errors
     /// - `SerializationError` if trace cannot be deserialized
     pub fn get(&self, run_id: &RunId, trace_id: &str) -> Result<Option<Trace>> {
+        use in_mem_core::traits::SnapshotView;
+
+        let snapshot = self.db.storage().create_snapshot();
+        let key = self.key_for(run_id, trace_id);
+
+        match snapshot.get(&key)? {
+            Some(vv) => {
+                let trace: Trace = from_stored_value(&vv.value)
+                    .map_err(|e| Error::SerializationError(e.to_string()))?;
+                Ok(Some(trace))
+            }
+            None => Ok(None),
+        }
+    }
+
+    /// Get a trace by ID (with full transaction)
+    ///
+    /// Use this when you need transaction semantics.
+    pub fn get_in_transaction(&self, run_id: &RunId, trace_id: &str) -> Result<Option<Trace>> {
         self.db.transaction(*run_id, |txn| {
             let key = self.key_for(run_id, trace_id);
             match txn.get(&key)? {
@@ -385,12 +407,15 @@ impl TraceStore {
         })
     }
 
-    /// Check if a trace exists
+    /// Check if a trace exists (FAST PATH)
+    ///
+    /// Uses direct snapshot read which maintains snapshot isolation.
     pub fn exists(&self, run_id: &RunId, trace_id: &str) -> Result<bool> {
-        self.db.transaction(*run_id, |txn| {
-            let key = self.key_for(run_id, trace_id);
-            Ok(txn.get(&key)?.is_some())
-        })
+        use in_mem_core::traits::SnapshotView;
+
+        let snapshot = self.db.storage().create_snapshot();
+        let key = self.key_for(run_id, trace_id);
+        Ok(snapshot.get(&key)?.is_some())
     }
 
     // ========== Secondary Indices (Story #187) ==========
@@ -1526,5 +1551,115 @@ mod tests {
         }
 
         assert_eq!(count_depth(&tree), 5);
+    }
+
+    // ========== Fast Path Tests (Story #238) ==========
+
+    #[test]
+    fn test_fast_get_returns_correct_value() {
+        let (db, _temp) = create_test_db();
+        let ts = TraceStore::new(db);
+        let run_id = RunId::new();
+
+        let trace_id = ts
+            .record(
+                &run_id,
+                TraceType::Thought {
+                    content: "test content".into(),
+                    confidence: Some(0.9),
+                },
+                vec!["important".into()],
+                Value::Null,
+            )
+            .unwrap();
+
+        let trace = ts.get(&run_id, &trace_id).unwrap().unwrap();
+        assert_eq!(trace.id, trace_id);
+        assert_eq!(trace.tags, vec!["important".to_string()]);
+    }
+
+    #[test]
+    fn test_fast_get_returns_none_for_missing() {
+        let (db, _temp) = create_test_db();
+        let ts = TraceStore::new(db);
+        let run_id = RunId::new();
+
+        let trace = ts.get(&run_id, "nonexistent").unwrap();
+        assert!(trace.is_none());
+    }
+
+    #[test]
+    fn test_fast_get_equals_transaction_get() {
+        let (db, _temp) = create_test_db();
+        let ts = TraceStore::new(db);
+        let run_id = RunId::new();
+
+        let trace_id = ts
+            .record(
+                &run_id,
+                TraceType::ToolCall {
+                    tool_name: "search".into(),
+                    arguments: Value::String("query".into()),
+                    result: None,
+                    duration_ms: None,
+                },
+                vec![],
+                Value::Null,
+            )
+            .unwrap();
+
+        let fast = ts.get(&run_id, &trace_id).unwrap();
+        let txn = ts.get_in_transaction(&run_id, &trace_id).unwrap();
+
+        assert_eq!(fast, txn);
+    }
+
+    #[test]
+    fn test_fast_exists_uses_fast_path() {
+        let (db, _temp) = create_test_db();
+        let ts = TraceStore::new(db);
+        let run_id = RunId::new();
+
+        assert!(!ts.exists(&run_id, "nonexistent").unwrap());
+
+        let trace_id = ts
+            .record(
+                &run_id,
+                TraceType::Thought {
+                    content: "test".into(),
+                    confidence: None,
+                },
+                vec![],
+                Value::Null,
+            )
+            .unwrap();
+
+        assert!(ts.exists(&run_id, &trace_id).unwrap());
+    }
+
+    #[test]
+    fn test_fast_get_run_isolation() {
+        let (db, _temp) = create_test_db();
+        let ts = TraceStore::new(db);
+        let run1 = RunId::new();
+        let run2 = RunId::new();
+
+        let trace_id = ts
+            .record(
+                &run1,
+                TraceType::Thought {
+                    content: "run1 trace".into(),
+                    confidence: None,
+                },
+                vec![],
+                Value::Null,
+            )
+            .unwrap();
+
+        // Should exist in run1
+        assert!(ts.get(&run1, &trace_id).unwrap().is_some());
+
+        // Should NOT exist in run2
+        assert!(ts.get(&run2, &trace_id).unwrap().is_none());
     }
 }
