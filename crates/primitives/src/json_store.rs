@@ -159,13 +159,11 @@ impl JsonStore {
     }
 
     /// Build namespace for run-scoped operations
-    #[allow(dead_code)] // Will be used in Story #274+
     fn namespace_for_run(&self, run_id: &RunId) -> Namespace {
         Namespace::for_run(*run_id)
     }
 
     /// Build key for JSON document
-    #[allow(dead_code)] // Will be used in Story #274+
     fn key_for(&self, run_id: &RunId, doc_id: &JsonDocId) -> Key {
         Key::new_json(self.namespace_for_run(run_id), doc_id)
     }
@@ -177,7 +175,6 @@ impl JsonStore {
     /// Serialize document for storage
     ///
     /// Uses MessagePack for efficient binary serialization.
-    #[allow(dead_code)] // Will be used in Story #274+
     fn serialize_doc(doc: &JsonDoc) -> Result<Value> {
         let bytes = rmp_serde::to_vec(doc).map_err(|e| Error::SerializationError(e.to_string()))?;
         Ok(Value::Bytes(bytes))
@@ -186,7 +183,7 @@ impl JsonStore {
     /// Deserialize document from storage
     ///
     /// Expects Value::Bytes containing MessagePack-encoded JsonDoc.
-    #[allow(dead_code)] // Will be used in Story #274+
+    #[allow(dead_code)] // Will be used in Story #275+
     fn deserialize_doc(value: &Value) -> Result<JsonDoc> {
         match value {
             Value::Bytes(bytes) => {
@@ -194,6 +191,51 @@ impl JsonStore {
             }
             _ => Err(Error::InvalidOperation("expected bytes for JsonDoc".into())),
         }
+    }
+
+    // ========================================================================
+    // Document Operations (Story #274+)
+    // ========================================================================
+
+    /// Create a new JSON document
+    ///
+    /// Creates a new document with version 1. Fails if a document with
+    /// the same ID already exists.
+    ///
+    /// # Arguments
+    ///
+    /// * `run_id` - RunId for namespace isolation
+    /// * `doc_id` - Unique document identifier
+    /// * `value` - Initial JSON value for the document
+    ///
+    /// # Returns
+    ///
+    /// * `Ok(1)` - Document created with version 1
+    /// * `Err(InvalidOperation)` - Document already exists
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// let version = json.create(&run_id, &doc_id, JsonValue::object())?;
+    /// assert_eq!(version, 1);
+    /// ```
+    pub fn create(&self, run_id: &RunId, doc_id: &JsonDocId, value: JsonValue) -> Result<u64> {
+        let key = self.key_for(run_id, doc_id);
+        let doc = JsonDoc::new(*doc_id, value);
+
+        self.db.transaction(*run_id, |txn| {
+            // Check if document already exists
+            if txn.get(&key)?.is_some() {
+                return Err(Error::InvalidOperation(format!(
+                    "JSON document {} already exists",
+                    doc_id
+                )));
+            }
+
+            let serialized = Self::serialize_doc(&doc)?;
+            txn.put(key.clone(), serialized)?;
+            Ok(doc.version)
+        })
     }
 }
 
@@ -391,5 +433,122 @@ mod tests {
             }
             _ => panic!("Expected bytes"),
         }
+    }
+
+    // ========================================
+    // Create Tests (Story #274)
+    // ========================================
+
+    #[test]
+    fn test_create_document() {
+        let db = Arc::new(Database::builder().in_memory().open_temp().unwrap());
+        let store = JsonStore::new(db);
+        let run_id = RunId::new();
+        let doc_id = JsonDocId::new();
+
+        let version = store
+            .create(&run_id, &doc_id, JsonValue::from(42i64))
+            .unwrap();
+        assert_eq!(version, 1);
+    }
+
+    #[test]
+    fn test_create_object_document() {
+        let db = Arc::new(Database::builder().in_memory().open_temp().unwrap());
+        let store = JsonStore::new(db);
+        let run_id = RunId::new();
+        let doc_id = JsonDocId::new();
+
+        let value: JsonValue = serde_json::json!({
+            "name": "Alice",
+            "age": 30
+        })
+        .into();
+
+        let version = store.create(&run_id, &doc_id, value).unwrap();
+        assert_eq!(version, 1);
+    }
+
+    #[test]
+    fn test_create_duplicate_fails() {
+        let db = Arc::new(Database::builder().in_memory().open_temp().unwrap());
+        let store = JsonStore::new(db);
+        let run_id = RunId::new();
+        let doc_id = JsonDocId::new();
+
+        // First create succeeds
+        store
+            .create(&run_id, &doc_id, JsonValue::from(1i64))
+            .unwrap();
+
+        // Second create with same ID fails
+        let result = store.create(&run_id, &doc_id, JsonValue::from(2i64));
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_create_different_docs() {
+        let db = Arc::new(Database::builder().in_memory().open_temp().unwrap());
+        let store = JsonStore::new(db);
+        let run_id = RunId::new();
+
+        let doc1 = JsonDocId::new();
+        let doc2 = JsonDocId::new();
+
+        let v1 = store.create(&run_id, &doc1, JsonValue::from(1i64)).unwrap();
+        let v2 = store.create(&run_id, &doc2, JsonValue::from(2i64)).unwrap();
+
+        assert_eq!(v1, 1);
+        assert_eq!(v2, 1);
+    }
+
+    #[test]
+    fn test_create_run_isolation() {
+        let db = Arc::new(Database::builder().in_memory().open_temp().unwrap());
+        let store = JsonStore::new(db);
+
+        let run1 = RunId::new();
+        let run2 = RunId::new();
+        let doc_id = JsonDocId::new();
+
+        // Same doc_id can be created in different runs
+        let v1 = store.create(&run1, &doc_id, JsonValue::from(1i64)).unwrap();
+        let v2 = store.create(&run2, &doc_id, JsonValue::from(2i64)).unwrap();
+
+        assert_eq!(v1, 1);
+        assert_eq!(v2, 1);
+    }
+
+    #[test]
+    fn test_create_null_value() {
+        let db = Arc::new(Database::builder().in_memory().open_temp().unwrap());
+        let store = JsonStore::new(db);
+        let run_id = RunId::new();
+        let doc_id = JsonDocId::new();
+
+        let version = store.create(&run_id, &doc_id, JsonValue::null()).unwrap();
+        assert_eq!(version, 1);
+    }
+
+    #[test]
+    fn test_create_empty_object() {
+        let db = Arc::new(Database::builder().in_memory().open_temp().unwrap());
+        let store = JsonStore::new(db);
+        let run_id = RunId::new();
+        let doc_id = JsonDocId::new();
+
+        let version = store.create(&run_id, &doc_id, JsonValue::object()).unwrap();
+        assert_eq!(version, 1);
+    }
+
+    #[test]
+    fn test_create_empty_array() {
+        let db = Arc::new(Database::builder().in_memory().open_temp().unwrap());
+        let store = JsonStore::new(db);
+        let run_id = RunId::new();
+        let doc_id = JsonDocId::new();
+
+        let version = store.create(&run_id, &doc_id, JsonValue::array()).unwrap();
+        assert_eq!(version, 1);
     }
 }
