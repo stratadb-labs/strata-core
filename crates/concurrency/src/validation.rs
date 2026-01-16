@@ -1148,7 +1148,9 @@ mod tests {
             let key = create_json_key(&ns, &doc_id);
 
             // Add document to store
-            store.put(key.clone(), Value::Bytes(b"{}".to_vec()), None).unwrap();
+            store
+                .put(key.clone(), Value::Bytes(b"{}".to_vec()), None)
+                .unwrap();
             let version = store.get(&key).unwrap().unwrap().version;
 
             // Create snapshot versions matching current state
@@ -1167,11 +1169,19 @@ mod tests {
             let key = create_json_key(&ns, &doc_id);
 
             // Add document to store
-            store.put(key.clone(), Value::Bytes(b"{}".to_vec()), None).unwrap();
+            store
+                .put(key.clone(), Value::Bytes(b"{}".to_vec()), None)
+                .unwrap();
             let old_version = store.get(&key).unwrap().unwrap().version;
 
             // Modify the document
-            store.put(key.clone(), Value::Bytes(b"{\"updated\":true}".to_vec()), None).unwrap();
+            store
+                .put(
+                    key.clone(),
+                    Value::Bytes(b"{\"updated\":true}".to_vec()),
+                    None,
+                )
+                .unwrap();
 
             // Use old version in snapshot
             let mut versions = HashMap::new();
@@ -1182,7 +1192,9 @@ mod tests {
             assert_eq!(result.conflict_count(), 1);
 
             match &result.conflicts[0] {
-                ConflictType::JsonDocConflict { snapshot_version, .. } => {
+                ConflictType::JsonDocConflict {
+                    snapshot_version, ..
+                } => {
                     assert_eq!(*snapshot_version, old_version);
                 }
                 _ => panic!("Expected JsonDocConflict"),
@@ -1197,7 +1209,9 @@ mod tests {
             let key = create_json_key(&ns, &doc_id);
 
             // Add document to store
-            store.put(key.clone(), Value::Bytes(b"{}".to_vec()), None).unwrap();
+            store
+                .put(key.clone(), Value::Bytes(b"{}".to_vec()), None)
+                .unwrap();
             let version = store.get(&key).unwrap().unwrap().version;
 
             // Delete the document
@@ -1213,7 +1227,9 @@ mod tests {
 
             // Deleted document should show current_version = 0
             match &result.conflicts[0] {
-                ConflictType::JsonDocConflict { current_version, .. } => {
+                ConflictType::JsonDocConflict {
+                    current_version, ..
+                } => {
                     assert_eq!(*current_version, 0);
                 }
                 _ => panic!("Expected JsonDocConflict"),

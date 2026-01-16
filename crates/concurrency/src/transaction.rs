@@ -722,7 +722,9 @@ impl TransactionContext {
     /// Returns true if any JSON reads, writes, or snapshot versions are recorded.
     /// Useful for determining if JSON-specific validation is needed.
     pub fn has_json_ops(&self) -> bool {
-        self.json_reads.is_some() || self.json_writes.is_some() || self.json_snapshot_versions.is_some()
+        self.json_reads.is_some()
+            || self.json_writes.is_some()
+            || self.json_snapshot_versions.is_some()
     }
 
     /// Get JSON path reads (immutable)
@@ -772,7 +774,8 @@ impl TransactionContext {
     /// This should be called when reading a specific path from a JSON document.
     /// The read will be validated at commit time to detect conflicts.
     pub fn record_json_read(&mut self, key: Key, path: JsonPath, version: u64) {
-        self.ensure_json_reads().push(JsonPathRead::new(key, path, version));
+        self.ensure_json_reads()
+            .push(JsonPathRead::new(key, path, version));
     }
 
     /// Record a JSON patch for commit
@@ -780,7 +783,8 @@ impl TransactionContext {
     /// This should be called when modifying a JSON document via patch.
     /// The patch will be applied at commit time.
     pub fn record_json_write(&mut self, key: Key, patch: JsonPatch, resulting_version: u64) {
-        self.ensure_json_writes().push(JsonPatchEntry::new(key, patch, resulting_version));
+        self.ensure_json_writes()
+            .push(JsonPatchEntry::new(key, patch, resulting_version));
     }
 
     /// Record JSON document snapshot version
@@ -1310,14 +1314,18 @@ impl JsonStoreExt for TransactionContext {
                 if entry.key == *key {
                     // Check if the patch affects this path
                     match &entry.patch {
-                        JsonPatch::Set { path: set_path, value } if set_path.is_ancestor_of(path) => {
+                        JsonPatch::Set {
+                            path: set_path,
+                            value,
+                        } if set_path.is_ancestor_of(path) => {
                             // If set_path equals our path, return the value directly
                             if set_path == path {
                                 return Ok(Some(value.clone()));
                             }
                             // Navigate into the written value using the relative path
                             // Build a relative path by skipping the set_path segments
-                            let relative_segments: Vec<_> = path.segments()
+                            let relative_segments: Vec<_> = path
+                                .segments()
                                 .iter()
                                 .skip(set_path.len())
                                 .cloned()
@@ -1375,7 +1383,10 @@ impl JsonStoreExt for TransactionContext {
 
         // Ensure we have tracked the snapshot version for this document
         // (for conflict detection at commit time)
-        if self.json_snapshot_versions().map_or(true, |v| !v.contains_key(key)) {
+        if self
+            .json_snapshot_versions()
+            .map_or(true, |v| !v.contains_key(key))
+        {
             // Try to get the document version from snapshot
             if let Some(snapshot) = &self.snapshot {
                 if let Ok(Some(vv)) = snapshot.get(key) {
@@ -1396,7 +1407,10 @@ impl JsonStoreExt for TransactionContext {
         self.ensure_active()?;
 
         // Ensure we have tracked the snapshot version for this document
-        if self.json_snapshot_versions().map_or(true, |v| !v.contains_key(key)) {
+        if self
+            .json_snapshot_versions()
+            .map_or(true, |v| !v.contains_key(key))
+        {
             if let Some(snapshot) = &self.snapshot {
                 if let Ok(Some(vv)) = snapshot.get(key) {
                     self.record_json_snapshot_version(key.clone(), vv.version);
@@ -3828,7 +3842,11 @@ mod tests {
 
             // Add various JSON operations
             txn.record_json_read(key.clone(), path.clone(), 1);
-            txn.record_json_write(key.clone(), JsonPatch::set_at(path.clone(), JsonValue::from("x")), 2);
+            txn.record_json_write(
+                key.clone(),
+                JsonPatch::set_at(path.clone(), JsonValue::from("x")),
+                2,
+            );
             txn.record_json_snapshot_version(key, 1);
 
             assert!(txn.has_json_ops());
@@ -3930,7 +3948,10 @@ mod tests {
             // Set an object at parent path
             // Use a simple object structure
             let mut obj = serde_json::Map::new();
-            obj.insert("name".to_string(), serde_json::Value::String("Alice".to_string()));
+            obj.insert(
+                "name".to_string(),
+                serde_json::Value::String("Alice".to_string()),
+            );
             obj.insert("age".to_string(), serde_json::Value::Number(30.into()));
             let json_obj = JsonValue::from(serde_json::Value::Object(obj));
             txn.json_set(&key, &parent_path, json_obj).unwrap();

@@ -1697,7 +1697,7 @@ mod tests {
                 .unwrap();
                 wal.append(&WALEntry::Write {
                     run_id,
-                    key: Key::new_kv(ns.clone(), &format!("key{}", i)),
+                    key: Key::new_kv(ns.clone(), format!("key{}", i)),
                     value: Value::I64(i as i64),
                     version: i,
                 })

@@ -1218,9 +1218,7 @@ mod m5_cross_primitive_tests {
 
         // Setup: Add KV data
         let kv_key = create_key(&ns, "data");
-        store
-            .put(kv_key.clone(), Value::I64(42), None)
-            .unwrap();
+        store.put(kv_key.clone(), Value::I64(42), None).unwrap();
 
         // Begin transaction and read both
         let mut txn = begin_transaction(&store, 1, run_id);
@@ -1236,7 +1234,8 @@ mod m5_cross_primitive_tests {
         let doc_id = JsonDocId::new();
         let json_key = create_json_key(&ns, &doc_id);
         let path = JsonPath::root();
-        txn.json_set(&json_key, &path, JsonValue::from("test")).unwrap();
+        txn.json_set(&json_key, &path, JsonValue::from("test"))
+            .unwrap();
 
         // Read back the JSON we just wrote (read-your-writes)
         let json_result = txn.json_get(&json_key, &path).unwrap();
@@ -1260,7 +1259,8 @@ mod m5_cross_primitive_tests {
         let doc_id = JsonDocId::new();
         let json_key = create_json_key(&ns, &doc_id);
         let path = "data".parse::<JsonPath>().unwrap();
-        txn.json_set(&json_key, &path, JsonValue::from(123)).unwrap();
+        txn.json_set(&json_key, &path, JsonValue::from(123))
+            .unwrap();
 
         // Still read-only by TransactionContext::is_read_only()
         // (which only checks write_set, delete_set, cas_set)
