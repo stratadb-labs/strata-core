@@ -968,8 +968,8 @@ mod tests {
             assert_eq!(key.type_tag, TypeTag::Trace);
         }
 
-        // Scan by StateMachine type - should get 0 keys
-        let sm_results = store.scan_by_type(TypeTag::StateMachine, u64::MAX).unwrap();
+        // Scan by State type - should get 0 keys
+        let sm_results = store.scan_by_type(TypeTag::State, u64::MAX).unwrap();
         assert_eq!(sm_results.len(), 0);
     }
 

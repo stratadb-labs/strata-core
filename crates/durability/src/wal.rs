@@ -208,13 +208,33 @@ impl WALEntry {
 /// - `Strict` - Maximum durability, fsync after every write (slow)
 /// - `Batched` - Balance of speed and safety (DEFAULT)
 /// - `Async` - Maximum speed, background fsync (may lose recent writes)
+/// - `InMemory` - No persistence (M4: fastest mode for dev/testing)
 ///
 /// # Default
 ///
 /// The default mode is `Batched { interval_ms: 100, batch_size: 1000 }`,
 /// which fsyncs every 100ms or every 1000 writes, whichever comes first.
+///
+/// # M4 Performance Targets
+///
+/// | Mode | Latency Target | Use Case |
+/// |------|----------------|----------|
+/// | InMemory | <3µs | Tests, caches, ephemeral data |
+/// | Batched/Async | <30µs | Production (balanced) |
+/// | Strict | ~2ms | Checkpoints, audit logs |
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum DurabilityMode {
+    /// No persistence - all data lost on crash (M4: fastest mode)
+    ///
+    /// Bypasses WAL entirely. No fsync, no file I/O.
+    /// Target latency: <3µs for engine/put_direct.
+    /// Use case: Tests, caches, ephemeral data, development.
+    ///
+    /// # M4 Performance
+    ///
+    /// This mode enables 250K+ ops/sec by eliminating I/O entirely.
+    InMemory,
+
     /// fsync after every commit (slow, maximum durability)
     ///
     /// Use when data loss is unacceptable, even for a single write.
@@ -225,6 +245,7 @@ pub enum DurabilityMode {
     ///
     /// Good balance of speed and safety. May lose up to batch_size
     /// writes or interval_ms of data on crash.
+    /// Target latency: <30µs (M4 Buffered equivalent).
     Batched {
         /// Maximum time between fsyncs in milliseconds
         interval_ms: u64,
@@ -237,10 +258,48 @@ pub enum DurabilityMode {
     /// Maximum speed, minimal latency. May lose up to interval_ms
     /// of writes on crash. Best for agent workloads where speed
     /// matters more than perfect durability.
+    /// Target latency: <30µs (M4 Buffered equivalent).
     Async {
         /// Time between fsyncs in milliseconds
         interval_ms: u64,
     },
+}
+
+impl DurabilityMode {
+    /// Check if this mode requires WAL persistence
+    ///
+    /// Returns false for InMemory mode, true for all others.
+    pub fn requires_wal(&self) -> bool {
+        !matches!(self, DurabilityMode::InMemory)
+    }
+
+    /// Check if this mode requires immediate fsync on every commit
+    ///
+    /// Returns true only for Strict mode.
+    pub fn requires_immediate_fsync(&self) -> bool {
+        matches!(self, DurabilityMode::Strict)
+    }
+
+    /// Human-readable description of the mode
+    pub fn description(&self) -> &'static str {
+        match self {
+            DurabilityMode::InMemory => "No persistence (fastest, all data lost on crash)",
+            DurabilityMode::Strict => "Sync fsync (safest, slowest)",
+            DurabilityMode::Batched { .. } => "Batched fsync (balanced speed/safety)",
+            DurabilityMode::Async { .. } => "Async fsync (fast, may lose recent writes)",
+        }
+    }
+
+    /// Create a buffered mode with M4 recommended defaults
+    ///
+    /// This is the recommended mode for production workloads.
+    /// Equivalent to M4's "Buffered" mode concept.
+    pub fn buffered_default() -> Self {
+        DurabilityMode::Batched {
+            interval_ms: 100,
+            batch_size: 1000,
+        }
+    }
 }
 
 impl Default for DurabilityMode {
@@ -431,6 +490,15 @@ impl WAL {
 
         // Handle durability mode
         match self.durability_mode {
+            DurabilityMode::InMemory => {
+                // M4: No fsync for InMemory mode
+                // Just flush buffer for consistency - in practice, engine should
+                // check requires_wal() and skip WAL entirely for InMemory mode
+                let mut writer = self.writer.lock().unwrap();
+                writer
+                    .flush()
+                    .map_err(|e| Error::StorageError(format!("Failed to flush: {}", e)))?;
+            }
             DurabilityMode::Strict => {
                 // Flush and fsync immediately
                 self.fsync()?;
@@ -1190,5 +1258,68 @@ mod tests {
         let wal = WAL::open(&wal_path, DurabilityMode::default()).unwrap();
         let entries = wal.read_all().unwrap();
         assert_eq!(entries.len(), 1);
+    }
+
+    // ========================================================================
+    // M4 DurabilityMode Tests
+    // ========================================================================
+
+    #[test]
+    fn test_durability_mode_requires_wal() {
+        // InMemory does not require WAL
+        assert!(!DurabilityMode::InMemory.requires_wal());
+
+        // All others require WAL
+        assert!(DurabilityMode::Strict.requires_wal());
+        assert!(DurabilityMode::default().requires_wal());
+        assert!(DurabilityMode::Async { interval_ms: 50 }.requires_wal());
+        assert!(DurabilityMode::buffered_default().requires_wal());
+    }
+
+    #[test]
+    fn test_durability_mode_requires_immediate_fsync() {
+        // Only Strict requires immediate fsync
+        assert!(DurabilityMode::Strict.requires_immediate_fsync());
+
+        // Others do not
+        assert!(!DurabilityMode::InMemory.requires_immediate_fsync());
+        assert!(!DurabilityMode::default().requires_immediate_fsync());
+        assert!(!DurabilityMode::Async { interval_ms: 50 }.requires_immediate_fsync());
+        assert!(!DurabilityMode::buffered_default().requires_immediate_fsync());
+    }
+
+    #[test]
+    fn test_durability_mode_description() {
+        // All modes have non-empty descriptions
+        assert!(!DurabilityMode::InMemory.description().is_empty());
+        assert!(!DurabilityMode::Strict.description().is_empty());
+        assert!(!DurabilityMode::default().description().is_empty());
+        assert!(!DurabilityMode::Async { interval_ms: 50 }
+            .description()
+            .is_empty());
+    }
+
+    #[test]
+    fn test_durability_mode_buffered_default() {
+        let mode = DurabilityMode::buffered_default();
+        match mode {
+            DurabilityMode::Batched {
+                interval_ms,
+                batch_size,
+            } => {
+                assert_eq!(interval_ms, 100);
+                assert_eq!(batch_size, 1000);
+            }
+            _ => panic!("Expected Batched mode from buffered_default()"),
+        }
+    }
+
+    #[test]
+    fn test_durability_mode_inmemory_variant() {
+        // Ensure InMemory is a valid variant and can be used
+        let mode = DurabilityMode::InMemory;
+        assert!(!mode.requires_wal());
+        assert!(!mode.requires_immediate_fsync());
+        assert!(mode.description().contains("persistence"));
     }
 }

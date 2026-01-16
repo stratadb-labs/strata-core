@@ -966,6 +966,80 @@ impl TransactionContext {
             _ => None,
         }
     }
+
+    // ========================================================================
+    // Pooling Support (M4 Story #232)
+    // ========================================================================
+
+    /// Reset context for reuse (M4 pooling optimization)
+    ///
+    /// Clears all transaction state without deallocating memory.
+    /// HashMap::clear() and Vec::clear() preserve capacity, which is
+    /// the key optimization for transaction pooling.
+    ///
+    /// After reset, the context is ready for a new transaction with:
+    /// - New txn_id, run_id, start_version
+    /// - New snapshot
+    /// - Empty read_set, write_set, delete_set, cas_set (with preserved capacity)
+    /// - Active status
+    /// - Fresh start_time
+    ///
+    /// # Arguments
+    ///
+    /// * `txn_id` - New transaction ID
+    /// * `run_id` - New run ID
+    /// * `snapshot` - New snapshot view (optional for testing)
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// let mut ctx = TransactionContext::new(1, run_id, 100);
+    /// // ... use the context ...
+    ///
+    /// // Reset for reuse - capacity is preserved!
+    /// ctx.reset(2, new_run_id, Some(new_snapshot));
+    /// ```
+    pub fn reset(&mut self, txn_id: u64, run_id: RunId, snapshot: Option<Box<dyn SnapshotView>>) {
+        // Update identity
+        self.txn_id = txn_id;
+        self.run_id = run_id;
+
+        // Update snapshot and version
+        self.start_version = snapshot.as_ref().map(|s| s.version()).unwrap_or(0);
+        self.snapshot = snapshot;
+
+        // Clear collections but preserve capacity - this is the key optimization!
+        // HashMap::clear() and HashSet::clear() keep the allocated buckets
+        // Vec::clear() keeps the allocated buffer
+        self.read_set.clear();
+        self.write_set.clear();
+        self.delete_set.clear();
+        self.cas_set.clear();
+
+        // Reset state
+        self.status = TransactionStatus::Active;
+        self.start_time = Instant::now();
+    }
+
+    /// Get current capacity of internal collections (for debugging/testing)
+    ///
+    /// Returns (read_set_capacity, write_set_capacity, delete_set_capacity, cas_set_capacity).
+    /// Used to verify that `reset()` preserves capacity.
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// let ctx = TransactionContext::new(1, run_id, 100);
+    /// let (read_cap, write_cap, delete_cap, cas_cap) = ctx.capacity();
+    /// ```
+    pub fn capacity(&self) -> (usize, usize, usize, usize) {
+        (
+            self.read_set.capacity(),
+            self.write_set.capacity(),
+            self.delete_set.capacity(),
+            self.cas_set.capacity(),
+        )
+    }
 }
 
 #[cfg(test)]
@@ -2984,6 +3058,164 @@ mod tests {
                     assert_eq!(version, 50);
                 }
             }
+        }
+    }
+
+    // === Reset and Pooling Tests ===
+
+    mod reset_tests {
+        use super::*;
+
+        #[test]
+        fn test_reset_preserves_capacity() {
+            // Create a transaction and populate it with data to grow internal collections
+            let ns = create_test_namespace();
+            let run_id = ns.run_id;
+            let mut txn = TransactionContext::new(1, run_id, 100);
+
+            // Add many entries to force capacity growth
+            for i in 0..100 {
+                let key = create_test_key(&ns, format!("key{}", i).as_bytes());
+                txn.read_set.insert(key.clone(), i as u64);
+                txn.write_set
+                    .insert(key.clone(), Value::Bytes(vec![i as u8]));
+                if i % 2 == 0 {
+                    txn.delete_set.insert(key.clone());
+                }
+            }
+            for i in 0..50 {
+                let key = create_test_key(&ns, format!("cas{}", i).as_bytes());
+                txn.cas_set.push(CASOperation {
+                    key,
+                    expected_version: i as u64,
+                    new_value: Value::Bytes(vec![i as u8]),
+                });
+            }
+
+            // Record capacity after growth
+            let (read_cap, write_cap, delete_cap, cas_cap) = txn.capacity();
+            assert!(read_cap >= 100, "read_set should have grown");
+            assert!(write_cap >= 100, "write_set should have grown");
+            assert!(delete_cap >= 50, "delete_set should have grown");
+            assert!(cas_cap >= 50, "cas_set should have grown");
+
+            // Reset the transaction
+            let new_run_id = RunId::new();
+            txn.reset(2, new_run_id, None);
+
+            // Verify data is cleared
+            assert!(txn.read_set.is_empty(), "read_set should be empty");
+            assert!(txn.write_set.is_empty(), "write_set should be empty");
+            assert!(txn.delete_set.is_empty(), "delete_set should be empty");
+            assert!(txn.cas_set.is_empty(), "cas_set should be empty");
+
+            // Verify capacity is preserved
+            let (new_read_cap, new_write_cap, new_delete_cap, new_cas_cap) = txn.capacity();
+            assert_eq!(
+                new_read_cap, read_cap,
+                "read_set capacity should be preserved"
+            );
+            assert_eq!(
+                new_write_cap, write_cap,
+                "write_set capacity should be preserved"
+            );
+            assert_eq!(
+                new_delete_cap, delete_cap,
+                "delete_set capacity should be preserved"
+            );
+            assert_eq!(new_cas_cap, cas_cap, "cas_set capacity should be preserved");
+
+            // Verify state is reset correctly
+            assert_eq!(txn.txn_id, 2);
+            assert_eq!(txn.run_id, new_run_id);
+            assert_eq!(txn.start_version, 0); // No snapshot
+            assert!(txn.is_active());
+        }
+
+        #[test]
+        fn test_reset_with_snapshot() {
+            let ns = create_test_namespace();
+            let run_id = ns.run_id;
+            let mut txn = TransactionContext::new(1, run_id, 100);
+
+            // Populate to grow collections
+            for i in 0..10 {
+                let key = create_test_key(&ns, format!("key{}", i).as_bytes());
+                txn.write_set
+                    .insert(key, Value::Bytes(format!("value{}", i).into()));
+            }
+
+            // Create a snapshot for reset
+            let snapshot_data = std::collections::BTreeMap::new();
+            let snapshot = Box::new(ClonedSnapshotView::new(500, snapshot_data));
+
+            // Reset with the new snapshot
+            let new_run_id = RunId::new();
+            txn.reset(42, new_run_id, Some(snapshot));
+
+            // Verify snapshot version is used
+            assert_eq!(txn.txn_id, 42);
+            assert_eq!(txn.run_id, new_run_id);
+            assert_eq!(txn.start_version, 500);
+            assert!(txn.is_active());
+            assert!(txn.write_set.is_empty());
+        }
+
+        #[test]
+        fn test_reset_clears_aborted_state() {
+            let ns = create_test_namespace();
+            let run_id = ns.run_id;
+            let mut txn = TransactionContext::new(1, run_id, 100);
+
+            // Abort the transaction
+            txn.mark_aborted("Test abort".to_string()).unwrap();
+            assert!(!txn.is_active());
+
+            // Reset should restore to Active state
+            let new_run_id = RunId::new();
+            txn.reset(2, new_run_id, None);
+
+            assert!(txn.is_active());
+            assert_eq!(txn.status, TransactionStatus::Active);
+        }
+
+        #[test]
+        fn test_capacity_returns_correct_values() {
+            let ns = create_test_namespace();
+            let run_id = ns.run_id;
+            let mut txn = TransactionContext::new(1, run_id, 100);
+
+            // Initially capacity might be 0 or small
+            let (r0, w0, d0, c0) = txn.capacity();
+
+            // Add entries
+            for i in 0..20 {
+                let key = create_test_key(&ns, format!("k{}", i).as_bytes());
+                txn.read_set.insert(key.clone(), i as u64);
+            }
+            for i in 0..30 {
+                let key = create_test_key(&ns, format!("w{}", i).as_bytes());
+                txn.write_set.insert(key, Value::Bytes(vec![i as u8]));
+            }
+            for i in 0..10 {
+                let key = create_test_key(&ns, format!("d{}", i).as_bytes());
+                txn.delete_set.insert(key);
+            }
+            for i in 0..5 {
+                let key = create_test_key(&ns, format!("c{}", i).as_bytes());
+                txn.cas_set.push(CASOperation {
+                    key,
+                    expected_version: i as u64,
+                    new_value: Value::Bytes(vec![]),
+                });
+            }
+
+            // Capacity should have grown
+            let (r1, w1, d1, c1) = txn.capacity();
+            assert!(r1 >= 20 || r1 > r0, "read_set capacity should grow");
+            assert!(w1 >= 30 || w1 > w0, "write_set capacity should grow");
+            assert!(d1 >= 10 || d1 > d0, "delete_set capacity should grow");
+            assert!(c1 >= 5 || c1 > c0, "cas_set capacity should grow");
         }
     }
 }

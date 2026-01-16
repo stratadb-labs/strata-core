@@ -1,114 +1,62 @@
 # in-mem Reference Documentation
 
-Complete reference documentation for **in-mem** - a fast, durable, embedded database for AI agent workloads.
+**in-mem** - a fast, durable, embedded database for AI agent workloads.
+
+**Current Version**: 0.3.0 (M3 Primitives + M4 Performance)
 
 ## Quick Links
 
-### For Users
+- [Getting Started](getting-started.md) - Installation and quick start
+- [API Reference](api-reference.md) - Complete API documentation
+- [Architecture](architecture.md) - How in-mem works internally
+- [Milestones](../milestones/MILESTONES.md) - Project roadmap
 
-- **[Getting Started](getting-started.md)** - Installation, quick start, common patterns
-- **[API Reference](api-reference.md)** - Complete API documentation
-- **[Architecture Overview](architecture.md)** - How in-mem works internally
+## Features
 
-### For Developers
+- **Five Primitives**: KVStore, EventLog, StateCell, TraceStore, RunIndex
+- **Three Durability Modes**: InMemory (<3µs), Buffered (<30µs), Strict (~2ms)
+- **OCC Transactions**: Optimistic concurrency with snapshot isolation
+- **Run-Scoped Operations**: Every operation tagged with RunId for replay
 
-- **[M1 Architecture Spec](../architecture/M1_ARCHITECTURE.md)** - Storage layer specification
-- **[M2 Transaction Semantics](../architecture/M2_TRANSACTION_SEMANTICS.md)** - OCC and snapshot isolation specification
-- **[Development Workflow](../development/DEVELOPMENT_WORKFLOW.md)** - Git workflow
-- **[TDD Methodology](../development/TDD_METHODOLOGY.md)** - Testing approach
+## Current Status
 
-### Project Information
-
-- **[Milestones](../milestones/MILESTONES.md)** - Roadmap M1-M5
-- **[GitHub Repository](https://github.com/anibjoshi/in-mem)** - Source code
-
-## Documentation Structure
-
-```
-docs/
-├── reference/              # User-facing reference docs
-│   ├── getting-started.md  # Quick start guide
-│   ├── api-reference.md    # Complete API reference
-│   └── architecture.md     # Architecture overview
-│
-├── architecture/           # Technical specifications
-│   ├── M1_ARCHITECTURE.md  # Storage layer spec
-│   └── M2_TRANSACTION_SEMANTICS.md  # OCC & snapshot isolation spec
-│
-├── development/            # Developer guides
-│   ├── GETTING_STARTED.md  # Developer onboarding
-│   ├── TDD_METHODOLOGY.md  # Testing strategy
-│   └── DEVELOPMENT_WORKFLOW.md  # Git workflow
-│
-├── diagrams/               # Architecture diagrams
-│   └── m1-architecture.md  # Visual diagrams
-│
-└── milestones/             # Project management
-    └── MILESTONES.md       # Roadmap
-```
-
-## What is in-mem?
-
-**in-mem** is an embedded database designed specifically for AI agent workloads. It provides:
-
-- **Run-Scoped Operations**: Every operation tagged with a RunId for deterministic replay
-- **Unified Storage**: Six primitives (KV, Event Log, State Machine, Trace, Vector, Run Index) sharing one storage layer
-- **Durable by Default**: Write-ahead log with configurable fsync modes
-- **Embedded Library**: Zero-copy in-process API (network layer in M7)
-
-### Current Status: M2 Transactions Complete ✅
-
-- ✅ 630+ tests
-- ✅ OCC with snapshot isolation
-- ✅ Multi-key atomic transactions
-- ✅ Compare-and-swap (CAS) operations
-- ✅ 37K txns/s (canonical agent workload)
-- ✅ >95% success rate under contention
-
-See [Milestones](../milestones/MILESTONES.md) for roadmap.
+| Milestone | Status |
+|-----------|--------|
+| M1 Foundation | ✅ |
+| M2 Transactions | ✅ |
+| M3 Primitives | ✅ |
+| M4 Performance | ✅ |
+| M5 JSON | Next |
 
 ## Quick Start
 
 ```rust
-use in_mem::Database;
+use in_mem::{Database, DurabilityMode, primitives::KVStore, Value};
+use std::sync::Arc;
 
-// Open database
-let db = Database::open("./my-agent-db")?;
+let db = Arc::new(Database::open_with_mode(
+    "./my-agent-db",
+    DurabilityMode::Buffered { flush_interval_ms: 100, max_pending_writes: 1000 }
+)?);
 
-// Begin a run
+let kv = KVStore::new(db.clone());
 let run_id = db.begin_run();
 
-// Simple operations
-db.put(run_id, &key, value)?;
-let value = db.get(run_id, &key)?;
+kv.put(&run_id, "key", Value::String("value".into()))?;
+let value = kv.get(&run_id, "key")?;
 
-// Atomic transactions (M2)
-db.transaction(run_id, |txn| {
-    let val = txn.get(&key)?;
-    txn.put(key.clone(), new_value)?;
-    Ok(())
-})?;
-
-// Compare-and-swap (M2)
-db.cas(run_id, key, expected_version, new_value)?;
-
-// End run
 db.end_run(run_id)?;
 ```
 
-See [Getting Started](getting-started.md) for full guide.
+## Performance
 
-## Support
-
-- **Issues**: [GitHub Issues](https://github.com/anibjoshi/in-mem/issues)
-- **Discussions**: [GitHub Discussions](https://github.com/anibjoshi/in-mem/discussions)
-- **Documentation**: This site
-
-## License
-
-[MIT License](https://github.com/anibjoshi/in-mem/blob/main/LICENSE)
+| Mode | Latency | Throughput |
+|------|---------|------------|
+| InMemory | <3µs | 250K+ ops/sec |
+| Buffered | <30µs | 50K+ ops/sec |
+| Strict | ~2ms | ~500 ops/sec |
 
 ---
 
-**Version**: 0.2.0 (M2 Transactions)
-**Last Updated**: 2026-01-14
+**Version**: 0.3.0
+**Last Updated**: 2026-01-16

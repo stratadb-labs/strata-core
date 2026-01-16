@@ -6,13 +6,22 @@ rust-version.workspace = true
 authors.workspace = true
 license.workspace = true
 repository.workspace = true
+description = "High-level primitives for in-mem agent database"
 
 [dependencies]
 in-mem-core = { path = "../core" }
 in-mem-engine = { path = "../engine" }
+in-mem-concurrency = { path = "../concurrency" }
 serde = { workspace = true }
+serde_json = { workspace = true }
 thiserror = { workspace = true }
 tracing = { workspace = true }
+uuid = { workspace = true }
 
 [dev-dependencies]
 tempfile = { workspace = true }
+criterion = "0.5"
+
+[[bench]]
+name = "primitive_benchmarks"
+harness = false

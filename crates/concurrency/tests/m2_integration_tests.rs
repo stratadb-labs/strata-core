@@ -319,7 +319,7 @@ mod conflict_detection {
         // T1 begins and reads the key
         let mut txn1 = begin_transaction(&store, 1, run_id);
         let _ = txn1.get(&key).unwrap(); // Records version 1 in read_set
-        // Add a write to make this NOT a read-only transaction
+                                         // Add a write to make this NOT a read-only transaction
         txn1.put(key.clone(), Value::I64(150)).unwrap();
 
         // T2 commits, changing the version to 2

@@ -1,6 +1,22 @@
 # API Reference
 
-Complete API reference for **in-mem** v0.2.0 (M2 Transactions).
+Complete API reference for **in-mem** v0.3.0 (M3 Primitives + M4 Performance).
+
+## Table of Contents
+
+- [Core Types](#core-types)
+- [Primitives](#primitives)
+  - [KVStore](#kvstore)
+  - [EventLog](#eventlog)
+  - [StateCell](#statecell)
+  - [TraceStore](#tracestore)
+  - [RunIndex](#runindex)
+- [Transactions](#transactions)
+- [Durability Modes](#durability-modes)
+- [Error Types](#error-types)
+- [Performance Characteristics](#performance-characteristics)
+
+---
 
 ## Core Types
 
@@ -14,11 +30,11 @@ pub struct Database {
 }
 ```
 
-#### Methods
+#### Construction
 
 ##### `open`
 
-Opens or creates a database at the specified path.
+Opens or creates a database at the specified path with default settings (Strict durability).
 
 ```rust
 pub fn open<P: AsRef<Path>>(path: P) -> Result<Database>
@@ -47,17 +63,31 @@ pub fn open_with_mode<P: AsRef<Path>>(
 
 **Parameters**:
 - `path`: Directory path for database storage
-- `mode`: Durability mode (Strict, Batched, or Async)
+- `mode`: Durability mode (InMemory, Buffered, or Strict)
 
 **Returns**: `Result<Database>`
 
 **Example**:
 ```rust
+use in_mem::{Database, DurabilityMode};
+
+// InMemory mode for tests (fastest, no persistence)
+let db = Database::open_with_mode("./data", DurabilityMode::InMemory)?;
+
+// Buffered mode for production (balanced)
 let db = Database::open_with_mode(
     "./data",
-    DurabilityMode::Batched { interval_ms: 100, max_commits: 1000 }
+    DurabilityMode::Buffered {
+        flush_interval_ms: 100,
+        max_pending_writes: 1000
+    }
 )?;
+
+// Strict mode for critical data (safest)
+let db = Database::open_with_mode("./data", DurabilityMode::Strict)?;
 ```
+
+#### Run Lifecycle
 
 ##### `begin_run`
 
@@ -69,11 +99,6 @@ pub fn begin_run(&self) -> RunId
 
 **Returns**: `RunId` - Unique identifier for this run
 
-**Example**:
-```rust
-let run_id = db.begin_run();
-```
-
 ##### `end_run`
 
 Ends a run and releases its resources.
@@ -82,678 +107,32 @@ Ends a run and releases its resources.
 pub fn end_run(&self, run_id: RunId) -> Result<()>
 ```
 
-**Parameters**:
-- `run_id`: Run to end
+#### Transactions
 
-**Returns**: `Result<()>`
+##### `transaction`
 
-**Example**:
-```rust
-db.end_run(run_id)?;
-```
-
-##### `put`
-
-Stores a key-value pair.
+Executes a closure within a transaction with automatic commit/rollback.
 
 ```rust
-pub fn put(
-    &self,
-    run_id: RunId,
-    key: &[u8],
-    value: &[u8]
-) -> Result<u64>
-```
-
-**Parameters**:
-- `run_id`: Run ID for this operation
-- `key`: Key bytes
-- `value`: Value bytes
-
-**Returns**: `Result<u64>` - Version number assigned to this write
-
-**Example**:
-```rust
-let version = db.put(run_id, b"user:123", b"Alice")?;
-```
-
-##### `put_with_ttl`
-
-Stores a key-value pair with time-to-live.
-
-```rust
-pub fn put_with_ttl(
-    &self,
-    run_id: RunId,
-    key: &[u8],
-    value: &[u8],
-    ttl: Duration
-) -> Result<u64>
-```
-
-**Parameters**:
-- `run_id`: Run ID for this operation
-- `key`: Key bytes
-- `value`: Value bytes
-- `ttl`: Time-to-live duration
-
-**Returns**: `Result<u64>` - Version number
-
-**Example**:
-```rust
-use std::time::Duration;
-
-db.put_with_ttl(
-    run_id,
-    b"session:abc",
-    b"data",
-    Duration::from_secs(3600)
-)?;
-```
-
-##### `get`
-
-Retrieves a value by key.
-
-```rust
-pub fn get(
-    &self,
-    run_id: RunId,
-    key: &[u8]
-) -> Result<Option<Vec<u8>>>
-```
-
-**Parameters**:
-- `run_id`: Run ID for this operation
-- `key`: Key bytes
-
-**Returns**: `Result<Option<Vec<u8>>>` - Value if exists, None if not found
-
-**Example**:
-```rust
-let value = db.get(run_id, b"user:123")?;
-match value {
-    Some(v) => println!("Found: {:?}", v),
-    None => println!("Not found"),
-}
-```
-
-##### `delete`
-
-Deletes a key-value pair.
-
-```rust
-pub fn delete(
-    &self,
-    run_id: RunId,
-    key: &[u8]
-) -> Result<bool>
-```
-
-**Parameters**:
-- `run_id`: Run ID for this operation
-- `key`: Key bytes
-
-**Returns**: `Result<bool>` - true if key existed, false if not found
-
-**Example**:
-```rust
-let deleted = db.delete(run_id, b"user:123")?;
-```
-
-##### `list`
-
-Lists all keys with a given prefix.
-
-```rust
-pub fn list(
-    &self,
-    run_id: RunId,
-    prefix: &[u8]
-) -> Result<Vec<(Vec<u8>, Vec<u8>)>>
-```
-
-**Parameters**:
-- `run_id`: Run ID for this operation
-- `prefix`: Key prefix to match
-
-**Returns**: `Result<Vec<(key, value)>>` - Vector of matching key-value pairs
-
-**Example**:
-```rust
-let users = db.list(run_id, b"user:")?;
-for (key, value) in users {
-    println!("Key: {:?}, Value: {:?}", key, value);
-}
-```
-
-##### `flush`
-
-Forces all pending writes to disk.
-
-```rust
-pub fn flush(&self) -> Result<()>
-```
-
-**Returns**: `Result<()>`
-
-**Example**:
-```rust
-db.flush()?; // Ensure all writes are durable
-```
-
----
-
-## Transactions (M2)
-
-### Transaction API
-
-**in-mem** provides Optimistic Concurrency Control (OCC) with snapshot isolation. Transactions enable atomic multi-key operations with automatic conflict detection.
-
-#### `transaction`
-
-Execute a transaction with automatic commit/abort handling.
-
-```rust
-pub fn transaction<F, T>(&self, run_id: RunId, f: F) -> Result<T>
+pub fn transaction<F, T>(&self, run_id: &RunId, f: F) -> Result<T>
 where
     F: FnOnce(&mut TransactionContext) -> Result<T>
 ```
 
-**Parameters**:
-- `run_id`: Run ID for namespace isolation
-- `f`: Closure that performs transaction operations
-
-**Returns**: `Result<T>` - Closure return value on successful commit
-
 **Example**:
 ```rust
-let result = db.transaction(run_id, |txn| {
-    let val = txn.get(&key)?;
-    txn.put(key.clone(), Value::I64(42))?;
-    Ok(val)
+let result = db.transaction(&run_id, |txn| {
+    txn.kv_put("key1", Value::String("value1".into()))?;
+    txn.kv_put("key2", Value::I64(42))?;
+    Ok("success")
 })?;
 ```
 
-**Behavior**:
-- On success: Transaction is committed atomically
-- On error: Transaction is aborted (all changes discarded)
-- On conflict: Returns `Error::TransactionConflict`
-
-#### `transaction_with_retry`
-
-Execute a transaction with automatic retry on conflict.
-
-```rust
-pub fn transaction_with_retry<F, T>(
-    &self,
-    run_id: RunId,
-    config: RetryConfig,
-    f: F,
-) -> Result<T>
-where
-    F: Fn(&mut TransactionContext) -> Result<T>
-```
-
-**Parameters**:
-- `run_id`: Run ID for namespace isolation
-- `config`: Retry configuration (max retries, backoff delays)
-- `f`: Closure that performs transaction operations (must be `Fn`, not `FnOnce`)
-
-**Returns**: `Result<T>` - Closure return value on successful commit
-
-**Example**:
-```rust
-let config = RetryConfig::default(); // 3 retries with exponential backoff
-let result = db.transaction_with_retry(run_id, config, |txn| {
-    let val = txn.get(&counter_key)?;
-    let new_val = val.map(|v| v.as_i64().unwrap_or(0) + 1).unwrap_or(1);
-    txn.put(counter_key.clone(), Value::I64(new_val))?;
-    Ok(new_val)
-})?;
-```
-
-**Behavior**:
-- Retries on `TransactionConflict` up to `max_retries` times
-- Uses exponential backoff between retries
-- Non-conflict errors are not retried
-
-#### `transaction_with_timeout`
-
-Execute a transaction with a time limit.
-
-```rust
-pub fn transaction_with_timeout<F, T>(
-    &self,
-    run_id: RunId,
-    timeout: Duration,
-    f: F,
-) -> Result<T>
-where
-    F: FnOnce(&mut TransactionContext) -> Result<T>
-```
-
-**Parameters**:
-- `run_id`: Run ID for namespace isolation
-- `timeout`: Maximum duration for the transaction
-- `f`: Closure that performs transaction operations
-
-**Returns**:
-- `Ok(T)` - Closure return value on successful commit
-- `Err(TransactionTimeout)` - Transaction exceeded timeout
-
-**Example**:
-```rust
-use std::time::Duration;
-
-let result = db.transaction_with_timeout(
-    run_id,
-    Duration::from_secs(5),
-    |txn| {
-        // Long-running operation
-        txn.put(key, value)?;
-        Ok(())
-    },
-)?;
-```
-
-#### `cas`
-
-Compare-and-swap: Atomic conditional update based on version.
-
-```rust
-pub fn cas(
-    &self,
-    run_id: RunId,
-    key: Key,
-    expected_version: u64,
-    new_value: Value,
-) -> Result<()>
-```
-
-**Parameters**:
-- `run_id`: Run ID for namespace isolation
-- `key`: Key to update
-- `expected_version`: Version that must match current version (0 for create-if-absent)
-- `new_value`: New value to write
-
-**Returns**:
-- `Ok(())` - Update successful
-- `Err(TransactionConflict)` - Version mismatch
-
-**Example**:
-```rust
-// Get current version
-let vv = db.get(run_id, &key)?.unwrap();
-
-// Atomic update only if version matches
-db.cas(run_id, key, vv.version, Value::I64(new_val))?;
-```
-
-**Use Cases**:
-- Optimistic locking
-- Counters
-- Resource claiming (version 0 = create if absent)
-
 ---
-
-### `TransactionContext`
-
-Context for executing operations within a transaction. Provides snapshot isolation.
-
-```rust
-pub struct TransactionContext {
-    // Internal fields (opaque)
-}
-```
-
-#### Methods
-
-##### `get`
-
-Read a value within the transaction snapshot.
-
-```rust
-pub fn get(&mut self, key: &Key) -> Result<Option<Value>>
-```
-
-**Parameters**:
-- `key`: Key to read
-
-**Returns**: `Result<Option<Value>>` - Value at transaction start time, or pending write if exists
-
-**Behavior**:
-- Returns value from snapshot (point-in-time view)
-- If key was written in this transaction, returns the pending write
-- Adds key to read-set for conflict detection
-
-##### `put`
-
-Write a value within the transaction.
-
-```rust
-pub fn put(&mut self, key: Key, value: Value) -> Result<()>
-```
-
-**Parameters**:
-- `key`: Key to write
-- `value`: Value to write
-
-**Returns**: `Result<()>`
-
-**Behavior**:
-- Buffers write until commit
-- Adds key to write-set
-- Visible to subsequent `get` calls in same transaction
-
-##### `delete`
-
-Delete a key within the transaction.
-
-```rust
-pub fn delete(&mut self, key: Key) -> Result<()>
-```
-
-**Parameters**:
-- `key`: Key to delete
-
-**Returns**: `Result<()>`
-
-**Behavior**:
-- Buffers delete until commit
-- Subsequent `get` in same transaction returns `None`
-
-##### `cas`
-
-Compare-and-swap within a transaction.
-
-```rust
-pub fn cas(
-    &mut self,
-    key: Key,
-    expected_version: u64,
-    new_value: Value,
-) -> Result<()>
-```
-
-**Parameters**:
-- `key`: Key to update
-- `expected_version`: Version that must match
-- `new_value`: New value to write
-
-**Returns**: `Result<()>`
-
-**Behavior**:
-- Validates version at commit time
-- Can be combined with other operations in same transaction
-
----
-
-### `RetryConfig`
-
-Configuration for transaction retry behavior.
-
-```rust
-pub struct RetryConfig {
-    pub max_retries: usize,
-    pub base_delay_ms: u64,
-    pub max_delay_ms: u64,
-}
-```
-
-#### Fields
-
-- `max_retries`: Maximum retry attempts (0 = no retries)
-- `base_delay_ms`: Base delay between retries (exponential backoff)
-- `max_delay_ms`: Maximum delay cap
-
-#### Default
-
-```rust
-impl Default for RetryConfig {
-    fn default() -> Self {
-        Self {
-            max_retries: 3,
-            base_delay_ms: 10,
-            max_delay_ms: 100,
-        }
-    }
-}
-```
-
-**Example**:
-```rust
-// Custom retry config
-let config = RetryConfig {
-    max_retries: 5,
-    base_delay_ms: 20,
-    max_delay_ms: 500,
-};
-```
-
----
-
-## Enums
-
-### `DurabilityMode`
-
-Controls how writes are persisted to disk.
-
-```rust
-pub enum DurabilityMode {
-    Strict,
-    Batched { interval_ms: u64, max_commits: usize },
-    Async { interval_ms: u64 },
-}
-```
-
-#### Variants
-
-**`Strict`**
-
-Every commit is immediately followed by fsync. Maximum durability, lowest performance.
-
-**Use when**: Financial transactions, critical data that cannot be lost.
-
-**`Batched { interval_ms, max_commits }`**
-
-Writes are fsynced either:
-- Every `interval_ms` milliseconds, OR
-- After `max_commits` commits
-
-Balanced trade-off between durability and performance. **Default mode**.
-
-**Use when**: Agent workflows, tool outputs, general use.
-
-**Parameters**:
-- `interval_ms`: Maximum time between fsyncs (milliseconds)
-- `max_commits`: Maximum commits before forced fsync
-
-**Example**:
-```rust
-DurabilityMode::Batched {
-    interval_ms: 100,  // fsync at least every 100ms
-    max_commits: 1000  // or after 1000 commits
-}
-```
-
-**`Async { interval_ms }`**
-
-Background thread fsyncs every `interval_ms` milliseconds. Highest performance, may lose recent writes on crash.
-
-**Use when**: High-throughput logging, caching, non-critical data.
-
-**Parameters**:
-- `interval_ms`: Time between background fsyncs
-
-**Example**:
-```rust
-DurabilityMode::Async {
-    interval_ms: 1000  // fsync every second
-}
-```
-
----
-
-## Primitives
-
-### `KVStore`
-
-Key-value store primitive with type-safe value encoding.
-
-```rust
-pub struct KVStore<'a> {
-    db: &'a Database,
-}
-```
-
-#### Methods
-
-##### `new`
-
-Creates a new KVStore instance.
-
-```rust
-pub fn new(db: &Database) -> KVStore
-```
-
-**Example**:
-```rust
-let kv = KVStore::new(&db);
-```
-
-##### `put`
-
-Stores a typed value.
-
-```rust
-pub fn put<T: Serialize>(
-    &self,
-    run_id: RunId,
-    key: &str,
-    value: T
-) -> Result<u64>
-```
-
-**Parameters**:
-- `run_id`: Run ID
-- `key`: String key
-- `value`: Any serializable value
-
-**Returns**: `Result<u64>` - Version number
-
-**Example**:
-```rust
-kv.put(run_id, "user:123:name", "Alice")?;
-kv.put(run_id, "user:123:age", 30)?;
-kv.put(run_id, "config", vec!["opt1", "opt2"])?;
-```
-
-##### `get`
-
-Retrieves a typed value.
-
-```rust
-pub fn get<T: DeserializeOwned>(
-    &self,
-    run_id: RunId,
-    key: &str
-) -> Result<Option<T>>
-```
-
-**Parameters**:
-- `run_id`: Run ID
-- `key`: String key
-
-**Returns**: `Result<Option<T>>` - Deserialized value if exists
-
-**Example**:
-```rust
-let name: Option<String> = kv.get(run_id, "user:123:name")?;
-let age: Option<i32> = kv.get(run_id, "user:123:age")?;
-```
-
-##### `delete`
-
-Deletes a key.
-
-```rust
-pub fn delete(
-    &self,
-    run_id: RunId,
-    key: &str
-) -> Result<bool>
-```
-
-**Example**:
-```rust
-kv.delete(run_id, "user:123:name")?;
-```
-
----
-
-## Core Data Types
 
 ### `RunId`
 
-Unique identifier for an agent run.
-
-```rust
-pub struct RunId(Uuid);
-```
-
-**Properties**:
-- Globally unique (UUID v4)
-- Serializable
-- Cloneable
-
-**Example**:
-```rust
-let run_id = db.begin_run();
-println!("Run ID: {}", run_id); // Prints UUID
-```
-
-### `Namespace`
-
-Hierarchical namespace for multi-tenancy.
-
-```rust
-pub struct Namespace {
-    pub tenant: String,
-    pub app: String,
-    pub agent: String,
-    pub run: RunId,
-}
-```
-
-**Example**:
-```rust
-let ns = Namespace {
-    tenant: "acme-corp".to_string(),
-    app: "customer-service".to_string(),
-    agent: "chat-bot-v2".to_string(),
-    run: run_id,
-};
-```
-
-### `Key`
-
-Internal key structure (generally not used directly).
-
-```rust
-pub struct Key {
-    namespace: Namespace,
-    type_tag: TypeTag,
-    user_key: Vec<u8>,
-}
-```
-
-Keys are automatically ordered by:
-1. Namespace (tenant → app → agent → run)
-2. Type tag
-3. User key
-
-This enables efficient prefix scans.
+Unique identifier for an agent run (UUID v4).
 
 ### `Value`
 
@@ -761,213 +140,566 @@ Flexible value type supporting multiple primitives.
 
 ```rust
 pub enum Value {
-    Bytes(Vec<u8>),
-    String(String),
+    Null,
+    Bool(bool),
     I64(i64),
     F64(f64),
-    Bool(bool),
-    Null,
+    String(String),
+    Bytes(Vec<u8>),
     Array(Vec<Value>),
     Map(BTreeMap<String, Value>),
 }
 ```
 
-**Example**:
+---
+
+## Primitives
+
+All primitives are stateless facades over the database engine.
+
+### KVStore
+
+Key-value store primitive with batch operations and transactions.
+
 ```rust
-// Values are automatically encoded/decoded
-let v1 = Value::String("hello".to_string());
-let v2 = Value::I64(42);
-let v3 = Value::Array(vec![Value::I64(1), Value::I64(2)]);
+pub struct KVStore {
+    db: Arc<Database>
+}
 ```
+
+#### Single-Key Operations
+
+##### `get` (Fast Path)
+
+Retrieves a value by key. Uses direct snapshot read for optimal performance.
+
+```rust
+pub fn get(&self, run_id: &RunId, key: &str) -> Result<Option<Value>>
+```
+
+**Performance**: <10µs (fast path, no transaction overhead)
+
+##### `put`
+
+Stores a value. Creates or overwrites existing value.
+
+```rust
+pub fn put(&self, run_id: &RunId, key: &str, value: Value) -> Result<()>
+```
+
+##### `put_with_ttl`
+
+Stores a value with time-to-live metadata.
+
+```rust
+pub fn put_with_ttl(&self, run_id: &RunId, key: &str, value: Value, ttl: Duration) -> Result<()>
+```
+
+##### `delete`
+
+Deletes a key-value pair.
+
+```rust
+pub fn delete(&self, run_id: &RunId, key: &str) -> Result<bool>
+```
+
+##### `exists` (Fast Path)
+
+Checks if a key exists.
+
+```rust
+pub fn exists(&self, run_id: &RunId, key: &str) -> Result<bool>
+```
+
+#### Batch Operations (Fast Path)
+
+##### `get_many`
+
+Retrieves multiple values in a single snapshot read.
+
+```rust
+pub fn get_many(&self, run_id: &RunId, keys: &[&str]) -> Result<Vec<Option<Value>>>
+```
+
+##### `get_many_map`
+
+Retrieves multiple values as a HashMap.
+
+```rust
+pub fn get_many_map(&self, run_id: &RunId, keys: &[&str]) -> Result<HashMap<String, Value>>
+```
+
+#### List Operations
+
+##### `list`
+
+Lists all keys with an optional prefix.
+
+```rust
+pub fn list(&self, run_id: &RunId, prefix: Option<&str>) -> Result<Vec<String>>
+```
+
+##### `list_with_values`
+
+Lists all key-value pairs with an optional prefix.
+
+```rust
+pub fn list_with_values(&self, run_id: &RunId, prefix: Option<&str>) -> Result<Vec<(String, Value)>>
+```
+
+#### Explicit Transactions
+
+##### `transaction`
+
+Executes multiple operations in a single transaction.
+
+```rust
+pub fn transaction<F, T>(&self, run_id: &RunId, f: F) -> Result<T>
+where
+    F: FnOnce(&mut KVTransaction<'_>) -> Result<T>
+```
+
+---
+
+### EventLog
+
+Append-only event log with hash chaining for integrity verification.
+
+#### Types
+
+```rust
+pub struct Event {
+    pub sequence: u64,
+    pub event_type: String,
+    pub payload: Value,
+    pub timestamp: i64,
+    pub prev_hash: [u8; 32],
+    pub hash: [u8; 32],
+}
+
+pub struct ChainVerification {
+    pub is_valid: bool,
+    pub length: u64,
+    pub first_invalid: Option<u64>,
+    pub error: Option<String>,
+}
+```
+
+#### Methods
+
+##### `append`
+
+Appends a new event to the log.
+
+```rust
+pub fn append(&self, run_id: &RunId, event_type: &str, payload: Value) -> Result<(u64, [u8; 32])>
+```
+
+##### `read` (Fast Path)
+
+Reads a single event by sequence number.
+
+```rust
+pub fn read(&self, run_id: &RunId, sequence: u64) -> Result<Option<Event>>
+```
+
+##### `read_range`
+
+Reads a range of events [start, end).
+
+```rust
+pub fn read_range(&self, run_id: &RunId, start: u64, end: u64) -> Result<Vec<Event>>
+```
+
+##### `head`
+
+Returns the most recent event.
+
+##### `len` (Fast Path)
+
+Returns the number of events in the log.
+
+##### `read_by_type`
+
+Returns all events of a specific type.
+
+##### `verify_chain`
+
+Validates the hash chain integrity.
+
+---
+
+### StateCell
+
+Named state cells with compare-and-swap (CAS) operations.
+
+#### Types
+
+```rust
+pub struct State {
+    pub value: Value,
+    pub version: u64,
+    pub updated_at: i64,
+}
+```
+
+#### Methods
+
+##### `init`
+
+Initializes a state cell only if it doesn't exist.
+
+```rust
+pub fn init(&self, run_id: &RunId, name: &str, value: Value) -> Result<u64>
+```
+
+##### `read` (Fast Path)
+
+Reads the current state of a cell.
+
+```rust
+pub fn read(&self, run_id: &RunId, name: &str) -> Result<Option<State>>
+```
+
+##### `set`
+
+Unconditionally sets the value.
+
+```rust
+pub fn set(&self, run_id: &RunId, name: &str, value: Value) -> Result<u64>
+```
+
+##### `cas`
+
+Compare-and-swap: updates only if version matches.
+
+```rust
+pub fn cas(&self, run_id: &RunId, name: &str, expected_version: u64, new_value: Value) -> Result<u64>
+```
+
+##### `transition`
+
+Applies a pure function with automatic retry on conflict.
+
+```rust
+pub fn transition<F, T>(&self, run_id: &RunId, name: &str, f: F) -> Result<(T, u64)>
+where
+    F: Fn(&State) -> Result<(Value, T)>
+```
+
+**Important**: The closure must be pure (no I/O) as it may be called multiple times.
+
+##### `transition_or_init`
+
+Like `transition`, but initializes if cell doesn't exist.
+
+---
+
+### TraceStore
+
+Records agent reasoning traces for debugging and auditing.
+
+#### Types
+
+```rust
+pub enum TraceType {
+    ToolCall { tool_name: String, arguments: Value, result: Option<Value>, duration_ms: Option<u64> },
+    Decision { question: String, options: Vec<String>, chosen: String, reasoning: Option<String> },
+    Query { query_type: String, query: String, results_count: Option<u32> },
+    Thought { content: String, confidence: Option<f64> },
+    Error { error_type: String, message: String, recoverable: bool },
+    Custom { name: String, data: Value },
+}
+
+pub struct Trace {
+    pub id: String,
+    pub parent_id: Option<String>,
+    pub trace_type: TraceType,
+    pub timestamp: i64,
+    pub tags: Vec<String>,
+    pub metadata: Value,
+}
+
+pub struct TraceTree {
+    pub trace: Trace,
+    pub children: Vec<TraceTree>,
+}
+```
+
+#### Methods
+
+##### `record`
+
+Records a new trace entry.
+
+```rust
+pub fn record(&self, run_id: &RunId, trace_type: TraceType, tags: Vec<String>, metadata: Value) -> Result<String>
+```
+
+##### `record_child`
+
+Records a trace as a child of an existing trace.
+
+##### `get` (Fast Path)
+
+Retrieves a trace by ID.
+
+##### `query_by_type`
+
+Returns all traces of a specific type.
+
+##### `query_by_tag`
+
+Returns all traces with a specific tag.
+
+##### `get_tree`
+
+Builds a recursive tree structure from a root trace.
+
+##### `get_roots`
+
+Returns all traces without parents.
+
+---
+
+### RunIndex
+
+First-class run management with status tracking.
+
+#### Types
+
+```rust
+pub enum RunStatus {
+    Active,
+    Completed,
+    Failed,
+    Cancelled,
+    Paused,
+    Archived,
+}
+
+pub struct RunMetadata {
+    pub name: String,
+    pub run_id: String,
+    pub parent_run: Option<String>,
+    pub status: RunStatus,
+    pub created_at: i64,
+    pub updated_at: i64,
+    pub completed_at: Option<i64>,
+    pub tags: Vec<String>,
+    pub metadata: Value,
+    pub error: Option<String>,
+}
+```
+
+**Valid Status Transitions**:
+- `Active` → Completed, Failed, Cancelled, Paused, Archived
+- `Paused` → Active, Cancelled, Archived
+- `Completed/Failed/Cancelled` → Archived
+- `Archived` → (terminal)
+
+#### Methods
+
+##### `create_run`
+
+Creates a new run entry.
+
+##### `create_run_with_options`
+
+Creates a run with parent, tags, and metadata.
+
+##### `get_run`
+
+Retrieves run metadata.
+
+##### `update_status`
+
+Updates run status with transition validation.
+
+##### `complete_run`, `fail_run`, `pause_run`, `resume_run`, `cancel_run`, `archive_run`
+
+Convenience methods for status updates.
+
+##### `query_by_status`
+
+Returns all runs with a specific status.
+
+##### `query_by_tag`
+
+Returns all runs with a specific tag.
+
+##### `delete_run`
+
+**Hard delete**: Removes the run and ALL associated data.
+
+---
+
+## Transactions
+
+### Cross-Primitive Transactions
+
+Use extension traits for atomic operations across multiple primitives.
+
+```rust
+use in_mem::primitives::{KVStoreExt, EventLogExt, StateCellExt, TraceStoreExt};
+
+db.transaction(&run_id, |txn| {
+    txn.kv_put("key", Value::String("value".into()))?;
+    txn.event_append("my_event", Value::Null)?;
+    txn.state_set("counter", Value::I64(1))?;
+    txn.trace_record("operation", Value::Null)?;
+    Ok(())
+})?;
+```
+
+### Extension Traits
+
+```rust
+pub trait KVStoreExt {
+    fn kv_get(&mut self, key: &str) -> Result<Option<Value>>;
+    fn kv_put(&mut self, key: &str, value: Value) -> Result<()>;
+    fn kv_delete(&mut self, key: &str) -> Result<()>;
+}
+
+pub trait EventLogExt {
+    fn event_append(&mut self, event_type: &str, payload: Value) -> Result<u64>;
+    fn event_read(&mut self, sequence: u64) -> Result<Option<Value>>;
+}
+
+pub trait StateCellExt {
+    fn state_read(&mut self, name: &str) -> Result<Option<Value>>;
+    fn state_cas(&mut self, name: &str, expected_version: u64, new_value: Value) -> Result<u64>;
+    fn state_set(&mut self, name: &str, value: Value) -> Result<u64>;
+}
+
+pub trait TraceStoreExt {
+    fn trace_record(&mut self, trace_type: &str, metadata: Value) -> Result<String>;
+    fn trace_record_child(&mut self, parent_id: &str, trace_type: &str, metadata: Value) -> Result<String>;
+}
+```
+
+---
+
+## Durability Modes
+
+```rust
+pub enum DurabilityMode {
+    InMemory,
+    Buffered { flush_interval_ms: u64, max_pending_writes: usize },
+    Strict,
+}
+```
+
+### InMemory
+
+No persistence. Data is lost on crash.
+
+| Property | Value |
+|----------|-------|
+| Latency | <3µs |
+| Throughput | 250K+ ops/sec |
+| Data Loss | All |
+
+### Buffered
+
+Background thread fsyncs periodically.
+
+| Property | Value |
+|----------|-------|
+| Latency | <30µs |
+| Throughput | 50K+ ops/sec |
+| Data Loss | ~100ms |
+
+### Strict
+
+Synchronous fsync after every commit.
+
+| Property | Value |
+|----------|-------|
+| Latency | ~2ms |
+| Throughput | ~500 ops/sec |
+| Data Loss | None |
 
 ---
 
 ## Error Types
 
-### `Error`
-
-All errors in **in-mem** use this type.
-
 ```rust
 pub enum Error {
-    IoError(std::io::Error),
-    SerializationError(String),
-    KeyNotFound(Key),
-    VersionMismatch { expected: u64, actual: u64 },
+    Io(std::io::Error),
+    Serialization(String),
     Corruption(String),
+    KeyNotFound(String),
     InvalidOperation(String),
-    TransactionAborted(RunId),
-    StorageError(String),
-    InvalidState(String),
-    TransactionConflict(String),    // M2
-    TransactionTimeout(String),     // M2
+    TransactionConflict(String),
+    InvalidStatusTransition { from: String, to: String },
+    VersionMismatch { expected: u64, actual: u64 },
 }
 ```
-
-**Common Errors**:
-
-- `Error::IoError`: File system errors (permissions, disk full)
-- `Error::SerializationError`: Value encoding/decoding failed
-- `Error::Corruption`: WAL corruption detected
-- `Error::KeyNotFound`: Key doesn't exist
-- `Error::InvalidOperation`: Invalid operation for current state
-- `Error::TransactionConflict`: OCC conflict detected during commit (M2)
-- `Error::TransactionTimeout`: Transaction exceeded time limit (M2)
-- `Error::InvalidState`: Invalid transaction state transition (M2)
-- `Error::VersionMismatch`: CAS version mismatch
-
-**Error Methods**:
-```rust
-impl Error {
-    /// Check if error is a transaction conflict (retryable)
-    pub fn is_conflict(&self) -> bool;
-
-    /// Check if error is a transaction timeout
-    pub fn is_timeout(&self) -> bool;
-}
-```
-
-**Example**:
-```rust
-match db.transaction(run_id, |txn| { /* ... */ }) {
-    Ok(value) => println!("Success: {:?}", value),
-    Err(e) if e.is_conflict() => println!("Conflict - retry"),
-    Err(e) if e.is_timeout() => println!("Timed out"),
-    Err(Error::Corruption(msg)) => eprintln!("Corruption: {}", msg),
-    Err(e) => eprintln!("Error: {:?}", e),
-}
-```
-
----
-
-## Type Aliases
-
-```rust
-pub type Result<T> = std::result::Result<T, Error>;
-```
-
-All functions return `Result<T>` where errors are of type `Error`.
-
----
-
-## Feature Flags
-
-Currently no feature flags. All features are enabled by default.
-
----
-
-## Platform Support
-
-**Tested Platforms**:
-- macOS (Darwin)
-- Linux
-- Windows (planned for M2)
-
-**Requirements**:
-- Rust 1.70 or later
-- File system with fsync support
 
 ---
 
 ## Performance Characteristics
 
-### Time Complexity
+### Fast Path Operations
 
-| Operation | Complexity | Notes |
-|-----------|------------|-------|
-| `put` | O(log n) | BTreeMap insertion |
-| `get` | O(log n) | BTreeMap lookup |
-| `delete` | O(log n) | BTreeMap removal |
-| `list` | O(k log n) | k = result size |
-| `begin_run` | O(1) | UUID generation |
-| `end_run` | O(1) | Cleanup |
+| Operation | Target Latency |
+|-----------|----------------|
+| `KVStore::get` | <10µs |
+| `KVStore::exists` | <10µs |
+| `KVStore::get_many` | <10µs + O(n) |
+| `EventLog::read` | <10µs |
+| `EventLog::len` | <10µs |
+| `StateCell::read` | <10µs |
+| `TraceStore::get` | <10µs |
 
-### Space Complexity
+### Throughput Targets
 
-- **Memory**: O(n) where n = total values in database
-- **Disk**: O(n + m) where m = WAL size
+| Mode | Target |
+|------|--------|
+| InMemory (1 thread) | 250K ops/sec |
+| InMemory (4 threads) | 800K+ ops/sec |
+| Buffered | 50K ops/sec |
+| Strict | ~500 ops/sec |
 
-**Note**: M1 keeps all data in memory. Disk-based storage planned for M6.
+### Scaling
 
----
-
-## Thread Safety
-
-All types are `Send` and `Sync`:
-
-```rust
-let db = Database::open("./data")?;
-let db = Arc::new(db); // Can share across threads
-
-// Concurrent access is safe
-let handle1 = thread::spawn({
-    let db = Arc::clone(&db);
-    move || {
-        let run_id = db.begin_run();
-        db.put(run_id, b"key1", b"value1")?;
-        db.end_run(run_id)
-    }
-});
-
-let handle2 = thread::spawn({
-    let db = Arc::clone(&db);
-    move || {
-        let run_id = db.begin_run();
-        db.put(run_id, b"key2", b"value2")?;
-        db.end_run(run_id)
-    }
-});
-```
-
-**Concurrency Model**: M2 uses Optimistic Concurrency Control (OCC) with snapshot isolation:
-- Readers never block writers
-- Writers never block readers
-- Conflicts are detected at commit time (first-committer-wins)
-- Conflicting transactions are aborted and can be retried
+| Threads | Disjoint Scaling |
+|---------|------------------|
+| 2 | ≥1.8× |
+| 4 | ≥3.2× |
 
 ---
 
 ## Version History
 
-### v0.2.0 (M2 Transactions) - 2026-01-14
+### v0.3.0 (M3 Primitives + M4 Performance)
 
-**Transaction support**:
-- ✅ Optimistic Concurrency Control (OCC)
-- ✅ Snapshot isolation (point-in-time consistent reads)
-- ✅ Multi-key atomic transactions
-- ✅ Compare-and-swap (CAS) operations
-- ✅ Transaction retry with exponential backoff
-- ✅ Transaction timeout support
-- ✅ First-committer-wins conflict resolution
-- ✅ WAL-based crash recovery for transactions
-- ✅ 630+ tests
+**M3 Features**:
+- KVStore with batch operations and transactions
+- EventLog with hash chaining and type queries
+- StateCell with CAS and transition closures
+- TraceStore with hierarchical traces
+- RunIndex with status management
+- Cross-primitive transaction support
 
-**Performance** (verified by benchmarks):
-- Read throughput: 3.87M ops/s (hot key)
-- Transaction commit: 37K txns/s (canonical workload)
-- CAS operations: 47.5K ops/s
-- Conflict success rate: >95% under contention
+**M4 Features**:
+- Three durability modes (InMemory, Buffered, Strict)
+- Fast path API for read operations
+- OCC transactions with snapshot isolation
+- 250K+ ops/sec in InMemory mode
 
-**Limitations**:
-- In-memory only (no disk-based storage)
-- No event log, state machine, trace primitives (M3)
+### v0.2.0 (M2 Transactions)
 
-### v0.1.0 (M1 Foundation) - 2026-01-11
+- OCC with snapshot isolation
+- Multi-key transactions
+- CAS operations
 
-**Initial release**:
-- ✅ Basic KV operations (put, get, delete, list)
-- ✅ Run-scoped operations
-- ✅ Write-ahead logging (WAL)
-- ✅ Crash recovery
-- ✅ Three durability modes
-- ✅ TTL support
-- ✅ 297 tests, 95.45% coverage
+### v0.1.0 (M1 Foundation)
 
-**Limitations**:
-- In-memory only (no disk-based storage)
-- RwLock concurrency (writers block readers)
-- No transactions yet (M2)
-- No event log, state machine, trace primitives (M3)
+- Basic KV operations
+- Write-ahead logging
+- Crash recovery
 
 ---
 
@@ -975,5 +707,4 @@ let handle2 = thread::spawn({
 
 - [Getting Started Guide](getting-started.md)
 - [Architecture Overview](architecture.md)
-- [Performance Tuning](performance.md)
-- [GitHub Repository](https://github.com/anibjoshi/in-mem)
+- [Milestones](../milestones/MILESTONES.md)

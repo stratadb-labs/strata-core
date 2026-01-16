@@ -29,6 +29,16 @@ impl RunId {
         Self(Uuid::from_bytes(bytes))
     }
 
+    /// Parse a RunId from a string representation
+    ///
+    /// Accepts standard UUID format (with or without hyphens).
+    ///
+    /// # Errors
+    /// Returns None if the string is not a valid UUID.
+    pub fn from_string(s: &str) -> Option<Self> {
+        Uuid::parse_str(s).ok().map(Self)
+    }
+
     /// Get the raw bytes of this RunId
     pub fn as_bytes(&self) -> &[u8; 16] {
         self.0.as_bytes()
@@ -75,6 +85,19 @@ impl Namespace {
             run_id,
         }
     }
+
+    /// Create a namespace for a run with default tenant/app/agent
+    ///
+    /// This is a convenience method for M3 primitives that only need
+    /// run-level isolation. Uses "default" for tenant, app, and agent.
+    pub fn for_run(run_id: RunId) -> Self {
+        Self {
+            tenant: "default".to_string(),
+            app: "default".to_string(),
+            agent: "default".to_string(),
+            run_id,
+        }
+    }
 }
 
 impl fmt::Display for Namespace {
@@ -111,22 +134,52 @@ impl PartialOrd for Namespace {
 /// instead of separate stores per primitive. This TypeTag enum enables
 /// type discrimination and defines the sort order in BTreeMap.
 ///
-/// Ordering: KV < Event < StateMachine < Trace < RunMetadata < Vector
+/// ## M3 TypeTag Values
+///
+/// These values are part of the on-disk format and MUST NOT change:
+/// - KV = 0x01
+/// - Event = 0x02
+/// - State = 0x03
+/// - Trace = 0x04
+/// - Run = 0x05
+/// - Vector = 0x10 (reserved for M6)
+///
+/// Ordering: KV < Event < State < Trace < Run < Vector
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, PartialOrd, Ord)]
 #[repr(u8)]
 pub enum TypeTag {
     /// Key-Value primitive data
-    KV = 0,
+    KV = 0x01,
     /// Event log entries
-    Event = 1,
-    /// State machine records
-    StateMachine = 2,
+    Event = 0x02,
+    /// State cell records (renamed from StateMachine in M3)
+    State = 0x03,
     /// Trace entries for reasoning logs
-    Trace = 3,
-    /// Run metadata entries
-    RunMetadata = 4,
-    /// Vector store entries
-    Vector = 5,
+    Trace = 0x04,
+    /// Run index entries
+    Run = 0x05,
+    /// Vector store entries (reserved for M6)
+    Vector = 0x10,
+}
+
+impl TypeTag {
+    /// Convert to byte representation
+    pub fn as_byte(&self) -> u8 {
+        *self as u8
+    }
+
+    /// Try to create from byte
+    pub fn from_byte(byte: u8) -> Option<Self> {
+        match byte {
+            0x01 => Some(TypeTag::KV),
+            0x02 => Some(TypeTag::Event),
+            0x03 => Some(TypeTag::State),
+            0x04 => Some(TypeTag::Trace),
+            0x05 => Some(TypeTag::Run),
+            0x10 => Some(TypeTag::Vector),
+            _ => None,
+        }
+    }
 }
 
 /// Unified key for all storage types
@@ -168,7 +221,7 @@ pub enum TypeTag {
 pub struct Key {
     /// Namespace (tenant/app/agent/run hierarchy)
     pub namespace: Namespace,
-    /// Type discriminator (KV, Event, StateMachine, etc.)
+    /// Type discriminator (KV, Event, State, Trace, Run, etc.)
     pub type_tag: TypeTag,
     /// User-defined key bytes (supports arbitrary binary keys)
     pub user_key: Vec<u8>,
@@ -199,11 +252,18 @@ impl Key {
         Self::new(namespace, TypeTag::Event, seq.to_be_bytes().to_vec())
     }
 
-    /// Create a state machine key
+    /// Create an event log metadata key
     ///
-    /// Helper that automatically sets type_tag to TypeTag::StateMachine
+    /// The metadata key stores: { next_sequence: u64, head_hash: [u8; 32] }
+    pub fn new_event_meta(namespace: Namespace) -> Self {
+        Self::new(namespace, TypeTag::Event, b"__meta__".to_vec())
+    }
+
+    /// Create a state cell key
+    ///
+    /// Helper that automatically sets type_tag to TypeTag::State
     pub fn new_state(namespace: Namespace, key: impl AsRef<[u8]>) -> Self {
-        Self::new(namespace, TypeTag::StateMachine, key.as_ref().to_vec())
+        Self::new(namespace, TypeTag::State, key.as_ref().to_vec())
     }
 
     /// Create a trace key with sequence number
@@ -214,12 +274,72 @@ impl Key {
         Self::new(namespace, TypeTag::Trace, seq.to_be_bytes().to_vec())
     }
 
-    /// Create a run metadata key
+    /// Create a trace key with string ID
     ///
-    /// Helper that automatically sets type_tag to TypeTag::RunMetadata and
+    /// Helper for M3 TraceStore which uses string IDs (UUIDs)
+    pub fn new_trace_with_id(namespace: Namespace, trace_id: &str) -> Self {
+        Self::new(namespace, TypeTag::Trace, trace_id.as_bytes().to_vec())
+    }
+
+    /// Create a trace index key
+    ///
+    /// Index keys enable efficient queries by type, tag, parent, or time.
+    /// Format: `__idx_{index_type}__{index_value}__{trace_id}`
+    ///
+    /// Example index types:
+    /// - by-type: `__idx_type__ToolCall__trace123`
+    /// - by-tag: `__idx_tag__important__trace123`
+    /// - by-parent: `__idx_parent__parent123__trace123`
+    /// - by-time: `__idx_time__1234567890__trace123`
+    pub fn new_trace_index(
+        namespace: Namespace,
+        index_type: &str,
+        index_value: &str,
+        trace_id: &str,
+    ) -> Self {
+        let key_data = format!("__idx_{}__{}__{}", index_type, index_value, trace_id);
+        Self::new(namespace, TypeTag::Trace, key_data.into_bytes())
+    }
+
+    /// Create a run index key
+    ///
+    /// Helper that automatically sets type_tag to TypeTag::Run and
     /// uses the run_id as the key
-    pub fn new_run_metadata(namespace: Namespace, run_id: RunId) -> Self {
-        Self::new(namespace, TypeTag::RunMetadata, run_id.as_bytes().to_vec())
+    pub fn new_run(namespace: Namespace, run_id: RunId) -> Self {
+        Self::new(namespace, TypeTag::Run, run_id.as_bytes().to_vec())
+    }
+
+    /// Create a run index key from string run_id
+    ///
+    /// Alternative helper that accepts string run_id for index keys
+    pub fn new_run_with_id(namespace: Namespace, run_id: &str) -> Self {
+        Self::new(namespace, TypeTag::Run, run_id.as_bytes().to_vec())
+    }
+
+    /// Create a run index secondary index key
+    ///
+    /// Index keys enable efficient queries by status, tag, or parent.
+    /// Format: `__idx_{index_type}__{index_value}__{run_id}`
+    ///
+    /// Example index types:
+    /// - by-status: `__idx_status__Active__run123`
+    /// - by-tag: `__idx_tag__experiment__run123`
+    /// - by-parent: `__idx_parent__parent123__run123`
+    pub fn new_run_index(
+        namespace: Namespace,
+        index_type: &str,
+        index_value: &str,
+        run_id: &str,
+    ) -> Self {
+        let key_data = format!("__idx_{}__{}__{}", index_type, index_value, run_id);
+        Self::new(namespace, TypeTag::Run, key_data.into_bytes())
+    }
+
+    /// Extract user key as string (if valid UTF-8)
+    ///
+    /// Returns None if the user_key is not valid UTF-8
+    pub fn user_key_string(&self) -> Option<String> {
+        String::from_utf8(self.user_key.clone()).ok()
     }
 
     /// Check if this key starts with the given prefix
@@ -592,9 +712,9 @@ mod tests {
         // Test that all TypeTag variants can be constructed
         let _kv = TypeTag::KV;
         let _event = TypeTag::Event;
-        let _state_machine = TypeTag::StateMachine;
+        let _state = TypeTag::State;
         let _trace = TypeTag::Trace;
-        let _run_metadata = TypeTag::RunMetadata;
+        let _run = TypeTag::Run;
         let _vector = TypeTag::Vector;
     }
 
@@ -602,18 +722,56 @@ mod tests {
     fn test_typetag_ordering() {
         // TypeTag ordering must be stable for BTreeMap
         assert!(TypeTag::KV < TypeTag::Event);
-        assert!(TypeTag::Event < TypeTag::StateMachine);
-        assert!(TypeTag::StateMachine < TypeTag::Trace);
-        assert!(TypeTag::Trace < TypeTag::RunMetadata);
-        assert!(TypeTag::RunMetadata < TypeTag::Vector);
+        assert!(TypeTag::Event < TypeTag::State);
+        assert!(TypeTag::State < TypeTag::Trace);
+        assert!(TypeTag::Trace < TypeTag::Run);
+        assert!(TypeTag::Run < TypeTag::Vector);
 
-        // Verify numeric values match expected ordering
-        assert_eq!(TypeTag::KV as u8, 0);
-        assert_eq!(TypeTag::Event as u8, 1);
-        assert_eq!(TypeTag::StateMachine as u8, 2);
-        assert_eq!(TypeTag::Trace as u8, 3);
-        assert_eq!(TypeTag::RunMetadata as u8, 4);
-        assert_eq!(TypeTag::Vector as u8, 5);
+        // Verify numeric values match M3 spec
+        assert_eq!(TypeTag::KV as u8, 0x01);
+        assert_eq!(TypeTag::Event as u8, 0x02);
+        assert_eq!(TypeTag::State as u8, 0x03);
+        assert_eq!(TypeTag::Trace as u8, 0x04);
+        assert_eq!(TypeTag::Run as u8, 0x05);
+        assert_eq!(TypeTag::Vector as u8, 0x10);
+    }
+
+    #[test]
+    fn test_typetag_as_byte() {
+        assert_eq!(TypeTag::KV.as_byte(), 0x01);
+        assert_eq!(TypeTag::Event.as_byte(), 0x02);
+        assert_eq!(TypeTag::State.as_byte(), 0x03);
+        assert_eq!(TypeTag::Trace.as_byte(), 0x04);
+        assert_eq!(TypeTag::Run.as_byte(), 0x05);
+        assert_eq!(TypeTag::Vector.as_byte(), 0x10);
+    }
+
+    #[test]
+    fn test_typetag_from_byte() {
+        assert_eq!(TypeTag::from_byte(0x01), Some(TypeTag::KV));
+        assert_eq!(TypeTag::from_byte(0x02), Some(TypeTag::Event));
+        assert_eq!(TypeTag::from_byte(0x03), Some(TypeTag::State));
+        assert_eq!(TypeTag::from_byte(0x04), Some(TypeTag::Trace));
+        assert_eq!(TypeTag::from_byte(0x05), Some(TypeTag::Run));
+        assert_eq!(TypeTag::from_byte(0x10), Some(TypeTag::Vector));
+        assert_eq!(TypeTag::from_byte(0x00), None);
+        assert_eq!(TypeTag::from_byte(0xFF), None);
+    }
+
+    #[test]
+    fn test_typetag_no_collisions() {
+        // Ensure all TypeTag values are unique
+        let tags = [
+            TypeTag::KV,
+            TypeTag::Event,
+            TypeTag::State,
+            TypeTag::Trace,
+            TypeTag::Run,
+            TypeTag::Vector,
+        ];
+        let bytes: Vec<u8> = tags.iter().map(|t| t.as_byte()).collect();
+        let unique: std::collections::HashSet<u8> = bytes.iter().cloned().collect();
+        assert_eq!(bytes.len(), unique.len(), "TypeTag values must be unique");
     }
 
     #[test]
@@ -622,9 +780,9 @@ mod tests {
         let tags = vec![
             TypeTag::KV,
             TypeTag::Event,
-            TypeTag::StateMachine,
+            TypeTag::State,
             TypeTag::Trace,
-            TypeTag::RunMetadata,
+            TypeTag::Run,
             TypeTag::Vector,
         ];
 
@@ -714,9 +872,9 @@ mod tests {
             42
         );
 
-        // Test state machine helper
+        // Test state cell helper
         let state_key = Key::new_state(ns.clone(), "state1");
-        assert_eq!(state_key.type_tag, TypeTag::StateMachine);
+        assert_eq!(state_key.type_tag, TypeTag::State);
         assert_eq!(state_key.user_key, b"state1");
 
         // Test trace helper
@@ -727,10 +885,158 @@ mod tests {
             100
         );
 
-        // Test run metadata helper
-        let meta_key = Key::new_run_metadata(ns.clone(), run_id);
-        assert_eq!(meta_key.type_tag, TypeTag::RunMetadata);
-        assert_eq!(meta_key.user_key, run_id.as_bytes().to_vec());
+        // Test run index helper
+        let run_key = Key::new_run(ns.clone(), run_id);
+        assert_eq!(run_key.type_tag, TypeTag::Run);
+        assert_eq!(run_key.user_key, run_id.as_bytes().to_vec());
+    }
+
+    #[test]
+    fn test_new_event_meta() {
+        let run_id = RunId::new();
+        let ns = Namespace::new(
+            "tenant".to_string(),
+            "app".to_string(),
+            "agent".to_string(),
+            run_id,
+        );
+
+        let key = Key::new_event_meta(ns);
+        assert_eq!(key.type_tag, TypeTag::Event);
+        assert_eq!(key.user_key, b"__meta__");
+    }
+
+    #[test]
+    fn test_new_trace_with_id() {
+        let run_id = RunId::new();
+        let ns = Namespace::new(
+            "tenant".to_string(),
+            "app".to_string(),
+            "agent".to_string(),
+            run_id,
+        );
+
+        let key = Key::new_trace_with_id(ns, "trace-abc123");
+        assert_eq!(key.type_tag, TypeTag::Trace);
+        assert_eq!(key.user_key_string(), Some("trace-abc123".to_string()));
+    }
+
+    #[test]
+    fn test_new_trace_index() {
+        let run_id = RunId::new();
+        let ns = Namespace::new(
+            "tenant".to_string(),
+            "app".to_string(),
+            "agent".to_string(),
+            run_id,
+        );
+
+        // Test by-type index
+        let key = Key::new_trace_index(ns.clone(), "type", "ToolCall", "trace-123");
+        assert_eq!(key.type_tag, TypeTag::Trace);
+        assert!(key
+            .user_key_string()
+            .unwrap()
+            .contains("__idx_type__ToolCall__trace-123"));
+
+        // Test by-tag index
+        let tag_key = Key::new_trace_index(ns.clone(), "tag", "important", "trace-456");
+        assert!(tag_key
+            .user_key_string()
+            .unwrap()
+            .contains("__idx_tag__important__trace-456"));
+
+        // Test by-parent index
+        let parent_key = Key::new_trace_index(ns.clone(), "parent", "parent-id", "trace-789");
+        assert!(parent_key
+            .user_key_string()
+            .unwrap()
+            .contains("__idx_parent__parent-id__trace-789"));
+    }
+
+    #[test]
+    fn test_new_run_index() {
+        let run_id = RunId::new();
+        let ns = Namespace::new(
+            "tenant".to_string(),
+            "app".to_string(),
+            "agent".to_string(),
+            run_id,
+        );
+
+        // Test by-status index
+        let key = Key::new_run_index(ns.clone(), "status", "Active", "run-123");
+        assert_eq!(key.type_tag, TypeTag::Run);
+        assert!(key
+            .user_key_string()
+            .unwrap()
+            .contains("__idx_status__Active__run-123"));
+
+        // Test by-tag index
+        let tag_key = Key::new_run_index(ns.clone(), "tag", "experiment", "run-456");
+        assert!(tag_key
+            .user_key_string()
+            .unwrap()
+            .contains("__idx_tag__experiment__run-456"));
+    }
+
+    #[test]
+    fn test_user_key_string() {
+        let run_id = RunId::new();
+        let ns = Namespace::new(
+            "tenant".to_string(),
+            "app".to_string(),
+            "agent".to_string(),
+            run_id,
+        );
+
+        // Valid UTF-8
+        let key = Key::new_kv(ns.clone(), "hello-world");
+        assert_eq!(key.user_key_string(), Some("hello-world".to_string()));
+
+        // Invalid UTF-8 (binary data)
+        let binary_key = Key::new(ns.clone(), TypeTag::KV, vec![0xFF, 0xFE, 0x00, 0x01]);
+        assert_eq!(binary_key.user_key_string(), None);
+    }
+
+    #[test]
+    fn test_event_keys_sort_by_sequence() {
+        let run_id = RunId::new();
+        let ns = Namespace::new(
+            "tenant".to_string(),
+            "app".to_string(),
+            "agent".to_string(),
+            run_id,
+        );
+
+        let key1 = Key::new_event(ns.clone(), 1);
+        let key2 = Key::new_event(ns.clone(), 10);
+        let key3 = Key::new_event(ns.clone(), 100);
+
+        // Big-endian encoding ensures lexicographic sort = numeric sort
+        assert!(key1 < key2);
+        assert!(key2 < key3);
+    }
+
+    #[test]
+    fn test_keys_with_same_inputs_are_equal() {
+        let run_id = RunId::new();
+        let ns1 = Namespace::new(
+            "tenant".to_string(),
+            "app".to_string(),
+            "agent".to_string(),
+            run_id,
+        );
+        let ns2 = Namespace::new(
+            "tenant".to_string(),
+            "app".to_string(),
+            "agent".to_string(),
+            run_id,
+        );
+
+        let key1 = Key::new_kv(ns1, "same-key");
+        let key2 = Key::new_kv(ns2, "same-key");
+        assert_eq!(key1, key2);
     }
 
     #[test]
