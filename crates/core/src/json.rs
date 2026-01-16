@@ -577,6 +577,50 @@ impl JsonPath {
         other.is_ancestor_of(self)
     }
 
+    /// Check if this path is a strict ancestor of another (not equal)
+    ///
+    /// A path is a strict ancestor if it is a proper prefix of the other path.
+    /// The root path is a strict ancestor of all non-root paths.
+    pub fn is_strict_ancestor_of(&self, other: &JsonPath) -> bool {
+        self.segments.len() < other.segments.len() && self.is_ancestor_of(other)
+    }
+
+    /// Check if this path is a strict descendant of another (not equal)
+    ///
+    /// A path is a strict descendant if the other path is a proper prefix of this path.
+    /// All non-root paths are strict descendants of the root path.
+    pub fn is_strict_descendant_of(&self, other: &JsonPath) -> bool {
+        other.is_strict_ancestor_of(self)
+    }
+
+    /// Find the common ancestor of two paths
+    ///
+    /// Returns the longest common prefix of both paths.
+    /// If the paths share no common prefix, returns the root path.
+    pub fn common_ancestor(&self, other: &JsonPath) -> JsonPath {
+        let mut common_segments = Vec::new();
+        for (a, b) in self.segments.iter().zip(other.segments.iter()) {
+            if a == b {
+                common_segments.push(a.clone());
+            } else {
+                break;
+            }
+        }
+        JsonPath::from_segments(common_segments)
+    }
+
+    /// Check if this path would be affected by a write at the given path
+    ///
+    /// A path is affected if:
+    /// - The write path is an ancestor (write affects this path and all descendants)
+    /// - The write path equals this path (direct modification)
+    /// - The write path is a descendant (partial modification of this path's subtree)
+    ///
+    /// This is equivalent to `overlaps()` but with clearer semantics for conflict detection.
+    pub fn is_affected_by(&self, write_path: &JsonPath) -> bool {
+        self.overlaps(write_path)
+    }
+
     /// Check if two paths overlap (one is ancestor/descendant of the other)
     ///
     /// Used for conflict detection: if two paths overlap and both are
@@ -1799,6 +1843,81 @@ mod tests {
         // Unrelated paths don't overlap
         assert!(!user.overlaps(&items));
         assert!(!items.overlaps(&user_name));
+    }
+
+    #[test]
+    fn test_strict_ancestor_descendant() {
+        let root = JsonPath::root();
+        let user = JsonPath::root().key("user");
+        let user_name = JsonPath::root().key("user").key("name");
+        let items = JsonPath::root().key("items");
+
+        // Root is strict ancestor of non-root paths
+        assert!(root.is_strict_ancestor_of(&user));
+        assert!(root.is_strict_ancestor_of(&user_name));
+
+        // Path is not a strict ancestor of itself
+        assert!(!user.is_strict_ancestor_of(&user));
+        assert!(!root.is_strict_ancestor_of(&root));
+
+        // Parent is strict ancestor of child
+        assert!(user.is_strict_ancestor_of(&user_name));
+        assert!(!user_name.is_strict_ancestor_of(&user));
+
+        // Unrelated paths are not strict ancestors
+        assert!(!user.is_strict_ancestor_of(&items));
+        assert!(!items.is_strict_ancestor_of(&user));
+
+        // Strict descendant is inverse
+        assert!(user.is_strict_descendant_of(&root));
+        assert!(user_name.is_strict_descendant_of(&user));
+        assert!(user_name.is_strict_descendant_of(&root));
+        assert!(!user.is_strict_descendant_of(&user));
+    }
+
+    #[test]
+    fn test_common_ancestor() {
+        let root = JsonPath::root();
+        let user = JsonPath::root().key("user");
+        let user_name = JsonPath::root().key("user").key("name");
+        let user_email = JsonPath::root().key("user").key("email");
+        let items = JsonPath::root().key("items");
+
+        // Common ancestor of path with itself is the path
+        assert_eq!(user.common_ancestor(&user), user);
+
+        // Common ancestor of parent/child is parent
+        assert_eq!(user.common_ancestor(&user_name), user);
+        assert_eq!(user_name.common_ancestor(&user), user);
+
+        // Common ancestor of siblings is their parent
+        assert_eq!(user_name.common_ancestor(&user_email), user);
+
+        // Common ancestor of unrelated paths is root
+        assert_eq!(user.common_ancestor(&items), root);
+
+        // Common ancestor with root is root
+        assert_eq!(user.common_ancestor(&root), root);
+    }
+
+    #[test]
+    fn test_is_affected_by() {
+        let user = JsonPath::root().key("user");
+        let user_name = JsonPath::root().key("user").key("name");
+        let items = JsonPath::root().key("items");
+
+        // Write to parent affects child
+        assert!(user_name.is_affected_by(&user));
+
+        // Write to child affects parent (partial modification)
+        assert!(user.is_affected_by(&user_name));
+
+        // Write to self affects self
+        assert!(user.is_affected_by(&user));
+
+        // Unrelated paths don't affect each other
+        assert!(!user.is_affected_by(&items));
+        assert!(!items.is_affected_by(&user_name));
     }
 
     #[test]
