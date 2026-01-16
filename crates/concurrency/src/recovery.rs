@@ -20,7 +20,7 @@ use crate::TransactionManager;
 use in_mem_core::error::Result;
 use in_mem_durability::recovery::replay_wal;
 use in_mem_durability::wal::{DurabilityMode, WAL};
-use in_mem_storage::UnifiedStore;
+use in_mem_storage::ShardedStore;
 use std::path::PathBuf;
 
 /// Coordinates database recovery after crash or restart
@@ -82,8 +82,8 @@ impl RecoveryCoordinator {
         // Step 1: Open WAL
         let wal = WAL::open(&self.wal_path, DurabilityMode::Strict)?;
 
-        // Step 2: Create empty storage
-        let storage = UnifiedStore::new();
+        // Step 2: Create empty storage (using ShardedStore for O(1) snapshots)
+        let storage = ShardedStore::new();
 
         // Step 3: Replay WAL using existing durability layer function
         // This handles:
@@ -124,7 +124,7 @@ impl RecoveryCoordinator {
 /// Result of recovery operation
 pub struct RecoveryResult {
     /// Recovered storage with all committed transactions applied
-    pub storage: UnifiedStore,
+    pub storage: ShardedStore,
     /// Transaction manager initialized with recovered version
     ///
     /// Per spec Section 6.1: The global version counter is set to the
@@ -1282,7 +1282,7 @@ mod tests {
         // Phase 1: Normal operation - write 10 transactions
         {
             let mut wal = WAL::open(&wal_path, DurabilityMode::Strict).unwrap();
-            let storage = UnifiedStore::new();
+            let storage = ShardedStore::new();
 
             for i in 1..=10u64 {
                 let txn_id = i;

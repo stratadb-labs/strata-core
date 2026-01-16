@@ -25,12 +25,73 @@ use std::sync::Arc;
 
 /// Per-run shard containing run's data
 ///
+/// Version chain for MVCC - stores multiple versions of a value
+///
+/// Versions are stored in descending order (newest first) for efficient
+/// snapshot reads - we typically want the most recent version <= snapshot_version.
+#[derive(Debug, Clone)]
+pub struct VersionChain {
+    /// Versions stored newest-first for efficient MVCC reads
+    versions: smallvec::SmallVec<[VersionedValue; 2]>,
+}
+
+impl VersionChain {
+    /// Create a new version chain with a single version
+    pub fn new(value: VersionedValue) -> Self {
+        let mut versions = smallvec::SmallVec::new();
+        versions.push(value);
+        Self { versions }
+    }
+
+    /// Add a new version (must be newer than existing versions)
+    pub fn push(&mut self, value: VersionedValue) {
+        // Insert at front (newest first)
+        self.versions.insert(0, value);
+    }
+
+    /// Get the version at or before the given max_version
+    pub fn get_at_version(&self, max_version: u64) -> Option<&VersionedValue> {
+        // Versions are newest-first, so we scan until we find one <= max_version
+        self.versions.iter().find(|vv| vv.version <= max_version)
+    }
+
+    /// Get the latest version
+    pub fn latest(&self) -> Option<&VersionedValue> {
+        self.versions.first()
+    }
+
+    /// Remove versions older than min_version (garbage collection)
+    /// Keeps at least one version
+    pub fn gc(&mut self, min_version: u64) {
+        if self.versions.len() <= 1 {
+            return;
+        }
+        // Keep versions >= min_version, but always keep at least the latest
+        let mut keep_count = 1; // Always keep the latest
+        for vv in self.versions.iter().skip(1) {
+            if vv.version >= min_version {
+                keep_count += 1;
+            } else {
+                break; // Versions are sorted, so we can stop here
+            }
+        }
+        self.versions.truncate(keep_count);
+    }
+
+    /// Number of versions stored
+    pub fn version_count(&self) -> usize {
+        self.versions.len()
+    }
+}
+
 /// Each RunId gets its own shard with an FxHashMap for O(1) lookups.
 /// This ensures different runs never contend with each other.
+///
+/// Uses VersionChain for MVCC - multiple versions per key for snapshot isolation.
 #[derive(Debug)]
 pub struct Shard {
-    /// HashMap with FxHash for O(1) lookups
-    pub(crate) data: FxHashMap<Key, VersionedValue>,
+    /// HashMap with FxHash for O(1) lookups, storing version chains
+    pub(crate) data: FxHashMap<Key, VersionChain>,
 }
 
 impl Shard {
@@ -48,7 +109,7 @@ impl Shard {
         }
     }
 
-    /// Get number of entries in this shard
+    /// Get number of keys in this shard
     pub fn len(&self) -> usize {
         self.data.len()
     }
@@ -149,27 +210,12 @@ impl ShardedStore {
     // Get/Put/Delete Operations (Story #228)
     // ========================================================================
 
-    /// Get a value by key
-    ///
-    /// Lock-free read via DashMap. Only the run's shard is accessed.
-    ///
-    /// # Arguments
-    ///
-    /// * `key` - Key to look up (contains RunId)
-    ///
-    /// # Performance
-    ///
-    /// - O(1) lookup via FxHashMap
-    /// - Lock-free via DashMap read guard
-    #[inline]
-    pub fn get(&self, key: &Key) -> Option<VersionedValue> {
-        let run_id = key.namespace.run_id;
-        self.shards
-            .get(&run_id)
-            .and_then(|shard| shard.data.get(key).cloned())
-    }
+    // NOTE: `get()` is provided by the Storage trait implementation,
+    // which includes proper TTL expiration checks.
+    // Use `Storage::get()` trait method instead of an inherent method
+    // to ensure consistent behavior across all callers.
 
-    /// Put a value for a key
+    /// Put a value for a key (adds to version chain for MVCC)
     ///
     /// Sharded write - only locks this run's shard.
     /// Other runs can read/write concurrently without contention.
@@ -186,16 +232,21 @@ impl ShardedStore {
     #[inline]
     pub fn put(&self, key: Key, value: VersionedValue) {
         let run_id = key.namespace.run_id;
-        self.shards
-            .entry(run_id)
-            .or_default()
-            .data
-            .insert(key, value);
+        let mut shard = self.shards.entry(run_id).or_default();
+
+        if let Some(chain) = shard.data.get_mut(&key) {
+            // Add new version to existing chain
+            chain.push(value);
+        } else {
+            // Create new chain
+            shard.data.insert(key, VersionChain::new(value));
+        }
     }
 
     /// Delete a key
     ///
-    /// Returns the removed value if it existed.
+    /// Removes all versions of the key. For MVCC correctness, this should
+    /// only be called when no active snapshots could reference the key.
     ///
     /// # Arguments
     ///
@@ -206,6 +257,7 @@ impl ShardedStore {
         self.shards
             .get_mut(&run_id)
             .and_then(|mut shard| shard.data.remove(key))
+            .and_then(|chain| chain.latest().cloned())
     }
 
     /// Check if a key exists
@@ -229,13 +281,18 @@ impl ShardedStore {
     /// * `writes` - Key-value pairs to write
     /// * `deletes` - Keys to delete
     /// * `version` - Version to assign to all writes
+    ///
+    /// # Returns
+    ///
+    /// * `Ok(())` - Always succeeds (for API compatibility with UnifiedStore)
     pub fn apply_batch(
         &self,
         writes: &[(Key, in_mem_core::value::Value)],
         deletes: &[Key],
         version: u64,
-    ) {
+    ) -> in_mem_core::error::Result<()> {
         use chrono::Utc;
+        use std::sync::atomic::Ordering;
 
         // Apply writes
         for (key, value) in writes {
@@ -252,6 +309,12 @@ impl ShardedStore {
         for key in deletes {
             self.delete(key);
         }
+
+        // Update global version to be at least this version
+        // This ensures subsequent snapshots can see the committed data
+        self.version.fetch_max(version, Ordering::AcqRel);
+
+        Ok(())
     }
 
     /// Get count of entries for a specific run
@@ -285,7 +348,7 @@ impl ShardedStore {
                 let mut results: Vec<_> = shard
                     .data
                     .iter()
-                    .map(|(k, v)| (k.clone(), v.clone()))
+                    .filter_map(|(k, chain)| chain.latest().map(|v| (k.clone(), v.clone())))
                     .collect();
 
                 // Sort for consistent ordering (Key implements Ord)
@@ -319,7 +382,7 @@ impl ShardedStore {
                     .data
                     .iter()
                     .filter(|(k, _)| k.starts_with(prefix))
-                    .map(|(k, v)| (k.clone(), v.clone()))
+                    .filter_map(|(k, chain)| chain.latest().map(|v| (k.clone(), v.clone())))
                     .collect();
 
                 // Sort for consistent ordering
@@ -353,7 +416,7 @@ impl ShardedStore {
                     .data
                     .iter()
                     .filter(|(k, _)| k.type_tag == type_tag)
-                    .map(|(k, v)| (k.clone(), v.clone()))
+                    .filter_map(|(k, chain)| chain.latest().map(|v| (k.clone(), v.clone())))
                     .collect();
 
                 // Sort for consistent ordering
@@ -430,7 +493,32 @@ impl ShardedStore {
         ShardedSnapshot {
             version: self.version.load(Ordering::Acquire),
             store: Arc::clone(self),
+            cache: std::sync::RwLock::new(FxHashMap::default()),
         }
+    }
+
+    /// Create a snapshot - API compatibility method
+    ///
+    /// This method provides API compatibility with `UnifiedStore::create_snapshot()`.
+    /// It returns the same `ShardedSnapshot` as `snapshot()` but with a name that
+    /// matches the legacy API.
+    ///
+    /// # Performance
+    ///
+    /// Same as `snapshot()` - O(1), < 500ns, allocation-free.
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// use std::sync::Arc;
+    /// use in_mem_storage::ShardedStore;
+    ///
+    /// let store = Arc::new(ShardedStore::new());
+    /// let snapshot = store.create_snapshot();  // Same as store.snapshot()
+    /// ```
+    #[inline]
+    pub fn create_snapshot(self: &Arc<Self>) -> ShardedSnapshot {
+        self.snapshot()
     }
 }
 
@@ -477,12 +565,32 @@ impl std::fmt::Debug for ShardedStore {
 ///
 /// ShardedSnapshot is Send + Sync since it only holds Arc<ShardedStore>.
 /// Multiple snapshots can exist concurrently without blocking.
-#[derive(Clone)]
+///
+/// # Copy-on-Read Caching
+///
+/// To maintain snapshot isolation when concurrent transactions write to the
+/// same keys, the snapshot caches values on first read. This ensures that
+/// repeated reads of the same key return the same value, even if the key
+/// is overwritten after the snapshot was created.
 pub struct ShardedSnapshot {
     /// Version captured at snapshot time
     version: u64,
     /// Reference to the underlying store
     store: Arc<ShardedStore>,
+    /// Cache of read values for snapshot isolation
+    /// Using RwLock for interior mutability since SnapshotView::get takes &self
+    cache: std::sync::RwLock<FxHashMap<Key, Option<VersionedValue>>>,
+}
+
+impl Clone for ShardedSnapshot {
+    fn clone(&self) -> Self {
+        Self {
+            version: self.version,
+            store: Arc::clone(&self.store),
+            // Clone the cache contents for independent snapshot views
+            cache: std::sync::RwLock::new(self.cache.read().unwrap().clone()),
+        }
+    }
 }
 
 impl ShardedSnapshot {
@@ -494,19 +602,16 @@ impl ShardedSnapshot {
         self.version
     }
 
-    /// Get a value by key
-    ///
-    /// Reads from the underlying store. For full MVCC, this would
-    /// filter by version <= snapshot_version.
-    #[inline]
-    pub fn get(&self, key: &Key) -> Option<VersionedValue> {
-        self.store.get(key)
-    }
+    // NOTE: `get()` is provided by the SnapshotView trait implementation,
+    // which includes proper MVCC version filtering and TTL expiration checks.
+    // Use `SnapshotView::get()` directly instead of an inherent method.
 
-    /// Check if a key exists
+    /// Check if a key exists at or before the snapshot version
     #[inline]
     pub fn contains(&self, key: &Key) -> bool {
-        self.store.contains(key)
+        // Use the SnapshotView trait method for proper version filtering
+        use in_mem_core::traits::SnapshotView;
+        SnapshotView::get(self, key).ok().flatten().is_some()
     }
 
     /// List all entries for a run
@@ -570,12 +675,14 @@ impl Storage for ShardedStore {
     fn get(&self, key: &Key) -> Result<Option<VersionedValue>> {
         let run_id = key.namespace.run_id;
         Ok(self.shards.get(&run_id).and_then(|shard| {
-            shard.data.get(key).and_then(|vv| {
-                if !vv.is_expired() {
-                    Some(vv.clone())
-                } else {
-                    None
-                }
+            shard.data.get(key).and_then(|chain| {
+                chain.latest().and_then(|vv| {
+                    if !vv.is_expired() {
+                        Some(vv.clone())
+                    } else {
+                        None
+                    }
+                })
             })
         }))
     }
@@ -586,12 +693,14 @@ impl Storage for ShardedStore {
     fn get_versioned(&self, key: &Key, max_version: u64) -> Result<Option<VersionedValue>> {
         let run_id = key.namespace.run_id;
         Ok(self.shards.get(&run_id).and_then(|shard| {
-            shard.data.get(key).and_then(|vv| {
-                if vv.version <= max_version && !vv.is_expired() {
-                    Some(vv.clone())
-                } else {
-                    None
-                }
+            shard.data.get(key).and_then(|chain| {
+                chain.get_at_version(max_version).and_then(|vv| {
+                    if !vv.is_expired() {
+                        Some(vv.clone())
+                    } else {
+                        None
+                    }
+                })
             })
         }))
     }
@@ -612,25 +721,17 @@ impl Storage for ShardedStore {
             ttl,
         };
 
-        let run_id = key.namespace.run_id;
-        self.shards
-            .entry(run_id)
-            .or_default()
-            .data
-            .insert(key, versioned);
+        // Use the inherent put method which handles version chain
+        ShardedStore::put(self, key, versioned);
 
         Ok(version)
     }
 
     /// Delete key
     ///
-    /// Returns the deleted value if it existed.
+    /// Returns the latest version's value if it existed.
     fn delete(&self, key: &Key) -> Result<Option<VersionedValue>> {
-        let run_id = key.namespace.run_id;
-        Ok(self
-            .shards
-            .get_mut(&run_id)
-            .and_then(|mut shard| shard.data.remove(key)))
+        Ok(ShardedStore::delete(self, key))
     }
 
     /// Scan keys with given prefix at or before max_version
@@ -645,10 +746,18 @@ impl Storage for ShardedStore {
                 let mut results: Vec<_> = shard
                     .data
                     .iter()
-                    .filter(|(k, vv)| {
-                        k.starts_with(prefix) && vv.version <= max_version && !vv.is_expired()
+                    .filter_map(|(k, chain)| {
+                        if !k.starts_with(prefix) {
+                            return None;
+                        }
+                        chain.get_at_version(max_version).and_then(|vv| {
+                            if !vv.is_expired() {
+                                Some((k.clone(), vv.clone()))
+                            } else {
+                                None
+                            }
+                        })
                     })
-                    .map(|(k, v)| (k.clone(), v.clone()))
                     .collect();
 
                 results.sort_by(|(a, _), (b, _)| a.cmp(b));
@@ -668,8 +777,15 @@ impl Storage for ShardedStore {
                 let mut results: Vec<_> = shard
                     .data
                     .iter()
-                    .filter(|(_, vv)| vv.version <= max_version && !vv.is_expired())
-                    .map(|(k, v)| (k.clone(), v.clone()))
+                    .filter_map(|(k, chain)| {
+                        chain.get_at_version(max_version).and_then(|vv| {
+                            if !vv.is_expired() {
+                                Some((k.clone(), vv.clone()))
+                            } else {
+                                None
+                            }
+                        })
+                    })
                     .collect();
 
                 results.sort_by(|(a, _), (b, _)| a.cmp(b));
@@ -704,12 +820,8 @@ impl Storage for ShardedStore {
             ttl,
         };
 
-        let run_id = key.namespace.run_id;
-        self.shards
-            .entry(run_id)
-            .or_default()
-            .data
-            .insert(key, versioned);
+        // Use the inherent put method which handles version chain
+        ShardedStore::put(self, key, versioned);
 
         // Update global version to be at least this version
         self.version.fetch_max(version, Ordering::AcqRel);
@@ -721,13 +833,10 @@ impl Storage for ShardedStore {
     ///
     /// Used by transaction commit to apply deletes.
     fn delete_with_version(&self, key: &Key, _version: u64) -> Result<Option<VersionedValue>> {
-        // For ShardedStore, we actually remove the key
+        // For ShardedStore, we actually remove the key entirely
         // (tombstones would require storing deleted markers)
-        let run_id = key.namespace.run_id;
-        Ok(self
-            .shards
-            .get_mut(&run_id)
-            .and_then(|mut shard| shard.data.remove(key)))
+        // Use the inherent delete method
+        Ok(ShardedStore::delete(self, key))
     }
 }
 
@@ -738,20 +847,40 @@ impl Storage for ShardedStore {
 use in_mem_core::traits::SnapshotView;
 
 impl SnapshotView for ShardedSnapshot {
-    /// Get value from snapshot
+    /// Get value from snapshot with MVCC version filtering
     ///
     /// Returns value at or before the snapshot version.
+    /// Caches the result on first read for performance.
     fn get(&self, key: &Key) -> Result<Option<VersionedValue>> {
+        // Fast path: check cache first (read lock)
+        {
+            let cache = self.cache.read().unwrap();
+            if let Some(cached) = cache.get(key) {
+                return Ok(cached.clone());
+            }
+        }
+
+        // Slow path: read from store's version chain and cache (write lock)
         let run_id = key.namespace.run_id;
-        Ok(self.store.shards.get(&run_id).and_then(|shard| {
-            shard.data.get(key).and_then(|vv| {
-                if vv.version <= self.version && !vv.is_expired() {
-                    Some(vv.clone())
-                } else {
-                    None
-                }
+        let result = self.store.shards.get(&run_id).and_then(|shard| {
+            shard.data.get(key).and_then(|chain| {
+                chain.get_at_version(self.version).and_then(|vv| {
+                    if !vv.is_expired() {
+                        Some(vv.clone())
+                    } else {
+                        None
+                    }
+                })
             })
-        }))
+        });
+
+        // Cache the result (including None for missing keys)
+        {
+            let mut cache = self.cache.write().unwrap();
+            cache.insert(key.clone(), result.clone());
+        }
+
+        Ok(result)
     }
 
     /// Scan keys with prefix from snapshot
@@ -767,10 +896,18 @@ impl SnapshotView for ShardedSnapshot {
                 let mut results: Vec<_> = shard
                     .data
                     .iter()
-                    .filter(|(k, vv)| {
-                        k.starts_with(prefix) && vv.version <= self.version && !vv.is_expired()
+                    .filter_map(|(k, chain)| {
+                        if !k.starts_with(prefix) {
+                            return None;
+                        }
+                        chain.get_at_version(self.version).and_then(|vv| {
+                            if !vv.is_expired() {
+                                Some((k.clone(), vv.clone()))
+                            } else {
+                                None
+                            }
+                        })
                     })
-                    .map(|(k, v)| (k.clone(), v.clone()))
                     .collect();
 
                 results.sort_by(|(a, _), (b, _)| a.cmp(b));

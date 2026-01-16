@@ -21,6 +21,7 @@
 
 use crate::coordinator::{TransactionCoordinator, TransactionMetrics};
 use crate::transaction::TransactionPool;
+use dashmap::DashMap;
 use in_mem_concurrency::{
     validate_transaction, RecoveryCoordinator, TransactionContext, TransactionWALWriter,
 };
@@ -30,7 +31,8 @@ use in_mem_core::types::{Key, RunId};
 use in_mem_core::value::Value;
 use in_mem_core::VersionedValue;
 use in_mem_durability::wal::{DurabilityMode, WAL};
-use in_mem_storage::UnifiedStore;
+use in_mem_storage::ShardedStore;
+use parking_lot::Mutex as ParkingMutex;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
@@ -316,8 +318,8 @@ pub struct Database {
     /// Data directory path
     data_dir: PathBuf,
 
-    /// Unified storage (thread-safe)
-    storage: Arc<UnifiedStore>,
+    /// Sharded storage with O(1) lazy snapshots (thread-safe)
+    storage: Arc<ShardedStore>,
 
     /// Write-ahead log (protected by mutex for exclusive access)
     wal: Arc<Mutex<WAL>>,
@@ -327,11 +329,14 @@ pub struct Database {
     /// Per spec Section 6.1: Single monotonic counter for the entire database.
     coordinator: TransactionCoordinator,
 
-    /// Commit lock to serialize validation + WAL write + storage apply
+    /// Per-run commit locks to serialize validation + WAL write + storage apply
     ///
-    /// This ensures atomicity of the commit sequence and prevents CAS race conditions.
+    /// Uses per-run locking to allow parallel commits for disjoint workloads.
+    /// This ensures atomicity within a run while allowing different runs to commit
+    /// concurrently, improving parallel scaling.
+    ///
     /// Per spec Section 3.3: First-committer-wins requires atomic validate-and-commit.
-    commit_lock: Mutex<()>,
+    commit_locks: DashMap<RunId, ParkingMutex<()>>,
 
     /// Current durability mode (M4)
     durability_mode: DurabilityMode,
@@ -450,7 +455,7 @@ impl Database {
             storage: Arc::new(result.storage),
             wal: Arc::new(Mutex::new(wal)),
             coordinator,
-            commit_lock: Mutex::new(()),
+            commit_locks: DashMap::new(),
             durability_mode,
             accepting_transactions: AtomicBool::new(true),
         })
@@ -459,7 +464,8 @@ impl Database {
     /// Get reference to the storage layer
     ///
     /// Use this to perform read/write operations on the database.
-    pub fn storage(&self) -> &UnifiedStore {
+    /// The returned reference can also be used to create O(1) lazy snapshots.
+    pub fn storage(&self) -> &Arc<ShardedStore> {
         &self.storage
     }
 
@@ -798,10 +804,15 @@ impl Database {
     /// - `TransactionConflict` - Read-write or CAS conflict detected
     /// - `InvalidState` - Transaction not in Active state
     pub fn commit_transaction(&self, txn: &mut TransactionContext) -> Result<()> {
-        // Acquire commit lock to serialize validate → WAL → storage sequence
+        // Acquire per-run commit lock to serialize validate → WAL → storage sequence
         // This prevents CAS race conditions where multiple transactions pass validation
         // before any of them writes to storage.
-        let _commit_guard = self.commit_lock.lock().unwrap();
+        // Using per-run locks allows disjoint workloads to commit in parallel.
+        let run_lock = self
+            .commit_locks
+            .entry(txn.run_id)
+            .or_insert_with(|| ParkingMutex::new(()));
+        let _commit_guard = run_lock.lock();
 
         // 1. Validate (under commit lock)
         txn.mark_validating()?;
@@ -819,8 +830,8 @@ impl Database {
         // 2. Allocate commit version
         let commit_version = self.coordinator.allocate_commit_version();
 
-        // 3. Write to WAL
-        {
+        // 3. Write to WAL (skip for InMemory mode)
+        if self.durability_mode.requires_wal() {
             let mut wal = self.wal.lock().unwrap();
             let mut wal_writer = TransactionWALWriter::new(&mut wal, txn.txn_id, txn.run_id);
 
@@ -964,8 +975,12 @@ impl Database {
         txn: &mut TransactionContext,
         durability: DurabilityMode,
     ) -> Result<()> {
-        // Acquire commit lock
-        let _commit_guard = self.commit_lock.lock().unwrap();
+        // Acquire per-run commit lock
+        let run_lock = self
+            .commit_locks
+            .entry(txn.run_id)
+            .or_insert_with(|| ParkingMutex::new(()));
+        let _commit_guard = run_lock.lock();
 
         // 1. Validate
         txn.mark_validating()?;
@@ -1128,8 +1143,9 @@ impl Database {
     /// ```
     pub fn get(&self, key: &Key) -> Result<Option<VersionedValue>> {
         // For read-only operations, read directly from storage
-        // This is O(log n) via BTreeMap lookup, avoiding O(n) snapshot clone
-        self.storage.get(key)
+        // This is O(1) via DashMap + FxHashMap lookup
+        // Explicitly call Storage trait to get TTL expiration handling
+        Storage::get(self.storage.as_ref(), key)
     }
 
     /// Delete a key (M1 compatibility)

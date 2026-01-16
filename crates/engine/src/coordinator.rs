@@ -11,8 +11,9 @@
 
 use in_mem_concurrency::{RecoveryResult, TransactionContext, TransactionManager};
 use in_mem_core::types::RunId;
-use in_mem_storage::UnifiedStore;
+use in_mem_storage::ShardedStore;
 use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::Arc;
 
 /// Transaction coordinator for the database
 ///
@@ -68,7 +69,11 @@ impl TransactionCoordinator {
     ///
     /// # Returns
     /// * `TransactionContext` - Active transaction ready for operations
-    pub fn start_transaction(&self, run_id: RunId, storage: &UnifiedStore) -> TransactionContext {
+    pub fn start_transaction(
+        &self,
+        run_id: RunId,
+        storage: &Arc<ShardedStore>,
+    ) -> TransactionContext {
         let txn_id = self.manager.next_txn_id();
         let snapshot = storage.create_snapshot();
 
@@ -179,8 +184,8 @@ impl TransactionMetrics {
 mod tests {
     use super::*;
 
-    fn create_test_storage() -> UnifiedStore {
-        UnifiedStore::new()
+    fn create_test_storage() -> Arc<ShardedStore> {
+        Arc::new(ShardedStore::new())
     }
 
     #[test]
@@ -211,7 +216,7 @@ mod tests {
         };
 
         let result = RecoveryResult {
-            storage: UnifiedStore::new(),
+            storage: ShardedStore::new(),
             txn_manager: TransactionManager::new(100),
             stats,
         };

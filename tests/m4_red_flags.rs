@@ -69,11 +69,11 @@ fn red_flag_facade_tax_a1_a0() {
             .unwrap();
     }
 
-    // A0: Engine storage layer direct
+    // A0: Engine storage layer direct (via Storage trait)
     let start = Instant::now();
     for i in 0..ITERATIONS {
         let key = Key::new(ns.clone(), TypeTag::KV, format!("a0key{}", i).into_bytes());
-        let _ = db.storage().put(key, Value::I64(i as i64), None);
+        let _ = Storage::put(db.storage().as_ref(), key, Value::I64(i as i64), None);
     }
     let a0_elapsed = start.elapsed();
 
