@@ -26,6 +26,8 @@
 #   --cores=<list>  Pin to specific cores (e.g., "0-7")
 #   --no-setup      Skip environment setup checks
 #   --json          Output environment as JSON
+#   --mode=<mode>   Run with specific durability mode (inmemory, batched, strict)
+#   --all-modes     Run benchmarks for all three durability modes sequentially
 #   --help          Show this help message
 #
 # Examples:
@@ -34,6 +36,8 @@
 #   ./scripts/bench_runner.sh --filter="kvstore_" --perf
 #   ./scripts/bench_runner.sh --full --baseline=m3_launch
 #   ./scripts/bench_runner.sh --full --cores="0-7" --perf
+#   ./scripts/bench_runner.sh --full --mode=inmemory
+#   ./scripts/bench_runner.sh --full --all-modes
 #
 
 set -euo pipefail
@@ -62,6 +66,8 @@ USE_PERF_RECORD=false
 CORES=""
 SKIP_SETUP=false
 OUTPUT_JSON=false
+DURABILITY_MODE=""
+ALL_MODES=false
 
 # Benchmark results directory
 RESULTS_DIR="$PROJECT_ROOT/target/benchmark-results"
@@ -298,9 +304,19 @@ run_benchmarks() {
     local cores="$3"
     local use_perf="$4"
     local use_perf_record="$5"
+    local durability_mode="$6"
 
     cd "$PROJECT_ROOT"
     mkdir -p "$RESULTS_DIR"
+
+    # Set durability mode environment variable
+    if [[ -n "$durability_mode" ]]; then
+        export INMEM_DURABILITY_MODE="$durability_mode"
+        log_info "Durability mode: $durability_mode"
+    else
+        unset INMEM_DURABILITY_MODE
+        log_info "Durability mode: default (strict)"
+    fi
 
     # Build criterion arguments
     local criterion_args=()
@@ -346,26 +362,44 @@ run_benchmarks() {
     log_info "Running: ${cmd[*]}"
     echo ""
 
+    # Determine output filename suffix based on mode
+    local mode_suffix=""
+    if [[ -n "$durability_mode" ]]; then
+        mode_suffix="_${durability_mode}"
+    fi
+
+    local output_file="$RESULTS_DIR/bench_output_${TIMESTAMP}${mode_suffix}.txt"
+
     # Execute
-    "${cmd[@]}" 2>&1 | tee "$RESULTS_DIR/bench_output_${TIMESTAMP}.txt"
+    "${cmd[@]}" 2>&1 | tee "$output_file"
 
     echo ""
     log_success "Benchmark complete"
-    log_info "Results saved to: $RESULTS_DIR/bench_output_${TIMESTAMP}.txt"
+    log_info "Results saved to: $output_file"
 
     # Generate report
-    generate_redis_report "$RESULTS_DIR/bench_output_${TIMESTAMP}.txt"
+    generate_redis_report "$output_file" "$durability_mode"
 }
 
 generate_redis_report() {
     local output_file="$1"
-    local report_file="$RESULTS_DIR/redis_comparison_${TIMESTAMP}.txt"
+    local durability_mode="$2"
+
+    local mode_suffix=""
+    local mode_display="Strict (default)"
+    if [[ -n "$durability_mode" ]]; then
+        mode_suffix="_${durability_mode}"
+        mode_display="$durability_mode"
+    fi
+
+    local report_file="$RESULTS_DIR/redis_comparison_${TIMESTAMP}${mode_suffix}.txt"
 
     log_info "Generating Redis comparison report..."
 
-    cat > "$report_file" << 'EOF'
+    cat > "$report_file" << EOF
 =============================================================================
 REDIS COMPETITIVENESS REPORT
+Durability Mode: ${mode_display}
 =============================================================================
 
 EOF
@@ -510,6 +544,14 @@ main() {
                 OUTPUT_JSON=true
                 shift
                 ;;
+            --mode=*)
+                DURABILITY_MODE="${1#*=}"
+                shift
+                ;;
+            --all-modes)
+                ALL_MODES=true
+                shift
+                ;;
             --help|-h)
                 show_help
                 ;;
@@ -584,7 +626,39 @@ main() {
 
     # Run benchmarks
     if [[ "$RUN_FULL" == "true" ]] || [[ -n "$FILTER" ]]; then
-        run_benchmarks "$FILTER" "$BASELINE" "$CORES" "$USE_PERF" "$USE_PERF_RECORD"
+        if [[ "$ALL_MODES" == "true" ]]; then
+            # Run all three durability modes
+            log_info "Running benchmarks for all durability modes..."
+            echo ""
+
+            for mode in inmemory batched strict; do
+                echo ""
+                echo "============================================================"
+                echo "DURABILITY MODE: $mode"
+                echo "============================================================"
+                echo ""
+
+                # Update timestamp for each mode run
+                local mode_timestamp=$(date +%Y%m%d_%H%M%S)
+                TIMESTAMP="$mode_timestamp"
+
+                run_benchmarks "$FILTER" "$BASELINE" "$CORES" "$USE_PERF" "$USE_PERF_RECORD" "$mode"
+            done
+
+            # Print summary of all modes
+            echo ""
+            echo "============================================================"
+            echo "ALL MODES COMPLETE"
+            echo "============================================================"
+            echo ""
+            log_info "Results saved to:"
+            log_info "  $RESULTS_DIR/bench_output_*_inmemory.txt"
+            log_info "  $RESULTS_DIR/bench_output_*_batched.txt"
+            log_info "  $RESULTS_DIR/bench_output_*_strict.txt"
+        else
+            # Run with specific mode or default
+            run_benchmarks "$FILTER" "$BASELINE" "$CORES" "$USE_PERF" "$USE_PERF_RECORD" "$DURABILITY_MODE"
+        fi
     else
         log_info "No benchmarks specified. Use --full or --filter=<pattern>"
         log_info "Examples:"
@@ -593,6 +667,8 @@ main() {
         log_info "  $0 --filter=\"kvstore_\"       # Run KVStore benchmarks"
         log_info "  $0 --full --perf             # Run with perf stat"
         log_info "  $0 --full --baseline=m3      # Save baseline 'm3'"
+        log_info "  $0 --full --mode=inmemory    # Run in InMemory mode"
+        log_info "  $0 --full --all-modes        # Run all three durability modes"
     fi
 
     echo ""

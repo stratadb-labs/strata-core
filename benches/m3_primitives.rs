@@ -57,6 +57,7 @@ use criterion::{black_box, BenchmarkId, Criterion, Throughput};
 use in_mem_core::traits::Storage;
 use in_mem_core::types::{Key, Namespace, RunId};
 use in_mem_core::value::Value;
+use in_mem_durability::wal::DurabilityMode;
 use in_mem_engine::Database;
 use in_mem_primitives::{EventLog, KVStore, RunIndex, RunStatus, StateCell, TraceStore, TraceType};
 use in_mem_storage::UnifiedStore;
@@ -81,10 +82,30 @@ const CONTENTION_BENCH_DURATION: Duration = Duration::from_secs(2);
 // Test Utilities
 // =============================================================================
 
+/// Get durability mode from INMEM_DURABILITY_MODE environment variable
+fn get_durability_mode() -> DurabilityMode {
+    std::env::var("INMEM_DURABILITY_MODE")
+        .ok()
+        .and_then(|s| match s.to_lowercase().as_str() {
+            "inmemory" | "in_memory" | "in-memory" => Some(DurabilityMode::InMemory),
+            "batched" | "buffered" => Some(DurabilityMode::buffered_default()),
+            "strict" => Some(DurabilityMode::Strict),
+            _ => None,
+        })
+        .unwrap_or(DurabilityMode::Strict)
+}
+
 /// Create a test database and return both DB and temp directory
 fn create_db() -> (Arc<Database>, TempDir) {
     let temp_dir = TempDir::new().unwrap();
-    let db = Arc::new(Database::open(temp_dir.path().join("db")).unwrap());
+    let mode = get_durability_mode();
+    let db = Arc::new(
+        Database::builder()
+            .durability(mode)
+            .path(temp_dir.path().join("db"))
+            .open()
+            .unwrap(),
+    );
     (db, temp_dir)
 }
 
@@ -662,21 +683,14 @@ fn kvstore_benchmarks(c: &mut Criterion) {
         let kv = KVStore::new(db);
         let run_id = RunId::new();
 
-        const MAX_KEYS: u64 = 100_000;
-        for i in 0..MAX_KEYS {
-            kv.put(&run_id, &format!("del_{}", i), Value::I64(i as i64))
-                .unwrap();
-        }
-
         let counter = AtomicU64::new(0);
 
         group.bench_function("delete", |b| {
             b.iter(|| {
                 let i = counter.fetch_add(1, Ordering::Relaxed);
-                if i >= MAX_KEYS {
-                    panic!("Benchmark exceeded pre-generated keys");
-                }
                 let key = format!("del_{}", i);
+                // Create the key first, then delete it
+                kv.put(&run_id, &key, Value::I64(i as i64)).unwrap();
                 let result = kv.delete(&run_id, &key);
                 black_box(result.unwrap())
             });
@@ -899,20 +913,14 @@ fn runindex_benchmarks(c: &mut Criterion) {
         let (db, _temp) = create_db();
         let ri = RunIndex::new(db);
 
-        const MAX_RUNS: u64 = 10_000;
-        for i in 0..MAX_RUNS {
-            ri.create_run(&format!("status_run_{}", i)).unwrap();
-        }
-
         let counter = AtomicU64::new(0);
 
         group.bench_function("transition", |b| {
             b.iter(|| {
                 let i = counter.fetch_add(1, Ordering::Relaxed);
-                if i >= MAX_RUNS {
-                    panic!("Benchmark exceeded pre-generated runs");
-                }
                 let run_name = format!("status_run_{}", i);
+                // Create the run first, then transition it
+                ri.create_run(&run_name).unwrap();
                 let result = ri.complete_run(&run_name);
                 black_box(result.unwrap())
             });
@@ -1495,6 +1503,13 @@ fn print_environment() -> BenchEnvironment {
 
     // Print full environment report
     env.print_report();
+
+    // Print durability mode
+    let mode = get_durability_mode();
+    eprintln!("=== Durability Mode ===");
+    eprintln!("  Mode: {:?}", mode);
+    eprintln!("  (Set INMEM_DURABILITY_MODE env var to: inmemory, batched, or strict)");
+    eprintln!();
 
     // Print perf configuration status
     let perf_config = PerfConfig::default();
