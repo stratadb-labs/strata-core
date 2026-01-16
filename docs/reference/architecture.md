@@ -2,61 +2,63 @@
 
 Learn how **in-mem** works internally and why it's designed the way it is.
 
+**Current Version**: 0.3.0 (M3 Primitives + M4 Performance)
+
 ## Design Philosophy
 
 **in-mem** is built around three core principles:
 
 1. **Run-First Design**: Every operation is scoped to a run, enabling deterministic replay and debugging
 2. **Accept MVP Limitations, Design for Evolution**: Simple implementations now, trait abstractions for future optimization
-3. **Speed Over Perfect Durability**: Batched fsync by default (agents prefer fast writes over perfect durability)
+3. **Layered Performance**: Fast paths for common operations, full transactions when needed
 
 ## System Architecture
 
 ### Layered Design
 
 ```
-┌─────────────────────────────────────────────┐
-│         API Layer (embedded/rpc/mcp)        │
-└─────────────────┬───────────────────────────┘
-                  │
-┌─────────────────▼───────────────────────────┐
-│  Primitives (KV, Events, StateMachine,      │
-│              Trace, RunIndex, Vector)       │  ← Stateless facades
-└─────────────────┬───────────────────────────┘
-                  │
-┌─────────────────▼───────────────────────────┐
-│  Engine (Database, Run Lifecycle, Coord)    │  ← Orchestration
-└──┬──────────────────────────────────────┬───┘
-   │                                      │
-┌──▼──────────────┐            ┌──────────▼────┐
-│  Concurrency    │            │  Durability   │
-│  (OCC/Txn)      │            │  (WAL/Snap)   │
-└─────────┬───────┘            └─────────┬─────┘
-          │                              │
-┌─────────▼──────────────────────────────▼─────┐
-│       Storage (UnifiedStore + Indices)       │
-└──────────────────┬───────────────────────────┘
-                   │
-┌──────────────────▼───────────────────────────┐
-│  Core Types (RunId, Key, Value, TypeTag)     │
-└──────────────────────────────────────────────┘
+┌─────────────────────────────────────────────────────────┐
+│              API Layer (embedded/rpc/mcp)               │
+└───────────────────────────┬─────────────────────────────┘
+                            │
+┌───────────────────────────▼─────────────────────────────┐
+│  Primitives (KV, EventLog, StateCell, Trace, RunIndex)  │  ← Stateless facades
+└───────────────────────────┬─────────────────────────────┘
+                            │
+┌───────────────────────────▼─────────────────────────────┐
+│       Engine (Database, Run Lifecycle, Coordinator)     │  ← Orchestration
+└───────┬───────────────────────────────────────┬─────────┘
+        │                                       │
+┌───────▼───────────────┐         ┌─────────────▼─────────┐
+│     Concurrency       │         │      Durability       │
+│  (OCC/Transactions)   │         │  (InMemory/Buffered/  │
+│                       │         │       Strict)         │
+└───────────┬───────────┘         └───────────┬───────────┘
+            │                                 │
+┌───────────▼─────────────────────────────────▼───────────┐
+│         Storage (UnifiedStore + Snapshots)              │
+└───────────────────────────┬─────────────────────────────┘
+                            │
+┌───────────────────────────▼─────────────────────────────┐
+│      Core Types (RunId, Key, Value, TypeTag)            │
+└─────────────────────────────────────────────────────────┘
 ```
 
 ### Layer Responsibilities
 
-**Core Types**: Foundation data structures (RunId, Key, Value, Namespace)
+**Core Types**: Foundation data structures (RunId, Key, Value, TypeTag)
 
-**Storage**: Unified BTreeMap with secondary indices (run_id, type_tag, TTL)
+**Storage**: Unified BTreeMap with snapshots and version tracking
 
-**Durability**: Write-ahead log (WAL) with configurable fsync modes
+**Durability**: Write-ahead log (WAL) with three modes: InMemory, Buffered, Strict
 
-**Concurrency**: Optimistic Concurrency Control (OCC) - coming in M2
+**Concurrency**: Optimistic Concurrency Control (OCC) with snapshot isolation
 
 **Engine**: Orchestrates run lifecycle, transactions, recovery
 
-**Primitives**: High-level APIs (KV, Event Log, State Machine, etc.)
+**Primitives**: High-level APIs (KV, EventLog, StateCell, TraceStore, RunIndex)
 
-**API**: Embedded library interface (network layer in M7)
+**API**: Embedded library interface (network layer planned for future)
 
 ## Data Model
 
@@ -67,7 +69,7 @@ Every key in **in-mem** has three components:
 ```rust
 pub struct Key {
     namespace: Namespace,  // tenant/app/agent/run hierarchy
-    type_tag: TypeTag,     // KV, Event, StateMachine, etc.
+    type_tag: TypeTag,     // KV, Event, State, Trace, RunIndex
     user_key: Vec<u8>,     // your application key
 }
 ```
@@ -78,6 +80,19 @@ This enables:
 - Efficient prefix scans (list all keys for a run)
 - Cross-primitive queries (get all events and KV for a run)
 - Namespace isolation (tenant separation)
+
+### Type Tags
+
+```rust
+pub enum TypeTag {
+    KV,         // Key-value pairs
+    Event,      // Event log entries
+    State,      // StateCell values
+    Trace,      // Trace records
+    RunIndex,   // Run metadata
+    Index,      // Secondary indices
+}
+```
 
 ### Values
 
@@ -97,66 +112,70 @@ pub struct VersionedValue {
 - Conflict detection (version changed during transaction)
 - Replay (apply operations in version order)
 
-## Storage Layer
+## Concurrency Model
 
-### Unified Store
+### Optimistic Concurrency Control (OCC)
 
-**M1 Implementation**: Single `BTreeMap<Key, VersionedValue>` with RwLock
+**in-mem** uses OCC with first-committer-wins conflict detection:
+
+```
+┌─────────────────────────────────────────────────────────┐
+│                    Transaction Flow                     │
+├─────────────────────────────────────────────────────────┤
+│                                                         │
+│  1. BEGIN                                               │
+│     ├─ Acquire snapshot (current version)              │
+│     └─ Initialize read/write/delete sets               │
+│                                                         │
+│  2. EXECUTE                                             │
+│     ├─ Reads: Check write_set → delete_set → snapshot  │
+│     ├─ Writes: Buffer in write_set                     │
+│     └─ Deletes: Buffer in delete_set                   │
+│                                                         │
+│  3. VALIDATE                                            │
+│     ├─ Check read_set versions unchanged               │
+│     └─ If conflict → ABORT, else continue              │
+│                                                         │
+│  4. COMMIT                                              │
+│     ├─ Allocate commit version                         │
+│     ├─ Write to WAL (durability mode determines sync)  │
+│     └─ Apply to storage                                │
+│                                                         │
+└─────────────────────────────────────────────────────────┘
+```
+
+### Read-Your-Writes Semantics
+
+Within a transaction, reads see uncommitted writes:
+
+1. Check `write_set` (uncommitted write)
+2. Check `delete_set` (uncommitted delete → return None)
+3. Check snapshot (committed data, tracked in `read_set`)
+
+### Conflict Detection
+
+At commit time:
+- For each key in `read_set`, check if current version > version at read time
+- If any conflict detected → transaction aborts
+- First committer wins (no blocking)
+
+### Snapshot Isolation
 
 ```rust
-pub struct UnifiedStore {
-    data: Arc<RwLock<BTreeMap<Key, VersionedValue>>>,
-    global_version: AtomicU64,
-
-    // Secondary indices
-    run_index: HashMap<RunId, HashSet<Key>>,
-    type_index: HashMap<TypeTag, HashSet<Key>>,
-    ttl_index: BTreeMap<Instant, HashSet<Key>>,
+pub struct ClonedSnapshotView {
+    version: u64,
+    data: Arc<BTreeMap<Key, VersionedValue>>,
 }
 ```
 
-**Why Unified?**
-- Single BTreeMap for all primitives (not separate stores)
-- Enables atomic multi-primitive transactions
-- Simplifies recovery (one data structure to replay into)
+**Current Implementation**: Deep clone of data at snapshot time (M2)
+- Simple and correct
+- O(data_size) memory and creation time
+- Acceptable for agent workloads with small working sets
 
-**Trade-offs**:
-- ✅ Simple, correct, easy to reason about
-- ⚠️ Writers block readers (RwLock contention)
-- ⚠️ Global version counter will contend under load
-
-**Future**: Storage is behind a trait, can swap to sharded/lock-free implementation without API changes.
-
-### Secondary Indices
-
-**Run Index**: `RunId → Set<Key>`
-- Find all keys written by a run
-- Enables O(run size) replay (not O(WAL size))
-
-**Type Index**: `TypeTag → Set<Key>`
-- Find all Event Log entries, all State Machine records, etc.
-- Efficient cross-primitive queries
-
-**TTL Index**: `Expiration Time → Set<Key>`
-- Efficient expiration (no need to scan all keys)
-- Background cleanup thread
-
-### TTL Cleanup
-
-Background thread checks for expired keys every second:
-
-```rust
-impl TTLCleaner {
-    fn cleanup_expired(&self) {
-        let expired = self.find_expired_keys(Instant::now());
-        for key in expired {
-            self.store.delete(&key); // Transactional delete
-        }
-    }
-}
-```
-
-**Key Design**: Cleanup uses normal delete operations (transactional, logged to WAL). No special "expire" operation.
+**Future Optimization**: LazySnapshotView with version bounds
+- O(1) creation time
+- Read from live storage with version filtering
 
 ## Durability
 
@@ -178,32 +197,64 @@ pub enum WALEntry {
 
 **CRC Protection**: Every entry has CRC32 checksum. Corrupted entries stop recovery (fail-safe).
 
-### Durability Modes
+### Durability Modes (M4)
 
-**Strict**: fsync after every commit
+**in-mem** provides three durability modes to match different workload requirements:
+
+#### InMemory Mode
+
+```
+write → apply to storage → return
+```
+
+| Property | Value |
+|----------|-------|
+| WAL | None |
+| fsync | None |
+| Latency | <3µs |
+| Throughput | 250K+ ops/sec |
+| Data Loss | All (on crash) |
+
+**Use Cases**: Tests, caches, ephemeral data, benchmarks
+
+#### Buffered Mode (Production Default)
+
+```
+write → log to WAL buffer → apply to storage → return
+                 ↓
+      background thread fsyncs periodically
+```
+
+| Property | Value |
+|----------|-------|
+| WAL | Append (buffered) |
+| fsync | Every 100ms or 1000 writes |
+| Latency | <30µs |
+| Throughput | 50K+ ops/sec |
+| Data Loss | Bounded (~100ms) |
+
+**Background Thread**:
+- Wakes on timer (flush_interval_ms) or threshold (max_pending_writes)
+- Graceful shutdown with final sync
+- Thread lifecycle properly managed
+
+**Use Cases**: Production workloads, agent workflows, general use
+
+#### Strict Mode
+
 ```
 write → log to WAL → fsync → apply to storage → return
 ```
-- Safest (no data loss except on disk failure)
-- Slowest (~10ms per write on typical SSD)
 
-**Batched** (default): fsync every 100ms or 1000 commits
-```
-write → log to WAL → apply to storage → return
-                 ↓
-          background thread fsyncs every 100ms
-```
-- Balanced (may lose <100ms of commits on crash)
-- Fast (<1ms per write)
+| Property | Value |
+|----------|-------|
+| WAL | Append (sync) |
+| fsync | Every write |
+| Latency | ~2ms |
+| Throughput | ~500 ops/sec |
+| Data Loss | Zero |
 
-**Async**: background thread fsyncs every 1 second
-```
-write → log to WAL → apply to storage → return
-                 ↓
-          background thread fsyncs every 1s
-```
-- Fastest (<0.1ms per write)
-- May lose up to 1 second of commits on crash
+**Use Cases**: Audit logs, compliance, critical metadata
 
 ### Recovery
 
@@ -218,214 +269,192 @@ On database open:
 
 **Conservative Recovery**: Stop at first corrupted entry (don't skip). Ensures no silent data loss.
 
-## Concurrency
+## Primitives Architecture
 
-### M1: RwLock
-
-Simple reader-writer lock:
-- Multiple readers OR one writer
-- Writers block readers
-- Readers block writers
-
-**Performance**: Acceptable for M1 (single-agent workloads). Will contend under high load.
-
-### M2: Optimistic Concurrency Control (OCC)
-
-Coming in M2:
-
-1. **Begin Transaction**: Take snapshot of current version
-2. **Execute**: Read from snapshot, buffer writes
-3. **Validate**: Check no conflicting writes occurred
-4. **Commit**: Apply writes if validation passes, retry if conflicts
-
-**Benefits**:
-- Readers never block writers
-- Writers never block readers
-- Only conflicts retry
-
-## Run Lifecycle
-
-### Run States
-
-```
-Created → Running → Completed
-           ↓
-        Forked (future)
-```
-
-**Created**: Run registered but not started
-
-**Running**: Actively executing operations
-
-**Completed**: Finished (can be replayed)
-
-**Forked**: Branched into child runs (M3 feature)
-
-### Run Metadata
+All primitives follow the same pattern:
 
 ```rust
-pub struct RunMetadata {
-    run_id: RunId,
-    parent_run_id: Option<RunId>,
-    status: RunStatus,
-    created_at: Timestamp,
-    completed_at: Option<Timestamp>,
-    first_version: u64,      // For replay
-    last_version: u64,
-    wal_start_offset: u64,   // For replay
-    wal_end_offset: u64,
+pub struct Primitive {
+    db: Arc<Database>  // Stateless facade
 }
 ```
 
-**Why Track Offsets?**
-- Replay only reads `[wal_start_offset..wal_end_offset]` (not entire WAL)
-- O(run size) replay instead of O(WAL size)
-- Enables efficient diffing of two runs
+### Primitive Layer Design
+
+```
+┌─────────────────────────────────────────────────────────┐
+│                    Primitive Layer                      │
+├─────────────────────────────────────────────────────────┤
+│                                                         │
+│  ┌─────────┐ ┌─────────┐ ┌─────────┐ ┌───────┐ ┌─────┐ │
+│  │ KVStore │ │EventLog │ │StateCell│ │ Trace │ │ Run │ │
+│  │         │ │         │ │         │ │ Store │ │Index│ │
+│  └────┬────┘ └────┬────┘ └────┬────┘ └───┬───┘ └──┬──┘ │
+│       │          │          │          │        │     │
+│       └──────────┴──────────┴──────────┴────────┘     │
+│                          │                            │
+│                   Extension Traits                    │
+│            (KVStoreExt, EventLogExt, etc.)           │
+│                          │                            │
+└──────────────────────────┼────────────────────────────┘
+                           │
+              ┌────────────▼────────────┐
+              │   TransactionContext    │
+              │   (cross-primitive)     │
+              └─────────────────────────┘
+```
+
+### Fast Path vs Transaction Path
+
+**Fast Path** (for read-only operations):
+```rust
+// Direct snapshot read - no transaction overhead
+pub fn get(&self, run_id: &RunId, key: &str) -> Result<Option<Value>> {
+    let snapshot = self.db.storage().create_snapshot();
+    // Read directly from snapshot
+}
+```
+
+**Transaction Path** (for writes or multi-operation consistency):
+```rust
+// Full transaction with conflict detection
+pub fn put(&self, run_id: &RunId, key: &str, value: Value) -> Result<()> {
+    self.db.transaction(run_id, |txn| {
+        txn.kv_put(key, value)
+    })
+}
+```
+
+### Secondary Indices
+
+Each primitive maintains its own indices for efficient queries:
+
+**EventLog**:
+- `event:meta:{run_id}` → sequence counter, last hash
+- `event:{run_id}:{seq}` → event data
+
+**StateCell**:
+- `state:{run_id}:{name}` → state value with version
+
+**TraceStore**:
+- `trace:{run_id}:{id}` → trace data
+- `trace:idx:type:{run_id}:{type}:{id}` → by type
+- `trace:idx:tag:{run_id}:{tag}:{id}` → by tag
+- `trace:idx:parent:{run_id}:{parent_id}:{id}` → by parent
+- `trace:idx:time:{run_id}:{hour_bucket}:{id}` → by time
+
+**RunIndex**:
+- `run:{id}` → run metadata
+- `run:idx:status:{status}:{id}` → by status
+- `run:idx:tag:{tag}:{id}` → by tag
+- `run:idx:parent:{parent_id}:{id}` → by parent
 
 ## Performance Characteristics
 
-### M1 Baseline (Single-Threaded)
+### M4 Targets
 
-| Operation | Latency (p99) | Throughput |
-|-----------|---------------|------------|
-| put (batched) | <1ms | ~50K ops/sec |
-| get | <0.1ms | ~200K ops/sec |
-| delete (batched) | <1ms | ~50K ops/sec |
-| list (100 keys) | <1ms | ~10K scans/sec |
-| Recovery (10K txns) | 486ms | 20,564 txns/sec |
+| Metric | Target | Notes |
+|--------|--------|-------|
+| InMemory put | <3µs | No WAL, no syscalls |
+| InMemory throughput (1 thread) | 250K ops/sec | |
+| Buffered put | <30µs | WAL append, async fsync |
+| Buffered throughput | 50K ops/sec | |
+| Strict put | ~2ms | WAL append + fsync |
+| Fast path read | <10µs | Direct snapshot |
+| Disjoint scaling (2 threads) | ≥1.8× | |
+| Disjoint scaling (4 threads) | ≥3.2× | |
 
-**Bottlenecks** (known):
-- RwLock: Writers block readers
-- Global version counter: AtomicU64 contention
-- Snapshot creation: Clones entire BTreeMap
+### Facade Tax
 
-### M2 Targets (with OCC)
+Performance overhead from abstraction layers:
 
-- put: ~10K ops/sec (conflicts may cause retries)
-- get: ~500K ops/sec (no blocking)
-- Concurrent writes: 4-8 cores utilized
+| Layer | Overhead |
+|-------|----------|
+| A0 (engine/put_direct) | Baseline |
+| A1 (engine/transaction) | <10× A0 |
+| B (primitive/put) | <5× A1 |
+| Total (B/A0) | <30× |
 
-## Known Limitations (M1)
+### Hot Path Optimization
+
+The M4 hot path is designed for minimal overhead:
+
+1. **Transaction Pooling**: Reuse transaction objects (planned)
+2. **Snapshot Acquisition**: <500ns target, allocation-free (planned)
+3. **Fast Path Reads**: Bypass transaction for read-only operations
+
+## Known Limitations
 
 | Limitation | Impact | Mitigation |
 |------------|--------|------------|
-| In-memory only | Can't exceed RAM | M6 will add disk-based storage |
-| RwLock | Writers block readers | M2 OCC for non-blocking reads |
-| Global version counter | AtomicU64 contention | Can shard per namespace later |
-| Snapshot cloning | Memory overhead | Lazy snapshots in M3 |
-| No transactions | No atomic multi-key ops | M2 will add OCC transactions |
+| ClonedSnapshot | O(n) creation | Acceptable for small working sets; lazy snapshots planned |
+| Global version counter | AtomicU64 contention | Sharding planned for M12 |
+| BTreeMap storage | Ordered but slower than HashMap | DashMap integration planned |
+| No persistent indices | Rebuilt on recovery | Snapshot indices planned for M6 |
 
-**Design for Evolution**: All limitations have clear migration paths enabled by trait abstractions.
-
-## Security & Reliability
-
-### Data Integrity
-
-✅ **CRC32 on every WAL entry**: Detects corruption
-✅ **Fail-safe recovery**: Stop at corruption (don't skip)
-✅ **Transactional deletes**: TTL cleanup goes through normal paths
-
-### Fault Tolerance
-
-✅ **Crash recovery**: Automatic on database open
-✅ **Configurable durability**: Choose your trade-off
-✅ **Conservative recovery**: Discard incomplete transactions
-
-### Not Yet Implemented
-
-❌ **Authentication**: Not in embedded mode (M7 network layer)
-❌ **Encryption at rest**: Planned for M8
-❌ **Replication**: Planned for M9
-❌ **Backup/restore**: Planned for M4
-
-## Comparisons
+## Comparison to Other Databases
 
 ### vs. SQLite
 
-**in-mem**:
-- ✅ Run-scoped operations (built-in)
-- ✅ Multi-primitive (KV + Events + Traces)
-- ✅ Optimized for agent workflows
-- ❌ No SQL (simple API only)
-- ❌ In-memory only (M1)
-
-**SQLite**:
-- ✅ SQL queries
-- ✅ Disk-based storage
-- ✅ Mature ecosystem
-- ❌ No run concept (must implement yourself)
-- ❌ Single primitive (relational only)
+| Feature | in-mem | SQLite |
+|---------|--------|--------|
+| Run-scoped operations | Built-in | Manual |
+| Multi-primitive | Yes (5 primitives) | SQL only |
+| Agent-optimized | Yes | No |
+| SQL queries | No | Yes |
+| Storage | In-memory | Disk |
 
 ### vs. Redis
 
-**in-mem**:
-- ✅ Embedded (no network overhead)
-- ✅ Run-scoped operations
-- ✅ Deterministic replay
-- ❌ No network mode yet (M7)
-- ❌ Limited data structures (M1)
-
-**Redis**:
-- ✅ Rich data structures
-- ✅ Network protocol
-- ✅ Pub/sub, streams
-- ❌ No run concept
-- ❌ Not embedded
+| Feature | in-mem | Redis |
+|---------|--------|-------|
+| Embedded | Yes | No |
+| Network overhead | None | ~100µs |
+| Run concept | Built-in | Manual |
+| Replay/debugging | Built-in | Manual |
+| Data structures | 5 primitives | Rich |
 
 ### vs. RocksDB
 
-**in-mem**:
-- ✅ Multi-primitive unified storage
-- ✅ Run-scoped operations
-- ✅ Simple API
-- ❌ In-memory only (M1)
-- ❌ No distributed mode
-
-**RocksDB**:
-- ✅ Disk-based (LSM tree)
-- ✅ High write throughput
-- ✅ Proven at scale
-- ❌ No run concept
-- ❌ KV only
+| Feature | in-mem | RocksDB |
+|---------|--------|---------|
+| Multi-primitive | Yes | KV only |
+| Run-scoped | Built-in | Manual |
+| Storage | In-memory | LSM tree |
+| Simple API | Yes | Complex |
 
 ## Future Roadmap
 
-### M2: Transactions (Week 3)
-- Optimistic Concurrency Control
-- Snapshot isolation
-- Multi-key transactions
+### M5: JSON Primitive
+- Native JSON with path-level atomicity
+- Patch-based WAL entries
+- Structural conflict detection
 
-### M3: Primitives (Week 4)
-- Event Log with chaining
-- State Machine with CAS
-- Trace Store for reasoning
-- Run Index for first-class runs
-
-### M4: Production Durability (Week 5)
+### M6: Durability
 - Periodic snapshots
 - WAL truncation
-- Incremental snapshots
+- Full recovery with JSON support
 
-### M5: Replay & Polish (Week 6)
+### M7: Replay & Polish
 - Deterministic replay
 - Run diffing
-- Performance benchmarks
+- Production readiness
 
-### M6+: Post-MVP
-- Disk-based storage (LSM tree)
-- Vector store (HNSW index)
-- Network layer (RPC + MCP)
-- Distributed mode
-- Encryption at rest
+### Post-MVP
+- Vector store (M8)
+- Network layer (M9)
+- MCP integration (M10)
+- Query DSL (M11)
+- Redis parity performance (M12)
 
 ## See Also
 
-- [Getting Started Guide](getting-started.md)
-- [API Reference](api-reference.md)
-- [Performance Tuning](performance.md)
-- [M1_ARCHITECTURE.md](../architecture/M1_ARCHITECTURE.md) - Detailed technical specification
+- [API Reference](api-reference.md) - Complete API documentation
+- [Getting Started Guide](getting-started.md) - Quick start
+- [Milestones](../milestones/MILESTONES.md) - Project roadmap
+- [M4 Architecture](../architecture/M4_ARCHITECTURE.md) - Performance architecture details
 
 ---
 
-**Current Version**: 0.1.0 (M1 Foundation)
+**Current Version**: 0.3.0 (M3 Primitives + M4 Performance)
 **Architecture Status**: Production-ready for embedded use

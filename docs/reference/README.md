@@ -2,6 +2,8 @@
 
 Complete reference documentation for **in-mem** - a fast, durable, embedded database for AI agent workloads.
 
+**Current Version**: 0.3.0 (M3 Primitives + M4 Performance)
+
 ## Quick Links
 
 ### For Users
@@ -12,15 +14,99 @@ Complete reference documentation for **in-mem** - a fast, durable, embedded data
 
 ### For Developers
 
-- **[M1 Architecture Spec](../architecture/M1_ARCHITECTURE.md)** - Detailed technical specification
+- **[M4 Architecture](../architecture/M4_ARCHITECTURE.md)** - Performance architecture
 - **[Development Workflow](../development/DEVELOPMENT_WORKFLOW.md)** - Git workflow
 - **[TDD Methodology](../development/TDD_METHODOLOGY.md)** - Testing approach
 
 ### Project Information
 
-- **[Project Status](../milestones/PROJECT_STATUS.md)** - Current development status
-- **[Milestones](../milestones/MILESTONES.md)** - Roadmap M1-M5
+- **[Milestones](../milestones/MILESTONES.md)** - Roadmap M1-M7
 - **[GitHub Repository](https://github.com/anibjoshi/in-mem)** - Source code
+
+## What is in-mem?
+
+**in-mem** is an embedded database designed specifically for AI agent workloads. It provides:
+
+- **Run-Scoped Operations**: Every operation tagged with a RunId for deterministic replay
+- **Five Primitives**: KVStore, EventLog, StateCell, TraceStore, RunIndex
+- **Three Durability Modes**: InMemory (<3µs), Buffered (<30µs), Strict (~2ms)
+- **OCC Transactions**: Optimistic concurrency with snapshot isolation
+- **Embedded Library**: Zero-copy in-process API
+
+## Current Status
+
+### Completed Milestones
+
+| Milestone | Status | Description |
+|-----------|--------|-------------|
+| M1 Foundation | ✅ | Basic storage, WAL, recovery |
+| M2 Transactions | ✅ | OCC with snapshot isolation |
+| M3 Primitives | ✅ | 5 primitives (KV, Events, State, Trace, Run) |
+| M4 Performance | ✅ | Durability modes, fast paths, 250K ops/sec |
+
+### Next Up
+
+| Milestone | Description |
+|-----------|-------------|
+| M5 JSON | Native JSON with path-level atomicity |
+| M6 Durability | Snapshots, WAL truncation |
+| M7 Replay | Deterministic replay, run diffing |
+
+## Quick Start
+
+```rust
+use in_mem::{Database, DurabilityMode, primitives::KVStore, Value};
+use std::sync::Arc;
+
+// Open database with Buffered durability
+let db = Arc::new(Database::open_with_mode(
+    "./my-agent-db",
+    DurabilityMode::Buffered {
+        flush_interval_ms: 100,
+        max_pending_writes: 1000,
+    }
+)?);
+
+// Create KVStore primitive
+let kv = KVStore::new(db.clone());
+
+// Begin a run
+let run_id = db.begin_run();
+
+// Store and retrieve data
+kv.put(&run_id, "key", Value::String("value".into()))?;
+let value = kv.get(&run_id, "key")?;
+
+// End run
+db.end_run(run_id)?;
+```
+
+See [Getting Started](getting-started.md) for the full guide.
+
+## Performance
+
+| Mode | Latency | Throughput | Data Loss |
+|------|---------|------------|-----------|
+| InMemory | <3µs | 250K+ ops/sec | All |
+| Buffered | <30µs | 50K+ ops/sec | ~100ms |
+| Strict | ~2ms | ~500 ops/sec | None |
+
+### Scaling
+
+| Threads | Disjoint Scaling |
+|---------|------------------|
+| 2 | ≥1.8× |
+| 4 | ≥3.2× |
+
+## Primitives
+
+| Primitive | Purpose |
+|-----------|---------|
+| **KVStore** | Key-value storage with batch operations |
+| **EventLog** | Append-only log with hash chaining |
+| **StateCell** | Named cells with CAS operations |
+| **TraceStore** | Hierarchical agent reasoning traces |
+| **RunIndex** | Run lifecycle management |
 
 ## Documentation Structure
 
@@ -29,69 +115,22 @@ docs/
 ├── reference/              # User-facing reference docs
 │   ├── getting-started.md  # Quick start guide
 │   ├── api-reference.md    # Complete API reference
-│   └── architecture.md     # Architecture overview
+│   ├── architecture.md     # Architecture overview
+│   └── README.md           # This file
 │
 ├── architecture/           # Technical specifications
-│   └── M1_ARCHITECTURE.md  # M1 detailed spec
+│   └── M4_ARCHITECTURE.md  # Performance architecture
 │
 ├── development/            # Developer guides
-│   ├── GETTING_STARTED.md  # Developer onboarding
-│   ├── TDD_METHODOLOGY.md  # Testing strategy
-│   └── DEVELOPMENT_WORKFLOW.md  # Git workflow
-│
-├── diagrams/               # Architecture diagrams
-│   └── m1-architecture.md  # Visual diagrams
+│   └── DEVELOPMENT_WORKFLOW.md
 │
 └── milestones/             # Project management
-    ├── MILESTONES.md       # Roadmap
-    └── PROJECT_STATUS.md   # Current status
+    └── MILESTONES.md       # Roadmap
 ```
-
-## What is in-mem?
-
-**in-mem** is an embedded database designed specifically for AI agent workloads. It provides:
-
-- **Run-Scoped Operations**: Every operation tagged with a RunId for deterministic replay
-- **Unified Storage**: Six primitives (KV, Event Log, State Machine, Trace, Vector, Run Index) sharing one storage layer
-- **Durable by Default**: Write-ahead log with configurable fsync modes
-- **Embedded Library**: Zero-copy in-process API (network layer in M7)
-
-### Current Status: M1 Foundation Complete ✅
-
-- ✅ 297 tests (95.45% coverage)
-- ✅ 20,564 txns/sec recovery (10x over target)
-- ✅ Zero compiler warnings
-- ✅ Production-ready embedded database
-
-See [Project Status](../milestones/PROJECT_STATUS.md) for details.
-
-## Quick Start
-
-```rust
-use in_mem::Database;
-
-// Open database
-let db = Database::open("./my-agent-db")?;
-
-// Begin a run
-let run_id = db.begin_run();
-
-// Store data
-db.put(run_id, b"key", b"value")?;
-
-// Retrieve data
-let value = db.get(run_id, b"key")?;
-
-// End run
-db.end_run(run_id)?;
-```
-
-See [Getting Started](getting-started.md) for full guide.
 
 ## Support
 
 - **Issues**: [GitHub Issues](https://github.com/anibjoshi/in-mem/issues)
-- **Discussions**: [GitHub Discussions](https://github.com/anibjoshi/in-mem/discussions)
 - **Documentation**: This site
 
 ## License
@@ -100,5 +139,5 @@ See [Getting Started](getting-started.md) for full guide.
 
 ---
 
-**Version**: 0.1.0 (M1 Foundation)
-**Last Updated**: 2026-01-11
+**Version**: 0.3.0 (M3 Primitives + M4 Performance)
+**Last Updated**: 2026-01-16
