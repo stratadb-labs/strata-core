@@ -51,7 +51,7 @@ pub mod trace;
 
 // Re-exports - primitives are exported as they're implemented
 pub use event_log::{ChainVerification, Event, EventLog};
-pub use json_store::JsonStore;
+pub use json_store::{JsonDoc, JsonStore};
 pub use kv::{KVStore, KVTransaction};
 pub use run_index::{RunIndex, RunMetadata, RunStatus};
 pub use state_cell::{State, StateCell};

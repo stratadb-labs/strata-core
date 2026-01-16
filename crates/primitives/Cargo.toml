@@ -12,6 +12,7 @@ description = "High-level primitives for in-mem agent database"
 in-mem-core = { path = "../core" }
 in-mem-engine = { path = "../engine" }
 in-mem-concurrency = { path = "../concurrency" }
+rmp-serde = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 thiserror = { workspace = true }
