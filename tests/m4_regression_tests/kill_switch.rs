@@ -194,7 +194,9 @@ fn run_mixed_workload(
                         }
                         2 => {
                             // StateCell: set (simpler than transition for stress test)
-                            state.set(&run_id, "counter", Value::I64(i as i64)).map(|_| ())
+                            state
+                                .set(&run_id, "counter", Value::I64(i as i64))
+                                .map(|_| ())
                         }
                         3 => {
                             // TraceStore: record

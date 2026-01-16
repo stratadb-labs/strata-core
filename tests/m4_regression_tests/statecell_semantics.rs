@@ -46,11 +46,15 @@ fn statecell_cas_succeeds_with_correct_version() {
         let state = StateCell::new(db);
         let run_id = RunId::new();
 
-        let v1 = state.init(&run_id, "x", Value::String("A".to_string())).unwrap();
+        let v1 = state
+            .init(&run_id, "x", Value::String("A".to_string()))
+            .unwrap();
         let read = state.read(&run_id, "x").unwrap().unwrap();
         assert_eq!(read.version, v1);
 
-        let v2 = state.cas(&run_id, "x", v1, Value::String("B".to_string())).unwrap();
+        let v2 = state
+            .cas(&run_id, "x", v1, Value::String("B".to_string()))
+            .unwrap();
         assert!(v2 > v1);
 
         let read2 = state.read(&run_id, "x").unwrap().unwrap();

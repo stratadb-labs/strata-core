@@ -115,7 +115,9 @@ fn eventlog_concurrent_append_integrity() {
     );
 
     // Check sequence numbers
-    let all = events.read_range(&run_id, 0, total_expected as u64).unwrap();
+    let all = events
+        .read_range(&run_id, 0, total_expected as u64)
+        .unwrap();
     for (i, event) in all.iter().enumerate() {
         assert_eq!(
             event.sequence, i as u64,

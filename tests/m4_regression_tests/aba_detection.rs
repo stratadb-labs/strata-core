@@ -40,7 +40,9 @@ fn statecell_aba_version_guard() {
         let run_id = RunId::new();
 
         // 1. Init cell with value "A", get version V1
-        let v1 = state.init(&run_id, "cell", Value::String("A".to_string())).unwrap();
+        let v1 = state
+            .init(&run_id, "cell", Value::String("A".to_string()))
+            .unwrap();
 
         // 2. Verify we can read it
         let read1 = state.read(&run_id, "cell").unwrap().unwrap();
@@ -313,9 +315,12 @@ fn statecell_version_uniqueness() {
     let unique = versions.len();
 
     assert_eq!(
-        total, unique,
+        total,
+        unique,
         "VERSION COLLISION: {} versions won but only {} unique (expected {})",
-        total, unique, NUM_THREADS * ITERATIONS
+        total,
+        unique,
+        NUM_THREADS * ITERATIONS
     );
 
     // Check versions are monotonically increasing when sorted

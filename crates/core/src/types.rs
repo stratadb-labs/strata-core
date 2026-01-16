@@ -134,7 +134,7 @@ impl PartialOrd for Namespace {
 /// instead of separate stores per primitive. This TypeTag enum enables
 /// type discrimination and defines the sort order in BTreeMap.
 ///
-/// ## M3 TypeTag Values
+/// ## TypeTag Values
 ///
 /// These values are part of the on-disk format and MUST NOT change:
 /// - KV = 0x01
@@ -142,9 +142,10 @@ impl PartialOrd for Namespace {
 /// - State = 0x03
 /// - Trace = 0x04
 /// - Run = 0x05
-/// - Vector = 0x10 (reserved for M6)
+/// - Vector = 0x10 (reserved for M8)
+/// - Json = 0x11 (M5 JSON primitive)
 ///
-/// Ordering: KV < Event < State < Trace < Run < Vector
+/// Ordering: KV < Event < State < Trace < Run < Vector < Json
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, PartialOrd, Ord)]
 #[repr(u8)]
 pub enum TypeTag {
@@ -158,8 +159,10 @@ pub enum TypeTag {
     Trace = 0x04,
     /// Run index entries
     Run = 0x05,
-    /// Vector store entries (reserved for M6)
+    /// Vector store entries (reserved for M8)
     Vector = 0x10,
+    /// JSON document store entries (M5)
+    Json = 0x11,
 }
 
 impl TypeTag {
@@ -177,8 +180,77 @@ impl TypeTag {
             0x04 => Some(TypeTag::Trace),
             0x05 => Some(TypeTag::Run),
             0x10 => Some(TypeTag::Vector),
+            0x11 => Some(TypeTag::Json),
             _ => None,
         }
+    }
+}
+
+/// Unique identifier for a JSON document within a run
+///
+/// Each document has a unique ID that persists for its lifetime.
+/// IDs are UUIDs to ensure global uniqueness. JsonDocId is designed
+/// to be small (Copy) and efficient for use as keys.
+///
+/// # Examples
+///
+/// ```
+/// use in_mem_core::JsonDocId;
+///
+/// let id1 = JsonDocId::new();
+/// let id2 = JsonDocId::new();
+/// assert_ne!(id1, id2); // UUIDs are unique
+///
+/// // Round-trip through bytes
+/// let bytes = id1.as_bytes();
+/// let recovered = JsonDocId::try_from_bytes(bytes).unwrap();
+/// assert_eq!(id1, recovered);
+/// ```
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub struct JsonDocId(Uuid);
+
+impl JsonDocId {
+    /// Create a new unique document ID using UUID v4
+    pub fn new() -> Self {
+        JsonDocId(Uuid::new_v4())
+    }
+
+    /// Create from existing UUID (for deserialization/recovery)
+    pub fn from_uuid(uuid: Uuid) -> Self {
+        JsonDocId(uuid)
+    }
+
+    /// Get the underlying UUID
+    pub fn as_uuid(&self) -> &Uuid {
+        &self.0
+    }
+
+    /// Get bytes for key encoding (16 bytes)
+    pub fn as_bytes(&self) -> &[u8] {
+        self.0.as_bytes()
+    }
+
+    /// Try to parse from bytes (for key decoding)
+    ///
+    /// Returns None if bytes length is not exactly 16.
+    pub fn try_from_bytes(bytes: &[u8]) -> Option<Self> {
+        if bytes.len() == 16 {
+            Uuid::from_slice(bytes).ok().map(JsonDocId)
+        } else {
+            None
+        }
+    }
+}
+
+impl Default for JsonDocId {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl fmt::Display for JsonDocId {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{}", self.0)
     }
 }
 
@@ -333,6 +405,34 @@ impl Key {
     ) -> Self {
         let key_data = format!("__idx_{}__{}__{}", index_type, index_value, run_id);
         Self::new(namespace, TypeTag::Run, key_data.into_bytes())
+    }
+
+    /// Create key for JSON document storage
+    ///
+    /// Helper that automatically sets type_tag to TypeTag::Json and
+    /// uses the JsonDocId bytes as the key.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// use in_mem_core::{Key, Namespace, TypeTag, RunId, JsonDocId};
+    ///
+    /// let run_id = RunId::new();
+    /// let doc_id = JsonDocId::new();
+    /// let namespace = Namespace::for_run(run_id);
+    /// let key = Key::new_json(namespace, &doc_id);
+    /// assert_eq!(key.type_tag, TypeTag::Json);
+    /// ```
+    pub fn new_json(namespace: Namespace, doc_id: &JsonDocId) -> Self {
+        Self::new(namespace, TypeTag::Json, doc_id.as_bytes().to_vec())
+    }
+
+    /// Create prefix for scanning all JSON docs in namespace
+    ///
+    /// This key can be used with starts_with() to match all JSON
+    /// documents in a namespace.
+    pub fn new_json_prefix(namespace: Namespace) -> Self {
+        Self::new(namespace, TypeTag::Json, vec![])
     }
 
     /// Extract user key as string (if valid UTF-8)
@@ -716,6 +816,7 @@ mod tests {
         let _trace = TypeTag::Trace;
         let _run = TypeTag::Run;
         let _vector = TypeTag::Vector;
+        let _json = TypeTag::Json;
     }
 
     #[test]
@@ -726,14 +827,16 @@ mod tests {
         assert!(TypeTag::State < TypeTag::Trace);
         assert!(TypeTag::Trace < TypeTag::Run);
         assert!(TypeTag::Run < TypeTag::Vector);
+        assert!(TypeTag::Vector < TypeTag::Json);
 
-        // Verify numeric values match M3 spec
+        // Verify numeric values match spec
         assert_eq!(TypeTag::KV as u8, 0x01);
         assert_eq!(TypeTag::Event as u8, 0x02);
         assert_eq!(TypeTag::State as u8, 0x03);
         assert_eq!(TypeTag::Trace as u8, 0x04);
         assert_eq!(TypeTag::Run as u8, 0x05);
         assert_eq!(TypeTag::Vector as u8, 0x10);
+        assert_eq!(TypeTag::Json as u8, 0x11);
     }
 
     #[test]
@@ -744,6 +847,7 @@ mod tests {
         assert_eq!(TypeTag::Trace.as_byte(), 0x04);
         assert_eq!(TypeTag::Run.as_byte(), 0x05);
         assert_eq!(TypeTag::Vector.as_byte(), 0x10);
+        assert_eq!(TypeTag::Json.as_byte(), 0x11);
     }
 
     #[test]
@@ -754,6 +858,7 @@ mod tests {
         assert_eq!(TypeTag::from_byte(0x04), Some(TypeTag::Trace));
         assert_eq!(TypeTag::from_byte(0x05), Some(TypeTag::Run));
         assert_eq!(TypeTag::from_byte(0x10), Some(TypeTag::Vector));
+        assert_eq!(TypeTag::from_byte(0x11), Some(TypeTag::Json));
         assert_eq!(TypeTag::from_byte(0x00), None);
         assert_eq!(TypeTag::from_byte(0xFF), None);
     }
@@ -768,6 +873,7 @@ mod tests {
             TypeTag::Trace,
             TypeTag::Run,
             TypeTag::Vector,
+            TypeTag::Json,
         ];
         let bytes: Vec<u8> = tags.iter().map(|t| t.as_byte()).collect();
         let unique: std::collections::HashSet<u8> = bytes.iter().cloned().collect();
@@ -784,6 +890,7 @@ mod tests {
             TypeTag::Trace,
             TypeTag::Run,
             TypeTag::Vector,
+            TypeTag::Json,
         ];
 
         for tag in tags {
@@ -795,6 +902,13 @@ mod tests {
                 tag
             );
         }
+    }
+
+    #[test]
+    fn test_typetag_json_value() {
+        // M5: TypeTag::Json must be 0x11 per architecture spec
+        assert_eq!(TypeTag::Json as u8, 0x11);
+        assert_eq!(TypeTag::from_byte(0x11), Some(TypeTag::Json));
     }
 
     #[test]
@@ -1282,6 +1396,212 @@ mod tests {
         assert_eq!(
             key.user_key, binary_data,
             "Binary user_key should be preserved"
+        );
+    }
+
+    // ========================================
+    // JsonDocId Tests (M5)
+    // ========================================
+
+    #[test]
+    fn test_json_doc_id_unique() {
+        let id1 = JsonDocId::new();
+        let id2 = JsonDocId::new();
+        assert_ne!(id1, id2, "JsonDocIds should be unique");
+    }
+
+    #[test]
+    fn test_json_doc_id_bytes_roundtrip() {
+        let id = JsonDocId::new();
+        let bytes = id.as_bytes();
+        let recovered = JsonDocId::try_from_bytes(bytes).unwrap();
+        assert_eq!(id, recovered, "JsonDocId should roundtrip through bytes");
+    }
+
+    #[test]
+    fn test_json_doc_id_is_copy() {
+        let id = JsonDocId::new();
+        let id_copy = id; // Copy
+        assert_eq!(id, id_copy, "JsonDocId should be Copy");
+    }
+
+    #[test]
+    fn test_json_doc_id_display() {
+        let id = JsonDocId::new();
+        let s = format!("{}", id);
+        assert!(!s.is_empty(), "Display should produce non-empty string");
+        assert_eq!(
+            s.len(),
+            36,
+            "UUID v4 should format as 36 characters with hyphens"
+        );
+    }
+
+    #[test]
+    fn test_json_doc_id_default() {
+        let id1 = JsonDocId::default();
+        let id2 = JsonDocId::default();
+        assert_ne!(id1, id2, "Default JsonDocIds should be unique");
+    }
+
+    #[test]
+    fn test_json_doc_id_hash() {
+        use std::collections::HashSet;
+
+        let id1 = JsonDocId::new();
+        let id2 = id1; // Copy
+
+        let mut set = HashSet::new();
+        set.insert(id1);
+
+        assert!(
+            set.contains(&id2),
+            "Hash should be consistent for copied JsonDocId"
+        );
+
+        let id3 = JsonDocId::new();
+        set.insert(id3);
+
+        assert_eq!(
+            set.len(),
+            2,
+            "Different JsonDocIds should have different hashes"
+        );
+    }
+
+    #[test]
+    fn test_json_doc_id_bytes_length() {
+        let id = JsonDocId::new();
+        let bytes = id.as_bytes();
+        assert_eq!(bytes.len(), 16, "JsonDocId bytes should be 16 bytes (UUID)");
+    }
+
+    #[test]
+    fn test_json_doc_id_try_from_bytes_invalid() {
+        // Too short
+        let short = vec![0u8; 10];
+        assert!(
+            JsonDocId::try_from_bytes(&short).is_none(),
+            "Should reject short bytes"
+        );
+
+        // Too long
+        let long = vec![0u8; 20];
+        assert!(
+            JsonDocId::try_from_bytes(&long).is_none(),
+            "Should reject long bytes"
+        );
+
+        // Empty
+        assert!(
+            JsonDocId::try_from_bytes(&[]).is_none(),
+            "Should reject empty bytes"
+        );
+    }
+
+    #[test]
+    fn test_json_doc_id_from_uuid() {
+        use uuid::Uuid;
+        let uuid = Uuid::new_v4();
+        let id = JsonDocId::from_uuid(uuid);
+        assert_eq!(id.as_uuid(), &uuid, "Should preserve underlying UUID");
+    }
+
+    #[test]
+    fn test_json_doc_id_serialization() {
+        let id = JsonDocId::new();
+        let json = serde_json::to_string(&id).unwrap();
+        let id2: JsonDocId = serde_json::from_str(&json).unwrap();
+        assert_eq!(id, id2, "JsonDocId should roundtrip through JSON");
+    }
+
+    // ========================================
+    // Key::new_json Tests (M5)
+    // ========================================
+
+    #[test]
+    fn test_key_new_json() {
+        let run_id = RunId::new();
+        let doc_id = JsonDocId::new();
+        let namespace = Namespace::for_run(run_id);
+        let key = Key::new_json(namespace.clone(), &doc_id);
+
+        assert_eq!(key.type_tag, TypeTag::Json);
+        assert_eq!(key.namespace, namespace);
+        assert_eq!(key.user_key, doc_id.as_bytes().to_vec());
+    }
+
+    #[test]
+    fn test_key_new_json_prefix() {
+        let run_id = RunId::new();
+        let namespace = Namespace::for_run(run_id);
+        let prefix = Key::new_json_prefix(namespace.clone());
+
+        assert_eq!(prefix.type_tag, TypeTag::Json);
+        assert_eq!(prefix.namespace, namespace);
+        assert!(prefix.user_key.is_empty());
+
+        // Test prefix matching
+        let doc_id = JsonDocId::new();
+        let key = Key::new_json(namespace.clone(), &doc_id);
+        assert!(
+            key.starts_with(&prefix),
+            "JSON key should match JSON prefix"
+        );
+    }
+
+    #[test]
+    fn test_key_json_different_docs_different_keys() {
+        let run_id = RunId::new();
+        let namespace = Namespace::for_run(run_id);
+        let doc_id1 = JsonDocId::new();
+        let doc_id2 = JsonDocId::new();
+
+        let key1 = Key::new_json(namespace.clone(), &doc_id1);
+        let key2 = Key::new_json(namespace.clone(), &doc_id2);
+
+        assert_ne!(key1, key2, "Different docs should have different keys");
+    }
+
+    #[test]
+    fn test_key_json_same_doc_same_key() {
+        let run_id = RunId::new();
+        let namespace = Namespace::for_run(run_id);
+        let doc_id = JsonDocId::new();
+
+        let key1 = Key::new_json(namespace.clone(), &doc_id);
+        let key2 = Key::new_json(namespace.clone(), &doc_id);
+
+        assert_eq!(key1, key2, "Same doc should have same key");
+    }
+
+    #[test]
+    fn test_key_json_ordering_with_other_types() {
+        let run_id = RunId::new();
+        let namespace = Namespace::for_run(run_id);
+        let doc_id = JsonDocId::new();
+
+        let kv_key = Key::new_kv(namespace.clone(), "test");
+        let event_key = Key::new_event(namespace.clone(), 1);
+        let json_key = Key::new_json(namespace.clone(), &doc_id);
+
+        // JSON keys should sort after all other types (0x11 > 0x10 > 0x05 > ...)
+        assert!(kv_key < json_key, "KV should be < JSON");
+        assert!(event_key < json_key, "Event should be < JSON");
+    }
+
+    #[test]
+    fn test_key_json_does_not_match_other_type_prefix() {
+        let run_id = RunId::new();
+        let namespace = Namespace::for_run(run_id);
+        let doc_id = JsonDocId::new();
+
+        let json_key = Key::new_json(namespace.clone(), &doc_id);
+        let kv_prefix = Key::new_kv(namespace.clone(), "");
+
+        assert!(
+            !json_key.starts_with(&kv_prefix),
+            "JSON key should not match KV prefix"
         );
     }
 }

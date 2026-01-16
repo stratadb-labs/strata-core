@@ -8,20 +8,27 @@
 //! - Value: Unified value enum for all data types
 //! - Error: Error type hierarchy
 //! - Traits: Core trait definitions (Storage, SnapshotView)
+//! - JSON types (M5): JsonValue, JsonPath, JsonPatch, JsonDocId
+//! - JSON limits (M5): MAX_DOCUMENT_SIZE, MAX_NESTING_DEPTH, MAX_PATH_LENGTH, MAX_ARRAY_SIZE
 
 #![warn(missing_docs)]
 #![warn(clippy::all)]
 
-// Module declarations (will be implemented in future stories)
+// Module declarations
 pub mod error; // Story #10
+pub mod json; // M5 JSON types
 pub mod traits; // Story #11
 pub mod types; // Story #7, #8
 pub mod value; // Story #9
 
 // Re-export commonly used types and traits
 pub use error::{Error, Result};
+pub use json::{
+    JsonPatch, JsonPath, JsonValue, LimitError, PathParseError, PathSegment, MAX_ARRAY_SIZE,
+    MAX_DOCUMENT_SIZE, MAX_NESTING_DEPTH, MAX_PATH_LENGTH,
+};
 pub use traits::{SnapshotView, Storage};
-pub use types::{Key, Namespace, RunId, TypeTag};
+pub use types::{JsonDocId, Key, Namespace, RunId, TypeTag};
 pub use value::{Timestamp, Value, VersionedValue};
 
 /// Placeholder for core functionality

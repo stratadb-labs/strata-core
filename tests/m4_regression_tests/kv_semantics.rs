@@ -254,7 +254,8 @@ fn kv_value_types_preserved() {
         kv.put(&run_id, "string", Value::String("hello".to_string()))
             .unwrap();
         kv.put(&run_id, "bool", Value::Bool(true)).unwrap();
-        kv.put(&run_id, "bytes", Value::Bytes(vec![1, 2, 3])).unwrap();
+        kv.put(&run_id, "bytes", Value::Bytes(vec![1, 2, 3]))
+            .unwrap();
 
         assert_eq!(kv.get(&run_id, "int").unwrap(), Some(Value::I64(42)));
         assert_eq!(kv.get(&run_id, "float").unwrap(), Some(Value::F64(3.14)));

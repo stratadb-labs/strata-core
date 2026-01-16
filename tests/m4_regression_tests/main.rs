@@ -11,13 +11,13 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 // Test modules in priority order
-pub mod kill_switch;
 pub mod aba_detection;
+pub mod cross_primitive;
+pub mod eventlog_semantics;
+pub mod kill_switch;
+pub mod kv_semantics;
 pub mod snapshot_monotonicity;
 pub mod statecell_semantics;
-pub mod eventlog_semantics;
-pub mod kv_semantics;
-pub mod cross_primitive;
 
 // ============================================================================
 // Test Harness Utilities

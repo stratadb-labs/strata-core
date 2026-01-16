@@ -29,11 +29,7 @@ fn cross_primitive_transaction_atomicity() {
             use in_mem_core::types::{Key, Namespace, TypeTag};
 
             // KV write
-            let kv_key = Key::new(
-                Namespace::for_run(run_id),
-                TypeTag::KV,
-                b"txn_key".to_vec(),
-            );
+            let kv_key = Key::new(Namespace::for_run(run_id), TypeTag::KV, b"txn_key".to_vec());
             txn.put(kv_key, Value::I64(42))?;
 
             Ok(())
@@ -175,8 +171,12 @@ fn concurrent_runs_no_interference() {
 
                 // Each run does independent operations
                 for i in 0..OPS_PER_RUN {
-                    kv.put(&run_id, &format!("key_{}", i), Value::I64(run_idx as i64 * 1000 + i as i64))
-                        .unwrap();
+                    kv.put(
+                        &run_id,
+                        &format!("key_{}", i),
+                        Value::I64(run_idx as i64 * 1000 + i as i64),
+                    )
+                    .unwrap();
                 }
 
                 // Verify own data
@@ -331,7 +331,10 @@ fn data_survives_facade_recreation() {
         let state2 = StateCell::new(db.clone());
 
         // Data should still be there
-        assert_eq!(kv2.get(&run_id, "persistent").unwrap(), Some(Value::I64(999)));
+        assert_eq!(
+            kv2.get(&run_id, "persistent").unwrap(),
+            Some(Value::I64(999))
+        );
         assert_eq!(events2.len(&run_id).unwrap(), 1);
         assert_eq!(
             state2.read(&run_id, "saved").unwrap().unwrap().value,
