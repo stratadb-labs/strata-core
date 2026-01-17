@@ -2,13 +2,13 @@
 
 **in-mem** is a fast, durable, embedded database designed for AI agent workloads.
 
-**Current Version**: 0.5.0 (M5 JSON + M6 Retrieval)
+**Current Version**: 0.7.0 (M7 Durability, Snapshots & Replay)
 
 ## Installation
 
 ```toml
 [dependencies]
-in-mem = "0.5"
+in-mem = "0.7"
 ```
 
 ## Quick Start
@@ -150,6 +150,86 @@ for result in response.results {
 }
 ```
 
+### Snapshots (M7)
+
+```rust
+use in_mem::SnapshotConfig;
+
+// Configure automatic snapshots
+db.configure_snapshots(SnapshotConfig {
+    wal_size_threshold: 50 * 1024 * 1024,  // 50 MB
+    time_interval_minutes: 15,
+    retention_count: 3,
+    snapshot_on_shutdown: true,
+});
+
+// Manual snapshot
+let info = db.snapshot()?;
+println!("Snapshot created at {:?}", info.path);
+```
+
+### Recovery (M7)
+
+```rust
+use in_mem::{Database, RecoveryOptions};
+
+// Open with custom recovery options
+let db = Database::open_with_options(
+    "./data",
+    RecoveryOptions {
+        max_corrupt_entries: 5,
+        verify_all_checksums: true,
+        rebuild_indexes: true,
+    }
+)?;
+
+// Check recovery result
+if let Some(result) = db.last_recovery_result() {
+    println!("Recovered {} transactions", result.transactions_recovered);
+    if result.corrupt_entries_skipped > 0 {
+        eprintln!("Warning: {} corrupt entries skipped", result.corrupt_entries_skipped);
+    }
+}
+```
+
+### Run Lifecycle (M7)
+
+```rust
+// Explicit run lifecycle
+let run_id = RunId::new();
+db.begin_run(run_id)?;
+
+// Do work within the run
+db.kv.put(&run_id, "step", Value::String("started".into()))?;
+db.event.append(&run_id, "task_begun", Value::Null)?;
+
+// End run normally
+db.end_run(run_id)?;
+
+// Check for orphaned runs after restart
+for orphan in db.orphaned_runs()? {
+    println!("Orphaned run: {:?}", orphan);
+}
+```
+
+### Replay (M7)
+
+```rust
+// Replay a completed run (read-only, side-effect free)
+let view = db.replay_run(run_id)?;
+println!("Run had {} KV entries", view.keys().count());
+println!("Run had {} events", view.events().len());
+
+// Compare two runs
+let diff = db.diff_runs(run_a, run_b)?;
+for entry in &diff.added {
+    println!("Added: {:?}", entry.key);
+}
+for entry in &diff.modified {
+    println!("Modified: {:?} ({:?} -> {:?})", entry.key, entry.value_a, entry.value_b);
+}
+```
+
 ## Cross-Primitive Transactions
 
 ```rust
@@ -170,6 +250,9 @@ db.transaction(&run_id, |txn| {
 3. **Use `transition()` for counters**: Handles retries automatically
 4. **Set search budgets**: Use `with_budget_ms()` to control search latency
 5. **Enable indexing selectively**: Inverted index is opt-in for memory efficiency
+6. **Configure snapshot triggers**: Tune `wal_size_threshold` based on recovery time requirements
+7. **Use explicit run lifecycle**: `begin_run()`/`end_run()` enables orphan detection
+8. **Replay is cheap**: O(run size), not O(database size)
 
 ## See Also
 
