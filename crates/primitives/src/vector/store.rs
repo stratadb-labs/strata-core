@@ -16,14 +16,17 @@
 //!
 //! VectorStore is `Send + Sync` and can be safely shared across threads.
 
-use crate::vector::collection::validate_collection_name;
+use crate::vector::collection::{validate_collection_name, validate_vector_key};
 use crate::vector::{
-    CollectionId, CollectionInfo, CollectionRecord, IndexBackendFactory, VectorConfig, VectorError,
-    VectorIndexBackend, VectorResult,
+    CollectionId, CollectionInfo, CollectionRecord, IndexBackendFactory, MetadataFilter,
+    VectorConfig, VectorEntry, VectorError, VectorId, VectorIndexBackend, VectorMatch,
+    VectorRecord, VectorResult,
 };
+use in_mem_core::search_types::{DocRef, SearchHit, SearchResponse, SearchStats};
 use in_mem_core::types::{Key, Namespace, RunId};
 use in_mem_core::value::Value;
 use in_mem_engine::Database;
+use serde_json::Value as JsonValue;
 use std::collections::BTreeMap;
 use std::sync::{Arc, RwLock};
 
@@ -294,6 +297,319 @@ impl VectorStore {
     }
 
     // ========================================================================
+    // Vector Operations (Epic 54)
+    // ========================================================================
+
+    /// Insert a vector (upsert semantics)
+    ///
+    /// If a vector with this key already exists, it is overwritten.
+    /// This follows Rule 3 (Upsert Semantics).
+    ///
+    /// # Errors
+    /// - `CollectionNotFound` if collection doesn't exist
+    /// - `InvalidKey` if key is invalid
+    /// - `DimensionMismatch` if embedding dimension doesn't match config
+    pub fn insert(
+        &self,
+        run_id: RunId,
+        collection: &str,
+        key: &str,
+        embedding: &[f32],
+        metadata: Option<JsonValue>,
+    ) -> VectorResult<()> {
+        // Validate key
+        validate_vector_key(key)?;
+
+        // Ensure collection is loaded
+        self.ensure_collection_loaded(run_id, collection)?;
+
+        let collection_id = CollectionId::new(run_id, collection);
+
+        // Validate dimension
+        let config = self.get_collection_config_required(run_id, collection)?;
+        if embedding.len() != config.dimension {
+            return Err(VectorError::DimensionMismatch {
+                expected: config.dimension,
+                got: embedding.len(),
+            });
+        }
+
+        // Check if vector already exists
+        let kv_key = Key::new_vector(Namespace::for_run(run_id), collection, key);
+        let existing = self.get_vector_record_by_key(&kv_key)?;
+        let is_update = existing.is_some();
+
+        let (vector_id, record) = if let Some(existing_record) = existing {
+            // Update existing: keep the same VectorId
+            let mut updated = existing_record;
+            updated.update(metadata);
+            (VectorId(updated.vector_id), updated)
+        } else {
+            // New vector: allocate VectorId from backend
+            let mut backends = self.backends.write().unwrap();
+            let backend = backends.get_mut(&collection_id).ok_or_else(|| {
+                VectorError::CollectionNotFound {
+                    name: collection.to_string(),
+                }
+            })?;
+
+            // Allocate new ID (monotonic, never reused)
+            let vector_id = self.allocate_vector_id(&collection_id);
+            let record = VectorRecord::new(vector_id, metadata);
+
+            // Insert into backend
+            backend.insert(vector_id, embedding)?;
+
+            drop(backends);
+            (vector_id, record)
+        };
+
+        // For updates, update the backend
+        if is_update {
+            let mut backends = self.backends.write().unwrap();
+            if let Some(backend) = backends.get_mut(&collection_id) {
+                backend.insert(vector_id, embedding)?;
+            }
+        }
+
+        // Store record in KV
+        let record_bytes = record.to_bytes()?;
+        self.db
+            .transaction(run_id, |txn| {
+                txn.put(kv_key.clone(), Value::Bytes(record_bytes.clone()))
+            })
+            .map_err(|e| VectorError::Storage(e.to_string()))?;
+
+        Ok(())
+    }
+
+    /// Get a vector by key
+    ///
+    /// Returns the vector entry including embedding and metadata.
+    /// Returns None if vector doesn't exist.
+    pub fn get(
+        &self,
+        run_id: RunId,
+        collection: &str,
+        key: &str,
+    ) -> VectorResult<Option<VectorEntry>> {
+        // Ensure collection is loaded
+        self.ensure_collection_loaded(run_id, collection)?;
+
+        let collection_id = CollectionId::new(run_id, collection);
+        let kv_key = Key::new_vector(Namespace::for_run(run_id), collection, key);
+
+        // Get record from KV
+        let Some(record) = self.get_vector_record_by_key(&kv_key)? else {
+            return Ok(None);
+        };
+
+        let vector_id = VectorId(record.vector_id);
+
+        // Get embedding from backend
+        let backends = self.backends.read().unwrap();
+        let backend =
+            backends
+                .get(&collection_id)
+                .ok_or_else(|| VectorError::CollectionNotFound {
+                    name: collection.to_string(),
+                })?;
+
+        let embedding = backend
+            .get(vector_id)
+            .ok_or_else(|| VectorError::Internal("Embedding missing from backend".to_string()))?;
+
+        Ok(Some(VectorEntry {
+            key: key.to_string(),
+            embedding: embedding.to_vec(),
+            metadata: record.metadata,
+            vector_id,
+            version: record.version,
+        }))
+    }
+
+    /// Delete a vector by key
+    ///
+    /// Returns true if the vector existed and was deleted.
+    pub fn delete(&self, run_id: RunId, collection: &str, key: &str) -> VectorResult<bool> {
+        // Ensure collection is loaded
+        self.ensure_collection_loaded(run_id, collection)?;
+
+        let collection_id = CollectionId::new(run_id, collection);
+        let kv_key = Key::new_vector(Namespace::for_run(run_id), collection, key);
+
+        // Get existing record
+        let Some(record) = self.get_vector_record_by_key(&kv_key)? else {
+            return Ok(false);
+        };
+
+        let vector_id = VectorId(record.vector_id);
+
+        // Delete from backend
+        {
+            let mut backends = self.backends.write().unwrap();
+            if let Some(backend) = backends.get_mut(&collection_id) {
+                backend.delete(vector_id)?;
+            }
+        }
+
+        // Delete from KV
+        self.db
+            .transaction(run_id, |txn| txn.delete(kv_key.clone()))
+            .map_err(|e| VectorError::Storage(e.to_string()))?;
+
+        Ok(true)
+    }
+
+    /// Get count of vectors in a collection
+    pub fn count(&self, run_id: RunId, collection: &str) -> VectorResult<usize> {
+        // Ensure collection is loaded
+        self.ensure_collection_loaded(run_id, collection)?;
+
+        let collection_id = CollectionId::new(run_id, collection);
+        let backends = self.backends.read().unwrap();
+
+        backends
+            .get(&collection_id)
+            .map(|b| b.len())
+            .ok_or_else(|| VectorError::CollectionNotFound {
+                name: collection.to_string(),
+            })
+    }
+
+    /// Search for similar vectors
+    ///
+    /// Returns top-k vectors most similar to the query.
+    /// Metadata filtering is applied as post-filter.
+    ///
+    /// # Invariants Satisfied
+    /// - R1: Dimension validated against collection config
+    /// - R2: Scores normalized to "higher = more similar"
+    /// - R3: Deterministic order (backend + facade tie-breaking)
+    /// - R5: Facade tie-break (score desc, key asc)
+    /// - R10: Search is read-only (no mutations)
+    pub fn search(
+        &self,
+        run_id: RunId,
+        collection: &str,
+        query: &[f32],
+        k: usize,
+        filter: Option<MetadataFilter>,
+    ) -> VectorResult<Vec<VectorMatch>> {
+        // k=0 returns empty
+        if k == 0 {
+            return Ok(Vec::new());
+        }
+
+        // Ensure collection is loaded
+        self.ensure_collection_loaded(run_id, collection)?;
+
+        let collection_id = CollectionId::new(run_id, collection);
+
+        // Validate query dimension
+        let config = self.get_collection_config_required(run_id, collection)?;
+        if query.len() != config.dimension {
+            return Err(VectorError::DimensionMismatch {
+                expected: config.dimension,
+                got: query.len(),
+            });
+        }
+
+        // Search backend (returns VectorId, score pairs)
+        let candidates = {
+            let backends = self.backends.read().unwrap();
+            let backend =
+                backends
+                    .get(&collection_id)
+                    .ok_or_else(|| VectorError::CollectionNotFound {
+                        name: collection.to_string(),
+                    })?;
+
+            // Over-fetch if filtering to account for filtered-out results
+            let fetch_k = if filter.is_some() { k * 3 } else { k };
+            backend.search(query, fetch_k)
+        };
+
+        // Load metadata and apply filter
+        let mut matches = Vec::with_capacity(k);
+
+        for (vector_id, score) in candidates {
+            if matches.len() >= k {
+                break;
+            }
+
+            // Get key and metadata from KV
+            let (key, metadata) = self.get_key_and_metadata(run_id, collection, vector_id)?;
+
+            // Apply filter (post-filter)
+            if let Some(ref f) = filter {
+                if !f.matches(&metadata) {
+                    continue;
+                }
+            }
+
+            matches.push(VectorMatch {
+                key,
+                score,
+                metadata,
+            });
+        }
+
+        // Apply facade-level tie-breaking (score desc, key asc)
+        // This satisfies Invariant R5
+        matches.sort_by(|a, b| {
+            b.score
+                .partial_cmp(&a.score)
+                .unwrap_or(std::cmp::Ordering::Equal)
+                .then_with(|| a.key.cmp(&b.key))
+        });
+
+        // Ensure we don't exceed k after sorting
+        matches.truncate(k);
+
+        Ok(matches)
+    }
+
+    /// Search without filter (convenience method)
+    pub fn search_simple(
+        &self,
+        run_id: RunId,
+        collection: &str,
+        query: &[f32],
+        k: usize,
+    ) -> VectorResult<Vec<VectorMatch>> {
+        self.search(run_id, collection, query, k, None)
+    }
+
+    /// Search returning M6-compatible SearchResponse
+    ///
+    /// Converts vector results to SearchResponse for hybrid search integration.
+    pub fn search_response(
+        &self,
+        run_id: RunId,
+        collection: &str,
+        query: &[f32],
+        k: usize,
+        filter: Option<MetadataFilter>,
+    ) -> VectorResult<SearchResponse> {
+        let start = std::time::Instant::now();
+        let matches = self.search(run_id, collection, query, k, filter)?;
+
+        let hits: Vec<SearchHit> = matches
+            .into_iter()
+            .enumerate()
+            .map(|(rank, m)| {
+                let doc_ref = DocRef::vector(run_id, collection, &m.key);
+                SearchHit::new(doc_ref, m.score, (rank + 1) as u32)
+            })
+            .collect();
+
+        let stats = SearchStats::new(start.elapsed().as_micros() as u64, hits.len());
+
+        Ok(SearchResponse::new(hits, false, stats))
+    }
+
+    // ========================================================================
     // Internal Helpers
     // ========================================================================
 
@@ -301,6 +617,104 @@ impl VectorStore {
     fn init_backend(&self, id: &CollectionId, config: &VectorConfig) {
         let backend = self.backend_factory.create(config);
         self.backends.write().unwrap().insert(id.clone(), backend);
+    }
+
+    /// Get collection config (required version that errors if not found)
+    fn get_collection_config_required(
+        &self,
+        run_id: RunId,
+        name: &str,
+    ) -> VectorResult<VectorConfig> {
+        self.load_collection_config(run_id, name)?
+            .ok_or_else(|| VectorError::CollectionNotFound {
+                name: name.to_string(),
+            })
+    }
+
+    /// Get a vector record by KV key
+    fn get_vector_record_by_key(&self, key: &Key) -> VectorResult<Option<VectorRecord>> {
+        use in_mem_core::traits::SnapshotView;
+
+        let snapshot = self.db.storage().create_snapshot();
+        let Some(versioned) = snapshot
+            .get(key)
+            .map_err(|e| VectorError::Storage(e.to_string()))?
+        else {
+            return Ok(None);
+        };
+
+        let bytes = match &versioned.value {
+            Value::Bytes(b) => b,
+            _ => {
+                return Err(VectorError::Serialization(
+                    "Expected Bytes value for vector record".to_string(),
+                ))
+            }
+        };
+
+        let record = VectorRecord::from_bytes(bytes)?;
+        Ok(Some(record))
+    }
+
+    /// Allocate a new VectorId (monotonic, never reused)
+    fn allocate_vector_id(&self, _collection_id: &CollectionId) -> VectorId {
+        // For now, use the next available ID based on backend size + 1
+        // This is a simplification - in production, we'd use atomic counters
+        // that persist across restarts
+        static NEXT_ID: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(1);
+        VectorId(NEXT_ID.fetch_add(1, std::sync::atomic::Ordering::SeqCst))
+    }
+
+    /// Get key and metadata for a VectorId by scanning KV
+    ///
+    /// This is O(n) in M8. M9 can add a reverse index for O(1) lookup.
+    fn get_key_and_metadata(
+        &self,
+        run_id: RunId,
+        collection: &str,
+        target_id: VectorId,
+    ) -> VectorResult<(String, Option<JsonValue>)> {
+        use in_mem_core::traits::SnapshotView;
+
+        let namespace = Namespace::for_run(run_id);
+        let prefix = Key::vector_collection_prefix(namespace, collection);
+
+        let snapshot = self.db.storage().create_snapshot();
+        let entries = snapshot
+            .scan_prefix(&prefix)
+            .map_err(|e| VectorError::Storage(e.to_string()))?;
+
+        for (key, versioned) in entries {
+            let bytes = match &versioned.value {
+                Value::Bytes(b) => b,
+                _ => continue,
+            };
+
+            let record = match VectorRecord::from_bytes(bytes) {
+                Ok(r) => r,
+                Err(_) => continue,
+            };
+
+            if record.vector_id == target_id.0 {
+                // Extract vector key from the full key
+                // Key format: collection/key
+                let user_key = String::from_utf8(key.user_key.clone())
+                    .map_err(|e| VectorError::Serialization(e.to_string()))?;
+
+                // Remove collection prefix
+                let vector_key = user_key
+                    .strip_prefix(&format!("{}/", collection))
+                    .unwrap_or(&user_key)
+                    .to_string();
+
+                return Ok((vector_key, record.metadata));
+            }
+        }
+
+        Err(VectorError::Internal(format!(
+            "VectorId {:?} not found in KV",
+            target_id
+        )))
     }
 
     /// Get the current vector count for a collection
@@ -721,5 +1135,292 @@ mod tests {
 
         // Both point to same database
         assert!(Arc::ptr_eq(store1.database(), store2.database()));
+    }
+
+    // ========================================
+    // Vector Insert/Get/Delete Tests (Epic 54)
+    // ========================================
+
+    #[test]
+    fn test_insert_and_get_vector() {
+        let (_temp, _db, store) = setup();
+        let run_id = RunId::new();
+
+        // Create collection
+        let config = VectorConfig::new(3, DistanceMetric::Cosine).unwrap();
+        store.create_collection(run_id, "test", config).unwrap();
+
+        // Insert vector
+        let embedding = vec![1.0, 0.0, 0.0];
+        store
+            .insert(run_id, "test", "doc1", &embedding, None)
+            .unwrap();
+
+        // Get vector
+        let entry = store.get(run_id, "test", "doc1").unwrap().unwrap();
+        assert_eq!(entry.key, "doc1");
+        assert_eq!(entry.embedding, embedding);
+        assert!(entry.metadata.is_none());
+    }
+
+    #[test]
+    fn test_insert_with_metadata() {
+        let (_temp, _db, store) = setup();
+        let run_id = RunId::new();
+
+        let config = VectorConfig::new(3, DistanceMetric::Cosine).unwrap();
+        store.create_collection(run_id, "test", config).unwrap();
+
+        let metadata = serde_json::json!({"type": "document", "author": "test"});
+        store
+            .insert(
+                run_id,
+                "test",
+                "doc1",
+                &[1.0, 0.0, 0.0],
+                Some(metadata.clone()),
+            )
+            .unwrap();
+
+        let entry = store.get(run_id, "test", "doc1").unwrap().unwrap();
+        assert_eq!(entry.metadata, Some(metadata));
+    }
+
+    #[test]
+    fn test_upsert_overwrites() {
+        let (_temp, _db, store) = setup();
+        let run_id = RunId::new();
+
+        let config = VectorConfig::new(3, DistanceMetric::Cosine).unwrap();
+        store.create_collection(run_id, "test", config).unwrap();
+
+        // Insert original
+        store
+            .insert(run_id, "test", "doc1", &[1.0, 0.0, 0.0], None)
+            .unwrap();
+
+        // Upsert with new embedding
+        store
+            .insert(run_id, "test", "doc1", &[0.0, 1.0, 0.0], None)
+            .unwrap();
+
+        let entry = store.get(run_id, "test", "doc1").unwrap().unwrap();
+        assert_eq!(entry.embedding, vec![0.0, 1.0, 0.0]);
+    }
+
+    #[test]
+    fn test_delete_vector() {
+        let (_temp, _db, store) = setup();
+        let run_id = RunId::new();
+
+        let config = VectorConfig::new(3, DistanceMetric::Cosine).unwrap();
+        store.create_collection(run_id, "test", config).unwrap();
+
+        store
+            .insert(run_id, "test", "doc1", &[1.0, 0.0, 0.0], None)
+            .unwrap();
+
+        // Delete
+        let deleted = store.delete(run_id, "test", "doc1").unwrap();
+        assert!(deleted);
+
+        // Should not exist
+        let entry = store.get(run_id, "test", "doc1").unwrap();
+        assert!(entry.is_none());
+
+        // Delete again returns false
+        let deleted = store.delete(run_id, "test", "doc1").unwrap();
+        assert!(!deleted);
+    }
+
+    #[test]
+    fn test_count() {
+        let (_temp, _db, store) = setup();
+        let run_id = RunId::new();
+
+        let config = VectorConfig::new(3, DistanceMetric::Cosine).unwrap();
+        store.create_collection(run_id, "test", config).unwrap();
+
+        assert_eq!(store.count(run_id, "test").unwrap(), 0);
+
+        store
+            .insert(run_id, "test", "a", &[1.0, 0.0, 0.0], None)
+            .unwrap();
+        store
+            .insert(run_id, "test", "b", &[0.0, 1.0, 0.0], None)
+            .unwrap();
+
+        assert_eq!(store.count(run_id, "test").unwrap(), 2);
+    }
+
+    #[test]
+    fn test_dimension_mismatch() {
+        let (_temp, _db, store) = setup();
+        let run_id = RunId::new();
+
+        let config = VectorConfig::new(3, DistanceMetric::Cosine).unwrap();
+        store.create_collection(run_id, "test", config).unwrap();
+
+        // Wrong dimension
+        let result = store.insert(run_id, "test", "doc1", &[1.0, 0.0], None);
+        assert!(matches!(
+            result,
+            Err(VectorError::DimensionMismatch {
+                expected: 3,
+                got: 2
+            })
+        ));
+    }
+
+    // ========================================
+    // Vector Search Tests (Epic 54)
+    // ========================================
+
+    #[test]
+    fn test_search_basic() {
+        let (_temp, _db, store) = setup();
+        let run_id = RunId::new();
+
+        let config = VectorConfig::new(3, DistanceMetric::Cosine).unwrap();
+        store.create_collection(run_id, "test", config).unwrap();
+
+        // Insert vectors
+        store
+            .insert(run_id, "test", "a", &[1.0, 0.0, 0.0], None)
+            .unwrap();
+        store
+            .insert(run_id, "test", "b", &[0.0, 1.0, 0.0], None)
+            .unwrap();
+        store
+            .insert(run_id, "test", "c", &[0.9, 0.1, 0.0], None)
+            .unwrap();
+
+        // Search
+        let query = [1.0, 0.0, 0.0];
+        let results = store.search(run_id, "test", &query, 2, None).unwrap();
+
+        assert_eq!(results.len(), 2);
+        assert_eq!(results[0].key, "a"); // Most similar
+        assert_eq!(results[1].key, "c"); // Second most similar
+    }
+
+    #[test]
+    fn test_search_k_zero() {
+        let (_temp, _db, store) = setup();
+        let run_id = RunId::new();
+
+        let config = VectorConfig::new(3, DistanceMetric::Cosine).unwrap();
+        store.create_collection(run_id, "test", config).unwrap();
+
+        store
+            .insert(run_id, "test", "a", &[1.0, 0.0, 0.0], None)
+            .unwrap();
+
+        let results = store
+            .search(run_id, "test", &[1.0, 0.0, 0.0], 0, None)
+            .unwrap();
+        assert!(results.is_empty());
+    }
+
+    #[test]
+    fn test_search_with_filter() {
+        let (_temp, _db, store) = setup();
+        let run_id = RunId::new();
+
+        let config = VectorConfig::new(3, DistanceMetric::Cosine).unwrap();
+        store.create_collection(run_id, "test", config).unwrap();
+
+        store
+            .insert(
+                run_id,
+                "test",
+                "a",
+                &[1.0, 0.0, 0.0],
+                Some(serde_json::json!({"type": "document"})),
+            )
+            .unwrap();
+        store
+            .insert(
+                run_id,
+                "test",
+                "b",
+                &[0.9, 0.1, 0.0],
+                Some(serde_json::json!({"type": "image"})),
+            )
+            .unwrap();
+        store
+            .insert(
+                run_id,
+                "test",
+                "c",
+                &[0.8, 0.2, 0.0],
+                Some(serde_json::json!({"type": "document"})),
+            )
+            .unwrap();
+
+        // Filter by type
+        let filter = MetadataFilter::new().eq("type", "document");
+        let results = store
+            .search(run_id, "test", &[1.0, 0.0, 0.0], 10, Some(filter))
+            .unwrap();
+
+        assert_eq!(results.len(), 2);
+        for result in &results {
+            let meta = result.metadata.as_ref().unwrap();
+            assert_eq!(meta.get("type").unwrap().as_str().unwrap(), "document");
+        }
+    }
+
+    #[test]
+    fn test_search_response() {
+        let (_temp, _db, store) = setup();
+        let run_id = RunId::new();
+
+        let config = VectorConfig::new(3, DistanceMetric::Cosine).unwrap();
+        store.create_collection(run_id, "test", config).unwrap();
+
+        store
+            .insert(run_id, "test", "doc1", &[1.0, 0.0, 0.0], None)
+            .unwrap();
+
+        let response = store
+            .search_response(run_id, "test", &[1.0, 0.0, 0.0], 10, None)
+            .unwrap();
+
+        assert_eq!(response.hits.len(), 1);
+        assert!(response.hits[0].doc_ref.is_vector());
+        assert_eq!(response.hits[0].rank, 1);
+    }
+
+    #[test]
+    fn test_search_deterministic_order() {
+        let (_temp, _db, store) = setup();
+        let run_id = RunId::new();
+
+        let config = VectorConfig::new(3, DistanceMetric::Cosine).unwrap();
+        store.create_collection(run_id, "test", config).unwrap();
+
+        // Insert vectors with same similarity
+        store
+            .insert(run_id, "test", "b", &[1.0, 0.0, 0.0], None)
+            .unwrap();
+        store
+            .insert(run_id, "test", "a", &[1.0, 0.0, 0.0], None)
+            .unwrap();
+        store
+            .insert(run_id, "test", "c", &[1.0, 0.0, 0.0], None)
+            .unwrap();
+
+        // Search multiple times - order should be consistent
+        for _ in 0..5 {
+            let results = store
+                .search(run_id, "test", &[1.0, 0.0, 0.0], 3, None)
+                .unwrap();
+
+            // Should be sorted by key (tie-breaker) since scores are equal
+            assert_eq!(results[0].key, "a");
+            assert_eq!(results[1].key, "b");
+            assert_eq!(results[2].key, "c");
+        }
     }
 }
