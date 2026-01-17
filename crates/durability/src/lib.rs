@@ -8,7 +8,7 @@
 //! - Snapshot creation and loading
 //! - Recovery: Replay WAL from last snapshot
 //!
-//! ## M7 Durability Enhancements
+//! ## Durability Enhancements
 //!
 //! - WAL entry type registry with extensible ranges
 //! - Transaction framing with commit markers
@@ -19,39 +19,34 @@
 #![warn(clippy::all)]
 
 // Module declarations
-pub mod encoding; // Story #18: Entry encoding/decoding with CRC
-pub mod m7_recovery; // M7 Story #298-304: Crash Recovery
-pub mod m7_run_lifecycle; // M7 Story #311-312: Run Lifecycle WAL Operations
-pub mod m7_transaction; // M7 Story #317: Cross-Primitive Transaction Grouping
-pub mod m7_wal_manager; // M7 Story #363: WAL Truncation
-pub mod m7_wal_reader; // M7 Story #364: WAL Corruption Detection
-pub mod m7_wal_types; // M7 Story #360: WAL Entry Envelope with CRC32
-pub mod m7_wal_writer; // M7 Story #361: Transaction Framing
-pub mod recovery; // Story #23: WAL replay logic
-pub mod snapshot; // M7 Story #349-352: Snapshot writer and serialization
-pub mod snapshot_types; // M7 Story #347-348: Snapshot envelope and header types
-pub mod wal; // Story #17-20: WALEntry types, File operations, Durability modes
-pub mod wal_entry_types; // M7 Story #362: WAL Entry Type Registry
+pub mod encoding; // Entry encoding/decoding with CRC
+pub mod recovery; // WAL replay logic
+pub mod recovery_manager; // Crash Recovery
+pub mod run_lifecycle; // Run Lifecycle WAL Operations
+pub mod snapshot; // Snapshot writer and serialization
+pub mod snapshot_types; // Snapshot envelope and header types
+pub mod transaction_log; // Cross-Primitive Transaction Grouping
+pub mod wal; // WALEntry types, File operations, Durability modes
+pub mod wal_entry_types; // WAL Entry Type Registry
+pub mod wal_manager; // WAL Truncation
+pub mod wal_reader; // WAL Corruption Detection
+pub mod wal_types; // WAL Entry Envelope with CRC32
+pub mod wal_writer; // Transaction Framing
 
 // Re-export commonly used types
 pub use encoding::{decode_entry, encode_entry};
-pub use m7_recovery::{
-    CommittedTransactions, M7Recovery, M7RecoveryError, M7RecoveryOptions, M7RecoveryResult,
-    SnapshotDiscovery, WalReplayResultPublic,
-};
-pub use m7_run_lifecycle::{
-    create_run_begin_entry, create_run_end_entry, now_micros as run_now_micros,
-    parse_run_begin_payload, parse_run_end_payload, RunBeginPayload, RunEndPayload,
-    RUN_BEGIN_PAYLOAD_SIZE, RUN_END_PAYLOAD_SIZE,
-};
-pub use m7_transaction::{Transaction, TxEntry};
-pub use m7_wal_manager::{WalManager, WalStats};
-pub use m7_wal_reader::WalReader;
-pub use m7_wal_types::{TxId, WalEntry, WalEntryError, M7_FORMAT_VERSION, MAX_WAL_ENTRY_SIZE};
-pub use m7_wal_writer::WalWriter;
 pub use recovery::{
     replay_wal, replay_wal_with_options, validate_transactions, ReplayOptions, ReplayProgress,
     ReplayStats, ValidationResult, ValidationWarning,
+};
+pub use recovery_manager::{
+    CommittedTransactions, RecoveryEngine, RecoveryError, RecoveryOptions, RecoveryResult,
+    SnapshotDiscovery, WalReplayResultPublic,
+};
+pub use run_lifecycle::{
+    create_run_begin_entry, create_run_end_entry, now_micros as run_now_micros,
+    parse_run_begin_payload, parse_run_end_payload, RunBeginPayload, RunEndPayload,
+    RUN_BEGIN_PAYLOAD_SIZE, RUN_END_PAYLOAD_SIZE,
 };
 pub use snapshot::{
     deserialize_primitives, serialize_all_primitives, SnapshotReader, SnapshotSerializable,
@@ -61,5 +56,10 @@ pub use snapshot_types::{
     now_micros, primitive_ids, PrimitiveSection, SnapshotEnvelope, SnapshotError, SnapshotHeader,
     SnapshotInfo, SNAPSHOT_HEADER_SIZE, SNAPSHOT_MAGIC, SNAPSHOT_VERSION_1,
 };
+pub use transaction_log::{Transaction, TxEntry};
 pub use wal::{DurabilityMode, WALEntry as LegacyWALEntry, WAL};
 pub use wal_entry_types::{PrimitiveKind, WalEntryType, WalEntryTypeError};
+pub use wal_manager::{WalManager, WalStats};
+pub use wal_reader::WalReader;
+pub use wal_types::{TxId, WalEntry, WalEntryError, WAL_FORMAT_VERSION, MAX_WAL_ENTRY_SIZE};
+pub use wal_writer::WalWriter;

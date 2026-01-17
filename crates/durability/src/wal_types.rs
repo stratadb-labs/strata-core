@@ -1,8 +1,8 @@
-//! M7 WAL Entry Types and Envelope Format
+//! WAL Entry Types and Envelope Format
 //!
-//! This module implements the M7 WAL entry format with self-validating entries:
+//! This module implements the WAL entry format with self-validating entries:
 //!
-//! ## Entry Format (M7)
+//! ## Entry Format
 //!
 //! ```text
 //! +----------------+
@@ -20,7 +20,7 @@
 //! +----------------+
 //! ```
 //!
-//! ## Key Differences from Pre-M7
+//! ## Key Features
 //!
 //! 1. **Version field**: Enables format evolution for each entry type
 //! 2. **TxId in envelope**: Groups entries by transaction for atomic recovery
@@ -179,12 +179,12 @@ pub const MAX_WAL_ENTRY_SIZE: usize = 16 * 1024 * 1024;
 /// Minimum valid entry size: type(1) + version(1) + txid(16) + crc(4) = 22 bytes
 pub const MIN_WAL_ENTRY_SIZE: usize = 1 + 1 + 16 + 4;
 
-/// Current format version for M7 entries
-pub const M7_FORMAT_VERSION: u8 = 1;
+/// Current format version for WAL entries
+pub const WAL_FORMAT_VERSION: u8 = 1;
 
-/// WAL entry with M7 envelope format
+/// WAL entry with envelope format
 ///
-/// This is the self-validating entry format for M7:
+/// This is the self-validating entry format:
 /// - Entry type identifies the operation
 /// - Version enables format evolution
 /// - TxId groups entries for atomic recovery
@@ -210,7 +210,7 @@ impl WalEntry {
     pub fn new(entry_type: WalEntryType, tx_id: TxId, payload: Vec<u8>) -> Self {
         WalEntry {
             entry_type,
-            version: M7_FORMAT_VERSION,
+            version: WAL_FORMAT_VERSION,
             tx_id,
             payload,
         }
@@ -220,7 +220,7 @@ impl WalEntry {
     pub fn commit_marker(tx_id: TxId) -> Self {
         WalEntry {
             entry_type: WalEntryType::TransactionCommit,
-            version: M7_FORMAT_VERSION,
+            version: WAL_FORMAT_VERSION,
             tx_id,
             payload: vec![],
         }
@@ -230,7 +230,7 @@ impl WalEntry {
     pub fn abort_marker(tx_id: TxId) -> Self {
         WalEntry {
             entry_type: WalEntryType::TransactionAbort,
-            version: M7_FORMAT_VERSION,
+            version: WAL_FORMAT_VERSION,
             tx_id,
             payload: vec![],
         }
@@ -244,7 +244,7 @@ impl WalEntry {
 
         WalEntry {
             entry_type: WalEntryType::SnapshotMarker,
-            version: M7_FORMAT_VERSION,
+            version: WAL_FORMAT_VERSION,
             tx_id: TxId::nil(),
             payload,
         }
@@ -658,12 +658,12 @@ mod tests {
         let tx_id = TxId::new();
         let entry = WalEntry::new(WalEntryType::KvPut, tx_id, vec![]);
 
-        assert_eq!(entry.version, M7_FORMAT_VERSION);
+        assert_eq!(entry.version, WAL_FORMAT_VERSION);
 
         let serialized = entry.serialize().unwrap();
         let (deserialized, _) = WalEntry::deserialize(&serialized, 0).unwrap();
 
-        assert_eq!(deserialized.version, M7_FORMAT_VERSION);
+        assert_eq!(deserialized.version, WAL_FORMAT_VERSION);
     }
 
     #[test]

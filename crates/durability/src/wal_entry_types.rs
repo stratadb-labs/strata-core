@@ -1,6 +1,6 @@
-//! WAL Entry Type Registry (M7)
+//! WAL Entry Type Registry
 //!
-//! This module defines the WAL entry type registry for M7 durability.
+//! This module defines the WAL entry type registry for durability.
 //! Entry types are organized by ranges to enable extensibility:
 //!
 //! ## Entry Type Ranges

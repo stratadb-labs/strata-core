@@ -1,4 +1,4 @@
-//! Primitive registry for dynamic primitive handling (M7)
+//! Primitive registry for dynamic primitive handling
 //!
 //! The registry allows new primitives to be registered without modifying
 //! the recovery engine or snapshot format.

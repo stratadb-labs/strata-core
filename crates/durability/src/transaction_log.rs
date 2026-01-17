@@ -1,4 +1,4 @@
-//! Cross-Primitive Transaction Support (M7 Epic 44)
+//! Cross-Primitive Transaction Support
 //!
 //! This module provides transaction grouping for atomic cross-primitive operations.
 //! All entries in a transaction share the same tx_id, ensuring either all effects
@@ -23,7 +23,7 @@
 //! let (tx_id, entries) = tx.into_wal_entries();
 //! ```
 
-use crate::m7_wal_types::{TxId, WalEntry};
+use crate::wal_types::{TxId, WalEntry};
 use crate::wal_entry_types::WalEntryType;
 
 /// A transaction that can span multiple primitives

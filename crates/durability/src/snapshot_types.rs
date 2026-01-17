@@ -1,4 +1,4 @@
-//! Snapshot format types for M7 Durability
+//! Snapshot format types
 //!
 //! This module defines the snapshot envelope format used for point-in-time
 //! database state persistence. Snapshots compress WAL effects and are used
@@ -10,7 +10,7 @@
 //! +------------------+
 //! | Magic (10 bytes) |  "INMEM_SNAP"
 //! +------------------+
-//! | Version (4)      |  Format version (1 for M7)
+//! | Version (4)      |  Format version (1)
 //! +------------------+
 //! | Timestamp (8)    |  Microseconds since epoch
 //! +------------------+
@@ -39,7 +39,7 @@ use thiserror::Error;
 /// Snapshot file magic bytes
 pub const SNAPSHOT_MAGIC: &[u8; 10] = b"INMEM_SNAP";
 
-/// Snapshot format version 1 (M7)
+/// Snapshot format version 1
 pub const SNAPSHOT_VERSION_1: u32 = 1;
 
 /// Header size: Magic(10) + Version(4) + Timestamp(8) + Offset(8) + TxCount(8)

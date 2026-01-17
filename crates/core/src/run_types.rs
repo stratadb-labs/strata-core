@@ -1,12 +1,12 @@
-//! M7 Run lifecycle types
+//! Run lifecycle types
 //!
 //! This module defines the run lifecycle types for durability and replay.
-//! These are distinct from the M3 run management types in `primitives::run_index`.
+//! These are distinct from the run management types in `primitives::run_index`.
 //!
 //! ## Design
 //!
-//! - `M7RunStatus`: Durability-focused lifecycle states (Active, Completed, Orphaned, NotFound)
-//! - `M7RunMetadata`: Run metadata for replay and recovery
+//! - `RunStatus`: Durability-focused lifecycle states (Active, Completed, Orphaned, NotFound)
+//! - `RunMetadata`: Run metadata for replay and recovery
 //!
 //! ## Replay Invariants (P1-P6)
 //!
@@ -22,7 +22,7 @@
 use crate::types::RunId;
 use serde::{Deserialize, Serialize};
 
-/// M7 Run lifecycle status for durability and replay
+/// Run lifecycle status for durability and replay
 ///
 /// This enum represents the lifecycle states relevant to durability:
 /// - Active: Run in progress (begin_run called, end_run not yet called)
@@ -30,7 +30,7 @@ use serde::{Deserialize, Serialize};
 /// - Orphaned: Run was never ended (crash without end_run marker)
 /// - NotFound: Run doesn't exist in the system
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
-pub enum M7RunStatus {
+pub enum RunStatus {
     /// Run is active (begin_run called, end_run not yet called)
     Active,
     /// Run completed normally (end_run called)
@@ -41,53 +41,53 @@ pub enum M7RunStatus {
     NotFound,
 }
 
-impl M7RunStatus {
+impl RunStatus {
     /// Check if run is still active
     pub fn is_active(&self) -> bool {
-        matches!(self, M7RunStatus::Active)
+        matches!(self, RunStatus::Active)
     }
 
     /// Check if run is completed
     pub fn is_completed(&self) -> bool {
-        matches!(self, M7RunStatus::Completed)
+        matches!(self, RunStatus::Completed)
     }
 
     /// Check if run is orphaned
     pub fn is_orphaned(&self) -> bool {
-        matches!(self, M7RunStatus::Orphaned)
+        matches!(self, RunStatus::Orphaned)
     }
 
     /// Check if run exists (any status except NotFound)
     pub fn exists(&self) -> bool {
-        !matches!(self, M7RunStatus::NotFound)
+        !matches!(self, RunStatus::NotFound)
     }
 
     /// Get string representation
     pub fn as_str(&self) -> &'static str {
         match self {
-            M7RunStatus::Active => "Active",
-            M7RunStatus::Completed => "Completed",
-            M7RunStatus::Orphaned => "Orphaned",
-            M7RunStatus::NotFound => "NotFound",
+            RunStatus::Active => "Active",
+            RunStatus::Completed => "Completed",
+            RunStatus::Orphaned => "Orphaned",
+            RunStatus::NotFound => "NotFound",
         }
     }
 }
 
-impl std::fmt::Display for M7RunStatus {
+impl std::fmt::Display for RunStatus {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "{}", self.as_str())
     }
 }
 
-/// M7 Run metadata for replay and recovery
+/// Run metadata for replay and recovery
 ///
 /// Contains all information needed to replay a run and track its lifecycle.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct M7RunMetadata {
+pub struct RunMetadata {
     /// Run ID
     pub run_id: RunId,
     /// Current status
-    pub status: M7RunStatus,
+    pub status: RunStatus,
     /// When run started (microseconds since epoch)
     pub started_at: u64,
     /// When run ended (if completed)
@@ -100,12 +100,12 @@ pub struct M7RunMetadata {
     pub end_wal_offset: Option<u64>,
 }
 
-impl M7RunMetadata {
+impl RunMetadata {
     /// Create metadata for a new run
     pub fn new(run_id: RunId, started_at: u64, begin_wal_offset: u64) -> Self {
-        M7RunMetadata {
+        RunMetadata {
             run_id,
-            status: M7RunStatus::Active,
+            status: RunStatus::Active,
             started_at,
             ended_at: None,
             event_count: 0,
@@ -116,14 +116,14 @@ impl M7RunMetadata {
 
     /// Mark run as completed
     pub fn complete(&mut self, ended_at: u64, end_wal_offset: u64) {
-        self.status = M7RunStatus::Completed;
+        self.status = RunStatus::Completed;
         self.ended_at = Some(ended_at);
         self.end_wal_offset = Some(end_wal_offset);
     }
 
     /// Mark run as orphaned
     pub fn mark_orphaned(&mut self) {
-        self.status = M7RunStatus::Orphaned;
+        self.status = RunStatus::Orphaned;
     }
 
     /// Duration in microseconds (if completed)
@@ -183,13 +183,13 @@ mod tests {
     #[test]
     fn test_run_status_transitions() {
         let run_id = RunId::new();
-        let mut meta = M7RunMetadata::new(run_id, 1000, 0);
-        assert_eq!(meta.status, M7RunStatus::Active);
+        let mut meta = RunMetadata::new(run_id, 1000, 0);
+        assert_eq!(meta.status, RunStatus::Active);
         assert!(meta.status.is_active());
         assert!(meta.status.exists());
 
         meta.complete(2000, 100);
-        assert_eq!(meta.status, M7RunStatus::Completed);
+        assert_eq!(meta.status, RunStatus::Completed);
         assert!(meta.status.is_completed());
         assert_eq!(meta.duration_micros(), Some(1000));
         assert_eq!(meta.end_wal_offset, Some(100));
@@ -198,18 +198,18 @@ mod tests {
     #[test]
     fn test_run_status_orphaned() {
         let run_id = RunId::new();
-        let mut meta = M7RunMetadata::new(run_id, 1000, 0);
-        assert_eq!(meta.status, M7RunStatus::Active);
+        let mut meta = RunMetadata::new(run_id, 1000, 0);
+        assert_eq!(meta.status, RunStatus::Active);
 
         meta.mark_orphaned();
-        assert_eq!(meta.status, M7RunStatus::Orphaned);
+        assert_eq!(meta.status, RunStatus::Orphaned);
         assert!(meta.status.is_orphaned());
         assert!(meta.status.exists());
     }
 
     #[test]
     fn test_run_status_not_found() {
-        let status = M7RunStatus::NotFound;
+        let status = RunStatus::NotFound;
         assert!(!status.exists());
         assert!(!status.is_active());
         assert!(!status.is_completed());
@@ -218,25 +218,25 @@ mod tests {
 
     #[test]
     fn test_run_status_as_str() {
-        assert_eq!(M7RunStatus::Active.as_str(), "Active");
-        assert_eq!(M7RunStatus::Completed.as_str(), "Completed");
-        assert_eq!(M7RunStatus::Orphaned.as_str(), "Orphaned");
-        assert_eq!(M7RunStatus::NotFound.as_str(), "NotFound");
+        assert_eq!(RunStatus::Active.as_str(), "Active");
+        assert_eq!(RunStatus::Completed.as_str(), "Completed");
+        assert_eq!(RunStatus::Orphaned.as_str(), "Orphaned");
+        assert_eq!(RunStatus::NotFound.as_str(), "NotFound");
     }
 
     #[test]
     fn test_run_status_display() {
-        assert_eq!(format!("{}", M7RunStatus::Active), "Active");
-        assert_eq!(format!("{}", M7RunStatus::Completed), "Completed");
+        assert_eq!(format!("{}", RunStatus::Active), "Active");
+        assert_eq!(format!("{}", RunStatus::Completed), "Completed");
     }
 
     #[test]
     fn test_run_metadata_serialization() {
         let run_id = RunId::new();
-        let meta = M7RunMetadata::new(run_id, 1000, 50);
+        let meta = RunMetadata::new(run_id, 1000, 50);
 
         let json = serde_json::to_string(&meta).unwrap();
-        let restored: M7RunMetadata = serde_json::from_str(&json).unwrap();
+        let restored: RunMetadata = serde_json::from_str(&json).unwrap();
 
         assert_eq!(meta, restored);
     }
@@ -259,7 +259,7 @@ mod tests {
     #[test]
     fn test_run_metadata_event_count() {
         let run_id = RunId::new();
-        let mut meta = M7RunMetadata::new(run_id, 1000, 0);
+        let mut meta = RunMetadata::new(run_id, 1000, 0);
         assert_eq!(meta.event_count, 0);
 
         meta.increment_event_count();

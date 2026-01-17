@@ -1,6 +1,6 @@
-//! M7 WAL Writer with Transaction Framing
+//! WAL Writer with Transaction Framing
 //!
-//! This module implements the M7 WAL writer with transaction support:
+//! This module implements the WAL writer with transaction support:
 //!
 //! ## Transaction Lifecycle
 //!
@@ -23,8 +23,8 @@
 //! - `Async`: Background thread handles fsync
 //! - `InMemory`: No persistence
 
-use crate::m7_transaction::Transaction;
-use crate::m7_wal_types::{TxId, WalEntry, WalEntryError};
+use crate::transaction_log::Transaction;
+use crate::wal_types::{TxId, WalEntry, WalEntryError};
 use crate::wal::DurabilityMode;
 use crate::wal_entry_types::WalEntryType;
 use std::fs::{File, OpenOptions};
@@ -37,9 +37,9 @@ use std::time::{Duration, Instant};
 use tracing::{debug, info, trace};
 use uuid::Uuid;
 
-/// M7 WAL Writer with transaction framing support
+/// WAL Writer with transaction framing support
 ///
-/// This writer implements the M7 transaction protocol:
+/// This writer implements the transaction protocol:
 /// - Every data entry includes a TxId
 /// - Transactions must have a commit marker to be visible
 /// - Commit markers trigger fsync in Strict mode
@@ -47,7 +47,7 @@ use uuid::Uuid;
 /// # Example
 ///
 /// ```ignore
-/// use in_mem_durability::m7_wal_writer::WalWriter;
+/// use in_mem_durability::WalWriter;
 /// use in_mem_durability::WalEntryType;
 ///
 /// let mut writer = WalWriter::open("test.wal", DurabilityMode::Strict)?;
@@ -376,7 +376,7 @@ impl WalWriter {
         run_id: in_mem_core::types::RunId,
         timestamp_micros: u64,
     ) -> Result<u64, WalEntryError> {
-        let entry = crate::m7_run_lifecycle::create_run_begin_entry(run_id, timestamp_micros);
+        let entry = crate::run_lifecycle::create_run_begin_entry(run_id, timestamp_micros);
         let offset = self.write_entry(&entry)?;
 
         info!(run_id = %run_id, timestamp = timestamp_micros, "Run begin marker written");
@@ -400,7 +400,7 @@ impl WalWriter {
         event_count: u64,
     ) -> Result<u64, WalEntryError> {
         let entry =
-            crate::m7_run_lifecycle::create_run_end_entry(run_id, timestamp_micros, event_count);
+            crate::run_lifecycle::create_run_end_entry(run_id, timestamp_micros, event_count);
         let offset = self.write_entry(&entry)?;
 
         info!(run_id = %run_id, timestamp = timestamp_micros, event_count, "Run end marker written");
@@ -783,7 +783,7 @@ mod tests {
         assert!(writer.position() > offset);
 
         // Verify by reading back with reader
-        use crate::m7_wal_reader::WalReader;
+        use crate::wal_reader::WalReader;
         let mut reader = WalReader::open(&wal_path).unwrap();
         let mut entries = Vec::new();
         while let Some(entry) = reader.next_entry().unwrap() {
@@ -837,7 +837,7 @@ mod tests {
         }
 
         // Verify all 3 transactions written
-        use crate::m7_wal_reader::WalReader;
+        use crate::wal_reader::WalReader;
         let mut reader = WalReader::open(&wal_path).unwrap();
         let mut entries = Vec::new();
         while let Some(entry) = reader.next_entry().unwrap() {
@@ -872,7 +872,7 @@ mod tests {
         writer.commit_atomic(tx).unwrap();
 
         // Verify all entries have same tx_id
-        use crate::m7_wal_reader::WalReader;
+        use crate::wal_reader::WalReader;
         let mut reader = WalReader::open(&wal_path).unwrap();
         let mut entries = Vec::new();
         while let Some(entry) = reader.next_entry().unwrap() {
@@ -927,7 +927,7 @@ mod tests {
         writer.commit_atomic(tx).unwrap();
 
         // Verify all entries
-        use crate::m7_wal_reader::WalReader;
+        use crate::wal_reader::WalReader;
         let mut reader = WalReader::open(&wal_path).unwrap();
         let mut entries = Vec::new();
         while let Some(entry) = reader.next_entry().unwrap() {

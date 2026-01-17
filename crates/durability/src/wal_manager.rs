@@ -1,4 +1,4 @@
-//! M7 WAL Manager with Truncation Support
+//! WAL Manager with Truncation Support
 //!
 //! This module implements WAL management including truncation after snapshots:
 //!
@@ -16,8 +16,8 @@
 //! - Atomic rename prevents partial truncation
 //! - Update base offset tracking after truncation
 
-use crate::m7_wal_reader::WalReader;
-use crate::m7_wal_types::WalEntryError;
+use crate::wal_reader::WalReader;
+use crate::wal_types::WalEntryError;
 use std::fs::{self, File};
 use std::io::{Read, Seek, SeekFrom, Write};
 use std::path::{Path, PathBuf};
@@ -27,7 +27,7 @@ use tracing::{debug, info, warn};
 /// Safety buffer size: keep this many bytes before truncation point
 const SAFETY_BUFFER_SIZE: u64 = 1024;
 
-/// M7 WAL Manager for file operations and truncation
+/// WAL Manager for file operations and truncation
 ///
 /// Manages WAL file lifecycle including:
 /// - Size tracking
@@ -245,7 +245,7 @@ pub struct WalStats {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::m7_wal_writer::WalWriter;
+    use crate::wal_writer::WalWriter;
     use crate::wal::DurabilityMode;
     use crate::wal_entry_types::WalEntryType;
     use tempfile::TempDir;

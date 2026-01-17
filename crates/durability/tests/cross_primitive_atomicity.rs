@@ -1,4 +1,4 @@
-//! Cross-Primitive Atomicity Integration Tests (M7 Epic 44, Story #320)
+//! Cross-Primitive Atomicity Integration Tests (Story #320)
 //!
 //! These tests verify that transactions spanning multiple primitives (KV, JSON,
 //! Event, State, Trace, Run) are atomic - after crash recovery, you see either
@@ -9,9 +9,9 @@
 //! > After crash recovery, the database must correspond to a **prefix of the
 //! > committed transaction history**. No partial transactions may be visible.
 
-use in_mem_durability::m7_recovery::{M7Recovery, M7RecoveryOptions};
-use in_mem_durability::m7_transaction::Transaction;
-use in_mem_durability::m7_wal_writer::WalWriter;
+use in_mem_durability::{RecoveryEngine, RecoveryOptions};
+use in_mem_durability::Transaction;
+use in_mem_durability::WalWriter;
 use in_mem_durability::wal::DurabilityMode;
 use in_mem_durability::wal_entry_types::WalEntryType;
 use tempfile::TempDir;
@@ -46,7 +46,7 @@ fn test_cross_primitive_commit() {
 
     // Verify all entries are recovered
     let (transactions, result) =
-        M7Recovery::replay_wal_committed(&wal_path, 0, &M7RecoveryOptions::default()).unwrap();
+        RecoveryEngine::replay_wal_committed(&wal_path, 0, &RecoveryOptions::default()).unwrap();
 
     assert_eq!(transactions.len(), 1);
     assert_eq!(result.transactions_recovered, 1);
@@ -97,7 +97,7 @@ fn test_all_primitives_atomic() {
     }
 
     let (transactions, result) =
-        M7Recovery::replay_wal_committed(&wal_path, 0, &M7RecoveryOptions::default()).unwrap();
+        RecoveryEngine::replay_wal_committed(&wal_path, 0, &RecoveryOptions::default()).unwrap();
 
     assert_eq!(transactions.len(), 1);
     assert_eq!(result.transactions_recovered, 1);
@@ -136,7 +136,7 @@ fn test_cross_primitive_rollback() {
     }
 
     let (transactions, result) =
-        M7Recovery::replay_wal_committed(&wal_path, 0, &M7RecoveryOptions::default()).unwrap();
+        RecoveryEngine::replay_wal_committed(&wal_path, 0, &RecoveryOptions::default()).unwrap();
 
     // Only the committed transaction should be visible
     assert_eq!(transactions.len(), 1);
@@ -174,7 +174,7 @@ fn test_crash_mid_transaction() {
 
     // Recover
     let (transactions, result) =
-        M7Recovery::replay_wal_committed(&wal_path, 0, &M7RecoveryOptions::default()).unwrap();
+        RecoveryEngine::replay_wal_committed(&wal_path, 0, &RecoveryOptions::default()).unwrap();
 
     // Nothing should be visible
     assert_eq!(transactions.len(), 0);
@@ -213,7 +213,7 @@ fn test_partial_transaction_not_visible() {
     }
 
     let (transactions, result) =
-        M7Recovery::replay_wal_committed(&wal_path, 0, &M7RecoveryOptions::default()).unwrap();
+        RecoveryEngine::replay_wal_committed(&wal_path, 0, &RecoveryOptions::default()).unwrap();
 
     // TX1 should be visible, TX2 should not
     assert_eq!(transactions.len(), 1);
@@ -257,7 +257,7 @@ fn test_interleaved_transactions() {
     }
 
     let (transactions, result) =
-        M7Recovery::replay_wal_committed(&wal_path, 0, &M7RecoveryOptions::default()).unwrap();
+        RecoveryEngine::replay_wal_committed(&wal_path, 0, &RecoveryOptions::default()).unwrap();
 
     // All 3 transactions should be recovered
     assert_eq!(transactions.len(), 3);
@@ -309,7 +309,7 @@ fn test_mixed_committed_uncommitted() {
     }
 
     let (transactions, result) =
-        M7Recovery::replay_wal_committed(&wal_path, 0, &M7RecoveryOptions::default()).unwrap();
+        RecoveryEngine::replay_wal_committed(&wal_path, 0, &RecoveryOptions::default()).unwrap();
 
     // TX1, TX3, TX5 committed; TX2 orphaned; TX4 aborted
     assert_eq!(transactions.len(), 3);
@@ -339,7 +339,7 @@ fn test_large_transaction() {
     }
 
     let (transactions, result) =
-        M7Recovery::replay_wal_committed(&wal_path, 0, &M7RecoveryOptions::default()).unwrap();
+        RecoveryEngine::replay_wal_committed(&wal_path, 0, &RecoveryOptions::default()).unwrap();
 
     // All 1000 keys should be present
     assert_eq!(transactions.len(), 1);
@@ -385,7 +385,7 @@ fn test_large_cross_primitive_transaction() {
     }
 
     let (transactions, result) =
-        M7Recovery::replay_wal_committed(&wal_path, 0, &M7RecoveryOptions::default()).unwrap();
+        RecoveryEngine::replay_wal_committed(&wal_path, 0, &RecoveryOptions::default()).unwrap();
 
     assert_eq!(transactions.len(), 1);
     assert_eq!(transactions[0].1.len(), 200); // 100 + 50 + 30 + 20
@@ -419,9 +419,9 @@ fn test_recovery_deterministic() {
 
     // Recover twice
     let (txs1, result1) =
-        M7Recovery::replay_wal_committed(&wal_path, 0, &M7RecoveryOptions::default()).unwrap();
+        RecoveryEngine::replay_wal_committed(&wal_path, 0, &RecoveryOptions::default()).unwrap();
     let (txs2, result2) =
-        M7Recovery::replay_wal_committed(&wal_path, 0, &M7RecoveryOptions::default()).unwrap();
+        RecoveryEngine::replay_wal_committed(&wal_path, 0, &RecoveryOptions::default()).unwrap();
 
     // Must be identical
     assert_eq!(
@@ -457,7 +457,7 @@ fn test_order_preservation() {
 
     // Recover
     let (transactions, _) =
-        M7Recovery::replay_wal_committed(&wal_path, 0, &M7RecoveryOptions::default()).unwrap();
+        RecoveryEngine::replay_wal_committed(&wal_path, 0, &RecoveryOptions::default()).unwrap();
 
     // Order should be preserved
     assert_eq!(transactions.len(), 50);
@@ -491,10 +491,10 @@ fn test_rebuild_transaction() {
 
     // Recover
     let (transactions, _) =
-        M7Recovery::replay_wal_committed(&wal_path, 0, &M7RecoveryOptions::default()).unwrap();
+        RecoveryEngine::replay_wal_committed(&wal_path, 0, &RecoveryOptions::default()).unwrap();
 
     let (tx_id, entries) = &transactions[0];
-    let rebuilt = M7Recovery::rebuild_transaction(*tx_id, entries);
+    let rebuilt = RecoveryEngine::rebuild_transaction(*tx_id, entries);
 
     assert_eq!(rebuilt.id(), original_tx_id);
     assert_eq!(rebuilt.len(), 3);
@@ -517,14 +517,14 @@ fn test_entries_to_tx_entries() {
     }
 
     let (transactions, _) =
-        M7Recovery::replay_wal_committed(&wal_path, 0, &M7RecoveryOptions::default()).unwrap();
+        RecoveryEngine::replay_wal_committed(&wal_path, 0, &RecoveryOptions::default()).unwrap();
 
     let (_, entries) = &transactions[0];
-    let tx_entries = M7Recovery::entries_to_tx_entries(entries);
+    let tx_entries = RecoveryEngine::entries_to_tx_entries(entries);
 
     assert_eq!(tx_entries.len(), 3);
 
-    use in_mem_durability::m7_transaction::TxEntry;
+    use in_mem_durability::TxEntry;
     assert!(matches!(tx_entries[0], TxEntry::KvPut { .. }));
     assert!(matches!(tx_entries[1], TxEntry::JsonCreate { .. }));
     assert!(matches!(tx_entries[2], TxEntry::EventAppend { .. }));
@@ -554,7 +554,7 @@ fn test_empty_transaction() {
     }
 
     let (transactions, result) =
-        M7Recovery::replay_wal_committed(&wal_path, 0, &M7RecoveryOptions::default()).unwrap();
+        RecoveryEngine::replay_wal_committed(&wal_path, 0, &RecoveryOptions::default()).unwrap();
 
     // Only non-empty transaction should appear
     assert_eq!(transactions.len(), 1);
@@ -578,7 +578,7 @@ fn test_many_small_transactions() {
     }
 
     let (transactions, result) =
-        M7Recovery::replay_wal_committed(&wal_path, 0, &M7RecoveryOptions::default()).unwrap();
+        RecoveryEngine::replay_wal_committed(&wal_path, 0, &RecoveryOptions::default()).unwrap();
 
     assert_eq!(transactions.len(), 1000);
     assert_eq!(result.transactions_recovered, 1000);
@@ -626,7 +626,7 @@ fn test_all_operations() {
     }
 
     let (transactions, result) =
-        M7Recovery::replay_wal_committed(&wal_path, 0, &M7RecoveryOptions::default()).unwrap();
+        RecoveryEngine::replay_wal_committed(&wal_path, 0, &RecoveryOptions::default()).unwrap();
 
     assert_eq!(transactions.len(), 1);
     assert_eq!(result.transactions_recovered, 1);

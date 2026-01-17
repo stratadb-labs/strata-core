@@ -1,6 +1,6 @@
 //! Replay Invariant Tests (Story #328)
 //!
-//! These tests validate the replay invariants (P1-P6) from M7_SCOPE.md:
+//! These tests validate the replay invariants (P1-P6):
 //!
 //! - P1: Replay is a pure function over (Snapshot, WAL, EventLog)
 //! - P2: Replay is side-effect free (does not mutate canonical store)

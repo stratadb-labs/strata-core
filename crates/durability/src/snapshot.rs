@@ -1,4 +1,4 @@
-//! Snapshot Writer and Serialization for M7 Durability
+//! Snapshot Writer and Serialization
 //!
 //! This module implements snapshot writing with:
 //! - Per-primitive serialization trait

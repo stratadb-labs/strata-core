@@ -1,6 +1,6 @@
 //! Recovery Invariant Tests (Story #327)
 //!
-//! These tests validate the recovery invariants (R1-R6) from M7_SCOPE.md:
+//! These tests validate the recovery invariants (R1-R6):
 //!
 //! - R1: Recovery is deterministic - Same WAL + Snapshot = Same state
 //! - R2: Recovery is idempotent - Replaying recovery produces identical state

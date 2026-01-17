@@ -1,15 +1,15 @@
-//! Integration tests for M7 Run Lifecycle (Epic 43)
+//! Integration tests for Run Lifecycle (Epic 43)
 //!
 //! Tests for:
-//! - Story #310: M7RunStatus and M7RunMetadata types
+//! - Story #310: RunStatus and RunMetadata types
 //! - Story #311: begin_run() WAL entries
 //! - Story #312: end_run() WAL entries
-//! - Story #313: M7RunIndex event offset tracking
+//! - Story #313: RunIndex event offset tracking
 //! - Story #314: ReadOnlyView
 //! - Story #315: diff_runs() key-level comparison
 //! - Story #316: Orphaned run detection
 
-use in_mem_core::run_types::{M7RunMetadata, M7RunStatus};
+use in_mem_core::run_types::{RunMetadata, RunStatus};
 use in_mem_core::types::{Key, Namespace, RunId};
 use in_mem_core::value::Value;
 use in_mem_durability::wal::DurabilityMode;
@@ -17,20 +17,20 @@ use in_mem_durability::{
     create_run_begin_entry, create_run_end_entry, parse_run_begin_payload, parse_run_end_payload,
     WalEntry, WalWriter,
 };
-use in_mem_engine::{diff_views, DiffEntry, DiffPrimitiveKind, M7RunIndex, ReadOnlyView, RunDiff};
+use in_mem_engine::{diff_views, DiffEntry, DiffPrimitiveKind, RunIndex, ReadOnlyView, RunDiff};
 use tempfile::TempDir;
 
 // ============================================================================
-// Story #310: M7RunStatus and M7RunMetadata Tests
+// Story #310: RunStatus and RunMetadata Tests
 // ============================================================================
 
 #[test]
-fn test_m7_run_status_values() {
+fn test_run_status_values() {
     // Test all status values
-    let active = M7RunStatus::Active;
-    let completed = M7RunStatus::Completed;
-    let orphaned = M7RunStatus::Orphaned;
-    let not_found = M7RunStatus::NotFound;
+    let active = RunStatus::Active;
+    let completed = RunStatus::Completed;
+    let orphaned = RunStatus::Orphaned;
+    let not_found = RunStatus::NotFound;
 
     assert!(active.is_active());
     assert!(!active.is_completed());
@@ -54,15 +54,15 @@ fn test_m7_run_status_values() {
 }
 
 #[test]
-fn test_m7_run_metadata_lifecycle() {
+fn test_run_metadata_lifecycle() {
     let run_id = RunId::new();
     let started_at = 1000000u64;
     let begin_offset = 0u64;
 
     // Create new metadata
-    let mut meta = M7RunMetadata::new(run_id, started_at, begin_offset);
+    let mut meta = RunMetadata::new(run_id, started_at, begin_offset);
     assert_eq!(meta.run_id, run_id);
-    assert_eq!(meta.status, M7RunStatus::Active);
+    assert_eq!(meta.status, RunStatus::Active);
     assert_eq!(meta.started_at, started_at);
     assert_eq!(meta.ended_at, None);
     assert_eq!(meta.event_count, 0);
@@ -80,20 +80,20 @@ fn test_m7_run_metadata_lifecycle() {
     let end_offset = 500u64;
     meta.complete(ended_at, end_offset);
 
-    assert_eq!(meta.status, M7RunStatus::Completed);
+    assert_eq!(meta.status, RunStatus::Completed);
     assert_eq!(meta.ended_at, Some(ended_at));
     assert_eq!(meta.end_wal_offset, Some(end_offset));
     assert_eq!(meta.duration_micros(), Some(1000000));
 }
 
 #[test]
-fn test_m7_run_metadata_orphaned() {
+fn test_run_metadata_orphaned() {
     let run_id = RunId::new();
-    let mut meta = M7RunMetadata::new(run_id, 1000, 0);
+    let mut meta = RunMetadata::new(run_id, 1000, 0);
 
     meta.mark_orphaned();
 
-    assert_eq!(meta.status, M7RunStatus::Orphaned);
+    assert_eq!(meta.status, RunStatus::Orphaned);
     assert!(meta.status.is_orphaned());
 }
 
@@ -179,33 +179,33 @@ fn test_run_lifecycle_wal_sequence() {
 }
 
 // ============================================================================
-// Story #313: M7RunIndex Event Offset Tracking
+// Story #313: RunIndex Event Offset Tracking
 // ============================================================================
 
 #[test]
-fn test_m7_run_index_basic_operations() {
-    let mut index = M7RunIndex::new();
+fn test_run_index_basic_operations() {
+    let mut index = RunIndex::new();
 
     let run_id = RunId::new();
-    let meta = M7RunMetadata::new(run_id, 1000, 0);
+    let meta = RunMetadata::new(run_id, 1000, 0);
 
     // Insert run
     index.insert(run_id, meta);
     assert!(index.exists(run_id));
-    assert_eq!(index.status(run_id), M7RunStatus::Active);
+    assert_eq!(index.status(run_id), RunStatus::Active);
 
     // Non-existent run
     let other_run = RunId::new();
     assert!(!index.exists(other_run));
-    assert_eq!(index.status(other_run), M7RunStatus::NotFound);
+    assert_eq!(index.status(other_run), RunStatus::NotFound);
 }
 
 #[test]
-fn test_m7_run_index_event_tracking() {
-    let mut index = M7RunIndex::new();
+fn test_run_index_event_tracking() {
+    let mut index = RunIndex::new();
 
     let run_id = RunId::new();
-    let meta = M7RunMetadata::new(run_id, 1000, 0);
+    let meta = RunMetadata::new(run_id, 1000, 0);
     index.insert(run_id, meta);
 
     // Record events
@@ -223,17 +223,17 @@ fn test_m7_run_index_event_tracking() {
 }
 
 #[test]
-fn test_m7_run_index_multiple_runs() {
-    let mut index = M7RunIndex::new();
+fn test_run_index_multiple_runs() {
+    let mut index = RunIndex::new();
 
     // Create multiple runs
     let run1 = RunId::new();
     let run2 = RunId::new();
     let run3 = RunId::new();
 
-    index.insert(run1, M7RunMetadata::new(run1, 1000, 0));
-    index.insert(run2, M7RunMetadata::new(run2, 2000, 100));
-    index.insert(run3, M7RunMetadata::new(run3, 3000, 200));
+    index.insert(run1, RunMetadata::new(run1, 1000, 0));
+    index.insert(run2, RunMetadata::new(run2, 2000, 100));
+    index.insert(run3, RunMetadata::new(run3, 3000, 200));
 
     // Record events for different runs
     index.record_event(run1, 10);
@@ -491,14 +491,14 @@ fn test_diff_summary() {
 
 #[test]
 fn test_orphaned_run_detection_basic() {
-    let mut index = M7RunIndex::new();
+    let mut index = RunIndex::new();
 
     let run1 = RunId::new();
     let run2 = RunId::new();
 
     // Create two active runs
-    index.insert(run1, M7RunMetadata::new(run1, 1000, 0));
-    index.insert(run2, M7RunMetadata::new(run2, 2000, 100));
+    index.insert(run1, RunMetadata::new(run1, 1000, 0));
+    index.insert(run2, RunMetadata::new(run2, 2000, 100));
 
     // Find active runs (potential orphans after crash)
     let active = index.find_active();
@@ -507,25 +507,25 @@ fn test_orphaned_run_detection_basic() {
     // Mark them as orphaned
     index.mark_orphaned(&active);
 
-    assert_eq!(index.status(run1), M7RunStatus::Orphaned);
-    assert_eq!(index.status(run2), M7RunStatus::Orphaned);
+    assert_eq!(index.status(run1), RunStatus::Orphaned);
+    assert_eq!(index.status(run2), RunStatus::Orphaned);
 }
 
 #[test]
 fn test_orphaned_run_detection_mixed_states() {
-    let mut index = M7RunIndex::new();
+    let mut index = RunIndex::new();
 
     let completed_run = RunId::new();
     let active_run1 = RunId::new();
     let active_run2 = RunId::new();
 
     // Create runs with different states
-    let mut completed_meta = M7RunMetadata::new(completed_run, 1000, 0);
+    let mut completed_meta = RunMetadata::new(completed_run, 1000, 0);
     completed_meta.complete(2000, 100);
     index.insert(completed_run, completed_meta);
 
-    index.insert(active_run1, M7RunMetadata::new(active_run1, 3000, 200));
-    index.insert(active_run2, M7RunMetadata::new(active_run2, 4000, 300));
+    index.insert(active_run1, RunMetadata::new(active_run1, 3000, 200));
+    index.insert(active_run2, RunMetadata::new(active_run2, 4000, 300));
 
     // Only active runs should be detected
     let active = index.find_active();
@@ -538,39 +538,39 @@ fn test_orphaned_run_detection_mixed_states() {
     index.mark_orphaned(&active);
 
     // Verify final states
-    assert_eq!(index.status(completed_run), M7RunStatus::Completed);
-    assert_eq!(index.status(active_run1), M7RunStatus::Orphaned);
-    assert_eq!(index.status(active_run2), M7RunStatus::Orphaned);
+    assert_eq!(index.status(completed_run), RunStatus::Completed);
+    assert_eq!(index.status(active_run1), RunStatus::Orphaned);
+    assert_eq!(index.status(active_run2), RunStatus::Orphaned);
 }
 
 #[test]
 fn test_count_by_status() {
-    let mut index = M7RunIndex::new();
+    let mut index = RunIndex::new();
 
     // Create runs with different states
     for _ in 0..3 {
         let run_id = RunId::new();
-        index.insert(run_id, M7RunMetadata::new(run_id, 1000, 0));
+        index.insert(run_id, RunMetadata::new(run_id, 1000, 0));
     }
 
     for _ in 0..2 {
         let run_id = RunId::new();
-        let mut meta = M7RunMetadata::new(run_id, 1000, 0);
+        let mut meta = RunMetadata::new(run_id, 1000, 0);
         meta.complete(2000, 100);
         index.insert(run_id, meta);
     }
 
     for _ in 0..1 {
         let run_id = RunId::new();
-        let mut meta = M7RunMetadata::new(run_id, 1000, 0);
+        let mut meta = RunMetadata::new(run_id, 1000, 0);
         meta.mark_orphaned();
         index.insert(run_id, meta);
     }
 
     let counts = index.count_by_status();
-    assert_eq!(counts.get(&M7RunStatus::Active), Some(&3));
-    assert_eq!(counts.get(&M7RunStatus::Completed), Some(&2));
-    assert_eq!(counts.get(&M7RunStatus::Orphaned), Some(&1));
+    assert_eq!(counts.get(&RunStatus::Active), Some(&3));
+    assert_eq!(counts.get(&RunStatus::Completed), Some(&2));
+    assert_eq!(counts.get(&RunStatus::Orphaned), Some(&1));
 }
 
 // ============================================================================

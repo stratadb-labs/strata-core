@@ -1,4 +1,4 @@
-//! Extension trait for primitives to integrate with storage (M7)
+//! Extension trait for primitives to integrate with storage
 //!
 //! This trait must be implemented by any new primitive to participate in:
 //! - WAL entry processing during recovery
@@ -7,7 +7,7 @@
 //!
 //! ## Core Guarantee
 //!
-//! After M7, adding a new primitive requires ONLY:
+//! Adding a new primitive requires ONLY:
 //! 1. Implementing this trait
 //! 2. Registering in PrimitiveRegistry
 //! 3. Using allocated WAL entry types

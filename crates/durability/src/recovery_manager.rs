@@ -1,4 +1,4 @@
-//! M7 Crash Recovery with Snapshot + WAL Replay
+//! Crash Recovery with Snapshot + WAL Replay
 //!
 //! This module implements crash recovery using:
 //! - Snapshot discovery (find latest valid, fallback to older)
@@ -21,17 +21,17 @@
 //! ## Usage
 //!
 //! ```ignore
-//! let (data, result) = M7Recovery::recover(
+//! let (data, result) = RecoveryEngine::recover(
 //!     data_dir,
-//!     M7RecoveryOptions::default(),
+//!     RecoveryOptions::default(),
 //! )?;
 //!
 //! println!("{}", result.summary());
 //! ```
 
-use crate::m7_transaction::{Transaction, TxEntry};
-use crate::m7_wal_reader::WalReader;
-use crate::m7_wal_types::{TxId, WalEntry, WalEntryError};
+use crate::transaction_log::{Transaction, TxEntry};
+use crate::wal_reader::WalReader;
+use crate::wal_types::{TxId, WalEntry, WalEntryError};
 use crate::snapshot::SnapshotReader;
 use crate::snapshot_types::*;
 use crate::wal_entry_types::WalEntryType;
@@ -44,9 +44,9 @@ use tracing::{debug, info, warn};
 // Recovery Options
 // ============================================================================
 
-/// M7 Recovery options
+/// Recovery options
 #[derive(Debug, Clone)]
-pub struct M7RecoveryOptions {
+pub struct RecoveryOptions {
     /// Maximum corrupt entries to tolerate before failing
     pub max_corrupt_entries: usize,
     /// Whether to verify all checksums (slower but safer)
@@ -61,9 +61,9 @@ pub struct M7RecoveryOptions {
     pub wal_filename: String,
 }
 
-impl Default for M7RecoveryOptions {
+impl Default for RecoveryOptions {
     fn default() -> Self {
-        M7RecoveryOptions {
+        RecoveryOptions {
             max_corrupt_entries: 10,
             verify_all_checksums: true,
             rebuild_indexes: true,
@@ -74,10 +74,10 @@ impl Default for M7RecoveryOptions {
     }
 }
 
-impl M7RecoveryOptions {
+impl RecoveryOptions {
     /// Strict recovery options - fail on any corruption
     pub fn strict() -> Self {
-        M7RecoveryOptions {
+        RecoveryOptions {
             max_corrupt_entries: 0,
             verify_all_checksums: true,
             rebuild_indexes: true,
@@ -88,7 +88,7 @@ impl M7RecoveryOptions {
 
     /// Permissive recovery options - tolerate more corruption
     pub fn permissive() -> Self {
-        M7RecoveryOptions {
+        RecoveryOptions {
             max_corrupt_entries: 100,
             verify_all_checksums: false,
             rebuild_indexes: true,
@@ -99,7 +99,7 @@ impl M7RecoveryOptions {
 
     /// Fast recovery options - skip some safety checks
     pub fn fast() -> Self {
-        M7RecoveryOptions {
+        RecoveryOptions {
             max_corrupt_entries: 10,
             verify_all_checksums: false,
             rebuild_indexes: false,
@@ -113,9 +113,9 @@ impl M7RecoveryOptions {
 // Recovery Result
 // ============================================================================
 
-/// M7 Recovery result
+/// Recovery result
 #[derive(Debug, Default, Clone)]
-pub struct M7RecoveryResult {
+pub struct RecoveryResult {
     /// Snapshot used (if any)
     pub snapshot_used: Option<SnapshotInfo>,
     /// Snapshots that were skipped due to corruption
@@ -138,7 +138,7 @@ pub struct M7RecoveryResult {
     pub success: bool,
 }
 
-impl M7RecoveryResult {
+impl RecoveryResult {
     /// Get human-readable summary
     pub fn summary(&self) -> String {
         let snapshot_info = match &self.snapshot_used {
@@ -170,9 +170,9 @@ impl M7RecoveryResult {
 // Recovery Error
 // ============================================================================
 
-/// M7 Recovery errors
+/// Recovery errors
 #[derive(Debug, Error)]
-pub enum M7RecoveryError {
+pub enum RecoveryError {
     /// Too many corrupt entries
     #[error("Too many corrupt entries: {0} (max allowed: {1})")]
     TooManyCorruptEntries(u64, usize),
@@ -207,7 +207,7 @@ pub struct SnapshotDiscovery;
 
 impl SnapshotDiscovery {
     /// Find all snapshot files in directory
-    pub fn list_snapshots(dir: &Path) -> Result<Vec<PathBuf>, M7RecoveryError> {
+    pub fn list_snapshots(dir: &Path) -> Result<Vec<PathBuf>, RecoveryError> {
         if !dir.exists() {
             return Ok(Vec::new());
         }
@@ -241,7 +241,7 @@ impl SnapshotDiscovery {
     /// Returns None if no valid snapshots exist.
     pub fn find_latest_valid(
         snapshot_dir: &Path,
-    ) -> Result<Option<(SnapshotInfo, usize)>, M7RecoveryError> {
+    ) -> Result<Option<(SnapshotInfo, usize)>, RecoveryError> {
         let snapshots = Self::list_snapshots(snapshot_dir)?;
 
         if snapshots.is_empty() {
@@ -353,27 +353,27 @@ impl WalReplayResultPublic {
 }
 
 // ============================================================================
-// M7 Recovery Engine
+// Recovery Engine
 // ============================================================================
 
-/// M7 Recovery engine
+/// Recovery engine
 ///
 /// Combines snapshot loading with WAL replay for crash recovery.
-pub struct M7Recovery;
+pub struct RecoveryEngine;
 
-impl M7Recovery {
+impl RecoveryEngine {
     /// Recover primitive data from disk
     ///
     /// Returns the recovered data as a vector of primitive sections and
     /// recovery statistics.
     pub fn recover(
         data_dir: &Path,
-        options: M7RecoveryOptions,
-    ) -> Result<(Vec<PrimitiveSection>, M7RecoveryResult), M7RecoveryError> {
+        options: RecoveryOptions,
+    ) -> Result<(Vec<PrimitiveSection>, RecoveryResult), RecoveryError> {
         let start = std::time::Instant::now();
-        let mut result = M7RecoveryResult::default();
+        let mut result = RecoveryResult::default();
 
-        info!("Starting M7 recovery from {}", data_dir.display());
+        info!("Starting recovery from {}", data_dir.display());
 
         // 1. Find latest valid snapshot
         let snapshot_dir = data_dir.join("snapshots");
@@ -414,7 +414,7 @@ impl M7Recovery {
 
             // Check corrupt entry limit
             if result.corrupt_entries_skipped > options.max_corrupt_entries as u64 {
-                return Err(M7RecoveryError::TooManyCorruptEntries(
+                return Err(RecoveryError::TooManyCorruptEntries(
                     result.corrupt_entries_skipped,
                     options.max_corrupt_entries,
                 ));
@@ -441,8 +441,8 @@ impl M7Recovery {
         _sections: &mut [PrimitiveSection],
         wal_path: &Path,
         from_offset: u64,
-        options: &M7RecoveryOptions,
-    ) -> Result<WalReplayResult, M7RecoveryError> {
+        options: &RecoveryOptions,
+    ) -> Result<WalReplayResult, RecoveryError> {
         let mut result = WalReplayResult::default();
         let mut reader = WalReader::open(wal_path)?;
 
@@ -453,7 +453,7 @@ impl M7Recovery {
         }
 
         // Track transactions by TxId (which is Copy, Hash, Eq)
-        let mut tx_entries: HashMap<crate::m7_wal_types::TxId, Vec<crate::m7_wal_types::WalEntry>> =
+        let mut tx_entries: HashMap<crate::wal_types::TxId, Vec<crate::wal_types::WalEntry>> =
             HashMap::new();
 
         // Read all entries
@@ -470,7 +470,7 @@ impl M7Recovery {
                 }
 
                 if result.corrupt_entries > options.max_corrupt_entries as u64 {
-                    return Err(M7RecoveryError::TooManyCorruptEntries(
+                    return Err(RecoveryError::TooManyCorruptEntries(
                         result.corrupt_entries,
                         options.max_corrupt_entries,
                     ));
@@ -514,7 +514,7 @@ impl M7Recovery {
         Ok(result)
     }
 
-    /// Replay WAL and return committed transactions (Story #319)
+    /// Replay WAL and return committed transactions
     ///
     /// This method respects transaction boundaries:
     /// - Only returns entries from committed transactions
@@ -530,10 +530,10 @@ impl M7Recovery {
     /// # Example
     ///
     /// ```ignore
-    /// let (transactions, result) = M7Recovery::replay_wal_committed(
+    /// let (transactions, result) = RecoveryEngine::replay_wal_committed(
     ///     &wal_path,
     ///     0,
-    ///     &M7RecoveryOptions::default(),
+    ///     &RecoveryOptions::default(),
     /// )?;
     ///
     /// for (tx_id, entries) in transactions {
@@ -545,8 +545,8 @@ impl M7Recovery {
     pub fn replay_wal_committed(
         wal_path: &Path,
         from_offset: u64,
-        options: &M7RecoveryOptions,
-    ) -> Result<(CommittedTransactions, WalReplayResultPublic), M7RecoveryError> {
+        options: &RecoveryOptions,
+    ) -> Result<(CommittedTransactions, WalReplayResultPublic), RecoveryError> {
         let mut reader = WalReader::open(wal_path)?;
 
         if from_offset > 0 {
@@ -571,7 +571,7 @@ impl M7Recovery {
                 corrupt_entries = reader.corruption_count();
 
                 if corrupt_entries > options.max_corrupt_entries as u64 {
-                    return Err(M7RecoveryError::TooManyCorruptEntries(
+                    return Err(RecoveryError::TooManyCorruptEntries(
                         corrupt_entries,
                         options.max_corrupt_entries,
                     ));
@@ -707,8 +707,8 @@ impl M7Recovery {
     /// Can be used after recovery to verify data consistency.
     pub fn validate_recovery(
         data_dir: &Path,
-        _options: &M7RecoveryOptions,
-    ) -> Result<bool, M7RecoveryError> {
+        _options: &RecoveryOptions,
+    ) -> Result<bool, RecoveryError> {
         // Check snapshot directory
         let snapshot_dir = data_dir.join("snapshots");
         if snapshot_dir.exists() {
@@ -732,7 +732,7 @@ impl M7Recovery {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::m7_wal_writer::WalWriter;
+    use crate::wal_writer::WalWriter;
     use crate::snapshot::SnapshotWriter;
     use crate::wal::DurabilityMode;
     use tempfile::TempDir;
@@ -743,7 +743,7 @@ mod tests {
 
     #[test]
     fn test_recovery_options_default() {
-        let opts = M7RecoveryOptions::default();
+        let opts = RecoveryOptions::default();
         assert_eq!(opts.max_corrupt_entries, 10);
         assert!(opts.verify_all_checksums);
         assert!(opts.rebuild_indexes);
@@ -751,21 +751,21 @@ mod tests {
 
     #[test]
     fn test_recovery_options_strict() {
-        let opts = M7RecoveryOptions::strict();
+        let opts = RecoveryOptions::strict();
         assert_eq!(opts.max_corrupt_entries, 0);
         assert!(opts.verbose);
     }
 
     #[test]
     fn test_recovery_options_permissive() {
-        let opts = M7RecoveryOptions::permissive();
+        let opts = RecoveryOptions::permissive();
         assert_eq!(opts.max_corrupt_entries, 100);
         assert!(!opts.verify_all_checksums);
     }
 
     #[test]
     fn test_recovery_result_summary() {
-        let result = M7RecoveryResult {
+        let result = RecoveryResult {
             transactions_recovered: 100,
             wal_entries_replayed: 500,
             orphaned_transactions: 2,
@@ -784,16 +784,16 @@ mod tests {
 
     #[test]
     fn test_recovery_result_has_issues() {
-        let clean = M7RecoveryResult::default();
+        let clean = RecoveryResult::default();
         assert!(!clean.has_issues());
 
-        let with_corrupt = M7RecoveryResult {
+        let with_corrupt = RecoveryResult {
             corrupt_entries_skipped: 1,
             ..Default::default()
         };
         assert!(with_corrupt.has_issues());
 
-        let with_orphaned = M7RecoveryResult {
+        let with_orphaned = RecoveryResult {
             orphaned_transactions: 1,
             ..Default::default()
         };
@@ -900,9 +900,9 @@ mod tests {
     #[test]
     fn test_recovery_no_data() {
         let temp_dir = create_test_dir();
-        let options = M7RecoveryOptions::default();
+        let options = RecoveryOptions::default();
 
-        let (sections, result) = M7Recovery::recover(temp_dir.path(), options).unwrap();
+        let (sections, result) = RecoveryEngine::recover(temp_dir.path(), options).unwrap();
 
         assert!(sections.is_empty());
         assert!(result.snapshot_used.is_none());
@@ -927,8 +927,8 @@ mod tests {
         writer.write(&header, &sections, &path).unwrap();
 
         // Recover
-        let options = M7RecoveryOptions::default();
-        let (recovered_sections, result) = M7Recovery::recover(temp_dir.path(), options).unwrap();
+        let options = RecoveryOptions::default();
+        let (recovered_sections, result) = RecoveryEngine::recover(temp_dir.path(), options).unwrap();
 
         assert!(result.snapshot_used.is_some());
         assert_eq!(result.snapshot_used.unwrap().wal_offset, 12345);
@@ -965,8 +965,8 @@ mod tests {
         }
 
         // Recover
-        let options = M7RecoveryOptions::default();
-        let (_, result) = M7Recovery::recover(temp_dir.path(), options).unwrap();
+        let options = RecoveryOptions::default();
+        let (_, result) = RecoveryEngine::recover(temp_dir.path(), options).unwrap();
 
         assert!(result.snapshot_used.is_some());
         assert_eq!(result.transactions_recovered, 2);
@@ -988,8 +988,8 @@ mod tests {
         }
 
         // Recover
-        let options = M7RecoveryOptions::default();
-        let (_, result) = M7Recovery::recover(temp_dir.path(), options).unwrap();
+        let options = RecoveryOptions::default();
+        let (_, result) = RecoveryEngine::recover(temp_dir.path(), options).unwrap();
 
         assert!(result.snapshot_used.is_none());
         assert_eq!(result.transactions_recovered, 1);
@@ -1019,8 +1019,8 @@ mod tests {
         }
 
         // Recover
-        let options = M7RecoveryOptions::default();
-        let (_, result) = M7Recovery::recover(temp_dir.path(), options).unwrap();
+        let options = RecoveryOptions::default();
+        let (_, result) = RecoveryEngine::recover(temp_dir.path(), options).unwrap();
 
         assert_eq!(result.transactions_recovered, 1); // Only the complete one
         assert_eq!(result.orphaned_transactions, 1); // The incomplete one
@@ -1051,8 +1051,8 @@ mod tests {
         }
 
         // Recover
-        let options = M7RecoveryOptions::default();
-        let (_, result) = M7Recovery::recover(temp_dir.path(), options).unwrap();
+        let options = RecoveryOptions::default();
+        let (_, result) = RecoveryEngine::recover(temp_dir.path(), options).unwrap();
 
         assert_eq!(result.transactions_recovered, 1);
         assert_eq!(result.aborted_transactions, 1);
@@ -1062,9 +1062,9 @@ mod tests {
     #[test]
     fn test_validate_recovery_empty_dir() {
         let temp_dir = create_test_dir();
-        let options = M7RecoveryOptions::default();
+        let options = RecoveryOptions::default();
 
-        let valid = M7Recovery::validate_recovery(temp_dir.path(), &options).unwrap();
+        let valid = RecoveryEngine::validate_recovery(temp_dir.path(), &options).unwrap();
         assert!(valid);
     }
 
@@ -1085,8 +1085,8 @@ mod tests {
         data[20] ^= 0xFF;
         std::fs::write(&path, &data).unwrap();
 
-        let options = M7RecoveryOptions::default();
-        let valid = M7Recovery::validate_recovery(temp_dir.path(), &options).unwrap();
+        let options = RecoveryOptions::default();
+        let valid = RecoveryEngine::validate_recovery(temp_dir.path(), &options).unwrap();
         assert!(!valid);
     }
 
@@ -1111,7 +1111,7 @@ mod tests {
         }
 
         let (transactions, result) =
-            M7Recovery::replay_wal_committed(&wal_path, 0, &M7RecoveryOptions::default()).unwrap();
+            RecoveryEngine::replay_wal_committed(&wal_path, 0, &RecoveryOptions::default()).unwrap();
 
         assert_eq!(transactions.len(), 2);
         assert_eq!(result.transactions_recovered, 2);
@@ -1142,7 +1142,7 @@ mod tests {
         }
 
         let (transactions, result) =
-            M7Recovery::replay_wal_committed(&wal_path, 0, &M7RecoveryOptions::default()).unwrap();
+            RecoveryEngine::replay_wal_committed(&wal_path, 0, &RecoveryOptions::default()).unwrap();
 
         assert_eq!(transactions.len(), 1); // Only committed
         assert_eq!(result.transactions_recovered, 1);
@@ -1152,7 +1152,7 @@ mod tests {
 
     #[test]
     fn test_replay_wal_cross_primitive_atomic() {
-        use crate::m7_transaction::Transaction;
+        use crate::transaction_log::Transaction;
 
         let temp_dir = create_test_dir();
         let wal_path = temp_dir.path().join("wal.dat");
@@ -1174,7 +1174,7 @@ mod tests {
         }
 
         let (transactions, result) =
-            M7Recovery::replay_wal_committed(&wal_path, 0, &M7RecoveryOptions::default()).unwrap();
+            RecoveryEngine::replay_wal_committed(&wal_path, 0, &RecoveryOptions::default()).unwrap();
 
         assert_eq!(transactions.len(), 1);
         assert_eq!(result.transactions_recovered, 1);
@@ -1199,7 +1199,7 @@ mod tests {
 
     #[test]
     fn test_replay_wal_uncommitted_cross_primitive_discarded() {
-        use crate::m7_transaction::Transaction;
+        use crate::transaction_log::Transaction;
 
         let temp_dir = create_test_dir();
         let wal_path = temp_dir.path().join("wal.dat");
@@ -1229,7 +1229,7 @@ mod tests {
         }
 
         let (transactions, result) =
-            M7Recovery::replay_wal_committed(&wal_path, 0, &M7RecoveryOptions::default()).unwrap();
+            RecoveryEngine::replay_wal_committed(&wal_path, 0, &RecoveryOptions::default()).unwrap();
 
         // No transactions recovered - all were orphaned
         assert_eq!(transactions.len(), 0);
@@ -1240,7 +1240,7 @@ mod tests {
 
     #[test]
     fn test_replay_wal_partial_tx_not_visible() {
-        use crate::m7_transaction::Transaction;
+        use crate::transaction_log::Transaction;
 
         let temp_dir = create_test_dir();
         let wal_path = temp_dir.path().join("wal.dat");
@@ -1268,7 +1268,7 @@ mod tests {
         }
 
         let (transactions, result) =
-            M7Recovery::replay_wal_committed(&wal_path, 0, &M7RecoveryOptions::default()).unwrap();
+            RecoveryEngine::replay_wal_committed(&wal_path, 0, &RecoveryOptions::default()).unwrap();
 
         // Only TX1 should be recovered
         assert_eq!(transactions.len(), 1);
@@ -1279,7 +1279,7 @@ mod tests {
 
     #[test]
     fn test_rebuild_transaction_from_entries() {
-        use crate::m7_transaction::Transaction;
+        use crate::transaction_log::Transaction;
 
         let temp_dir = create_test_dir();
         let wal_path = temp_dir.path().join("wal.dat");
@@ -1300,10 +1300,10 @@ mod tests {
 
         // Recover and rebuild
         let (transactions, _) =
-            M7Recovery::replay_wal_committed(&wal_path, 0, &M7RecoveryOptions::default()).unwrap();
+            RecoveryEngine::replay_wal_committed(&wal_path, 0, &RecoveryOptions::default()).unwrap();
 
         let (tx_id, entries) = &transactions[0];
-        let rebuilt = M7Recovery::rebuild_transaction(*tx_id, entries);
+        let rebuilt = RecoveryEngine::rebuild_transaction(*tx_id, entries);
 
         assert_eq!(rebuilt.id(), original_tx_id);
         assert_eq!(rebuilt.len(), 3);
@@ -1312,21 +1312,21 @@ mod tests {
         let rebuilt_entries = rebuilt.entries();
         assert!(matches!(
             rebuilt_entries[0],
-            crate::m7_transaction::TxEntry::KvPut { .. }
+            crate::transaction_log::TxEntry::KvPut { .. }
         ));
         assert!(matches!(
             rebuilt_entries[1],
-            crate::m7_transaction::TxEntry::JsonSet { .. }
+            crate::transaction_log::TxEntry::JsonSet { .. }
         ));
         assert!(matches!(
             rebuilt_entries[2],
-            crate::m7_transaction::TxEntry::StateSet { .. }
+            crate::transaction_log::TxEntry::StateSet { .. }
         ));
     }
 
     #[test]
     fn test_entries_to_tx_entries() {
-        use crate::m7_transaction::Transaction;
+        use crate::transaction_log::Transaction;
 
         let temp_dir = create_test_dir();
         let wal_path = temp_dir.path().join("wal.dat");
@@ -1341,25 +1341,25 @@ mod tests {
         }
 
         let (transactions, _) =
-            M7Recovery::replay_wal_committed(&wal_path, 0, &M7RecoveryOptions::default()).unwrap();
+            RecoveryEngine::replay_wal_committed(&wal_path, 0, &RecoveryOptions::default()).unwrap();
 
         let (_, entries) = &transactions[0];
-        let tx_entries = M7Recovery::entries_to_tx_entries(entries);
+        let tx_entries = RecoveryEngine::entries_to_tx_entries(entries);
 
         assert_eq!(tx_entries.len(), 2);
         assert!(matches!(
             tx_entries[0],
-            crate::m7_transaction::TxEntry::KvPut { .. }
+            crate::transaction_log::TxEntry::KvPut { .. }
         ));
         assert!(matches!(
             tx_entries[1],
-            crate::m7_transaction::TxEntry::JsonCreate { .. }
+            crate::transaction_log::TxEntry::JsonCreate { .. }
         ));
     }
 
     #[test]
     fn test_recovery_deterministic() {
-        use crate::m7_transaction::Transaction;
+        use crate::transaction_log::Transaction;
 
         let temp_dir = create_test_dir();
         let wal_path = temp_dir.path().join("wal.dat");
@@ -1377,9 +1377,9 @@ mod tests {
 
         // Recover twice
         let (txs1, result1) =
-            M7Recovery::replay_wal_committed(&wal_path, 0, &M7RecoveryOptions::default()).unwrap();
+            RecoveryEngine::replay_wal_committed(&wal_path, 0, &RecoveryOptions::default()).unwrap();
         let (txs2, result2) =
-            M7Recovery::replay_wal_committed(&wal_path, 0, &M7RecoveryOptions::default()).unwrap();
+            RecoveryEngine::replay_wal_committed(&wal_path, 0, &RecoveryOptions::default()).unwrap();
 
         // Results must be identical
         assert_eq!(

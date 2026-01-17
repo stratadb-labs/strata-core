@@ -1,6 +1,6 @@
-//! M7 WAL Reader with Corruption Detection
+//! WAL Reader with Corruption Detection
 //!
-//! This module implements the M7 WAL reader with robust corruption handling:
+//! This module implements the WAL reader with robust corruption handling:
 //!
 //! ## Features
 //!
@@ -26,7 +26,7 @@
 //! }
 //! ```
 
-use crate::m7_wal_types::{TxId, WalEntry, WalEntryError, MAX_WAL_ENTRY_SIZE, MIN_WAL_ENTRY_SIZE};
+use crate::wal_types::{TxId, WalEntry, WalEntryError, MAX_WAL_ENTRY_SIZE, MIN_WAL_ENTRY_SIZE};
 use crate::wal_entry_types::WalEntryType;
 use std::collections::HashMap;
 use std::fs::File;
@@ -37,7 +37,7 @@ use tracing::{debug, trace, warn};
 /// Size of the resync window when scanning for valid entries
 const RESYNC_WINDOW_SIZE: usize = 4096;
 
-/// M7 WAL Reader with corruption detection and resync
+/// WAL Reader with corruption detection and resync
 ///
 /// Reads WAL entries sequentially with CRC32 validation.
 /// Attempts to resync and continue after corruption.
@@ -334,7 +334,7 @@ impl WalReader {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::m7_wal_writer::WalWriter;
+    use crate::wal_writer::WalWriter;
     use crate::wal::DurabilityMode;
     use tempfile::TempDir;
 
