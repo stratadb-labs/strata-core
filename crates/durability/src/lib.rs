@@ -25,6 +25,7 @@ pub mod m7_wal_reader; // M7 Story #364: WAL Corruption Detection
 pub mod m7_wal_types; // M7 Story #360: WAL Entry Envelope with CRC32
 pub mod m7_wal_writer; // M7 Story #361: Transaction Framing
 pub mod recovery; // Story #23: WAL replay logic
+pub mod snapshot; // M7 Story #349-352: Snapshot writer and serialization
 pub mod snapshot_types; // M7 Story #347-348: Snapshot envelope and header types
 pub mod wal; // Story #17-20: WALEntry types, File operations, Durability modes
 pub mod wal_entry_types; // M7 Story #362: WAL Entry Type Registry
@@ -39,9 +40,13 @@ pub use recovery::{
     replay_wal, replay_wal_with_options, validate_transactions, ReplayOptions, ReplayProgress,
     ReplayStats, ValidationResult, ValidationWarning,
 };
+pub use snapshot::{
+    deserialize_primitives, serialize_all_primitives, SnapshotReader, SnapshotSerializable,
+    SnapshotWriter,
+};
 pub use snapshot_types::{
-    now_micros, primitive_ids, SnapshotEnvelope, SnapshotError, SnapshotHeader, SnapshotInfo,
-    PrimitiveSection, SNAPSHOT_HEADER_SIZE, SNAPSHOT_MAGIC, SNAPSHOT_VERSION_1,
+    now_micros, primitive_ids, PrimitiveSection, SnapshotEnvelope, SnapshotError, SnapshotHeader,
+    SnapshotInfo, SNAPSHOT_HEADER_SIZE, SNAPSHOT_MAGIC, SNAPSHOT_VERSION_1,
 };
 pub use wal::{DurabilityMode, WALEntry as LegacyWALEntry, WAL};
 pub use wal_entry_types::{PrimitiveKind, WalEntryType, WalEntryTypeError};
