@@ -13,6 +13,7 @@ members = [
     "crates/primitives",
     "crates/engine",
     "crates/api",
+    "crates/search",
 ]
 
 [workspace.package]
