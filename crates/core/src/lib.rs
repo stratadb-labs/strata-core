@@ -18,6 +18,7 @@
 // Module declarations
 pub mod error; // Story #10
 pub mod json; // M5 JSON types
+pub mod run_types; // Run lifecycle types
 pub mod search_types; // M6 search types
 pub mod traits; // Story #11
 pub mod types; // Story #7, #8
@@ -30,6 +31,7 @@ pub use json::{
     JsonPathError, JsonValue, LimitError, PathParseError, PathSegment, MAX_ARRAY_SIZE,
     MAX_DOCUMENT_SIZE, MAX_NESTING_DEPTH, MAX_PATH_LENGTH,
 };
+pub use run_types::{RunMetadata, RunStatus, RunEventOffsets};
 pub use search_types::{
     DocRef, PrimitiveKind, SearchBudget, SearchHit, SearchMode, SearchRequest, SearchResponse,
     SearchStats,

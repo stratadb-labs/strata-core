@@ -2,7 +2,7 @@
 
 **in-mem** - a fast, durable, embedded database for AI agent workloads.
 
-**Current Version**: 0.5.0 (M5 JSON + M6 Retrieval)
+**Current Version**: 0.7.0 (M7 Durability, Snapshots & Replay)
 
 ## Quick Links
 
@@ -18,6 +18,9 @@
 - **Three Durability Modes**: InMemory (<3µs), Buffered (<30µs), Strict (~2ms)
 - **OCC Transactions**: Optimistic concurrency with snapshot isolation
 - **Run-Scoped Operations**: Every operation tagged with RunId for replay
+- **Periodic Snapshots**: Bounded recovery time with automatic WAL truncation
+- **Crash Recovery**: Deterministic, idempotent, prefix-consistent recovery
+- **Deterministic Replay**: Side-effect free reconstruction of agent run state
 
 ## Current Status
 
@@ -29,7 +32,8 @@
 | M4 Performance | ✅ |
 | M5 JSON | ✅ |
 | M6 Retrieval | ✅ |
-| M7 MCP | Next |
+| M7 Durability | ✅ |
+| M8 Vector | Next |
 
 ## Quick Start
 
@@ -61,5 +65,5 @@ db.end_run(run_id)?;
 
 ---
 
-**Version**: 0.5.0
+**Version**: 0.7.0
 **Last Updated**: 2026-01-17

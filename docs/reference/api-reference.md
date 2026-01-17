@@ -1,6 +1,6 @@
 # API Reference
 
-Complete API reference for **in-mem** v0.5.0 (M5 JSON + M6 Retrieval).
+Complete API reference for **in-mem** v0.7.0 (M7 Durability, Snapshots & Replay).
 
 ## Table of Contents
 
@@ -17,6 +17,18 @@ Complete API reference for **in-mem** v0.5.0 (M5 JSON + M6 Retrieval).
   - [SearchResponse](#searchresponse)
   - [HybridSearch](#hybridsearch)
   - [InvertedIndex](#invertedindex)
+- [Snapshots](#snapshots)
+  - [SnapshotConfig](#snapshotconfig)
+  - [SnapshotInfo](#snapshotinfo)
+- [Recovery](#recovery)
+  - [RecoveryOptions](#recoveryoptions)
+  - [RecoveryResult](#recoveryresult)
+- [Replay](#replay)
+  - [ReadOnlyView](#readonlyview)
+  - [RunDiff](#rundiff)
+- [Run Lifecycle](#run-lifecycle)
+- [WAL Types](#wal-types)
+- [Storage Extension](#storage-extension)
 - [Transactions](#transactions)
 - [Durability Modes](#durability-modes)
 - [Error Types](#error-types)
@@ -787,6 +799,482 @@ Version tracking for cache invalidation.
 
 ---
 
+## Snapshots
+
+Periodic snapshots enable bounded recovery time by capturing consistent database state.
+
+### SnapshotConfig
+
+Configuration for automatic snapshot triggers.
+
+```rust
+pub struct SnapshotConfig {
+    /// Trigger snapshot when WAL exceeds this size (bytes)
+    pub wal_size_threshold: u64,
+    /// Trigger snapshot every N minutes
+    pub time_interval_minutes: u32,
+    /// Number of old snapshots to retain
+    pub retention_count: usize,
+    /// Whether to snapshot on clean shutdown
+    pub snapshot_on_shutdown: bool,
+}
+
+impl Default for SnapshotConfig {
+    fn default() -> Self {
+        SnapshotConfig {
+            wal_size_threshold: 100 * 1024 * 1024,  // 100 MB
+            time_interval_minutes: 30,
+            retention_count: 2,
+            snapshot_on_shutdown: true,
+        }
+    }
+}
+```
+
+### SnapshotInfo
+
+Information about a created snapshot.
+
+```rust
+pub struct SnapshotInfo {
+    /// Snapshot file path
+    pub path: PathBuf,
+    /// Snapshot timestamp (microseconds since epoch)
+    pub timestamp_micros: u64,
+    /// WAL offset this snapshot covers up to
+    pub wal_offset: u64,
+}
+```
+
+### Snapshot Methods
+
+##### `snapshot`
+
+Creates a snapshot manually.
+
+```rust
+impl Database {
+    pub fn snapshot(&self) -> Result<SnapshotInfo>
+}
+```
+
+##### `configure_snapshots`
+
+Configures automatic snapshot triggers.
+
+```rust
+impl Database {
+    pub fn configure_snapshots(&self, config: SnapshotConfig)
+}
+```
+
+##### `list_snapshots`
+
+Lists all available snapshots.
+
+```rust
+impl Database {
+    pub fn list_snapshots(&self) -> Result<Vec<SnapshotInfo>>
+}
+```
+
+##### `delete_snapshot`
+
+Deletes a specific snapshot.
+
+```rust
+impl Database {
+    pub fn delete_snapshot(&self, info: &SnapshotInfo) -> Result<()>
+}
+```
+
+---
+
+## Recovery
+
+Crash recovery restores database state from snapshots and WAL replay.
+
+### RecoveryOptions
+
+Options for controlling recovery behavior.
+
+```rust
+pub struct RecoveryOptions {
+    /// Maximum corrupt entries to tolerate before failing
+    pub max_corrupt_entries: usize,
+    /// Whether to verify all checksums (slower but safer)
+    pub verify_all_checksums: bool,
+    /// Whether to rebuild indexes after recovery
+    pub rebuild_indexes: bool,
+}
+
+impl Default for RecoveryOptions {
+    fn default() -> Self {
+        RecoveryOptions {
+            max_corrupt_entries: 10,
+            verify_all_checksums: true,
+            rebuild_indexes: true,
+        }
+    }
+}
+```
+
+### RecoveryResult
+
+Information about a completed recovery.
+
+```rust
+pub struct RecoveryResult {
+    /// Snapshot used (if any)
+    pub snapshot_used: Option<SnapshotInfo>,
+    /// WAL entries replayed
+    pub wal_entries_replayed: u64,
+    /// Transactions recovered
+    pub transactions_recovered: u64,
+    /// Orphaned transactions skipped
+    pub orphaned_transactions: u64,
+    /// Corrupt entries skipped
+    pub corrupt_entries_skipped: u64,
+    /// Recovery time (microseconds)
+    pub recovery_time_micros: u64,
+}
+```
+
+### Recovery Methods
+
+##### `open_with_options`
+
+Opens a database with custom recovery options.
+
+```rust
+impl Database {
+    pub fn open_with_options(
+        path: &Path,
+        options: RecoveryOptions,
+    ) -> Result<Database>
+}
+```
+
+##### `last_recovery_result`
+
+Gets the result from the most recent recovery.
+
+```rust
+impl Database {
+    pub fn last_recovery_result(&self) -> Option<&RecoveryResult>
+}
+```
+
+**Example**:
+```rust
+let db = Database::open("./data")?;
+
+if let Some(result) = db.last_recovery_result() {
+    println!("Recovered {} transactions", result.transactions_recovered);
+    if result.corrupt_entries_skipped > 0 {
+        println!("WARNING: {} corrupt entries skipped", result.corrupt_entries_skipped);
+    }
+}
+```
+
+---
+
+## Replay
+
+Deterministic replay reconstructs agent run state from EventLog.
+
+### ReadOnlyView
+
+Read-only view of a run's state from replay.
+
+```rust
+pub struct ReadOnlyView {
+    /// Run this view is for
+    pub run_id: RunId,
+    // Internal state maps (KV, JSON, Event, State, Trace)
+}
+
+impl ReadOnlyView {
+    /// Get KV value
+    pub fn get_kv(&self, key: &Key) -> Option<&Value>;
+
+    /// Get JSON document
+    pub fn get_json(&self, key: &Key) -> Option<&JsonDoc>;
+
+    /// Get all events
+    pub fn events(&self) -> &[Event];
+
+    /// Get state value
+    pub fn get_state(&self, key: &Key) -> Option<&StateValue>;
+
+    /// Get all traces
+    pub fn traces(&self) -> &[Span];
+
+    /// List all keys in this view
+    pub fn keys(&self) -> impl Iterator<Item = &Key>;
+}
+```
+
+### RunDiff
+
+Difference between two runs at key level.
+
+```rust
+pub struct RunDiff {
+    pub run_a: RunId,
+    pub run_b: RunId,
+    /// Keys added in B (not in A)
+    pub added: Vec<DiffEntry>,
+    /// Keys removed in B (in A but not B)
+    pub removed: Vec<DiffEntry>,
+    /// Keys modified (different values)
+    pub modified: Vec<DiffEntry>,
+}
+
+pub struct DiffEntry {
+    pub key: Key,
+    pub primitive: PrimitiveKind,
+    pub value_a: Option<String>,
+    pub value_b: Option<String>,
+}
+```
+
+### Replay Methods
+
+##### `replay_run`
+
+Replays a run and returns a read-only view.
+
+```rust
+impl Database {
+    pub fn replay_run(&self, run_id: RunId) -> Result<ReadOnlyView>
+}
+```
+
+**Important**: Replay is side-effect free. It does NOT mutate the canonical store.
+
+##### `diff_runs`
+
+Compares two runs at key level.
+
+```rust
+impl Database {
+    pub fn diff_runs(&self, run_a: RunId, run_b: RunId) -> Result<RunDiff>
+}
+```
+
+**Example**:
+```rust
+// Replay a completed run
+let view = db.replay_run(run_id)?;
+println!("Run had {} KV entries", view.keys().count());
+println!("Run had {} events", view.events().len());
+
+// Compare two runs
+let diff = db.diff_runs(run_a, run_b)?;
+println!("Added: {:?}", diff.added.len());
+println!("Removed: {:?}", diff.removed.len());
+println!("Modified: {:?}", diff.modified.len());
+```
+
+---
+
+## Run Lifecycle
+
+Explicit run lifecycle management with status tracking.
+
+### RunStatus
+
+```rust
+pub enum RunStatus {
+    Active,      // Run is in progress
+    Completed,   // Run ended normally
+    Orphaned,    // Run was never ended (crash detected)
+    NotFound,    // Run doesn't exist
+}
+```
+
+### Run Lifecycle Methods
+
+##### `begin_run`
+
+Begins a new run.
+
+```rust
+impl Database {
+    pub fn begin_run(&self, run_id: RunId) -> Result<()>
+}
+```
+
+##### `end_run`
+
+Ends a run normally.
+
+```rust
+impl Database {
+    pub fn end_run(&self, run_id: RunId) -> Result<()>
+}
+```
+
+##### `abort_run`
+
+Aborts a run with a failure reason.
+
+```rust
+impl Database {
+    pub fn abort_run(&self, run_id: RunId, reason: &str) -> Result<()>
+}
+```
+
+##### `run_status`
+
+Gets the status of a run.
+
+```rust
+impl Database {
+    pub fn run_status(&self, run_id: RunId) -> Result<RunStatus>
+}
+```
+
+##### `orphaned_runs`
+
+Lists runs that were never ended (detected after crash).
+
+```rust
+impl Database {
+    pub fn orphaned_runs(&self) -> Result<Vec<RunId>>
+}
+```
+
+**Example**:
+```rust
+let run_id = RunId::new();
+db.begin_run(run_id)?;
+
+// Do work
+db.kv.put(&run_id, "key", Value::String("value".into()))?;
+
+// End run
+db.end_run(run_id)?;
+
+// Check for orphaned runs after restart
+for orphan in db.orphaned_runs()? {
+    println!("Orphaned run detected: {:?}", orphan);
+}
+```
+
+---
+
+## WAL Types
+
+Write-ahead log types for durability and recovery.
+
+### WalEntryType
+
+Registry of WAL entry types.
+
+```rust
+#[repr(u8)]
+pub enum WalEntryType {
+    // Core (0x00-0x0F)
+    TransactionCommit = 0x00,
+    TransactionAbort = 0x01,
+    SnapshotMarker = 0x02,
+
+    // KV (0x10-0x1F)
+    KvPut = 0x10,
+    KvDelete = 0x11,
+
+    // JSON (0x20-0x2F)
+    JsonCreate = 0x20,
+    JsonSet = 0x21,
+    JsonDelete = 0x22,
+    JsonPatch = 0x23,
+
+    // Event (0x30-0x3F)
+    EventAppend = 0x30,
+
+    // State (0x40-0x4F)
+    StateInit = 0x40,
+    StateSet = 0x41,
+    StateTransition = 0x42,
+
+    // Trace (0x50-0x5F)
+    TraceRecord = 0x50,
+
+    // Run (0x60-0x6F)
+    RunCreate = 0x60,
+    RunUpdate = 0x61,
+    RunEnd = 0x62,
+    RunBegin = 0x63,
+
+    // Reserved for Vector (M8): 0x70-0x7F
+    // Reserved for future: 0x80-0xFF
+}
+```
+
+### WAL Entry Format
+
+Every WAL entry has this envelope:
+
+```
++----------------+
+| Length (u32)   |  Total bytes after this field
++----------------+
+| Type (u8)      |  Entry type from registry
++----------------+
+| Version (u8)   |  Format version for this entry type
++----------------+
+| Payload        |  Type-specific data
++----------------+
+| CRC32 (u32)    |  Checksum of Type + Version + Payload
++----------------+
+```
+
+---
+
+## Storage Extension
+
+Trait for adding new primitives to the storage system.
+
+### PrimitiveStorageExt
+
+```rust
+pub trait PrimitiveStorageExt {
+    /// WAL entry types this primitive uses
+    fn wal_entry_types(&self) -> &'static [u8];
+
+    /// Serialize primitive state for snapshot
+    fn snapshot_serialize(&self) -> Result<Vec<u8>>;
+
+    /// Deserialize primitive state from snapshot
+    fn snapshot_deserialize(&mut self, data: &[u8]) -> Result<()>;
+
+    /// Apply a WAL entry during recovery
+    fn apply_wal_entry(&mut self, entry: &WalEntry) -> Result<()>;
+
+    /// Primitive type ID (for snapshot sections)
+    fn primitive_type_id(&self) -> u8;
+}
+```
+
+**Example** (future Vector primitive):
+```rust
+impl PrimitiveStorageExt for VectorStore {
+    fn wal_entry_types(&self) -> &'static [u8] {
+        &[0x70, 0x71, 0x72]  // VectorInsert, VectorDelete, VectorUpdate
+    }
+
+    fn primitive_type_id(&self) -> u8 {
+        7  // After existing 6 primitives
+    }
+
+    // ... other methods
+}
+```
+
+---
+
 ## Transactions
 
 ### Cross-Primitive Transactions
@@ -922,9 +1410,52 @@ pub enum Error {
 | 2 | ≥1.8× |
 | 4 | ≥3.2× |
 
+### Recovery Performance (M7)
+
+| Operation | Target |
+|-----------|--------|
+| Snapshot write (100MB state) | < 5 seconds |
+| Snapshot load (100MB state) | < 3 seconds |
+| WAL replay (10K entries) | < 1 second |
+| Full recovery (100MB snap + 10K WAL) | < 5 seconds |
+| Index rebuild (10K docs) | < 2 seconds |
+| Replay run (1K events) | < 100 ms |
+| Diff runs (1K keys each) | < 200 ms |
+
 ---
 
 ## Version History
+
+### v0.7.0 (M7 Durability, Snapshots & Replay)
+
+**Snapshot System**:
+- Periodic snapshots for bounded recovery time
+- SnapshotConfig for automatic triggers (size, time, shutdown)
+- Multiple snapshot retention with automatic cleanup
+- WAL truncation after successful snapshot
+
+**Crash Recovery**:
+- RecoveryOptions for controlling recovery behavior
+- RecoveryResult with detailed recovery statistics
+- Fallback to older snapshots on corruption
+- CRC32 validation on all WAL entries
+
+**Deterministic Replay**:
+- `replay_run()` returns read-only view of run state
+- `diff_runs()` compares two runs at key level
+- Side-effect free replay (does not mutate canonical store)
+- O(run size) replay performance
+
+**Run Lifecycle**:
+- `begin_run()` / `end_run()` for explicit lifecycle
+- Orphaned run detection after crash recovery
+- RunStatus tracking (Active, Completed, Orphaned)
+
+**Storage Stabilization**:
+- PrimitiveStorageExt trait for adding new primitives
+- WAL entry type registry (0x00-0xFF)
+- Frozen API surface for future extension
+- Clear extension points for M8 Vector primitive
 
 ### v0.5.0 (M5 JSON + M6 Retrieval)
 
