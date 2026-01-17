@@ -66,7 +66,8 @@ pub mod primitive_ids {
     pub const TRACE: u8 = 5;
     /// Run Index primitive
     pub const RUN: u8 = 6;
-    // Reserved for Vector (M8): 7
+    /// Vector primitive (M8)
+    pub const VECTOR: u8 = 7;
 
     /// Get name for primitive type ID
     pub fn name(id: u8) -> &'static str {
@@ -77,13 +78,14 @@ pub mod primitive_ids {
             STATE => "State",
             TRACE => "Trace",
             RUN => "Run",
+            VECTOR => "Vector",
             _ => "Unknown",
         }
     }
 
     /// Check if primitive ID is valid
     pub fn is_valid(id: u8) -> bool {
-        (1..=6).contains(&id)
+        (1..=7).contains(&id)
     }
 }
 
@@ -392,6 +394,7 @@ mod tests {
             primitive_ids::STATE,
             primitive_ids::TRACE,
             primitive_ids::RUN,
+            primitive_ids::VECTOR,
         ];
         let mut set = HashSet::new();
         for id in ids {
@@ -407,6 +410,7 @@ mod tests {
         assert_eq!(primitive_ids::STATE, 4);
         assert_eq!(primitive_ids::TRACE, 5);
         assert_eq!(primitive_ids::RUN, 6);
+        assert_eq!(primitive_ids::VECTOR, 7);
     }
 
     #[test]
@@ -417,16 +421,17 @@ mod tests {
         assert_eq!(primitive_ids::name(primitive_ids::STATE), "State");
         assert_eq!(primitive_ids::name(primitive_ids::TRACE), "Trace");
         assert_eq!(primitive_ids::name(primitive_ids::RUN), "Run");
+        assert_eq!(primitive_ids::name(primitive_ids::VECTOR), "Vector");
         assert_eq!(primitive_ids::name(99), "Unknown");
     }
 
     #[test]
     fn test_primitive_ids_is_valid() {
-        for id in 1..=6 {
+        for id in 1..=7 {
             assert!(primitive_ids::is_valid(id));
         }
         assert!(!primitive_ids::is_valid(0));
-        assert!(!primitive_ids::is_valid(7));
+        assert!(!primitive_ids::is_valid(8));
         assert!(!primitive_ids::is_valid(255));
     }
 

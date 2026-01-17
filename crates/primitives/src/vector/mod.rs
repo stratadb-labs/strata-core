@@ -38,6 +38,6 @@ pub use types::{
 };
 pub use wal::{
     create_wal_collection_create, create_wal_collection_delete, create_wal_delete,
-    create_wal_upsert, WalVectorCollectionCreate, WalVectorCollectionDelete, WalVectorDelete,
-    WalVectorUpsert,
+    create_wal_upsert, VectorWalReplayer, WalVectorCollectionCreate, WalVectorCollectionDelete,
+    WalVectorDelete, WalVectorUpsert,
 };

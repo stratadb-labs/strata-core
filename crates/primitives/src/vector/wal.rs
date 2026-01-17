@@ -220,6 +220,77 @@ pub fn create_wal_delete(
     }
 }
 
+// ============================================================================
+// VectorWalReplayer (Story #360)
+// ============================================================================
+
+use crate::vector::{DistanceMetric, VectorStore};
+use in_mem_durability::WalEntryType;
+
+/// Replayer for Vector WAL entries
+///
+/// Applies WAL entries to VectorStore during recovery.
+/// DOES NOT write new WAL entries (that would cause infinite loops).
+pub struct VectorWalReplayer<'a> {
+    store: &'a VectorStore,
+}
+
+impl<'a> VectorWalReplayer<'a> {
+    /// Create a new replayer for the given store
+    pub fn new(store: &'a VectorStore) -> Self {
+        VectorWalReplayer { store }
+    }
+
+    /// Apply a WAL entry
+    ///
+    /// Deserializes the payload and calls the appropriate replay_* method.
+    pub fn apply(&self, entry_type: WalEntryType, payload: &[u8]) -> VectorResult<()> {
+        match entry_type {
+            WalEntryType::VectorCollectionCreate => {
+                let wal = WalVectorCollectionCreate::from_bytes(payload)?;
+                let config = VectorConfig {
+                    dimension: wal.config.dimension,
+                    metric: DistanceMetric::from_byte(wal.config.metric).ok_or_else(|| {
+                        VectorError::Serialization(format!("Invalid metric: {}", wal.config.metric))
+                    })?,
+                    storage_dtype: crate::vector::StorageDtype::F32,
+                };
+                self.store
+                    .replay_create_collection(wal.run_id, &wal.collection, config)
+            }
+            WalEntryType::VectorCollectionDelete => {
+                let wal = WalVectorCollectionDelete::from_bytes(payload)?;
+                self.store
+                    .replay_delete_collection(wal.run_id, &wal.collection)
+            }
+            WalEntryType::VectorUpsert => {
+                let wal = WalVectorUpsert::from_bytes(payload)?;
+                self.store.replay_upsert(
+                    wal.run_id,
+                    &wal.collection,
+                    &wal.key,
+                    VectorId::new(wal.vector_id),
+                    &wal.embedding,
+                    wal.metadata,
+                )
+            }
+            WalEntryType::VectorDelete => {
+                let wal = WalVectorDelete::from_bytes(payload)?;
+                self.store.replay_delete(
+                    wal.run_id,
+                    &wal.collection,
+                    &wal.key,
+                    VectorId::new(wal.vector_id),
+                )
+            }
+            _ => {
+                // Not a vector entry type - skip
+                Ok(())
+            }
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
