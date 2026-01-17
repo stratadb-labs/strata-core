@@ -83,8 +83,12 @@ DURABILITY_MODE=""
 ALL_MODES=false
 
 # Benchmark results directory
-RESULTS_DIR="$PROJECT_ROOT/target/benchmark-results"
-TIMESTAMP=$(date +%Y%m%d_%H%M%S)
+RESULTS_BASE_DIR="$PROJECT_ROOT/target/benchmark-results"
+TIMESTAMP=$(date +%Y-%m-%d_%H-%M-%S)
+GIT_COMMIT=$(git rev-parse --short HEAD 2>/dev/null || echo "unknown")
+GIT_BRANCH=$(git rev-parse --abbrev-ref HEAD 2>/dev/null || echo "unknown")
+RUN_ID="${TIMESTAMP}_${GIT_COMMIT}"
+RESULTS_DIR="$RESULTS_BASE_DIR/run_${RUN_ID}"
 
 # Perf events to monitor
 PERF_EVENTS="cache-misses,cache-references,branch-misses,branch-instructions,LLC-loads,LLC-load-misses,cycles,instructions"
@@ -359,14 +363,14 @@ run_benchmarks() {
 
     # Perf stat wrapper
     if [[ "$use_perf" == "true" ]] && check_perf; then
-        local perf_output="$RESULTS_DIR/perf_stat_${TIMESTAMP}.txt"
+        local perf_output="$RESULTS_DIR/perf_stat.txt"
         cmd+=("perf" "stat" "-e" "$PERF_EVENTS" "-d" "-d" "-d" "-o" "$perf_output")
         log_info "Perf output will be saved to: $perf_output"
     fi
 
     # Perf record wrapper
     if [[ "$use_perf_record" == "true" ]] && check_perf; then
-        local perf_data="$RESULTS_DIR/perf_${TIMESTAMP}.data"
+        local perf_data="$RESULTS_DIR/perf.data"
         cmd+=("perf" "record" "-e" "$PERF_EVENTS" "-g" "-o" "$perf_data")
         log_info "Perf data will be saved to: $perf_data"
     fi
@@ -388,7 +392,7 @@ run_benchmarks() {
         mode_suffix="_${durability_mode}"
     fi
 
-    local output_file="$RESULTS_DIR/bench_output_${TIMESTAMP}${mode_suffix}.txt"
+    local output_file="$RESULTS_DIR/bench_output${mode_suffix}.txt"
 
     # Execute
     "${cmd[@]}" 2>&1 | tee "$output_file"
@@ -397,8 +401,12 @@ run_benchmarks() {
     log_success "Benchmark complete"
     log_info "Results saved to: $output_file"
 
-    # Generate report
+    # Generate reports
     generate_redis_report "$output_file" "$durability_mode"
+
+    # Generate run summary and update index
+    generate_run_summary "$bench_target" "$durability_mode"
+    update_runs_index
 }
 
 generate_redis_report() {
@@ -412,7 +420,7 @@ generate_redis_report() {
         mode_display="$durability_mode"
     fi
 
-    local report_file="$RESULTS_DIR/redis_comparison_${TIMESTAMP}${mode_suffix}.txt"
+    local report_file="$RESULTS_DIR/redis_comparison${mode_suffix}.txt"
 
     log_info "Generating Redis comparison report..."
 
@@ -518,6 +526,172 @@ EOF
     log_success "Report saved to: $report_file"
     echo ""
     cat "$report_file"
+}
+
+generate_run_summary() {
+    local bench_target="$1"
+    local durability_mode="$2"
+
+    local summary_file="$RESULTS_DIR/SUMMARY.md"
+
+    log_info "Generating run summary..."
+
+    # Determine milestones run
+    local milestones=""
+    case "$bench_target" in
+        m1_storage) milestones="M1 (Storage)" ;;
+        m2_transactions) milestones="M2 (Transactions)" ;;
+        m3_primitives) milestones="M3 (Primitives)" ;;
+        m5_performance) milestones="M5 (JSON)" ;;
+        m6_search) milestones="M6 (Search)" ;;
+        *) milestones="All" ;;
+    esac
+
+    local mode_display="${durability_mode:-strict (default)}"
+
+    cat > "$summary_file" << EOF
+# Benchmark Run Summary
+
+**Run ID:** \`${RUN_ID}\`
+**Date:** $(date -u +%Y-%m-%dT%H:%M:%SZ)
+
+## Quick Info
+
+| Property | Value |
+|----------|-------|
+| Git Commit | \`${GIT_COMMIT}\` |
+| Git Branch | \`${GIT_BRANCH}\` |
+| Milestones | ${milestones} |
+| Durability Mode | ${mode_display} |
+
+## Environment
+
+| Property | Value |
+|----------|-------|
+| OS | $(grep PRETTY_NAME /etc/os-release 2>/dev/null | cut -d= -f2 | tr -d '"' || echo "$(uname -s)") |
+| CPU | $(grep -m1 'model name' /proc/cpuinfo 2>/dev/null | cut -d: -f2 | xargs || echo "unknown") |
+| Memory | $(awk '/MemTotal/ {printf "%.1f GB", $2/1024/1024}' /proc/meminfo 2>/dev/null || echo "unknown") |
+| Governor | $(cat /sys/devices/system/cpu/cpu0/cpufreq/scaling_governor 2>/dev/null || echo "N/A") |
+| Rust | $(rustc --version 2>/dev/null | awk '{print $2}' || echo "unknown") |
+
+## Files in This Run
+
+EOF
+
+    # List all files in the run directory
+    for f in "$RESULTS_DIR"/*; do
+        if [[ -f "$f" && "$(basename "$f")" != "SUMMARY.md" ]]; then
+            echo "- [$(basename "$f")]($(basename "$f"))" >> "$summary_file"
+        fi
+    done
+
+    cat >> "$summary_file" << EOF
+
+## Key Results
+
+EOF
+
+    # Extract key results from benchmark output if available
+    local output_file
+    output_file=$(ls -t "$RESULTS_DIR"/bench_output*.txt 2>/dev/null | head -1)
+
+    if [[ -n "$output_file" && -f "$output_file" ]]; then
+        cat >> "$summary_file" << EOF
+### Highlighted Latencies
+
+| Benchmark | Latency |
+|-----------|---------|
+EOF
+        # Extract some key benchmarks - parse criterion output format
+        # Example: "search_kv/small/100  time:   [87.123 µs 89.456 µs 91.789 µs]"
+        grep -E "(get_hot|put_hot|kvstore_get|kvstore_put|json_get|json_set|search_kv|search_hybrid|index_operations)" "$output_file" 2>/dev/null | \
+            grep "time:" | \
+            head -10 | \
+            while read -r line; do
+                bench=$(echo "$line" | awk '{print $1}')
+                # Extract the middle value from the time range [low mid high]
+                time=$(echo "$line" | sed -n 's/.*\[\([^]]*\)\].*/\1/p' | awk '{print $3, $4}')
+                if [[ -n "$bench" && -n "$time" ]]; then
+                    echo "| $bench | $time |" >> "$summary_file"
+                fi
+            done
+    fi
+
+    log_success "Summary saved to: $summary_file"
+}
+
+update_runs_index() {
+    local index_file="$RESULTS_BASE_DIR/INDEX.md"
+
+    log_info "Updating runs index..."
+
+    mkdir -p "$RESULTS_BASE_DIR"
+
+    # Create or update the index header
+    cat > "$index_file" << EOF
+# Benchmark Runs Index
+
+This file lists all benchmark runs for easy comparison.
+
+**Last Updated:** $(date -u +%Y-%m-%dT%H:%M:%SZ)
+
+## All Runs
+
+| Run ID | Date | Commit | Branch | Milestones |
+|--------|------|--------|--------|------------|
+EOF
+
+    # List all run directories sorted by date (newest first)
+    for run_dir in $(ls -dt "$RESULTS_BASE_DIR"/run_* 2>/dev/null); do
+        if [[ -d "$run_dir" ]]; then
+            local dir_name run_id date commit branch milestones
+            dir_name=$(basename "$run_dir")
+            run_id="${dir_name#run_}"
+
+            # Extract date and commit from run_id (format: YYYY-MM-DD_HH-MM-SS_commit)
+            date=$(echo "$run_id" | cut -d'_' -f1-2 | tr '_' ' ' | sed 's/-/:/3' | sed 's/-/:/3')
+            commit=$(echo "$run_id" | rev | cut -d'_' -f1 | rev)
+
+            # Try to get branch from the run
+            if [[ -f "$run_dir/SUMMARY.md" ]]; then
+                branch=$(grep "Git Branch" "$run_dir/SUMMARY.md" | sed -n 's/.*`\([^`]*\)`.*/\1/p' || echo "unknown")
+                milestones=$(grep "Milestones" "$run_dir/SUMMARY.md" | cut -d'|' -f3 | xargs 2>/dev/null || echo "unknown")
+                [[ -z "$branch" ]] && branch="unknown"
+                [[ -z "$milestones" ]] && milestones="unknown"
+            else
+                branch="unknown"
+                milestones="unknown"
+            fi
+
+            echo "| [\`${run_id}\`](run_${run_id}/SUMMARY.md) | ${date} | \`${commit}\` | ${branch} | ${milestones} |" >> "$index_file"
+        fi
+    done
+
+    cat >> "$index_file" << EOF
+
+## Quick Comparison Tips
+
+To compare runs:
+1. Open the SUMMARY.md files from two runs side by side
+2. Compare the "Key Results" section
+3. Look for significant latency changes (>10%)
+
+## Directory Structure
+
+\`\`\`
+target/benchmark-results/
+├── INDEX.md                    # This file
+├── run_YYYY-MM-DD_HH-MM-SS_commit/
+│   ├── SUMMARY.md              # Run summary with key results
+│   ├── bench_output_*.txt      # Raw benchmark output
+│   ├── redis_comparison_*.txt  # Redis comparison report
+│   ├── environment_*.json      # Environment details
+│   └── perf_stat_*.txt         # (if --perf was used)
+└── ...
+\`\`\`
+EOF
+
+    log_success "Index updated: $index_file"
 }
 
 # =============================================================================
@@ -707,6 +881,7 @@ main() {
             log_info "Running benchmarks for all durability modes..."
             echo ""
 
+            local all_modes_runs=()
             for mode in inmemory batched strict; do
                 echo ""
                 echo "============================================================"
@@ -714,9 +889,11 @@ main() {
                 echo "============================================================"
                 echo ""
 
-                # Update timestamp for each mode run
-                local mode_timestamp=$(date +%Y%m%d_%H%M%S)
-                TIMESTAMP="$mode_timestamp"
+                # Update run folder for each mode
+                TIMESTAMP=$(date +%Y-%m-%d_%H-%M-%S)
+                RUN_ID="${TIMESTAMP}_${GIT_COMMIT}_${mode}"
+                RESULTS_DIR="$RESULTS_BASE_DIR/run_${RUN_ID}"
+                all_modes_runs+=("$RUN_ID")
 
                 run_benchmarks "$FILTER" "$BASELINE" "$CORES" "$USE_PERF" "$USE_PERF_RECORD" "$mode" "$BENCH_TARGET"
             done
@@ -728,9 +905,9 @@ main() {
             echo "============================================================"
             echo ""
             log_info "Results saved to:"
-            log_info "  $RESULTS_DIR/bench_output_*_inmemory.txt"
-            log_info "  $RESULTS_DIR/bench_output_*_batched.txt"
-            log_info "  $RESULTS_DIR/bench_output_*_strict.txt"
+            for run in "${all_modes_runs[@]}"; do
+                log_info "  $RESULTS_BASE_DIR/run_${run}/"
+            done
         else
             # Run with specific mode or default
             run_benchmarks "$FILTER" "$BASELINE" "$CORES" "$USE_PERF" "$USE_PERF_RECORD" "$DURABILITY_MODE" "$BENCH_TARGET"
