@@ -305,6 +305,157 @@ impl CollectionId {
     }
 }
 
+// ============================================================================
+// Story #339: VectorRecord and CollectionRecord
+// ============================================================================
+
+use serde::{Deserialize, Serialize};
+use std::time::{SystemTime, UNIX_EPOCH};
+
+/// Get current time in microseconds since Unix epoch
+fn now_micros() -> u64 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .expect("Time went backwards")
+        .as_micros() as u64
+}
+
+/// Metadata stored in KV (MessagePack serialized)
+///
+/// This is stored separately from the embedding for:
+/// 1. Transaction participation (KV has full tx support)
+/// 2. Flexible schema (JSON metadata)
+/// 3. WAL integration (reuses existing infrastructure)
+///
+/// The embedding is stored in VectorHeap for cache-friendly scanning.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct VectorRecord {
+    /// Internal vector ID (maps to VectorHeap)
+    pub vector_id: u64,
+
+    /// User-provided metadata (optional)
+    pub metadata: Option<JsonValue>,
+
+    /// Version for optimistic concurrency
+    pub version: u64,
+
+    /// Creation timestamp (microseconds since epoch)
+    pub created_at: u64,
+
+    /// Last update timestamp (microseconds since epoch)
+    pub updated_at: u64,
+}
+
+impl VectorRecord {
+    /// Create a new VectorRecord
+    pub fn new(vector_id: VectorId, metadata: Option<JsonValue>) -> Self {
+        let now = now_micros();
+        VectorRecord {
+            vector_id: vector_id.as_u64(),
+            metadata,
+            version: 1,
+            created_at: now,
+            updated_at: now,
+        }
+    }
+
+    /// Update metadata and version
+    pub fn update(&mut self, metadata: Option<JsonValue>) {
+        self.metadata = metadata;
+        self.version += 1;
+        self.updated_at = now_micros();
+    }
+
+    /// Get VectorId
+    pub fn vector_id(&self) -> VectorId {
+        VectorId::new(self.vector_id)
+    }
+
+    /// Serialize to bytes (MessagePack)
+    pub fn to_bytes(&self) -> Result<Vec<u8>, crate::vector::VectorError> {
+        rmp_serde::to_vec(self)
+            .map_err(|e| crate::vector::VectorError::Serialization(e.to_string()))
+    }
+
+    /// Deserialize from bytes (MessagePack)
+    pub fn from_bytes(data: &[u8]) -> Result<Self, crate::vector::VectorError> {
+        rmp_serde::from_slice(data)
+            .map_err(|e| crate::vector::VectorError::Serialization(e.to_string()))
+    }
+}
+
+/// Collection configuration stored in KV
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CollectionRecord {
+    /// Collection configuration (serializable form)
+    pub config: VectorConfigSerde,
+
+    /// Creation timestamp
+    pub created_at: u64,
+}
+
+impl CollectionRecord {
+    /// Create a new CollectionRecord
+    pub fn new(config: &VectorConfig) -> Self {
+        CollectionRecord {
+            config: VectorConfigSerde::from(config),
+            created_at: now_micros(),
+        }
+    }
+
+    /// Serialize to bytes (MessagePack)
+    pub fn to_bytes(&self) -> Result<Vec<u8>, crate::vector::VectorError> {
+        rmp_serde::to_vec(self)
+            .map_err(|e| crate::vector::VectorError::Serialization(e.to_string()))
+    }
+
+    /// Deserialize from bytes (MessagePack)
+    pub fn from_bytes(data: &[u8]) -> Result<Self, crate::vector::VectorError> {
+        rmp_serde::from_slice(data)
+            .map_err(|e| crate::vector::VectorError::Serialization(e.to_string()))
+    }
+}
+
+/// Serializable version of VectorConfig
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct VectorConfigSerde {
+    /// Embedding dimension
+    pub dimension: usize,
+    /// Distance metric (as byte)
+    pub metric: u8,
+    /// Storage data type (as byte)
+    pub storage_dtype: u8,
+}
+
+impl From<&VectorConfig> for VectorConfigSerde {
+    fn from(config: &VectorConfig) -> Self {
+        VectorConfigSerde {
+            dimension: config.dimension,
+            metric: config.metric.to_byte(),
+            storage_dtype: 0, // F32
+        }
+    }
+}
+
+impl TryFrom<VectorConfigSerde> for VectorConfig {
+    type Error = crate::vector::VectorError;
+
+    fn try_from(serde: VectorConfigSerde) -> Result<Self, Self::Error> {
+        let metric = DistanceMetric::from_byte(serde.metric).ok_or_else(|| {
+            crate::vector::VectorError::Serialization(format!(
+                "Invalid metric byte: {}",
+                serde.metric
+            ))
+        })?;
+
+        Ok(VectorConfig {
+            dimension: serde.dimension,
+            metric,
+            storage_dtype: StorageDtype::F32,
+        })
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

@@ -61,8 +61,9 @@ pub use searchable::{build_search_response, SearchCandidate, Searchable, SimpleS
 pub use state_cell::{State, StateCell};
 pub use trace::{Trace, TraceStore, TraceTree, TraceType};
 pub use vector::{
-    CollectionId, CollectionInfo, DistanceMetric, JsonScalar, MetadataFilter, StorageDtype,
-    VectorConfig, VectorEntry, VectorError, VectorId, VectorMatch, VectorResult,
+    CollectionId, CollectionInfo, CollectionRecord, DistanceMetric, JsonScalar, MetadataFilter,
+    StorageDtype, VectorConfig, VectorConfigSerde, VectorEntry, VectorError, VectorHeap, VectorId,
+    VectorMatch, VectorRecord, VectorResult,
 };
 
 // Re-export extension traits for convenience

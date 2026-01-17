@@ -142,10 +142,11 @@ impl PartialOrd for Namespace {
 /// - State = 0x03
 /// - Trace = 0x04
 /// - Run = 0x05
-/// - Vector = 0x10 (reserved for M8)
+/// - Vector = 0x10 (M8 vector metadata)
 /// - Json = 0x11 (M5 JSON primitive)
+/// - VectorConfig = 0x12 (M8 vector collection config)
 ///
-/// Ordering: KV < Event < State < Trace < Run < Vector < Json
+/// Ordering: KV < Event < State < Trace < Run < Vector < Json < VectorConfig
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, PartialOrd, Ord)]
 #[repr(u8)]
 pub enum TypeTag {
@@ -159,10 +160,12 @@ pub enum TypeTag {
     Trace = 0x04,
     /// Run index entries
     Run = 0x05,
-    /// Vector store entries (reserved for M8)
+    /// Vector store entries (M8)
     Vector = 0x10,
     /// JSON document store entries (M5)
     Json = 0x11,
+    /// Vector collection configuration (M8)
+    VectorConfig = 0x12,
 }
 
 impl TypeTag {
@@ -181,6 +184,7 @@ impl TypeTag {
             0x05 => Some(TypeTag::Run),
             0x10 => Some(TypeTag::Vector),
             0x11 => Some(TypeTag::Json),
+            0x12 => Some(TypeTag::VectorConfig),
             _ => None,
         }
     }
@@ -433,6 +437,36 @@ impl Key {
     /// documents in a namespace.
     pub fn new_json_prefix(namespace: Namespace) -> Self {
         Self::new(namespace, TypeTag::Json, vec![])
+    }
+
+    /// Create key for vector metadata
+    ///
+    /// Format: namespace + TypeTag::Vector + collection_name + "/" + vector_key
+    pub fn new_vector(namespace: Namespace, collection: &str, key: &str) -> Self {
+        let user_key = format!("{}/{}", collection, key);
+        Self::new(namespace, TypeTag::Vector, user_key.into_bytes())
+    }
+
+    /// Create key for collection configuration
+    ///
+    /// Format: namespace + TypeTag::VectorConfig + collection_name
+    pub fn new_vector_config(namespace: Namespace, collection: &str) -> Self {
+        Self::new(
+            namespace,
+            TypeTag::VectorConfig,
+            collection.as_bytes().to_vec(),
+        )
+    }
+
+    /// Create prefix for scanning all vectors in a collection
+    pub fn vector_collection_prefix(namespace: Namespace, collection: &str) -> Self {
+        let user_key = format!("{}/", collection);
+        Self::new(namespace, TypeTag::Vector, user_key.into_bytes())
+    }
+
+    /// Create prefix for scanning all vector collections
+    pub fn new_vector_config_prefix(namespace: Namespace) -> Self {
+        Self::new(namespace, TypeTag::VectorConfig, vec![])
     }
 
     /// Extract user key as string (if valid UTF-8)
