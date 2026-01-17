@@ -28,6 +28,8 @@ tempfile = { workspace = true }
 proptest = { workspace = true }
 chrono = { workspace = true }
 criterion = "0.5"
+in-mem-primitives = { path = "../primitives" }
+serde_json = { workspace = true }
 
 [[bench]]
 name = "transaction_benchmarks"
