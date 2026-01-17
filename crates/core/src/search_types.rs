@@ -37,6 +37,8 @@ pub enum PrimitiveKind {
     Trace,
     /// Run index
     Run,
+    /// Vector store (M8)
+    Vector,
 }
 
 impl PrimitiveKind {
@@ -51,6 +53,7 @@ impl PrimitiveKind {
             PrimitiveKind::State,
             PrimitiveKind::Trace,
             PrimitiveKind::Run,
+            PrimitiveKind::Vector,
         ]
     }
 }
@@ -64,6 +67,7 @@ impl std::fmt::Display for PrimitiveKind {
             PrimitiveKind::State => write!(f, "state"),
             PrimitiveKind::Trace => write!(f, "trace"),
             PrimitiveKind::Run => write!(f, "run"),
+            PrimitiveKind::Vector => write!(f, "vector"),
         }
     }
 }
@@ -125,6 +129,16 @@ pub enum DocRef {
         /// Run ID
         run_id: RunId,
     },
+
+    /// Vector entry (M8)
+    Vector {
+        /// Collection name
+        collection: String,
+        /// Vector key within collection
+        key: String,
+        /// Run ID for isolation
+        run_id: RunId,
+    },
 }
 
 impl DocRef {
@@ -137,6 +151,7 @@ impl DocRef {
             DocRef::State { .. } => PrimitiveKind::State,
             DocRef::Trace { .. } => PrimitiveKind::Trace,
             DocRef::Run { .. } => PrimitiveKind::Run,
+            DocRef::Vector { .. } => PrimitiveKind::Vector,
         }
     }
 
@@ -149,7 +164,22 @@ impl DocRef {
             DocRef::State { key } => key.namespace.run_id,
             DocRef::Trace { key, .. } => key.namespace.run_id,
             DocRef::Run { run_id } => *run_id,
+            DocRef::Vector { run_id, .. } => *run_id,
         }
+    }
+
+    /// Create a vector document reference
+    pub fn vector(run_id: RunId, collection: impl Into<String>, key: impl Into<String>) -> Self {
+        DocRef::Vector {
+            collection: collection.into(),
+            key: key.into(),
+            run_id,
+        }
+    }
+
+    /// Check if this is a vector reference
+    pub fn is_vector(&self) -> bool {
+        matches!(self, DocRef::Vector { .. })
     }
 }
 
@@ -520,13 +550,14 @@ mod tests {
     #[test]
     fn test_primitive_kind_all() {
         let all = PrimitiveKind::all();
-        assert_eq!(all.len(), 6);
+        assert_eq!(all.len(), 7);
         assert!(all.contains(&PrimitiveKind::Kv));
         assert!(all.contains(&PrimitiveKind::Json));
         assert!(all.contains(&PrimitiveKind::Event));
         assert!(all.contains(&PrimitiveKind::State));
         assert!(all.contains(&PrimitiveKind::Trace));
         assert!(all.contains(&PrimitiveKind::Run));
+        assert!(all.contains(&PrimitiveKind::Vector));
     }
 
     #[test]
@@ -537,6 +568,7 @@ mod tests {
         assert_eq!(format!("{}", PrimitiveKind::State), "state");
         assert_eq!(format!("{}", PrimitiveKind::Trace), "trace");
         assert_eq!(format!("{}", PrimitiveKind::Run), "run");
+        assert_eq!(format!("{}", PrimitiveKind::Vector), "vector");
     }
 
     #[test]
@@ -554,7 +586,7 @@ mod tests {
         for kind in PrimitiveKind::all() {
             set.insert(*kind);
         }
-        assert_eq!(set.len(), 6, "All PrimitiveKinds should be unique");
+        assert_eq!(set.len(), 7, "All PrimitiveKinds should be unique");
     }
 
     // ========================================
