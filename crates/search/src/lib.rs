@@ -31,7 +31,7 @@ use in_mem_engine::Database;
 use std::sync::Arc;
 
 // Re-export commonly used types
-pub use fuser::{FusedResult, Fuser, SimpleFuser};
+pub use fuser::{FusedResult, Fuser, RRFFuser, SimpleFuser};
 pub use hybrid::HybridSearch;
 pub use scorer::{BM25LiteScorer, Scorer, ScorerContext, SearchDoc};
 pub use tokenizer::{tokenize, tokenize_unique};
