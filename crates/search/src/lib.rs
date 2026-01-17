@@ -24,6 +24,7 @@
 
 pub mod fuser;
 pub mod hybrid;
+pub mod index;
 pub mod scorer;
 pub mod tokenizer;
 
@@ -33,6 +34,7 @@ use std::sync::Arc;
 // Re-export commonly used types
 pub use fuser::{FusedResult, Fuser, RRFFuser, SimpleFuser};
 pub use hybrid::HybridSearch;
+pub use index::{InvertedIndex, PostingEntry, PostingList};
 pub use scorer::{BM25LiteScorer, Scorer, ScorerContext, SearchDoc};
 pub use tokenizer::{tokenize, tokenize_unique};
 
