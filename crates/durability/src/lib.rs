@@ -35,7 +35,8 @@ pub mod wal_entry_types; // M7 Story #362: WAL Entry Type Registry
 // Re-export commonly used types
 pub use encoding::{decode_entry, encode_entry};
 pub use m7_recovery::{
-    M7Recovery, M7RecoveryError, M7RecoveryOptions, M7RecoveryResult, SnapshotDiscovery,
+    CommittedTransactions, M7Recovery, M7RecoveryError, M7RecoveryOptions, M7RecoveryResult,
+    SnapshotDiscovery, WalReplayResultPublic,
 };
 pub use m7_wal_manager::{WalManager, WalStats};
 pub use m7_wal_reader::WalReader;

@@ -29,8 +29,9 @@
 //! println!("{}", result.summary());
 //! ```
 
+use crate::m7_transaction::{Transaction, TxEntry};
 use crate::m7_wal_reader::WalReader;
-use crate::m7_wal_types::WalEntryError;
+use crate::m7_wal_types::{TxId, WalEntry, WalEntryError};
 use crate::snapshot::SnapshotReader;
 use crate::snapshot_types::*;
 use crate::wal_entry_types::WalEntryType;
@@ -319,6 +320,43 @@ struct WalReplayResult {
     corrupt_entries: u64,
 }
 
+/// Type alias for committed transactions (TxId + WAL entries)
+pub type CommittedTransactions = Vec<(TxId, Vec<WalEntry>)>;
+
+/// Public WAL replay result (Story #319)
+#[derive(Debug, Default, Clone)]
+pub struct WalReplayResultPublic {
+    /// Total entries read from WAL
+    pub entries_replayed: u64,
+    /// Transactions with commit markers (recovered)
+    pub transactions_recovered: u64,
+    /// Transactions without commit markers (discarded)
+    pub orphaned_transactions: u64,
+    /// Transactions with abort markers (discarded)
+    pub aborted_transactions: u64,
+    /// Corrupt entries detected and skipped
+    pub corrupt_entries: u64,
+}
+
+impl WalReplayResultPublic {
+    /// Check if recovery had issues
+    pub fn has_issues(&self) -> bool {
+        self.orphaned_transactions > 0 || self.corrupt_entries > 0
+    }
+
+    /// Get human-readable summary
+    pub fn summary(&self) -> String {
+        format!(
+            "WAL replay: {} entries, {} recovered, {} orphaned, {} aborted, {} corrupt",
+            self.entries_replayed,
+            self.transactions_recovered,
+            self.orphaned_transactions,
+            self.aborted_transactions,
+            self.corrupt_entries
+        )
+    }
+}
+
 // ============================================================================
 // M7 Recovery Engine
 // ============================================================================
@@ -479,6 +517,194 @@ impl M7Recovery {
         }
 
         Ok(result)
+    }
+
+    /// Replay WAL and return committed transactions (Story #319)
+    ///
+    /// This method respects transaction boundaries:
+    /// - Only returns entries from committed transactions
+    /// - Discards entries from aborted transactions
+    /// - Discards entries from incomplete (orphaned) transactions
+    ///
+    /// # Returns
+    ///
+    /// Returns a tuple of (recovered_transactions, replay_result) where:
+    /// - recovered_transactions: Vec of (TxId, Vec<WalEntry>) for each committed transaction
+    /// - replay_result: Statistics about the replay
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// let (transactions, result) = M7Recovery::replay_wal_committed(
+    ///     &wal_path,
+    ///     0,
+    ///     &M7RecoveryOptions::default(),
+    /// )?;
+    ///
+    /// for (tx_id, entries) in transactions {
+    ///     for entry in entries {
+    ///         // Apply entry to database
+    ///     }
+    /// }
+    /// ```
+    pub fn replay_wal_committed(
+        wal_path: &Path,
+        from_offset: u64,
+        options: &M7RecoveryOptions,
+    ) -> Result<(CommittedTransactions, WalReplayResultPublic), M7RecoveryError> {
+        let mut reader = WalReader::open(wal_path)?;
+
+        if from_offset > 0 {
+            reader.seek_to(from_offset)?;
+            debug!("WAL replay starting from offset {}", from_offset);
+        }
+
+        // Track transactions by TxId
+        let mut tx_entries: HashMap<TxId, Vec<WalEntry>> = HashMap::new();
+        let mut committed: Vec<(TxId, Vec<WalEntry>)> = Vec::new();
+
+        let mut entries_replayed = 0u64;
+        let mut transactions_recovered = 0u64;
+        let mut aborted_transactions = 0u64;
+        let mut corrupt_entries = 0u64;
+
+        while let Some(entry) = reader.next_entry()? {
+            entries_replayed += 1;
+
+            // Check for corrupt entries
+            if reader.corruption_count() > corrupt_entries {
+                corrupt_entries = reader.corruption_count();
+
+                if corrupt_entries > options.max_corrupt_entries as u64 {
+                    return Err(M7RecoveryError::TooManyCorruptEntries(
+                        corrupt_entries,
+                        options.max_corrupt_entries,
+                    ));
+                }
+            }
+
+            let tx_id = entry.tx_id;
+
+            match entry.entry_type {
+                WalEntryType::TransactionCommit => {
+                    // Transaction committed - move to committed list
+                    if let Some(entries) = tx_entries.remove(&tx_id) {
+                        committed.push((tx_id, entries));
+                        transactions_recovered += 1;
+
+                        if options.verbose {
+                            debug!("Recovered committed transaction {}", tx_id);
+                        }
+                    }
+                }
+                WalEntryType::TransactionAbort => {
+                    // Transaction aborted - discard entries
+                    if tx_entries.remove(&tx_id).is_some() {
+                        aborted_transactions += 1;
+
+                        if options.verbose {
+                            debug!("Discarded aborted transaction {}", tx_id);
+                        }
+                    }
+                }
+                _ => {
+                    // Buffer entry for transaction
+                    tx_entries.entry(tx_id).or_default().push(entry);
+                }
+            }
+        }
+
+        // Count orphaned transactions
+        let orphaned_transactions = tx_entries.len() as u64;
+        for (tx_id, entries) in &tx_entries {
+            if options.verbose {
+                warn!(
+                    "Orphaned transaction {} with {} entries (discarded)",
+                    tx_id,
+                    entries.len()
+                );
+            }
+        }
+
+        let result = WalReplayResultPublic {
+            entries_replayed,
+            transactions_recovered,
+            orphaned_transactions,
+            aborted_transactions,
+            corrupt_entries,
+        };
+
+        Ok((committed, result))
+    }
+
+    /// Convert WAL entries to TxEntries for a committed transaction
+    ///
+    /// This is a convenience method for converting WAL entries back to
+    /// TxEntry types for higher-level processing.
+    pub fn entries_to_tx_entries(entries: &[WalEntry]) -> Vec<TxEntry> {
+        entries
+            .iter()
+            .filter_map(|entry| TxEntry::from_wal_payload(entry.entry_type, &entry.payload))
+            .collect()
+    }
+
+    /// Rebuild a Transaction from recovered WAL entries
+    ///
+    /// Useful for replaying a committed transaction.
+    pub fn rebuild_transaction(tx_id: TxId, entries: &[WalEntry]) -> Transaction {
+        let mut tx = Transaction::with_id(tx_id);
+        for entry in entries {
+            if let Some(tx_entry) = TxEntry::from_wal_payload(entry.entry_type, &entry.payload) {
+                match tx_entry {
+                    TxEntry::KvPut { key, value } => {
+                        tx.kv_put(key, value);
+                    }
+                    TxEntry::KvDelete { key } => {
+                        tx.kv_delete(key);
+                    }
+                    TxEntry::JsonCreate { key, doc } => {
+                        tx.json_create(key, doc);
+                    }
+                    TxEntry::JsonSet { key, doc } => {
+                        tx.json_set(key, doc);
+                    }
+                    TxEntry::JsonDelete { key } => {
+                        tx.json_delete(key);
+                    }
+                    TxEntry::JsonPatch { key, patch } => {
+                        tx.json_patch(key, patch);
+                    }
+                    TxEntry::EventAppend { payload } => {
+                        tx.event_append(payload);
+                    }
+                    TxEntry::StateInit { key, value } => {
+                        tx.state_init(key, value);
+                    }
+                    TxEntry::StateSet { key, value } => {
+                        tx.state_set(key, value);
+                    }
+                    TxEntry::StateTransition { key, from, to } => {
+                        tx.state_transition(key, from, to);
+                    }
+                    TxEntry::TraceRecord { span } => {
+                        tx.trace_record(span);
+                    }
+                    TxEntry::RunCreate { metadata } => {
+                        tx.run_create(metadata);
+                    }
+                    TxEntry::RunUpdate { metadata } => {
+                        tx.run_update(metadata);
+                    }
+                    TxEntry::RunBegin { metadata } => {
+                        tx.run_begin(metadata);
+                    }
+                    TxEntry::RunEnd { metadata } => {
+                        tx.run_end(metadata);
+                    }
+                }
+            }
+        }
+        tx
     }
 
     /// Validate recovery data integrity
@@ -867,5 +1093,322 @@ mod tests {
         let options = M7RecoveryOptions::default();
         let valid = M7Recovery::validate_recovery(temp_dir.path(), &options).unwrap();
         assert!(!valid);
+    }
+
+    // ========================================================================
+    // Story #319: Recovery Respects Transaction Boundaries
+    // ========================================================================
+
+    #[test]
+    fn test_replay_wal_committed_basic() {
+        let temp_dir = create_test_dir();
+        let wal_path = temp_dir.path().join("wal.dat");
+
+        // Create WAL with 2 committed transactions
+        {
+            let mut writer = WalWriter::open(&wal_path, DurabilityMode::Strict).unwrap();
+            writer
+                .write_transaction(vec![(WalEntryType::KvPut, b"key1=value1".to_vec())])
+                .unwrap();
+            writer
+                .write_transaction(vec![(WalEntryType::KvPut, b"key2=value2".to_vec())])
+                .unwrap();
+        }
+
+        let (transactions, result) =
+            M7Recovery::replay_wal_committed(&wal_path, 0, &M7RecoveryOptions::default()).unwrap();
+
+        assert_eq!(transactions.len(), 2);
+        assert_eq!(result.transactions_recovered, 2);
+        assert_eq!(result.orphaned_transactions, 0);
+        assert!(!result.has_issues());
+    }
+
+    #[test]
+    fn test_replay_wal_committed_with_orphaned() {
+        let temp_dir = create_test_dir();
+        let wal_path = temp_dir.path().join("wal.dat");
+
+        // Create WAL with 1 committed and 1 orphaned transaction
+        {
+            let mut writer = WalWriter::open(&wal_path, DurabilityMode::Strict).unwrap();
+
+            // Committed transaction
+            writer
+                .write_transaction(vec![(WalEntryType::KvPut, b"committed".to_vec())])
+                .unwrap();
+
+            // Orphaned transaction (no commit)
+            let tx_id = writer.begin_transaction();
+            writer
+                .write_tx_entry(tx_id, WalEntryType::KvPut, b"orphaned".to_vec())
+                .unwrap();
+            // No commit marker - simulates crash
+        }
+
+        let (transactions, result) =
+            M7Recovery::replay_wal_committed(&wal_path, 0, &M7RecoveryOptions::default()).unwrap();
+
+        assert_eq!(transactions.len(), 1); // Only committed
+        assert_eq!(result.transactions_recovered, 1);
+        assert_eq!(result.orphaned_transactions, 1);
+        assert!(result.has_issues());
+    }
+
+    #[test]
+    fn test_replay_wal_cross_primitive_atomic() {
+        use crate::m7_transaction::Transaction;
+
+        let temp_dir = create_test_dir();
+        let wal_path = temp_dir.path().join("wal.dat");
+
+        // Create WAL with cross-primitive transaction
+        let expected_tx_id;
+        {
+            let mut writer = WalWriter::open(&wal_path, DurabilityMode::Strict).unwrap();
+
+            let mut tx = Transaction::new();
+            tx.kv_put("kv_key", "kv_value")
+                .json_set("json_key", b"{}".to_vec())
+                .event_append(b"event".to_vec())
+                .state_set("state_key", "active")
+                .trace_record(b"trace".to_vec());
+
+            expected_tx_id = tx.id();
+            writer.commit_atomic(tx).unwrap();
+        }
+
+        let (transactions, result) =
+            M7Recovery::replay_wal_committed(&wal_path, 0, &M7RecoveryOptions::default()).unwrap();
+
+        assert_eq!(transactions.len(), 1);
+        assert_eq!(result.transactions_recovered, 1);
+
+        // Verify all entries have same tx_id
+        let (tx_id, entries) = &transactions[0];
+        assert_eq!(*tx_id, expected_tx_id);
+        assert_eq!(entries.len(), 5); // KV, JSON, Event, State, Trace
+
+        // Verify entry types
+        assert_eq!(entries[0].entry_type, WalEntryType::KvPut);
+        assert_eq!(entries[1].entry_type, WalEntryType::JsonSet);
+        assert_eq!(entries[2].entry_type, WalEntryType::EventAppend);
+        assert_eq!(entries[3].entry_type, WalEntryType::StateSet);
+        assert_eq!(entries[4].entry_type, WalEntryType::TraceRecord);
+
+        // All entries share same tx_id
+        for entry in entries {
+            assert_eq!(entry.tx_id, expected_tx_id);
+        }
+    }
+
+    #[test]
+    fn test_replay_wal_uncommitted_cross_primitive_discarded() {
+        use crate::m7_transaction::Transaction;
+
+        let temp_dir = create_test_dir();
+        let wal_path = temp_dir.path().join("wal.dat");
+
+        // Create WAL with uncommitted cross-primitive transaction
+        {
+            let mut writer = WalWriter::open(&wal_path, DurabilityMode::Strict).unwrap();
+
+            let tx = Transaction::new();
+            let (tx_id, entries) = tx.into_wal_entries();
+
+            // Write KV entry
+            writer
+                .write_tx_entry(tx_id, WalEntryType::KvPut, b"key=value".to_vec())
+                .unwrap();
+            // Write JSON entry
+            writer
+                .write_tx_entry(tx_id, WalEntryType::JsonSet, b"doc={}".to_vec())
+                .unwrap();
+            // Write State entry
+            writer
+                .write_tx_entry(tx_id, WalEntryType::StateSet, b"state=active".to_vec())
+                .unwrap();
+
+            // NO COMMIT - simulates crash mid-transaction
+            let _ = entries; // suppress warning
+        }
+
+        let (transactions, result) =
+            M7Recovery::replay_wal_committed(&wal_path, 0, &M7RecoveryOptions::default()).unwrap();
+
+        // No transactions recovered - all were orphaned
+        assert_eq!(transactions.len(), 0);
+        assert_eq!(result.transactions_recovered, 0);
+        assert_eq!(result.orphaned_transactions, 1);
+        assert!(result.has_issues());
+    }
+
+    #[test]
+    fn test_replay_wal_partial_tx_not_visible() {
+        use crate::m7_transaction::Transaction;
+
+        let temp_dir = create_test_dir();
+        let wal_path = temp_dir.path().join("wal.dat");
+
+        // TX1 committed, TX2 partial (no commit)
+        let tx1_id;
+        {
+            let mut writer = WalWriter::open(&wal_path, DurabilityMode::Strict).unwrap();
+
+            // TX1 - complete
+            let mut tx1 = Transaction::new();
+            tx1.kv_put("tx1_key", "tx1_value");
+            tx1_id = tx1.id();
+            writer.commit_atomic(tx1).unwrap();
+
+            // TX2 - partial (no commit)
+            let tx2_id = writer.begin_transaction();
+            writer
+                .write_tx_entry(tx2_id, WalEntryType::KvPut, b"tx2_key=tx2_value".to_vec())
+                .unwrap();
+            writer
+                .write_tx_entry(tx2_id, WalEntryType::JsonSet, b"tx2_doc={}".to_vec())
+                .unwrap();
+            // NO COMMIT
+        }
+
+        let (transactions, result) =
+            M7Recovery::replay_wal_committed(&wal_path, 0, &M7RecoveryOptions::default()).unwrap();
+
+        // Only TX1 should be recovered
+        assert_eq!(transactions.len(), 1);
+        assert_eq!(transactions[0].0, tx1_id);
+        assert_eq!(result.transactions_recovered, 1);
+        assert_eq!(result.orphaned_transactions, 1);
+    }
+
+    #[test]
+    fn test_rebuild_transaction_from_entries() {
+        use crate::m7_transaction::Transaction;
+
+        let temp_dir = create_test_dir();
+        let wal_path = temp_dir.path().join("wal.dat");
+
+        // Create cross-primitive transaction
+        let original_tx_id;
+        {
+            let mut writer = WalWriter::open(&wal_path, DurabilityMode::Strict).unwrap();
+
+            let mut tx = Transaction::new();
+            tx.kv_put("key1", "value1")
+                .json_set("doc1", b"{}".to_vec())
+                .state_set("state1", "active");
+
+            original_tx_id = tx.id();
+            writer.commit_atomic(tx).unwrap();
+        }
+
+        // Recover and rebuild
+        let (transactions, _) =
+            M7Recovery::replay_wal_committed(&wal_path, 0, &M7RecoveryOptions::default()).unwrap();
+
+        let (tx_id, entries) = &transactions[0];
+        let rebuilt = M7Recovery::rebuild_transaction(*tx_id, entries);
+
+        assert_eq!(rebuilt.id(), original_tx_id);
+        assert_eq!(rebuilt.len(), 3);
+
+        // Verify entries
+        let rebuilt_entries = rebuilt.entries();
+        assert!(matches!(
+            rebuilt_entries[0],
+            crate::m7_transaction::TxEntry::KvPut { .. }
+        ));
+        assert!(matches!(
+            rebuilt_entries[1],
+            crate::m7_transaction::TxEntry::JsonSet { .. }
+        ));
+        assert!(matches!(
+            rebuilt_entries[2],
+            crate::m7_transaction::TxEntry::StateSet { .. }
+        ));
+    }
+
+    #[test]
+    fn test_entries_to_tx_entries() {
+        use crate::m7_transaction::Transaction;
+
+        let temp_dir = create_test_dir();
+        let wal_path = temp_dir.path().join("wal.dat");
+
+        {
+            let mut writer = WalWriter::open(&wal_path, DurabilityMode::Strict).unwrap();
+
+            let mut tx = Transaction::new();
+            tx.kv_put("key", "value");
+            tx.json_create("doc", b"{}".to_vec());
+            writer.commit_atomic(tx).unwrap();
+        }
+
+        let (transactions, _) =
+            M7Recovery::replay_wal_committed(&wal_path, 0, &M7RecoveryOptions::default()).unwrap();
+
+        let (_, entries) = &transactions[0];
+        let tx_entries = M7Recovery::entries_to_tx_entries(entries);
+
+        assert_eq!(tx_entries.len(), 2);
+        assert!(matches!(
+            tx_entries[0],
+            crate::m7_transaction::TxEntry::KvPut { .. }
+        ));
+        assert!(matches!(
+            tx_entries[1],
+            crate::m7_transaction::TxEntry::JsonCreate { .. }
+        ));
+    }
+
+    #[test]
+    fn test_recovery_deterministic() {
+        use crate::m7_transaction::Transaction;
+
+        let temp_dir = create_test_dir();
+        let wal_path = temp_dir.path().join("wal.dat");
+
+        // Create WAL with multiple transactions
+        {
+            let mut writer = WalWriter::open(&wal_path, DurabilityMode::Strict).unwrap();
+
+            for i in 0..10 {
+                let mut tx = Transaction::new();
+                tx.kv_put(format!("key_{}", i), format!("value_{}", i));
+                writer.commit_atomic(tx).unwrap();
+            }
+        }
+
+        // Recover twice
+        let (txs1, result1) =
+            M7Recovery::replay_wal_committed(&wal_path, 0, &M7RecoveryOptions::default()).unwrap();
+        let (txs2, result2) =
+            M7Recovery::replay_wal_committed(&wal_path, 0, &M7RecoveryOptions::default()).unwrap();
+
+        // Results must be identical
+        assert_eq!(result1.transactions_recovered, result2.transactions_recovered);
+        assert_eq!(txs1.len(), txs2.len());
+
+        for i in 0..txs1.len() {
+            assert_eq!(txs1[i].0, txs2[i].0); // Same tx_id
+            assert_eq!(txs1[i].1.len(), txs2[i].1.len()); // Same entry count
+        }
+    }
+
+    #[test]
+    fn test_wal_replay_result_public_summary() {
+        let result = WalReplayResultPublic {
+            entries_replayed: 100,
+            transactions_recovered: 10,
+            orphaned_transactions: 2,
+            aborted_transactions: 1,
+            corrupt_entries: 0,
+        };
+
+        let summary = result.summary();
+        assert!(summary.contains("100 entries"));
+        assert!(summary.contains("10 recovered"));
+        assert!(summary.contains("2 orphaned"));
     }
 }
