@@ -11,6 +11,7 @@ use in_mem_core::types::RunId;
 use in_mem_core::value::Value;
 use in_mem_durability::WalEntryType;
 use in_mem_engine::Database;
+use in_mem_primitives::register_vector_recovery;
 use in_mem_primitives::vector::{
     DistanceMetric, StorageDtype, VectorConfig, VectorError, VectorId, VectorMatch, VectorStore,
 };
@@ -22,8 +23,17 @@ use std::hash::{Hash, Hasher};
 use std::io::{Seek, SeekFrom, Write};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
-use std::sync::Arc;
+use std::sync::{Arc, Once};
 use tempfile::TempDir;
+
+// Ensure vector recovery is registered exactly once
+static INIT_RECOVERY: Once = Once::new();
+
+fn ensure_recovery_registered() {
+    INIT_RECOVERY.call_once(|| {
+        register_vector_recovery();
+    });
+}
 
 // Counter for generating unique keys
 static HEALTH_CHECK_COUNTER: AtomicU64 = AtomicU64::new(0);
@@ -42,6 +52,7 @@ pub struct TestDb {
 impl TestDb {
     /// Create a new test database with file-backed WAL
     pub fn new() -> Self {
+        ensure_recovery_registered();
         let dir = tempfile::tempdir().expect("Failed to create temp dir");
         let db = Arc::new(
             Database::builder()
@@ -56,6 +67,7 @@ impl TestDb {
 
     /// Create a test database with strict durability (fsync on each write)
     pub fn new_strict() -> Self {
+        ensure_recovery_registered();
         let dir = tempfile::tempdir().expect("Failed to create temp dir");
         let db = Arc::new(
             Database::builder()
@@ -70,6 +82,7 @@ impl TestDb {
 
     /// Create an in-memory test database (no durability)
     pub fn new_in_memory() -> Self {
+        ensure_recovery_registered();
         let dir = tempfile::tempdir().expect("Failed to create temp dir");
         let db = Arc::new(
             Database::builder()

@@ -61,10 +61,11 @@ pub use searchable::{build_search_response, SearchCandidate, Searchable, SimpleS
 pub use state_cell::{State, StateCell};
 pub use trace::{Trace, TraceStore, TraceTree, TraceType};
 pub use vector::{
-    validate_collection_name, validate_vector_key, BruteForceBackend, CollectionId, CollectionInfo,
-    CollectionRecord, DistanceMetric, IndexBackendFactory, JsonScalar, MetadataFilter,
-    StorageDtype, VectorConfig, VectorConfigSerde, VectorEntry, VectorError, VectorHeap, VectorId,
-    VectorIndexBackend, VectorMatch, VectorRecord, VectorResult, VectorStore,
+    register_vector_recovery, validate_collection_name, validate_vector_key, BruteForceBackend,
+    CollectionId, CollectionInfo, CollectionRecord, DistanceMetric, IndexBackendFactory,
+    JsonScalar, MetadataFilter, StorageDtype, VectorConfig, VectorConfigSerde, VectorEntry,
+    VectorError, VectorHeap, VectorId, VectorIndexBackend, VectorMatch, VectorRecord,
+    VectorResult, VectorStore, VectorBackendState,
 };
 
 // Re-export extension traits for convenience

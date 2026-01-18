@@ -7,13 +7,22 @@ use in_mem_core::types::{JsonDocId, RunId};
 use in_mem_core::value::Value;
 use in_mem_engine::Database;
 use in_mem_primitives::{
-    DistanceMetric, EventLog, JsonStore, KVStore, RunIndex, StateCell, StorageDtype, TraceStore,
-    TraceType, VectorConfig, VectorStore,
+    register_vector_recovery, DistanceMetric, EventLog, JsonStore, KVStore, RunIndex, StateCell,
+    StorageDtype, TraceStore, TraceType, VectorConfig, VectorStore,
 };
 use std::path::Path;
 use std::sync::atomic::{AtomicU64, Ordering};
-use std::sync::Arc;
+use std::sync::{Arc, Once};
 use tempfile::TempDir;
+
+// Ensure vector recovery is registered exactly once
+static INIT_RECOVERY: Once = Once::new();
+
+fn ensure_recovery_registered() {
+    INIT_RECOVERY.call_once(|| {
+        register_vector_recovery();
+    });
+}
 
 // Re-export types for tests
 pub use in_mem_core::json::{JsonPath as CoreJsonPath, JsonValue as CoreJsonValue};
@@ -37,6 +46,7 @@ pub struct TestDb {
 impl TestDb {
     /// Create a new test database with buffered durability (default for tests)
     pub fn new() -> Self {
+        ensure_recovery_registered();
         let dir = tempfile::tempdir().expect("Failed to create temp dir");
         let db = Arc::new(
             Database::builder()
@@ -51,6 +61,7 @@ impl TestDb {
 
     /// Create a test database with strict durability
     pub fn new_strict() -> Self {
+        ensure_recovery_registered();
         let dir = tempfile::tempdir().expect("Failed to create temp dir");
         let db = Arc::new(
             Database::builder()
@@ -65,6 +76,7 @@ impl TestDb {
 
     /// Create an in-memory test database
     pub fn new_in_memory() -> Self {
+        ensure_recovery_registered();
         let dir = tempfile::tempdir().expect("Failed to create temp dir");
         let db = Arc::new(
             Database::builder()

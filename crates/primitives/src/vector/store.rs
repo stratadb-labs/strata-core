@@ -2,10 +2,16 @@
 //!
 //! ## Design
 //!
-//! VectorStore is a stateless facade over the Database engine for collection
-//! management. It holds:
-//! - `Arc<Database>` for storage operations
-//! - `RwLock<BTreeMap<CollectionId, Box<dyn VectorIndexBackend>>>` for in-memory index
+//! VectorStore is a **stateless facade** over the Database engine for collection
+//! management. Following the same pattern as KVStore, JsonStore, and other primitives:
+//!
+//! - VectorStore holds only `Arc<Database>` (no private state)
+//! - All persistent state lives in the Database (via the extension mechanism)
+//! - Multiple VectorStore instances for the same Database share state
+//!
+//! This ensures that concurrent access from multiple threads or instances
+//! sees consistent state, avoiding the data loss bug where each VectorStore::new()
+//! created a private, empty backends map.
 //!
 //! ## Run Isolation
 //!
@@ -15,6 +21,8 @@
 //! ## Thread Safety
 //!
 //! VectorStore is `Send + Sync` and can be safely shared across threads.
+//! All VectorStore instances for the same Database share backend state
+//! through `Database::extension::<VectorBackendState>()`.
 
 use crate::vector::collection::{validate_collection_name, validate_vector_key};
 use crate::vector::{
@@ -44,10 +52,35 @@ pub struct RecoveryStats {
     pub vectors_deleted: usize,
 }
 
+/// Shared backend state for VectorStore
+///
+/// This struct is stored in the Database via the extension mechanism,
+/// ensuring all VectorStore instances for the same Database share the same
+/// backend state. This is critical for correct concurrent operation.
+///
+/// # Thread Safety
+///
+/// Protected by RwLock for concurrent read access and exclusive write access.
+/// Uses BTreeMap for deterministic iteration order (Invariant R3).
+pub struct VectorBackendState {
+    /// In-memory index backends per collection
+    /// CRITICAL: BTreeMap for deterministic iteration (Invariant R3)
+    pub backends: RwLock<BTreeMap<CollectionId, Box<dyn VectorIndexBackend>>>,
+}
+
+impl Default for VectorBackendState {
+    fn default() -> Self {
+        Self {
+            backends: RwLock::new(BTreeMap::new()),
+        }
+    }
+}
+
 /// Vector storage and search primitive
 ///
 /// Manages collections of vectors with similarity search capabilities.
-/// Uses BTreeMap for deterministic iteration order (Invariant R3).
+/// This is a **stateless facade** - it holds only a reference to the Database.
+/// All backend state is stored in the Database via `extension::<VectorBackendState>()`.
 ///
 /// # Example
 ///
@@ -57,62 +90,53 @@ pub struct RecoveryStats {
 /// use in_mem_core::types::RunId;
 ///
 /// let db = Arc::new(Database::open("/path/to/data")?);
-/// let store = VectorStore::new(db);
+/// let store = VectorStore::new(db.clone());
 /// let run_id = RunId::new();
 ///
 /// // Create collection
 /// let config = VectorConfig::for_minilm();
 /// store.create_collection(run_id, "embeddings", config)?;
 ///
-/// // List collections
-/// let collections = store.list_collections(run_id)?;
+/// // Multiple stores share the same backend state
+/// let store2 = VectorStore::new(db.clone());
+/// // store2 sees the same collections as store
 /// ```
 #[derive(Clone)]
 pub struct VectorStore {
     db: Arc<Database>,
-    /// In-memory index backends per collection
-    /// CRITICAL: BTreeMap for deterministic iteration (Invariant R3)
-    backends: Arc<RwLock<BTreeMap<CollectionId, Box<dyn VectorIndexBackend>>>>,
-    /// Factory for creating index backends
-    backend_factory: IndexBackendFactory,
 }
 
 impl VectorStore {
     /// Create a new VectorStore
     ///
-    /// Automatically calls recover() to restore state from WAL if durability is enabled.
-    pub fn new(db: Arc<Database>) -> Self {
-        let store = Self {
-            db,
-            backends: Arc::new(RwLock::new(BTreeMap::new())),
-            backend_factory: IndexBackendFactory::default(),
-        };
-        // Automatically recover from WAL
-        if store.requires_wal() {
-            let _ = store.recover();
-        }
-        store
-    }
-
-    /// Create a new VectorStore with custom backend factory
+    /// This is a stateless facade - all backend state is stored in the Database
+    /// via the extension mechanism. Multiple VectorStore instances for the same
+    /// Database share the same backend state.
     ///
-    /// Automatically calls recover() to restore state from WAL if durability is enabled.
-    pub fn with_backend_factory(db: Arc<Database>, factory: IndexBackendFactory) -> Self {
-        let store = Self {
-            db,
-            backends: Arc::new(RwLock::new(BTreeMap::new())),
-            backend_factory: factory,
-        };
-        // Automatically recover from WAL
-        if store.requires_wal() {
-            let _ = store.recover();
-        }
-        store
+    /// NOTE: Recovery is NOT performed automatically. Recovery is orchestrated
+    /// by the Database during startup, which calls `recover()` after all
+    /// primitives are registered.
+    pub fn new(db: Arc<Database>) -> Self {
+        Self { db }
     }
 
     /// Get the underlying database reference
     pub fn database(&self) -> &Arc<Database> {
         &self.db
+    }
+
+    /// Get access to the shared backend state
+    ///
+    /// This returns the shared `VectorBackendState` stored in the Database.
+    /// All VectorStore instances for the same Database share this state.
+    fn state(&self) -> Arc<VectorBackendState> {
+        self.db.extension::<VectorBackendState>()
+    }
+
+    /// Get the backend factory (hardcoded for M8, configurable in M9)
+    fn backend_factory(&self) -> IndexBackendFactory {
+        // M8: Hardcoded to BruteForce. M9 will make this configurable.
+        IndexBackendFactory::default()
     }
 
     // ========================================================================
@@ -302,7 +326,8 @@ impl VectorStore {
                 // If collection doesn't exist yet, try to load it from KV
                 // (the KV recovery may have restored the collection config)
                 let collection_id = CollectionId::new(*run_id, collection);
-                if !self.backends.read().unwrap().contains_key(&collection_id) {
+                let state = self.state();
+                if !state.backends.read().unwrap().contains_key(&collection_id) {
                     // Try to load from KV - collection config should have been restored
                     if let Ok(Some(config)) = self.load_collection_config(*run_id, collection) {
                         self.init_backend(&collection_id, &config);
@@ -447,7 +472,10 @@ impl VectorStore {
             .map_err(|e| VectorError::Storage(e.to_string()))?;
 
         // Remove in-memory backend
-        self.backends.write().unwrap().remove(&collection_id);
+        {
+            let state = self.state();
+            state.backends.write().unwrap().remove(&collection_id);
+        }
 
         // Write WAL entry for durability (M8 Epic 55)
         self.write_wal_entry(WALEntry::VectorCollectionDelete {
@@ -626,7 +654,8 @@ impl VectorStore {
             (VectorId(updated.vector_id), updated)
         } else {
             // New vector: allocate VectorId from backend's per-collection counter
-            let mut backends = self.backends.write().unwrap();
+            let state = self.state();
+            let mut backends = state.backends.write().unwrap();
             let backend = backends.get_mut(&collection_id).ok_or_else(|| {
                 VectorError::CollectionNotFound {
                     name: collection.to_string(),
@@ -646,7 +675,8 @@ impl VectorStore {
 
         // For updates, update the backend
         if is_update {
-            let mut backends = self.backends.write().unwrap();
+            let state = self.state();
+            let mut backends = state.backends.write().unwrap();
             if let Some(backend) = backends.get_mut(&collection_id) {
                 backend.insert(vector_id, embedding)?;
             }
@@ -698,7 +728,8 @@ impl VectorStore {
         let vector_id = VectorId(record.vector_id);
 
         // Get embedding from backend
-        let backends = self.backends.read().unwrap();
+        let state = self.state();
+        let backends = state.backends.read().unwrap();
         let backend =
             backends
                 .get(&collection_id)
@@ -738,7 +769,8 @@ impl VectorStore {
 
         // Delete from backend
         {
-            let mut backends = self.backends.write().unwrap();
+            let state = self.state();
+            let mut backends = state.backends.write().unwrap();
             if let Some(backend) = backends.get_mut(&collection_id) {
                 backend.delete(vector_id)?;
             }
@@ -767,7 +799,8 @@ impl VectorStore {
         self.ensure_collection_loaded(run_id, collection)?;
 
         let collection_id = CollectionId::new(run_id, collection);
-        let backends = self.backends.read().unwrap();
+        let state = self.state();
+        let backends = state.backends.read().unwrap();
 
         backends
             .get(&collection_id)
@@ -817,7 +850,8 @@ impl VectorStore {
 
         // Search backend (returns VectorId, score pairs)
         let candidates = {
-            let backends = self.backends.read().unwrap();
+            let state = self.state();
+            let backends = state.backends.read().unwrap();
             let backend =
                 backends
                     .get(&collection_id)
@@ -915,8 +949,9 @@ impl VectorStore {
 
     /// Initialize the index backend for a collection
     fn init_backend(&self, id: &CollectionId, config: &VectorConfig) {
-        let backend = self.backend_factory.create(config);
-        self.backends.write().unwrap().insert(id.clone(), backend);
+        let backend = self.backend_factory().create(config);
+        let state = self.state();
+        state.backends.write().unwrap().insert(id.clone(), backend);
     }
 
     /// Get collection config (required version that errors if not found)
@@ -1016,7 +1051,8 @@ impl VectorStore {
         name: &str,
     ) -> VectorResult<usize> {
         // Check in-memory backend first
-        let backends = self.backends.read().unwrap();
+        let state = self.state();
+        let backends = state.backends.read().unwrap();
         if let Some(backend) = backends.get(id) {
             return Ok(backend.len());
         }
@@ -1106,8 +1142,11 @@ impl VectorStore {
         let collection_id = CollectionId::new(run_id, name);
 
         // Already loaded?
-        if self.backends.read().unwrap().contains_key(&collection_id) {
-            return Ok(());
+        {
+            let state = self.state();
+            if state.backends.read().unwrap().contains_key(&collection_id) {
+                return Ok(());
+            }
         }
 
         // Load from KV
@@ -1144,8 +1183,9 @@ impl VectorStore {
         let collection_id = CollectionId::new(run_id, name);
 
         // Initialize backend (no KV write - KV is replayed separately)
-        let backend = self.backend_factory.create(&config);
-        self.backends
+        let backend = self.backend_factory().create(&config);
+        let state = self.state();
+        state.backends
             .write()
             .unwrap()
             .insert(collection_id, backend);
@@ -1161,7 +1201,8 @@ impl VectorStore {
         let collection_id = CollectionId::new(run_id, name);
 
         // Remove in-memory backend
-        self.backends.write().unwrap().remove(&collection_id);
+        let state = self.state();
+        state.backends.write().unwrap().remove(&collection_id);
 
         Ok(())
     }
@@ -1183,7 +1224,8 @@ impl VectorStore {
     ) -> VectorResult<()> {
         let collection_id = CollectionId::new(run_id, collection);
 
-        let mut backends = self.backends.write().unwrap();
+        let state = self.state();
+        let mut backends = state.backends.write().unwrap();
         let backend =
             backends
                 .get_mut(&collection_id)
@@ -1210,7 +1252,8 @@ impl VectorStore {
     ) -> VectorResult<()> {
         let collection_id = CollectionId::new(run_id, collection);
 
-        let mut backends = self.backends.write().unwrap();
+        let state = self.state();
+        let mut backends = state.backends.write().unwrap();
         if let Some(backend) = backends.get_mut(&collection_id) {
             backend.delete(vector_id)?;
         }
@@ -1219,19 +1262,17 @@ impl VectorStore {
         Ok(())
     }
 
-    /// Get access to backends (for recovery/snapshot)
-    pub fn backends(&self) -> &Arc<RwLock<BTreeMap<CollectionId, Box<dyn VectorIndexBackend>>>> {
-        &self.backends
+    /// Get access to the shared backend state (for recovery/snapshot)
+    ///
+    /// Returns the shared `VectorBackendState` stored in the Database.
+    /// Use `state.backends.read()` or `state.backends.write()` to access backends.
+    pub fn backends(&self) -> Arc<VectorBackendState> {
+        self.state()
     }
 
     /// Get access to the database (for snapshot operations)
     pub fn db(&self) -> &Database {
         &self.db
-    }
-
-    /// Get access to the backend factory (for snapshot deserialization)
-    pub fn backend_factory(&self) -> &IndexBackendFactory {
-        &self.backend_factory
     }
 
     /// Internal helper to create vector KV key
@@ -1847,7 +1888,7 @@ mod tests {
 
         // Backend should be created
         let collection_id = CollectionId::new(run_id, "test");
-        assert!(store.backends.read().unwrap().contains_key(&collection_id));
+        assert!(store.backends().backends.read().unwrap().contains_key(&collection_id));
     }
 
     #[test]
@@ -1861,12 +1902,12 @@ mod tests {
             .unwrap();
 
         let collection_id = CollectionId::new(run_id, "test");
-        assert!(store.backends.read().unwrap().contains_key(&collection_id));
+        assert!(store.backends().backends.read().unwrap().contains_key(&collection_id));
 
         // Replay deletion
         store.replay_delete_collection(run_id, "test").unwrap();
 
-        assert!(!store.backends.read().unwrap().contains_key(&collection_id));
+        assert!(!store.backends().backends.read().unwrap().contains_key(&collection_id));
     }
 
     #[test]
@@ -1887,7 +1928,8 @@ mod tests {
 
         // Verify vector exists in backend
         let collection_id = CollectionId::new(run_id, "test");
-        let backends = store.backends.read().unwrap();
+        let state = store.backends();
+        let backends = state.backends.read().unwrap();
         let backend = backends.get(&collection_id).unwrap();
         assert!(backend.contains(vector_id));
         assert_eq!(backend.len(), 1);
@@ -1911,7 +1953,8 @@ mod tests {
 
         // Verify the vector exists
         let collection_id = CollectionId::new(run_id, "test");
-        let backends = store.backends.read().unwrap();
+        let state = store.backends();
+        let backends = state.backends.read().unwrap();
         let backend = backends.get(&collection_id).unwrap();
         assert!(backend.contains(high_id));
     }
@@ -1934,7 +1977,8 @@ mod tests {
 
         let collection_id = CollectionId::new(run_id, "test");
         {
-            let backends = store.backends.read().unwrap();
+            let state = store.backends();
+            let backends = state.backends.read().unwrap();
             assert!(backends.get(&collection_id).unwrap().contains(vector_id));
         }
 
@@ -1944,7 +1988,8 @@ mod tests {
             .unwrap();
 
         {
-            let backends = store.backends.read().unwrap();
+            let state = store.backends();
+            let backends = state.backends.read().unwrap();
             assert!(!backends.get(&collection_id).unwrap().contains(vector_id));
         }
     }
@@ -1999,7 +2044,8 @@ mod tests {
 
         // Verify final state
         let collection_id = CollectionId::new(run_id, "col1");
-        let backends = store.backends.read().unwrap();
+        let state = store.backends();
+        let backends = state.backends.read().unwrap();
         let backend = backends.get(&collection_id).unwrap();
 
         assert!(!backend.contains(VectorId::new(1)));
@@ -2016,8 +2062,8 @@ mod tests {
         store.create_collection(run_id, "test", config).unwrap();
 
         // Use backends accessor
-        let backends = store.backends();
-        let guard = backends.read().unwrap();
+        let state = store.backends();
+        let guard = state.backends.read().unwrap();
         assert_eq!(guard.len(), 1);
     }
 }

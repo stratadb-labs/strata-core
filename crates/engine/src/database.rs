@@ -33,6 +33,7 @@ use in_mem_core::VersionedValue;
 use in_mem_durability::wal::{DurabilityMode, WAL};
 use in_mem_storage::ShardedStore;
 use parking_lot::Mutex as ParkingMutex;
+use std::any::{Any, TypeId};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
@@ -345,6 +346,14 @@ pub struct Database {
     ///
     /// Set to false during shutdown to reject new transactions.
     accepting_transactions: std::sync::atomic::AtomicBool,
+
+    /// Type-erased extension storage for primitive state
+    ///
+    /// Allows primitives like VectorStore to store their in-memory backends here,
+    /// ensuring all VectorStore instances for the same Database share state.
+    ///
+    /// Extensions are lazily initialized on first access via `extension<T>()`.
+    extensions: DashMap<TypeId, Arc<dyn Any + Send + Sync>>,
 }
 
 impl Database {
@@ -450,7 +459,7 @@ impl Database {
         // Create coordinator from recovery result (preserves version continuity)
         let coordinator = TransactionCoordinator::from_recovery(&result);
 
-        Ok(Self {
+        let db = Self {
             data_dir,
             storage: Arc::new(result.storage),
             wal: Arc::new(Mutex::new(wal)),
@@ -458,7 +467,15 @@ impl Database {
             commit_locks: DashMap::new(),
             durability_mode,
             accepting_transactions: AtomicBool::new(true),
-        })
+            extensions: DashMap::new(),
+        };
+
+        // Run primitive recovery (e.g., VectorStore)
+        // This must happen AFTER KV recovery completes, as primitives may
+        // depend on config data stored in KV.
+        crate::recovery_participant::recover_all_participants(&db)?;
+
+        Ok(db)
     }
 
     /// Get reference to the storage layer
@@ -490,6 +507,54 @@ impl Database {
     pub fn flush(&self) -> Result<()> {
         let wal = self.wal.lock().unwrap();
         wal.fsync()
+    }
+
+    // ========================================================================
+    // Extension API (M8)
+    // ========================================================================
+
+    /// Get or create a typed extension bound to this Database
+    ///
+    /// Extensions allow primitives to store in-memory state that is shared
+    /// across all instances of that primitive for this Database.
+    ///
+    /// # Behavior
+    ///
+    /// - If the extension exists, returns it
+    /// - If missing, creates with `Default::default()`, stores, and returns it
+    /// - Always returns `Arc<T>` for shared ownership
+    ///
+    /// # Thread Safety
+    ///
+    /// This method is safe to call concurrently. The extension is created
+    /// at most once, using DashMap's entry API for atomicity.
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// #[derive(Default)]
+    /// struct VectorBackendState {
+    ///     backends: RwLock<BTreeMap<CollectionId, Box<dyn VectorIndexBackend>>>,
+    /// }
+    ///
+    /// // All VectorStore instances for this Database share the same state
+    /// let state = db.extension::<VectorBackendState>();
+    /// ```
+    pub fn extension<T: Any + Send + Sync + Default>(&self) -> Arc<T> {
+        let type_id = TypeId::of::<T>();
+
+        // Use entry API for atomic get-or-insert
+        let entry = self
+            .extensions
+            .entry(type_id)
+            .or_insert_with(|| Arc::new(T::default()) as Arc<dyn Any + Send + Sync>);
+
+        // Downcast to concrete type - this cannot fail because we control the insertion
+        entry
+            .value()
+            .clone()
+            .downcast::<T>()
+            .expect("extension type mismatch - this is a bug")
     }
 
     // ========================================================================

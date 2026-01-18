@@ -32,8 +32,8 @@
 //! 3. **Embedding Format**: Raw f32 LE for efficiency. No compression in M8.
 
 use crate::vector::{
-    CollectionId, DistanceMetric, StorageDtype, VectorConfig, VectorError, VectorId, VectorRecord,
-    VectorResult, VectorStore,
+    CollectionId, DistanceMetric, IndexBackendFactory, StorageDtype, VectorConfig, VectorError,
+    VectorId, VectorRecord, VectorResult, VectorStore,
 };
 use byteorder::{LittleEndian, ReadBytesExt, WriteBytesExt};
 use in_mem_core::value::Value;
@@ -87,7 +87,8 @@ impl VectorStore {
             .write_u8(VECTOR_SNAPSHOT_VERSION)
             .map_err(|e| VectorError::Io(e.to_string()))?;
 
-        let backends = self.backends().read().unwrap();
+        let state = self.backends();
+        let backends = state.backends.read().unwrap();
         let collection_count = backends.len() as u32;
         writer
             .write_u32::<LittleEndian>(collection_count)
@@ -252,8 +253,9 @@ impl VectorStore {
                 })
                 .map_err(|e| VectorError::Database(e.to_string()))?;
 
-            // Create backend using factory
-            let mut backend = self.backend_factory().create(&config);
+            // Create backend using factory (M8: hardcoded to BruteForce)
+            let factory = IndexBackendFactory::default();
+            let mut backend = factory.create(&config);
 
             // Read and insert vectors
             for _ in 0..header.count {
@@ -325,6 +327,7 @@ impl VectorStore {
 
             // Add backend to store
             self.backends()
+                .backends
                 .write()
                 .unwrap()
                 .insert(collection_id, backend);

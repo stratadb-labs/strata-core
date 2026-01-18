@@ -12,8 +12,18 @@ use in_mem_core::types::{Key, Namespace, RunId};
 use in_mem_core::value::Value;
 use in_mem_engine::Database;
 use in_mem_primitives::vector::{DistanceMetric, VectorConfig, VectorStore};
-use std::sync::Arc;
+use in_mem_primitives::register_vector_recovery;
+use std::sync::{Arc, Once};
 use tempfile::TempDir;
+
+// Ensure vector recovery is registered exactly once
+static INIT_RECOVERY: Once = Once::new();
+
+fn ensure_recovery_registered() {
+    INIT_RECOVERY.call_once(|| {
+        register_vector_recovery();
+    });
+}
 
 // ============================================================================
 // Test Helpers
@@ -29,6 +39,7 @@ fn create_ns(run_id: RunId) -> Namespace {
 }
 
 fn setup_db() -> (TempDir, Arc<Database>, VectorStore) {
+    ensure_recovery_registered();
     let temp_dir = TempDir::new().unwrap();
     let db = Arc::new(Database::open(temp_dir.path()).unwrap());
     let store = VectorStore::new(db.clone());
@@ -42,6 +53,7 @@ fn setup_db() -> (TempDir, Arc<Database>, VectorStore) {
 /// Test: Collection survives database restart
 #[test]
 fn test_collection_survives_restart() {
+    ensure_recovery_registered();
     let temp_dir = TempDir::new().unwrap();
     let db_path = temp_dir.path().to_path_buf();
     let run_id = RunId::new();
@@ -79,6 +91,7 @@ fn test_collection_survives_restart() {
 /// Test: Multiple collections survive restart
 #[test]
 fn test_multiple_collections_survive_restart() {
+    ensure_recovery_registered();
     let temp_dir = TempDir::new().unwrap();
     let db_path = temp_dir.path().to_path_buf();
     let run_id = RunId::new();
@@ -145,6 +158,7 @@ fn test_multiple_collections_survive_restart() {
 /// Test: Inserted vectors survive restart
 #[test]
 fn test_vectors_survive_restart() {
+    ensure_recovery_registered();
     let temp_dir = TempDir::new().unwrap();
     let db_path = temp_dir.path().to_path_buf();
     let run_id = RunId::new();
@@ -200,6 +214,7 @@ fn test_vectors_survive_restart() {
 /// Test: Vectors with metadata survive restart
 #[test]
 fn test_vector_metadata_survives_restart() {
+    ensure_recovery_registered();
     let temp_dir = TempDir::new().unwrap();
     let db_path = temp_dir.path().to_path_buf();
     let run_id = RunId::new();
@@ -264,6 +279,7 @@ fn test_vector_metadata_survives_restart() {
 /// Test: KV and Vector data are both persisted
 #[test]
 fn test_kv_and_vector_both_persist() {
+    ensure_recovery_registered();
     let temp_dir = TempDir::new().unwrap();
     let db_path = temp_dir.path().to_path_buf();
     let run_id = RunId::new();
@@ -310,6 +326,7 @@ fn test_kv_and_vector_both_persist() {
 /// Test: Multiple operations in sequence survive restart
 #[test]
 fn test_operation_sequence_survives_restart() {
+    ensure_recovery_registered();
     let temp_dir = TempDir::new().unwrap();
     let db_path = temp_dir.path().to_path_buf();
     let run_id = RunId::new();
@@ -377,6 +394,7 @@ fn test_operation_sequence_survives_restart() {
 /// Test: Different runs' collections don't interfere
 #[test]
 fn test_run_isolation_survives_restart() {
+    ensure_recovery_registered();
     let temp_dir = TempDir::new().unwrap();
     let db_path = temp_dir.path().to_path_buf();
     let run1 = RunId::new();
@@ -429,6 +447,7 @@ fn test_run_isolation_survives_restart() {
 /// Test: Deleted collection stays deleted after restart
 #[test]
 fn test_deleted_collection_stays_deleted() {
+    ensure_recovery_registered();
     let temp_dir = TempDir::new().unwrap();
     let db_path = temp_dir.path().to_path_buf();
     let run_id = RunId::new();
@@ -531,8 +550,8 @@ fn test_wal_replayer() {
     // Verify final state
     use in_mem_primitives::vector::CollectionId;
     let collection_id = CollectionId::new(run_id, "replayed");
-    let backends = store.backends();
-    let guard = backends.read().unwrap();
+    let state = store.backends();
+    let guard = state.backends.read().unwrap();
     let backend = guard.get(&collection_id).unwrap();
 
     // Should have 2 vectors (key1 and key3)
@@ -591,8 +610,8 @@ fn test_replay_maintains_id_ordering() {
 
     use in_mem_primitives::vector::CollectionId;
     let collection_id = CollectionId::new(run_id, "ordered");
-    let backends = store.backends();
-    let guard = backends.read().unwrap();
+    let state = store.backends();
+    let guard = state.backends.read().unwrap();
     let backend = guard.get(&collection_id).unwrap();
 
     // All IDs should be present
@@ -635,6 +654,7 @@ fn test_replay_delete_collection() {
     // Backend should exist
     assert!(store
         .backends()
+        .backends
         .read()
         .unwrap()
         .contains_key(&collection_id));
@@ -645,6 +665,7 @@ fn test_replay_delete_collection() {
     // Backend should be gone
     assert!(!store
         .backends()
+        .backends
         .read()
         .unwrap()
         .contains_key(&collection_id));
@@ -659,6 +680,7 @@ fn test_replay_delete_collection() {
 fn test_concurrent_inserts_different_collections() {
     use std::thread;
 
+    ensure_recovery_registered();
     let temp_dir = TempDir::new().unwrap();
     let db = Arc::new(Database::open(temp_dir.path()).unwrap());
     let store = VectorStore::new(db.clone());

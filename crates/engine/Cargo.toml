@@ -17,6 +17,7 @@ in-mem-storage = { path = "../storage" }
 in-mem-concurrency = { path = "../concurrency" }
 in-mem-durability = { path = "../durability" }
 dashmap = { workspace = true }
+once_cell = { workspace = true }
 parking_lot = { workspace = true }
 serde = { workspace = true }
 thiserror = { workspace = true }

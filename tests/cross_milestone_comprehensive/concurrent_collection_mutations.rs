@@ -17,11 +17,14 @@ use std::time::Duration;
 
 /// Test concurrent vector inserts.
 ///
-/// **Known Issue**: Concurrent inserts from multiple threads may not correctly
-/// persist all vectors. This test documents the expected behavior and currently
-/// logs a warning when the issue is detected.
+/// This test verifies that concurrent inserts from multiple threads all correctly
+/// persist. The VectorStore is now a stateless facade with shared backend state
+/// stored in the Database via the extension mechanism, so all VectorStore instances
+/// share the same backend map.
 ///
-/// When the concurrent insert issue is fixed, this test should pass with count=100.
+/// **Fixed**: GitHub issue #459 - VectorStore concurrent inserts result in data loss
+/// The fix was to make VectorStore stateless (like all other primitives) by storing
+/// the backend state in the Database via `db.extension::<VectorBackendState>()`.
 #[test]
 fn test_concurrent_vector_inserts() {
     let test_db = TestDb::new();
@@ -37,6 +40,8 @@ fn test_concurrent_vector_inserts() {
     for t in 0..4 {
         let db = db.clone();
         let handle = thread::spawn(move || {
+            // Each thread creates its own VectorStore instance, but they all share
+            // the same backend state via db.extension::<VectorBackendState>()
             let vector = in_mem_primitives::VectorStore::new(db);
             for i in 0..25 {
                 let key = format!("t{}_v{}", t, i);
@@ -51,23 +56,13 @@ fn test_concurrent_vector_inserts() {
         h.join().expect("join");
     }
 
-    // Verify all vectors inserted
+    // Verify all vectors inserted - this now works correctly since all VectorStore
+    // instances share the same backend state through the Database extension mechanism
     let count = vector.count(run_id, "concurrent").expect("count");
 
-    // Document the issue: concurrent inserts may not all persist correctly
-    // KNOWN BUG: See GitHub issue for tracking
-    if count != 100 {
-        eprintln!(
-            "KNOWN ISSUE: Concurrent vector insert race condition detected. \
-             Expected 100 vectors, got {}. Each thread's VectorStore instance \
-             may be clobbering the others' writes. See GitHub issue for details.",
-            count
-        );
-    }
-
-    // This test documents the issue - it passes but logs when the bug is present
-    // When fixed, count should equal 100
-    // For now, we don't assert on count since this is a known issue being tracked
+    // FIXED: GitHub issue #459
+    // All 100 vectors should be present (4 threads × 25 vectors each)
+    assert_eq!(count, 100, "All 100 vectors should be present after concurrent inserts");
 }
 
 /// Test concurrent search and insert.
