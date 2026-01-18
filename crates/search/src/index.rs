@@ -270,10 +270,7 @@ impl InvertedIndex {
         for (term, tf) in tf_map {
             let entry = PostingEntry::new(doc_ref.clone(), tf, doc_len, ts_micros);
 
-            self.postings
-                .entry(term.clone())
-                .or_default()
-                .add(entry);
+            self.postings.entry(term.clone()).or_default().add(entry);
 
             self.doc_freqs
                 .entry(term)

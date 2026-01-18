@@ -19,8 +19,8 @@
 //! [run_id: 16 bytes][timestamp: 8 bytes][event_count: 8 bytes]
 //! ```
 
-use crate::wal_types::{TxId, WalEntry, WalEntryError};
 use crate::wal_entry_types::WalEntryType;
+use crate::wal_types::{TxId, WalEntry, WalEntryError};
 use in_mem_core::types::RunId;
 
 /// Payload size for RunBegin entry

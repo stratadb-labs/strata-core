@@ -401,6 +401,10 @@ fn test_concurrent_deletes_under_load() {
 }
 
 /// Test TTL with large number of expiring keys
+///
+/// Note: TTL must be longer than insert duration to ensure all keys exist
+/// after insertion. With 10,000 keys taking ~160ms to insert, we use 1 second
+/// TTL to provide comfortable margin across different systems.
 #[test]
 #[ignore]
 fn test_ttl_large_scale() {
@@ -408,24 +412,35 @@ fn test_ttl_large_scale() {
     let run_id = RunId::new();
     let ns = namespace_with_run(run_id);
 
-    println!("Inserting 10,000 keys with TTL...");
+    // TTL must be longer than insert duration (~160ms on typical systems)
+    // Using 1 second to ensure keys don't expire during insertion
+    let ttl = Duration::from_secs(1);
+
+    println!("Inserting 10,000 keys with TTL={:?}...", ttl);
     let start = Instant::now();
 
     for i in 0..10_000 {
         let key = Key::new_kv(ns.clone(), format!("ttl_{:05}", i));
-        store
-            .put(key, Value::I64(i), Some(Duration::from_millis(100)))
-            .unwrap();
+        store.put(key, Value::I64(i), Some(ttl)).unwrap();
     }
 
-    println!("Insert completed in {:?}", start.elapsed());
+    let insert_duration = start.elapsed();
+    println!("Insert completed in {:?}", insert_duration);
 
-    // Verify keys exist
+    // Verify TTL was long enough for all inserts
+    assert!(
+        ttl > insert_duration,
+        "TTL ({:?}) must be longer than insert duration ({:?})",
+        ttl,
+        insert_duration
+    );
+
+    // Verify keys exist immediately after insert
     let initial = store.scan_by_run(run_id, u64::MAX).unwrap();
     assert_eq!(initial.len(), 10_000);
 
-    // Wait for expiration
-    thread::sleep(Duration::from_millis(200));
+    // Wait for expiration (TTL + small buffer)
+    thread::sleep(ttl + Duration::from_millis(100));
 
     // Keys should be filtered out
     let after_expiry = store.scan_by_run(run_id, u64::MAX).unwrap();

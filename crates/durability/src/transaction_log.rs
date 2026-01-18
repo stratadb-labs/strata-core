@@ -23,8 +23,8 @@
 //! let (tx_id, entries) = tx.into_wal_entries();
 //! ```
 
-use crate::wal_types::{TxId, WalEntry};
 use crate::wal_entry_types::WalEntryType;
+use crate::wal_types::{TxId, WalEntry};
 
 /// A transaction that can span multiple primitives
 ///
@@ -77,12 +77,20 @@ pub enum TxEntry {
         /// JSON document content
         doc: Vec<u8>,
     },
-    /// JSON delete
+    /// JSON delete value at path
     JsonDelete {
         /// Document key
         key: Vec<u8>,
     },
-    /// JSON patch (RFC 6902)
+    /// JSON destroy entire document
+    JsonDestroy {
+        /// Document key
+        key: Vec<u8>,
+    },
+    /// JSON patch (RFC 6902) - RESERVED
+    ///
+    /// Note: Currently only Set and Delete operations are supported.
+    /// Full RFC 6902 compliance is planned for M6+.
     JsonPatch {
         /// Document key
         key: Vec<u8>,
@@ -244,13 +252,22 @@ impl Transaction {
         self
     }
 
-    /// Add a JSON delete operation
+    /// Add a JSON delete operation (delete value at path)
     pub fn json_delete(&mut self, key: impl Into<Vec<u8>>) -> &mut Self {
         self.entries.push(TxEntry::JsonDelete { key: key.into() });
         self
     }
 
-    /// Add a JSON patch operation
+    /// Add a JSON destroy operation (delete entire document)
+    pub fn json_destroy(&mut self, key: impl Into<Vec<u8>>) -> &mut Self {
+        self.entries.push(TxEntry::JsonDestroy { key: key.into() });
+        self
+    }
+
+    /// Add a JSON patch operation (RFC 6902) - RESERVED
+    ///
+    /// Note: Currently only Set and Delete operations are supported.
+    /// Full RFC 6902 compliance is planned for M6+.
     pub fn json_patch(&mut self, key: impl Into<Vec<u8>>, patch: impl Into<Vec<u8>>) -> &mut Self {
         self.entries.push(TxEntry::JsonPatch {
             key: key.into(),
@@ -403,6 +420,7 @@ impl TxEntry {
             TxEntry::JsonCreate { .. } => WalEntryType::JsonCreate,
             TxEntry::JsonSet { .. } => WalEntryType::JsonSet,
             TxEntry::JsonDelete { .. } => WalEntryType::JsonDelete,
+            TxEntry::JsonDestroy { .. } => WalEntryType::JsonDestroy,
             TxEntry::JsonPatch { .. } => WalEntryType::JsonPatch,
             TxEntry::EventAppend { .. } => WalEntryType::EventAppend,
             TxEntry::StateInit { .. } => WalEntryType::StateInit,
@@ -433,6 +451,7 @@ impl TxEntry {
             TxEntry::JsonCreate { key, doc } => serialize_kv(key, doc),
             TxEntry::JsonSet { key, doc } => serialize_kv(key, doc),
             TxEntry::JsonDelete { key } => key.clone(),
+            TxEntry::JsonDestroy { key } => key.clone(),
             TxEntry::JsonPatch { key, patch } => serialize_kv(key, patch),
             TxEntry::EventAppend { payload } => payload.clone(),
             TxEntry::StateInit { key, value } => serialize_kv(key, value),
@@ -466,6 +485,9 @@ impl TxEntry {
                 Some(TxEntry::JsonSet { key, doc })
             }
             WalEntryType::JsonDelete => Some(TxEntry::JsonDelete {
+                key: payload.to_vec(),
+            }),
+            WalEntryType::JsonDestroy => Some(TxEntry::JsonDestroy {
                 key: payload.to_vec(),
             }),
             WalEntryType::JsonPatch => {
@@ -506,6 +528,13 @@ impl TxEntry {
             WalEntryType::TransactionCommit
             | WalEntryType::TransactionAbort
             | WalEntryType::SnapshotMarker => None,
+
+            // Vector entries are handled by VectorStore directly
+            // They persist via KV layer which has its own WAL entries
+            WalEntryType::VectorCollectionCreate
+            | WalEntryType::VectorCollectionDelete
+            | WalEntryType::VectorUpsert
+            | WalEntryType::VectorDelete => None,
         }
     }
 }
@@ -714,6 +743,9 @@ mod tests {
             TxEntry::JsonDelete {
                 key: b"doc".to_vec(),
             },
+            TxEntry::JsonDestroy {
+                key: b"doc".to_vec(),
+            },
             TxEntry::JsonPatch {
                 key: b"doc".to_vec(),
                 patch: b"[]".to_vec(),
@@ -862,6 +894,10 @@ mod tests {
         assert_eq!(
             TxEntry::JsonDelete { key: vec![] }.entry_type(),
             WalEntryType::JsonDelete
+        );
+        assert_eq!(
+            TxEntry::JsonDestroy { key: vec![] }.entry_type(),
+            WalEntryType::JsonDestroy
         );
         assert_eq!(
             TxEntry::JsonPatch {

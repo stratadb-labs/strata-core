@@ -17,7 +17,7 @@ use in_mem_durability::{
     create_run_begin_entry, create_run_end_entry, parse_run_begin_payload, parse_run_end_payload,
     WalEntry, WalWriter,
 };
-use in_mem_engine::{diff_views, DiffEntry, DiffPrimitiveKind, RunIndex, ReadOnlyView, RunDiff};
+use in_mem_engine::{diff_views, DiffEntry, DiffPrimitiveKind, ReadOnlyView, RunDiff, RunIndex};
 use tempfile::TempDir;
 
 // ============================================================================

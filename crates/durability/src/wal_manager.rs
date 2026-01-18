@@ -245,9 +245,9 @@ pub struct WalStats {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::wal_writer::WalWriter;
     use crate::wal::DurabilityMode;
     use crate::wal_entry_types::WalEntryType;
+    use crate::wal_writer::WalWriter;
     use tempfile::TempDir;
 
     #[test]

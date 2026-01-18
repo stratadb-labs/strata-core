@@ -9,11 +9,11 @@
 //! > After crash recovery, the database must correspond to a **prefix of the
 //! > committed transaction history**. No partial transactions may be visible.
 
-use in_mem_durability::{RecoveryEngine, RecoveryOptions};
-use in_mem_durability::Transaction;
-use in_mem_durability::WalWriter;
 use in_mem_durability::wal::DurabilityMode;
 use in_mem_durability::wal_entry_types::WalEntryType;
+use in_mem_durability::Transaction;
+use in_mem_durability::WalWriter;
+use in_mem_durability::{RecoveryEngine, RecoveryOptions};
 use tempfile::TempDir;
 
 fn create_test_dir() -> TempDir {

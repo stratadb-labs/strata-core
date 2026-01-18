@@ -42,8 +42,12 @@ fn populate_determinism_data(db: &Arc<Database>, run_id: &RunId) {
         .unwrap();
     kv.put(run_id, "doc_d", Value::String("test document delta".into()))
         .unwrap();
-    kv.put(run_id, "doc_e", Value::String("test document epsilon".into()))
-        .unwrap();
+    kv.put(
+        run_id,
+        "doc_e",
+        Value::String("test document epsilon".into()),
+    )
+    .unwrap();
 }
 
 // ============================================================================
@@ -73,10 +77,7 @@ fn test_search_deterministic() {
 
     // Hits should be in same order
     for (h1, h2) in r1.hits.iter().zip(r2.hits.iter()) {
-        assert_eq!(
-            h1.doc_ref, h2.doc_ref,
-            "DocRefs should be in same order"
-        );
+        assert_eq!(h1.doc_ref, h2.doc_ref, "DocRefs should be in same order");
         assert_eq!(h1.rank, h2.rank, "Ranks should be identical");
         assert!(
             (h1.score - h2.score).abs() < 0.0001,
@@ -281,11 +282,19 @@ fn test_run_isolation() {
 
     // Results should be isolated
     for hit in &r1.hits {
-        assert_eq!(hit.doc_ref.run_id(), run1, "Run1 results should be from run1");
+        assert_eq!(
+            hit.doc_ref.run_id(),
+            run1,
+            "Run1 results should be from run1"
+        );
     }
 
     for hit in &r2.hits {
-        assert_eq!(hit.doc_ref.run_id(), run2, "Run2 results should be from run2");
+        assert_eq!(
+            hit.doc_ref.run_id(),
+            run2,
+            "Run2 results should be from run2"
+        );
     }
 }
 

@@ -194,6 +194,75 @@ pub enum WALEntry {
         /// Document identifier
         doc_id: JsonDocId,
     },
+
+    // ========================================================================
+    // Vector Operations (M8) - Entry types 0x70-0x73
+    // ========================================================================
+    /// Create vector collection (0x70)
+    ///
+    /// Records creation of a new vector collection with configuration.
+    VectorCollectionCreate {
+        /// Run this collection belongs to
+        run_id: RunId,
+        /// Collection name
+        collection: String,
+        /// Collection dimension
+        dimension: usize,
+        /// Distance metric (0=Cosine, 1=Euclidean, 2=DotProduct)
+        metric: u8,
+        /// Version assigned
+        version: u64,
+    },
+
+    /// Delete vector collection (0x71)
+    ///
+    /// Records deletion of a vector collection and all its vectors.
+    VectorCollectionDelete {
+        /// Run this collection belongs to
+        run_id: RunId,
+        /// Collection name
+        collection: String,
+        /// Version assigned
+        version: u64,
+    },
+
+    /// Vector upsert (insert or update) (0x72)
+    ///
+    /// Records insertion or update of a vector with its embedding.
+    /// WARNING: TEMPORARY M8 FORMAT - Full embedding stored in WAL.
+    /// This bloats WAL size but ensures correctness for M8.
+    VectorUpsert {
+        /// Run this vector belongs to
+        run_id: RunId,
+        /// Collection name
+        collection: String,
+        /// User-provided key
+        key: String,
+        /// Internal vector ID (for deterministic replay)
+        vector_id: u64,
+        /// Full embedding data
+        embedding: Vec<f32>,
+        /// Optional metadata (MessagePack serialized)
+        metadata: Option<Vec<u8>>,
+        /// Version assigned
+        version: u64,
+    },
+
+    /// Vector delete (0x73)
+    ///
+    /// Records deletion of a vector from a collection.
+    VectorDelete {
+        /// Run this vector belongs to
+        run_id: RunId,
+        /// Collection name
+        collection: String,
+        /// User-provided key
+        key: String,
+        /// Internal vector ID
+        vector_id: u64,
+        /// Version assigned
+        version: u64,
+    },
 }
 
 impl WALEntry {
@@ -214,6 +283,11 @@ impl WALEntry {
             WALEntry::JsonSet { run_id, .. } => Some(*run_id),
             WALEntry::JsonDelete { run_id, .. } => Some(*run_id),
             WALEntry::JsonDestroy { run_id, .. } => Some(*run_id),
+            // Vector operations (M8)
+            WALEntry::VectorCollectionCreate { run_id, .. } => Some(*run_id),
+            WALEntry::VectorCollectionDelete { run_id, .. } => Some(*run_id),
+            WALEntry::VectorUpsert { run_id, .. } => Some(*run_id),
+            WALEntry::VectorDelete { run_id, .. } => Some(*run_id),
         }
     }
 
@@ -243,6 +317,11 @@ impl WALEntry {
             WALEntry::JsonCreate { version, .. } => Some(*version),
             WALEntry::JsonSet { version, .. } => Some(*version),
             WALEntry::JsonDelete { version, .. } => Some(*version),
+            // Vector operations with version (M8)
+            WALEntry::VectorCollectionCreate { version, .. } => Some(*version),
+            WALEntry::VectorCollectionDelete { version, .. } => Some(*version),
+            WALEntry::VectorUpsert { version, .. } => Some(*version),
+            WALEntry::VectorDelete { version, .. } => Some(*version),
             _ => None,
         }
     }
@@ -362,6 +441,20 @@ impl DurabilityMode {
     }
 
     /// Create a buffered mode with M4 recommended defaults
+    ///
+    /// Returns `Batched { interval_ms: 100, batch_size: 1000 }`.
+    ///
+    /// # Default Values
+    ///
+    /// - **interval_ms**: 100 - Maximum 100ms between fsyncs
+    /// - **batch_size**: 1000 - Maximum 1000 writes before fsync
+    ///
+    /// # Rationale
+    ///
+    /// These defaults balance performance and durability:
+    /// - 100ms interval keeps data loss window bounded
+    /// - 1000 batch size handles burst writes efficiently
+    /// - Both thresholds work together - whichever is reached first triggers fsync
     ///
     /// This is the recommended mode for production workloads.
     /// Equivalent to M4's "Buffered" mode concept.

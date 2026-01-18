@@ -27,19 +27,23 @@ pub mod coordinator;
 pub mod database;
 pub mod durability;
 pub mod instrumentation;
+pub mod recovery_participant;
 pub mod replay; // Story #311-316: Run Lifecycle & Replay
 pub mod transaction;
 
 pub use coordinator::{TransactionCoordinator, TransactionMetrics};
 pub use database::{Database, DatabaseBuilder, RetryConfig};
+pub use recovery_participant::{
+    recover_all_participants, register_recovery_participant, RecoveryFn, RecoveryParticipant,
+};
 pub use durability::{
     BufferedDurability, CommitData, Durability, DurabilityMode, InMemoryDurability,
     StrictDurability,
 };
 pub use instrumentation::PerfTrace;
 pub use replay::{
-    diff_views, DiffEntry, DiffPrimitiveKind, RunIndex, ReadOnlyView, ReplayError, RunDiff,
-    RunError,
+    diff_views, DiffEntry, DiffPrimitiveKind, ReadOnlyView, ReplayError, RunDiff, RunError,
+    RunIndex,
 };
 pub use transaction::{TransactionPool, MAX_POOL_SIZE};
 

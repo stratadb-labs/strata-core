@@ -44,7 +44,10 @@ fn build_view_with_events(run_id: RunId, events: &[(&str, &str)]) -> ReadOnlyVie
     let mut view = ReadOnlyView::new(run_id);
 
     for (event_type, data) in events {
-        view.append_event((*event_type).to_string(), Value::String((*data).to_string()));
+        view.append_event(
+            (*event_type).to_string(),
+            Value::String((*data).to_string()),
+        );
     }
 
     view
@@ -69,7 +72,10 @@ fn test_replay_pure_function_p1_basic() {
     let build_view = || {
         let mut view = ReadOnlyView::new(run_id);
         view.apply_kv_put(Key::new_kv(ns.clone(), "key1"), Value::I64(100));
-        view.apply_kv_put(Key::new_kv(ns.clone(), "key2"), Value::String("hello".into()));
+        view.apply_kv_put(
+            Key::new_kv(ns.clone(), "key2"),
+            Value::String("hello".into()),
+        );
         view.apply_kv_delete(&Key::new_kv(ns.clone(), "key3")); // Delete non-existent - should be no-op
         view.apply_kv_put(Key::new_kv(ns.clone(), "key3"), Value::Bool(true));
         view.append_event("UserCreated".into(), Value::String("alice".into()));
@@ -86,7 +92,10 @@ fn test_replay_pure_function_p1_basic() {
 
     // Diff between them should be empty
     let diff = diff_views(&view1, &view2);
-    assert!(diff.is_empty(), "Pure function: same inputs should produce empty diff");
+    assert!(
+        diff.is_empty(),
+        "Pure function: same inputs should produce empty diff"
+    );
 }
 
 /// P1: Complex operation sequences produce same results
@@ -369,7 +378,10 @@ fn test_replay_deterministic_p5_order_matters() {
 
     // Different orderings produce different results
     let diff = diff_views(&a1, &b1);
-    assert!(!diff.is_empty(), "Different orderings should produce different results");
+    assert!(
+        !diff.is_empty(),
+        "Different orderings should produce different results"
+    );
     assert_eq!(diff.modified.len(), 1);
 }
 
@@ -387,7 +399,10 @@ fn test_replay_deterministic_p5_events_ordered() {
     let build_view = || {
         let mut view = ReadOnlyView::new(run_id);
         for (event_type, data) in &events {
-            view.append_event((*event_type).to_string(), Value::String((*data).to_string()));
+            view.append_event(
+                (*event_type).to_string(),
+                Value::String((*data).to_string()),
+            );
         }
         view
     };
@@ -455,7 +470,10 @@ fn test_replay_idempotent_p6_full_rebuild() {
     // Build 10 times
     let mut views = Vec::new();
     for _ in 0..10 {
-        let view = build_view_with_kv(run_id, &operations.iter().map(|(k, v)| (*k, *v)).collect::<Vec<_>>());
+        let view = build_view_with_kv(
+            run_id,
+            &operations.iter().map(|(k, v)| (*k, *v)).collect::<Vec<_>>(),
+        );
         views.push(view);
     }
 
@@ -485,7 +503,10 @@ fn test_replay_idempotent_p6_events() {
     // Build multiple times
     let mut views = Vec::new();
     for _ in 0..5 {
-        let view = build_view_with_events(run_id, &events.iter().map(|(t, d)| (*t, *d)).collect::<Vec<_>>());
+        let view = build_view_with_events(
+            run_id,
+            &events.iter().map(|(t, d)| (*t, *d)).collect::<Vec<_>>(),
+        );
         views.push(view);
     }
 
@@ -513,9 +534,18 @@ fn test_all_replay_invariants_combined() {
         let mut view = ReadOnlyView::new(run_id);
 
         // Initial creates
-        view.apply_kv_put(Key::new_kv(ns.clone(), "user:1:name"), Value::String("Alice".into()));
-        view.apply_kv_put(Key::new_kv(ns.clone(), "user:1:email"), Value::String("alice@example.com".into()));
-        view.apply_kv_put(Key::new_kv(ns.clone(), "user:2:name"), Value::String("Bob".into()));
+        view.apply_kv_put(
+            Key::new_kv(ns.clone(), "user:1:name"),
+            Value::String("Alice".into()),
+        );
+        view.apply_kv_put(
+            Key::new_kv(ns.clone(), "user:1:email"),
+            Value::String("alice@example.com".into()),
+        );
+        view.apply_kv_put(
+            Key::new_kv(ns.clone(), "user:2:name"),
+            Value::String("Bob".into()),
+        );
         view.apply_kv_put(Key::new_kv(ns.clone(), "counter"), Value::I64(0));
 
         // Events
@@ -525,7 +555,10 @@ fn test_all_replay_invariants_combined() {
         // Updates
         view.apply_kv_put(Key::new_kv(ns.clone(), "counter"), Value::I64(1));
         view.apply_kv_put(Key::new_kv(ns.clone(), "counter"), Value::I64(2));
-        view.apply_kv_put(Key::new_kv(ns.clone(), "user:1:name"), Value::String("Alicia".into())); // Name change
+        view.apply_kv_put(
+            Key::new_kv(ns.clone(), "user:1:name"),
+            Value::String("Alicia".into()),
+        ); // Name change
 
         view.append_event("UserUpdated".into(), Value::String("user:1".into()));
 
@@ -575,7 +608,10 @@ fn test_diff_runs_self_comparison() {
 
     let mut view = ReadOnlyView::new(run_id);
     view.apply_kv_put(Key::new_kv(ns.clone(), "key1"), Value::I64(100));
-    view.apply_kv_put(Key::new_kv(ns.clone(), "key2"), Value::String("hello".into()));
+    view.apply_kv_put(
+        Key::new_kv(ns.clone(), "key2"),
+        Value::String("hello".into()),
+    );
     view.append_event("Event1".into(), Value::Bool(true));
 
     // Diff with self should be empty

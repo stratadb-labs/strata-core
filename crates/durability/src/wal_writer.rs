@@ -24,9 +24,9 @@
 //! - `InMemory`: No persistence
 
 use crate::transaction_log::Transaction;
-use crate::wal_types::{TxId, WalEntry, WalEntryError};
 use crate::wal::DurabilityMode;
 use crate::wal_entry_types::WalEntryType;
+use crate::wal_types::{TxId, WalEntry, WalEntryError};
 use std::fs::{File, OpenOptions};
 use std::io::{BufWriter, Write};
 use std::path::{Path, PathBuf};

@@ -37,8 +37,12 @@ fn populate_test_data(db: &Arc<Database>, run_id: &RunId) {
     // KV data - this is the primary test data
     kv.put(run_id, "hello", Value::String("world test data".into()))
         .unwrap();
-    kv.put(run_id, "test_key", Value::String("this is test content".into()))
-        .unwrap();
+    kv.put(
+        run_id,
+        "test_key",
+        Value::String("this is test content".into()),
+    )
+    .unwrap();
     kv.put(run_id, "another", Value::String("more test values".into()))
         .unwrap();
 
@@ -134,18 +138,10 @@ fn test_search_respects_run_id() {
     run_index.create_run(&run2.to_string()).unwrap();
 
     // Add shared term to both runs
-    kv.put(
-        &run1,
-        "key1",
-        Value::String("shared test term".to_string()),
-    )
-    .unwrap();
-    kv.put(
-        &run2,
-        "key2",
-        Value::String("shared test term".to_string()),
-    )
-    .unwrap();
+    kv.put(&run1, "key1", Value::String("shared test term".to_string()))
+        .unwrap();
+    kv.put(&run2, "key2", Value::String("shared test term".to_string()))
+        .unwrap();
 
     // Search run1 only
     let req = SearchRequest::new(run1, "shared");
@@ -308,8 +304,7 @@ fn test_includes_primitive() {
     }
 
     // With filter
-    let req2 =
-        SearchRequest::new(run_id, "test").with_primitive_filter(vec![PrimitiveKind::Kv]);
+    let req2 = SearchRequest::new(run_id, "test").with_primitive_filter(vec![PrimitiveKind::Kv]);
     assert!(req2.includes_primitive(PrimitiveKind::Kv));
     assert!(!req2.includes_primitive(PrimitiveKind::Json));
     assert!(!req2.includes_primitive(PrimitiveKind::Event));

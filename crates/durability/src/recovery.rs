@@ -298,7 +298,12 @@ pub fn validate_transactions(entries: &[WALEntry]) -> ValidationResult {
             | WALEntry::JsonCreate { run_id, .. }
             | WALEntry::JsonSet { run_id, .. }
             | WALEntry::JsonDelete { run_id, .. }
-            | WALEntry::JsonDestroy { run_id, .. } => {
+            | WALEntry::JsonDestroy { run_id, .. }
+            // Vector operations (M8)
+            | WALEntry::VectorCollectionCreate { run_id, .. }
+            | WALEntry::VectorCollectionDelete { run_id, .. }
+            | WALEntry::VectorUpsert { run_id, .. }
+            | WALEntry::VectorDelete { run_id, .. } => {
                 // Check if there's an active transaction for this run_id
                 if !active_txn_per_run.contains_key(run_id) {
                     result.warnings.push(ValidationWarning {
@@ -490,7 +495,12 @@ pub fn replay_wal_with_options<S: Storage + ?Sized>(
             | WALEntry::JsonCreate { run_id, .. }
             | WALEntry::JsonSet { run_id, .. }
             | WALEntry::JsonDelete { run_id, .. }
-            | WALEntry::JsonDestroy { run_id, .. } => {
+            | WALEntry::JsonDestroy { run_id, .. }
+            // Vector operations (M8)
+            | WALEntry::VectorCollectionCreate { run_id, .. }
+            | WALEntry::VectorCollectionDelete { run_id, .. }
+            | WALEntry::VectorUpsert { run_id, .. }
+            | WALEntry::VectorDelete { run_id, .. } => {
                 // Add to the currently active transaction for this run_id
                 if let Some(&internal_id) = active_txn_per_run.get(run_id) {
                     if let Some(txn) = transactions.get_mut(&internal_id) {

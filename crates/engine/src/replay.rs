@@ -25,7 +25,7 @@
 //! - Story #315: diff_runs() - Key-level comparison
 //! - Story #316: Orphaned run detection
 
-use in_mem_core::run_types::{RunMetadata, RunStatus, RunEventOffsets};
+use in_mem_core::run_types::{RunEventOffsets, RunMetadata, RunStatus};
 use in_mem_core::types::{Key, RunId};
 use in_mem_core::value::Value;
 use std::collections::HashMap;

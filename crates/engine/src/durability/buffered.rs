@@ -50,19 +50,33 @@ use std::time::{Duration, Instant};
 /// dropped. Call `shutdown()` explicitly for graceful shutdown with
 /// final flush.
 ///
-/// # Example
+/// # Creating BufferedDurability
+///
+/// **Recommended**: Use `threaded()` to auto-start the background flush thread:
 ///
 /// ```ignore
 /// use in_mem_engine::durability::BufferedDurability;
-/// use std::time::Duration;
 ///
-/// let durability = BufferedDurability::new(
+/// // Thread is automatically started - recommended approach
+/// let durability = BufferedDurability::threaded(
 ///     wal,
 ///     100,   // flush every 100ms
 ///     1000,  // or every 1000 writes
 /// );
-/// durability.start_flush_thread();
 /// ```
+///
+/// **Alternative**: Manual thread start (warns if forgotten):
+///
+/// ```ignore
+/// let durability = Arc::new(BufferedDurability::new(wal, 100, 1000));
+/// durability.start_flush_thread(); // MUST call or data won't be flushed!
+/// ```
+///
+/// # Note on Database Integration
+///
+/// The Database uses WAL's internal durability handling (`DurabilityMode::Batched`)
+/// which manages fsync internally. This struct is provided as a reference
+/// implementation for direct use with the Durability trait.
 pub struct BufferedDurability {
     /// WAL for persisting transactions
     wal: Arc<Mutex<WAL>>,
@@ -87,6 +101,9 @@ pub struct BufferedDurability {
 
     /// Background flush thread handle
     flush_thread: Mutex<Option<JoinHandle<()>>>,
+
+    /// Whether start_flush_thread() was called (for Drop warning)
+    thread_started: AtomicBool,
 }
 
 impl BufferedDurability {
@@ -100,8 +117,15 @@ impl BufferedDurability {
     ///
     /// # Note
     ///
-    /// Call `start_flush_thread()` after creation to start the
-    /// background flush thread.
+    /// You must call `start_flush_thread()` after creation to start the
+    /// background flush thread, OR use `threaded()` factory which does this
+    /// automatically.
+    ///
+    /// # Warning
+    ///
+    /// If you use `new()` without calling `start_flush_thread()`, the Drop
+    /// implementation will log a warning if any writes were made, as those
+    /// writes may not have been flushed to disk.
     pub fn new(wal: Arc<Mutex<WAL>>, flush_interval_ms: u64, max_pending_writes: usize) -> Self {
         Self {
             wal,
@@ -112,7 +136,36 @@ impl BufferedDurability {
             shutdown_flag: AtomicBool::new(false),
             flush_signal: Arc::new((Mutex::new(false), Condvar::new())),
             flush_thread: Mutex::new(None),
+            thread_started: AtomicBool::new(false),
         }
+    }
+
+    /// Create BufferedDurability with automatic thread startup (recommended)
+    ///
+    /// This factory method creates the durability instance AND automatically
+    /// starts the background flush thread. This is the recommended way to
+    /// create a BufferedDurability to avoid silent data loss.
+    ///
+    /// # Arguments
+    ///
+    /// * `wal` - Write-ahead log instance
+    /// * `flush_interval_ms` - Maximum time between fsyncs (milliseconds)
+    /// * `max_pending_writes` - Maximum writes before triggering flush
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// let durability = BufferedDurability::threaded(wal, 100, 1000);
+    /// // Thread is already running - safe to use immediately
+    /// ```
+    pub fn threaded(
+        wal: Arc<Mutex<WAL>>,
+        flush_interval_ms: u64,
+        max_pending_writes: usize,
+    ) -> Arc<Self> {
+        let this = Arc::new(Self::new(wal, flush_interval_ms, max_pending_writes));
+        this.start_flush_thread();
+        this
     }
 
     /// Start the background flush thread
@@ -120,7 +173,17 @@ impl BufferedDurability {
     /// This must be called after creation to enable async fsyncs.
     /// The thread will run until shutdown() is called or the struct
     /// is dropped.
+    ///
+    /// # Panics
+    ///
+    /// Panics if called more than once.
     pub fn start_flush_thread(self: &Arc<Self>) {
+        // Mark thread as started
+        let was_started = self.thread_started.swap(true, Ordering::SeqCst);
+        if was_started {
+            panic!("start_flush_thread() called more than once");
+        }
+
         let durability = Arc::clone(self);
         let handle = thread::spawn(move || {
             durability.flush_loop();
@@ -128,6 +191,11 @@ impl BufferedDurability {
 
         let mut thread_guard = self.flush_thread.lock();
         *thread_guard = Some(handle);
+    }
+
+    /// Check if the flush thread has been started
+    pub fn is_thread_started(&self) -> bool {
+        self.thread_started.load(Ordering::Relaxed)
     }
 
     /// Background flush loop
@@ -289,6 +357,19 @@ impl Durability for BufferedDurability {
 
 impl Drop for BufferedDurability {
     fn drop(&mut self) {
+        // Warn if thread was never started but writes were made
+        let pending = self.pending_writes.load(Ordering::Relaxed);
+        let thread_started = self.thread_started.load(Ordering::Relaxed);
+
+        if !thread_started && pending > 0 {
+            eprintln!(
+                "WARNING: BufferedDurability dropped without starting flush thread! \
+                 {} pending writes may not have been flushed to disk. \
+                 Use BufferedDurability::threaded() instead of new() to avoid this issue.",
+                pending
+            );
+        }
+
         // Signal shutdown to background thread
         self.shutdown_flag.store(true, Ordering::SeqCst);
         self.signal_flush();
@@ -407,5 +488,51 @@ mod tests {
             // Drop should stop the thread cleanly
         }
         // If we get here without hanging, the test passed
+    }
+
+    #[test]
+    fn test_buffered_threaded_factory() {
+        let (_temp, wal) = create_test_wal();
+        let durability = BufferedDurability::threaded(wal, 50, 10);
+
+        // Thread should already be started
+        assert!(durability.is_thread_started());
+
+        // Let it run briefly
+        std::thread::sleep(Duration::from_millis(100));
+
+        // Shutdown should succeed
+        assert!(durability.shutdown().is_ok());
+    }
+
+    #[test]
+    fn test_buffered_is_thread_started_false_initially() {
+        let (_temp, wal) = create_test_wal();
+        let durability = BufferedDurability::new(wal, 100, 1000);
+
+        // Thread not started initially
+        assert!(!durability.is_thread_started());
+    }
+
+    #[test]
+    fn test_buffered_is_thread_started_true_after_start() {
+        let (_temp, wal) = create_test_wal();
+        let durability = Arc::new(BufferedDurability::new(wal, 100, 1000));
+        durability.start_flush_thread();
+
+        // Thread should now be started
+        assert!(durability.is_thread_started());
+
+        // Cleanup
+        let _ = durability.shutdown();
+    }
+
+    #[test]
+    #[should_panic(expected = "start_flush_thread() called more than once")]
+    fn test_buffered_double_start_panics() {
+        let (_temp, wal) = create_test_wal();
+        let durability = Arc::new(BufferedDurability::new(wal, 100, 1000));
+        durability.start_flush_thread();
+        durability.start_flush_thread(); // Should panic
     }
 }

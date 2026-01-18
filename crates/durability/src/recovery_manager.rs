@@ -29,12 +29,12 @@
 //! println!("{}", result.summary());
 //! ```
 
-use crate::transaction_log::{Transaction, TxEntry};
-use crate::wal_reader::WalReader;
-use crate::wal_types::{TxId, WalEntry, WalEntryError};
 use crate::snapshot::SnapshotReader;
 use crate::snapshot_types::*;
+use crate::transaction_log::{Transaction, TxEntry};
 use crate::wal_entry_types::WalEntryType;
+use crate::wal_reader::WalReader;
+use crate::wal_types::{TxId, WalEntry, WalEntryError};
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use thiserror::Error;
@@ -666,6 +666,9 @@ impl RecoveryEngine {
                     TxEntry::JsonDelete { key } => {
                         tx.json_delete(key);
                     }
+                    TxEntry::JsonDestroy { key } => {
+                        tx.json_destroy(key);
+                    }
                     TxEntry::JsonPatch { key, patch } => {
                         tx.json_patch(key, patch);
                     }
@@ -732,9 +735,9 @@ impl RecoveryEngine {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::wal_writer::WalWriter;
     use crate::snapshot::SnapshotWriter;
     use crate::wal::DurabilityMode;
+    use crate::wal_writer::WalWriter;
     use tempfile::TempDir;
 
     fn create_test_dir() -> TempDir {
@@ -928,7 +931,8 @@ mod tests {
 
         // Recover
         let options = RecoveryOptions::default();
-        let (recovered_sections, result) = RecoveryEngine::recover(temp_dir.path(), options).unwrap();
+        let (recovered_sections, result) =
+            RecoveryEngine::recover(temp_dir.path(), options).unwrap();
 
         assert!(result.snapshot_used.is_some());
         assert_eq!(result.snapshot_used.unwrap().wal_offset, 12345);
@@ -1111,7 +1115,8 @@ mod tests {
         }
 
         let (transactions, result) =
-            RecoveryEngine::replay_wal_committed(&wal_path, 0, &RecoveryOptions::default()).unwrap();
+            RecoveryEngine::replay_wal_committed(&wal_path, 0, &RecoveryOptions::default())
+                .unwrap();
 
         assert_eq!(transactions.len(), 2);
         assert_eq!(result.transactions_recovered, 2);
@@ -1142,7 +1147,8 @@ mod tests {
         }
 
         let (transactions, result) =
-            RecoveryEngine::replay_wal_committed(&wal_path, 0, &RecoveryOptions::default()).unwrap();
+            RecoveryEngine::replay_wal_committed(&wal_path, 0, &RecoveryOptions::default())
+                .unwrap();
 
         assert_eq!(transactions.len(), 1); // Only committed
         assert_eq!(result.transactions_recovered, 1);
@@ -1174,7 +1180,8 @@ mod tests {
         }
 
         let (transactions, result) =
-            RecoveryEngine::replay_wal_committed(&wal_path, 0, &RecoveryOptions::default()).unwrap();
+            RecoveryEngine::replay_wal_committed(&wal_path, 0, &RecoveryOptions::default())
+                .unwrap();
 
         assert_eq!(transactions.len(), 1);
         assert_eq!(result.transactions_recovered, 1);
@@ -1229,7 +1236,8 @@ mod tests {
         }
 
         let (transactions, result) =
-            RecoveryEngine::replay_wal_committed(&wal_path, 0, &RecoveryOptions::default()).unwrap();
+            RecoveryEngine::replay_wal_committed(&wal_path, 0, &RecoveryOptions::default())
+                .unwrap();
 
         // No transactions recovered - all were orphaned
         assert_eq!(transactions.len(), 0);
@@ -1268,7 +1276,8 @@ mod tests {
         }
 
         let (transactions, result) =
-            RecoveryEngine::replay_wal_committed(&wal_path, 0, &RecoveryOptions::default()).unwrap();
+            RecoveryEngine::replay_wal_committed(&wal_path, 0, &RecoveryOptions::default())
+                .unwrap();
 
         // Only TX1 should be recovered
         assert_eq!(transactions.len(), 1);
@@ -1300,7 +1309,8 @@ mod tests {
 
         // Recover and rebuild
         let (transactions, _) =
-            RecoveryEngine::replay_wal_committed(&wal_path, 0, &RecoveryOptions::default()).unwrap();
+            RecoveryEngine::replay_wal_committed(&wal_path, 0, &RecoveryOptions::default())
+                .unwrap();
 
         let (tx_id, entries) = &transactions[0];
         let rebuilt = RecoveryEngine::rebuild_transaction(*tx_id, entries);
@@ -1341,7 +1351,8 @@ mod tests {
         }
 
         let (transactions, _) =
-            RecoveryEngine::replay_wal_committed(&wal_path, 0, &RecoveryOptions::default()).unwrap();
+            RecoveryEngine::replay_wal_committed(&wal_path, 0, &RecoveryOptions::default())
+                .unwrap();
 
         let (_, entries) = &transactions[0];
         let tx_entries = RecoveryEngine::entries_to_tx_entries(entries);
@@ -1377,9 +1388,11 @@ mod tests {
 
         // Recover twice
         let (txs1, result1) =
-            RecoveryEngine::replay_wal_committed(&wal_path, 0, &RecoveryOptions::default()).unwrap();
+            RecoveryEngine::replay_wal_committed(&wal_path, 0, &RecoveryOptions::default())
+                .unwrap();
         let (txs2, result2) =
-            RecoveryEngine::replay_wal_committed(&wal_path, 0, &RecoveryOptions::default()).unwrap();
+            RecoveryEngine::replay_wal_committed(&wal_path, 0, &RecoveryOptions::default())
+                .unwrap();
 
         // Results must be identical
         assert_eq!(

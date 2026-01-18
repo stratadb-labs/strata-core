@@ -34,7 +34,7 @@
 //! 6. JSON API feels like other primitives
 
 use in_mem_core::error::{Error, Result};
-use in_mem_core::json::{delete_at_path, get_at_path, set_at_path, JsonPath, JsonValue};
+use in_mem_core::json::{delete_at_path, get_at_path, set_at_path, JsonPath, JsonValue, LimitError};
 use in_mem_core::traits::SnapshotView;
 use in_mem_core::types::{JsonDocId, Key, Namespace, RunId};
 use in_mem_core::value::Value;
@@ -42,6 +42,15 @@ use in_mem_engine::Database;
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 use std::time::SystemTime;
+
+// =============================================================================
+// Limit Validation Helpers
+// =============================================================================
+
+/// Convert a LimitError to an Error
+fn limit_error_to_error(e: LimitError) -> Error {
+    Error::InvalidOperation(e.to_string())
+}
 
 // =============================================================================
 // JsonDoc - Internal Document Representation
@@ -220,6 +229,9 @@ impl JsonStore {
     /// assert_eq!(version, 1);
     /// ```
     pub fn create(&self, run_id: &RunId, doc_id: &JsonDocId, value: JsonValue) -> Result<u64> {
+        // Validate document limits (Issue #440)
+        value.validate().map_err(limit_error_to_error)?;
+
         let key = self.key_for(run_id, doc_id);
         let doc = JsonDoc::new(*doc_id, value);
 
@@ -268,6 +280,9 @@ impl JsonStore {
         doc_id: &JsonDocId,
         path: &JsonPath,
     ) -> Result<Option<JsonValue>> {
+        // Validate path limits (Issue #440)
+        path.validate().map_err(limit_error_to_error)?;
+
         let snapshot = self.db.storage().create_snapshot();
         let key = self.key_for(run_id, doc_id);
 
@@ -347,6 +362,10 @@ impl JsonStore {
         path: &JsonPath,
         value: JsonValue,
     ) -> Result<u64> {
+        // Validate path and value limits (Issue #440)
+        path.validate().map_err(limit_error_to_error)?;
+        value.validate().map_err(limit_error_to_error)?;
+
         let key = self.key_for(run_id, doc_id);
 
         self.db.transaction(*run_id, |txn| {
@@ -397,6 +416,9 @@ impl JsonStore {
         doc_id: &JsonDocId,
         path: &JsonPath,
     ) -> Result<u64> {
+        // Validate path limits (Issue #440)
+        path.validate().map_err(limit_error_to_error)?;
+
         let key = self.key_for(run_id, doc_id);
 
         self.db.transaction(*run_id, |txn| {

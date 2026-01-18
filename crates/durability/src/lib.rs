@@ -61,5 +61,5 @@ pub use wal::{DurabilityMode, WALEntry as LegacyWALEntry, WAL};
 pub use wal_entry_types::{PrimitiveKind, WalEntryType, WalEntryTypeError};
 pub use wal_manager::{WalManager, WalStats};
 pub use wal_reader::WalReader;
-pub use wal_types::{TxId, WalEntry, WalEntryError, WAL_FORMAT_VERSION, MAX_WAL_ENTRY_SIZE};
+pub use wal_types::{TxId, WalEntry, WalEntryError, MAX_WAL_ENTRY_SIZE, WAL_FORMAT_VERSION};
 pub use wal_writer::WalWriter;

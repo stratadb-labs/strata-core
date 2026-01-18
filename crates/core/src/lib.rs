@@ -31,7 +31,7 @@ pub use json::{
     JsonPathError, JsonValue, LimitError, PathParseError, PathSegment, MAX_ARRAY_SIZE,
     MAX_DOCUMENT_SIZE, MAX_NESTING_DEPTH, MAX_PATH_LENGTH,
 };
-pub use run_types::{RunMetadata, RunStatus, RunEventOffsets};
+pub use run_types::{RunEventOffsets, RunMetadata, RunStatus};
 pub use search_types::{
     DocRef, PrimitiveKind, SearchBudget, SearchHit, SearchMode, SearchRequest, SearchResponse,
     SearchStats,

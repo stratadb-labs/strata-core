@@ -11,7 +11,10 @@
 //! | Buffered | Append | Periodic | <30µs | Bounded |
 //! | Strict | Append | Every write | ~2ms | Zero |
 //!
-//! # Usage
+//! # Usage with Database
+//!
+//! The Database uses [`DurabilityMode`] to configure WAL behavior. Durability
+//! is handled internally by the WAL - no separate handler instantiation is needed.
 //!
 //! ```ignore
 //! use in_mem_engine::Database;
@@ -35,7 +38,29 @@
 //!
 //! # Architecture
 //!
-//! The durability layer sits between transaction validation and storage apply:
+//! ## Database Integration (Primary Path)
+//!
+//! The Database stores a `DurabilityMode` enum and passes it to the WAL during
+//! initialization. The WAL internally handles fsync timing based on the mode:
+//!
+//! - **InMemory**: WAL is bypassed entirely (`requires_wal() == false`)
+//! - **Batched**: WAL appends without fsync; fsync triggers on batch_size or interval
+//! - **Async**: WAL spawns a background thread for periodic fsync
+//! - **Strict**: WAL performs fsync after every append
+//!
+//! This design keeps the Database simple - it just stores the mode and delegates
+//! durability decisions to the WAL layer.
+//!
+//! ## Durability Trait (Reference Implementations)
+//!
+//! This module also provides standalone durability implementations for direct use:
+//!
+//! - [`InMemoryDurability`]: No persistence
+//! - [`BufferedDurability`]: Background thread flush (use [`BufferedDurability::threaded()`])
+//! - [`StrictDurability`]: Immediate fsync
+//!
+//! These implement the [`Durability`] trait and can be used directly if you need
+//! fine-grained control over durability behavior outside of the Database context.
 //!
 //! ```text
 //! commit_transaction():
@@ -48,8 +73,7 @@
 //!   └────────┬────────┘
 //!            │
 //!   ┌────────▼────────┐
-//!   │  Durability::   │  ← Mode-specific
-//!   │    persist()    │
+//!   │  WAL.append()   │  ← DurabilityMode controls fsync
 //!   └────────┬────────┘
 //!            │
 //!   ┌────────▼────────┐

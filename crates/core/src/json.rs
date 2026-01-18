@@ -768,10 +768,35 @@ impl fmt::Display for JsonPath {
 /// - Transaction tracking
 /// - Conflict detection
 ///
-/// # Supported Operations
+/// # M5 Subset (Not Full RFC 6902)
 ///
-/// - `Set`: Set a value at a path (creates intermediate objects/arrays if needed)
-/// - `Delete`: Remove a value at a path
+/// **Important**: This is an M5-specific subset of JSON Patch operations, NOT full
+/// RFC 6902 compliance. M5 implements only the operations needed for path-based
+/// mutation semantics.
+///
+/// ## Supported Operations (M5)
+///
+/// - [`Set`](JsonPatch::Set): Replace/create value at path (similar to RFC 6902 `replace`)
+/// - [`Delete`](JsonPatch::Delete): Remove value at path (RFC 6902 `remove`)
+///
+/// ## NOT Supported in M5 (RFC 6902 operations)
+///
+/// The following RFC 6902 operations are **not implemented** in M5:
+///
+/// - `add`: Insert at path (differs from `replace` for arrays and missing keys)
+/// - `test`: Conditional patch execution (verify value before applying)
+/// - `move`: Move value from one path to another
+/// - `copy`: Copy value from one path to another
+///
+/// These operations are reserved for future milestones (M6+) if needed. The WAL entry
+/// type 0x24 (`JsonPatch`) is reserved for future RFC 6902 support.
+///
+/// ## M5 Design Rationale
+///
+/// M5 prioritizes **semantic lock-in** over feature completeness. The `Set` and `Delete`
+/// operations cover the core mutation semantics needed for path-based JSON documents.
+/// Complex transformations (move, copy) can be composed from these primitives via
+/// read-modify-write patterns.
 ///
 /// # Conflict Detection
 ///

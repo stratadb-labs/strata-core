@@ -253,7 +253,12 @@ fn test_recovery_idempotent_r2() {
         let v1 = store1.get(&key).unwrap();
         let v2 = store2.get(&key).unwrap();
 
-        assert_eq!(v1.is_some(), v2.is_some(), "Key existence mismatch for key{}", i);
+        assert_eq!(
+            v1.is_some(),
+            v2.is_some(),
+            "Key existence mismatch for key{}",
+            i
+        );
 
         if let (Some(vv1), Some(vv2)) = (v1, v2) {
             assert_eq!(vv1.value, vv2.value, "Value mismatch for key{}", i);
@@ -342,8 +347,16 @@ fn test_recovery_idempotent_after_partial_r2() {
         );
 
         // Stats must be consistent
-        assert_eq!(stats.txns_applied, 5, "Iteration {}: Should apply 5 transactions", iteration);
-        assert_eq!(stats.incomplete_txns, 1, "Iteration {}: Should have 1 incomplete", iteration);
+        assert_eq!(
+            stats.txns_applied, 5,
+            "Iteration {}: Should apply 5 transactions",
+            iteration
+        );
+        assert_eq!(
+            stats.incomplete_txns, 1,
+            "Iteration {}: Should have 1 incomplete",
+            iteration
+        );
     }
 }
 
@@ -455,7 +468,10 @@ fn test_recovery_prefix_consistent_r3() {
                 .is_some()
         })
         .count();
-    assert_eq!(tx2_count, 0, "Transaction 2: No keys should exist (incomplete)");
+    assert_eq!(
+        tx2_count, 0,
+        "Transaction 2: No keys should exist (incomplete)"
+    );
 
     // Transaction 3: ALL keys must exist (committed)
     let tx3_count = (0..2)
@@ -469,8 +485,14 @@ fn test_recovery_prefix_consistent_r3() {
     assert_eq!(tx3_count, 2, "Transaction 3: All 2 keys should exist");
 
     // Verify stats
-    assert_eq!(stats.txns_applied, 2, "Should have 2 committed transactions");
-    assert_eq!(stats.incomplete_txns, 1, "Should have 1 incomplete transaction");
+    assert_eq!(
+        stats.txns_applied, 2,
+        "Should have 2 committed transactions"
+    );
+    assert_eq!(
+        stats.incomplete_txns, 1,
+        "Should have 1 incomplete transaction"
+    );
 }
 
 /// R3: Transactions with multiple operations are atomic
@@ -551,8 +573,14 @@ fn test_recovery_multi_operation_atomic_r3() {
     // Committed transaction: ALL keys should exist
     let kv_key1 = Key::new_kv(ns.clone(), "kv_key1");
     let kv_key2 = Key::new_kv(ns.clone(), "kv_key2");
-    assert!(store.get(&kv_key1).unwrap().is_some(), "Committed kv_key1 should exist");
-    assert!(store.get(&kv_key2).unwrap().is_some(), "Committed kv_key2 should exist");
+    assert!(
+        store.get(&kv_key1).unwrap().is_some(),
+        "Committed kv_key1 should exist"
+    );
+    assert!(
+        store.get(&kv_key2).unwrap().is_some(),
+        "Committed kv_key2 should exist"
+    );
 
     // Incomplete transaction: NO keys should exist
     let incomplete_key1 = Key::new_kv(ns.clone(), "incomplete_key1");
@@ -734,15 +762,24 @@ fn test_recovery_no_uncommitted_data_r4() {
 
     // Only committed data exists
     assert!(
-        store.get(&Key::new_kv(ns.clone(), "committed")).unwrap().is_some(),
+        store
+            .get(&Key::new_kv(ns.clone(), "committed"))
+            .unwrap()
+            .is_some(),
         "Committed key should exist"
     );
     assert!(
-        store.get(&Key::new_kv(ns.clone(), "aborted")).unwrap().is_none(),
+        store
+            .get(&Key::new_kv(ns.clone(), "aborted"))
+            .unwrap()
+            .is_none(),
         "Aborted key should not exist"
     );
     assert!(
-        store.get(&Key::new_kv(ns.clone(), "incomplete")).unwrap().is_none(),
+        store
+            .get(&Key::new_kv(ns.clone(), "incomplete"))
+            .unwrap()
+            .is_none(),
         "Incomplete key should not exist"
     );
 
@@ -823,7 +860,10 @@ fn test_recovery_never_drops_committed_r5() {
         );
     }
 
-    assert_eq!(stats.txns_applied, 100, "All 100 transactions should be applied");
+    assert_eq!(
+        stats.txns_applied, 100,
+        "All 100 transactions should be applied"
+    );
 }
 
 /// R5: Committed deletes are also preserved
@@ -960,7 +1000,10 @@ fn test_recovery_drops_uncommitted_r6() {
 
     // Committed data exists
     assert!(
-        store.get(&Key::new_kv(ns.clone(), "committed_key")).unwrap().is_some(),
+        store
+            .get(&Key::new_kv(ns.clone(), "committed_key"))
+            .unwrap()
+            .is_some(),
         "Committed data should survive"
     );
 
@@ -1161,8 +1204,20 @@ fn test_all_recovery_invariants_combined() {
         }
 
         // Verify consistent stats across iterations
-        assert_eq!(stats.txns_applied, 20, "Iteration {}: Wrong txns_applied", iteration);
-        assert_eq!(stats.aborted_txns, 5, "Iteration {}: Wrong aborted_txns", iteration);
-        assert_eq!(stats.incomplete_txns, 10, "Iteration {}: Wrong incomplete_txns", iteration);
+        assert_eq!(
+            stats.txns_applied, 20,
+            "Iteration {}: Wrong txns_applied",
+            iteration
+        );
+        assert_eq!(
+            stats.aborted_txns, 5,
+            "Iteration {}: Wrong aborted_txns",
+            iteration
+        );
+        assert_eq!(
+            stats.incomplete_txns, 10,
+            "Iteration {}: Wrong incomplete_txns",
+            iteration
+        );
     }
 }

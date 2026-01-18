@@ -570,6 +570,10 @@ mod tests {
             WalEntryType::RunUpdate,
             WalEntryType::RunEnd,
             WalEntryType::RunBegin,
+            WalEntryType::VectorCollectionCreate,
+            WalEntryType::VectorCollectionDelete,
+            WalEntryType::VectorUpsert,
+            WalEntryType::VectorDelete,
         ];
 
         for entry_type in entry_types {

@@ -49,13 +49,26 @@ impl TransactionCoordinator {
 
     /// Create coordinator from recovery result
     ///
-    /// Initializes the coordinator with the version from recovery,
-    /// ensuring new transactions get monotonically increasing versions.
+    /// Initializes the coordinator with the version AND max_txn_id from recovery,
+    /// ensuring new transactions get monotonically increasing versions and IDs.
+    ///
+    /// CRITICAL: Both final_version AND max_txn_id must be restored to ensure:
+    /// - Versions are monotonically increasing (final_version)
+    /// - Transaction IDs are unique across sessions (max_txn_id)
     ///
     /// # Arguments
-    /// * `result` - Recovery result containing final version
+    /// * `result` - Recovery result containing final version and max_txn_id
     pub fn from_recovery(result: &RecoveryResult) -> Self {
-        Self::new(result.stats.final_version)
+        Self {
+            manager: TransactionManager::with_txn_id(
+                result.stats.final_version,
+                result.stats.max_txn_id,
+            ),
+            active_count: AtomicU64::new(0),
+            total_started: AtomicU64::new(0),
+            total_committed: AtomicU64::new(0),
+            total_aborted: AtomicU64::new(0),
+        }
     }
 
     /// Start a new transaction

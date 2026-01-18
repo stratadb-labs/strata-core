@@ -138,6 +138,110 @@ impl<'a> TransactionWALWriter<'a> {
     pub fn run_id(&self) -> RunId {
         self.run_id
     }
+
+    // ========================================================================
+    // Vector Operations (M8)
+    // ========================================================================
+
+    /// Write a VectorCollectionCreate entry
+    ///
+    /// # Arguments
+    /// * `collection` - Collection name
+    /// * `dimension` - Vector dimension
+    /// * `metric` - Distance metric (0=Cosine, 1=Euclidean, 2=DotProduct)
+    /// * `version` - Commit version
+    pub fn write_vector_collection_create(
+        &mut self,
+        collection: String,
+        dimension: usize,
+        metric: u8,
+        version: u64,
+    ) -> Result<()> {
+        let entry = WALEntry::VectorCollectionCreate {
+            run_id: self.run_id,
+            collection,
+            dimension,
+            metric,
+            version,
+        };
+        self.wal.append(&entry)?;
+        Ok(())
+    }
+
+    /// Write a VectorCollectionDelete entry
+    ///
+    /// # Arguments
+    /// * `collection` - Collection name
+    /// * `version` - Commit version
+    pub fn write_vector_collection_delete(
+        &mut self,
+        collection: String,
+        version: u64,
+    ) -> Result<()> {
+        let entry = WALEntry::VectorCollectionDelete {
+            run_id: self.run_id,
+            collection,
+            version,
+        };
+        self.wal.append(&entry)?;
+        Ok(())
+    }
+
+    /// Write a VectorUpsert entry
+    ///
+    /// # Arguments
+    /// * `collection` - Collection name
+    /// * `key` - User-provided key
+    /// * `vector_id` - Internal vector ID (for deterministic replay)
+    /// * `embedding` - Full embedding data
+    /// * `metadata` - Optional metadata (MessagePack serialized)
+    /// * `version` - Commit version
+    pub fn write_vector_upsert(
+        &mut self,
+        collection: String,
+        key: String,
+        vector_id: u64,
+        embedding: Vec<f32>,
+        metadata: Option<Vec<u8>>,
+        version: u64,
+    ) -> Result<()> {
+        let entry = WALEntry::VectorUpsert {
+            run_id: self.run_id,
+            collection,
+            key,
+            vector_id,
+            embedding,
+            metadata,
+            version,
+        };
+        self.wal.append(&entry)?;
+        Ok(())
+    }
+
+    /// Write a VectorDelete entry
+    ///
+    /// # Arguments
+    /// * `collection` - Collection name
+    /// * `key` - User-provided key
+    /// * `vector_id` - Internal vector ID
+    /// * `version` - Commit version
+    pub fn write_vector_delete(
+        &mut self,
+        collection: String,
+        key: String,
+        vector_id: u64,
+        version: u64,
+    ) -> Result<()> {
+        let entry = WALEntry::VectorDelete {
+            run_id: self.run_id,
+            collection,
+            key,
+            vector_id,
+            version,
+        };
+        self.wal.append(&entry)?;
+        Ok(())
+    }
 }
 
 #[cfg(test)]

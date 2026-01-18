@@ -324,6 +324,7 @@ pub fn find_first_version_conflict(
 /// # Returns
 ///
 /// Ok(()) if no conflicts, Err with the first conflict found otherwise
+#[allow(clippy::result_large_err)]
 pub fn check_all_conflicts(
     reads: &[JsonPathRead],
     writes: &[JsonPatchEntry],

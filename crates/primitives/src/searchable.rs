@@ -103,7 +103,7 @@ impl SimpleScorer {
         let length_factor = 1.0 / length_norm;
 
         // Combine: term frequency * length factor
-        (tf * length_factor).max(0.01).min(1.0)
+        (tf * length_factor).clamp(0.01, 1.0)
     }
 
     /// Score candidates and return top-k hits

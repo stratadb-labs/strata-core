@@ -842,7 +842,7 @@ impl RunIndex {
             candidates.push(SearchCandidate::new(
                 DocRef::Run {
                     run_id: in_mem_core::types::RunId::from_string(&meta.run_id)
-                        .unwrap_or_else(|| in_mem_core::types::RunId::new()),
+                        .unwrap_or_default(),
                 },
                 text,
                 Some(meta.created_at as u64),

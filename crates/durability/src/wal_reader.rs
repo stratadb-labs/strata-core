@@ -26,8 +26,8 @@
 //! }
 //! ```
 
-use crate::wal_types::{TxId, WalEntry, WalEntryError, MAX_WAL_ENTRY_SIZE, MIN_WAL_ENTRY_SIZE};
 use crate::wal_entry_types::WalEntryType;
+use crate::wal_types::{TxId, WalEntry, WalEntryError, MAX_WAL_ENTRY_SIZE, MIN_WAL_ENTRY_SIZE};
 use std::collections::HashMap;
 use std::fs::File;
 use std::io::{BufReader, Read, Seek, SeekFrom};
@@ -334,8 +334,8 @@ impl WalReader {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::wal_writer::WalWriter;
     use crate::wal::DurabilityMode;
+    use crate::wal_writer::WalWriter;
     use tempfile::TempDir;
 
     #[test]
