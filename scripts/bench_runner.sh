@@ -5,7 +5,7 @@
 #
 # This script sets up the proper environment for running benchmarks and
 # generates performance reports for M1 (Storage), M2 (Transactions),
-# M3 (Primitives), M5 (JSON), and M6 (Search) milestones.
+# M3 (Primitives), M5 (JSON), M6 (Search), and M8 (Vector) milestones.
 #
 # Reference Platform:
 #   - Linux (Ubuntu 24.04.2 LTS)
@@ -24,7 +24,9 @@
 #   --m3            Run M3 Primitive benchmarks only
 #   --m5            Run M5 JSON benchmarks only
 #   --m6            Run M6 Search benchmarks only
-#   --tier=<tier>   Run specific tier (a0, a1, b, c, d, json)
+#   --m8            Run M8 Vector benchmarks only
+#   --comparison    Run industry comparison benchmarks (vs redb, LMDB, SQLite)
+#   --tier=<tier>   Run specific tier (a0, a1, b, c, d, json, vector)
 #   --filter=<pat>  Run benchmarks matching pattern
 #   --baseline=<n>  Save/compare with baseline name
 #   --perf          Run with perf stat
@@ -46,6 +48,10 @@
 #   ./scripts/bench_runner.sh --m5 --mode=inmemory
 #   ./scripts/bench_runner.sh --m5 --all-modes
 #   ./scripts/bench_runner.sh --m6 --filter="search_kv"
+#   ./scripts/bench_runner.sh --m8
+#   ./scripts/bench_runner.sh --m8 --filter="vector_search"
+#   ./scripts/bench_runner.sh --comparison
+#   ./scripts/bench_runner.sh --comparison --baseline=sota_comparison
 #
 
 set -euo pipefail
@@ -71,6 +77,8 @@ RUN_M2=false
 RUN_M3=false
 RUN_M5=false
 RUN_M6=false
+RUN_M8=false
+RUN_COMPARISON=false
 TIER=""
 FILTER=""
 BASELINE=""
@@ -313,7 +321,13 @@ build_release() {
     log_info "Building in release mode with LTO..."
     cd "$PROJECT_ROOT"
     if [[ -n "$bench_target" ]]; then
-        cargo build --release --bench "$bench_target" 2>&1 | tail -5
+        # Industry comparison needs feature flag
+        if [[ "$bench_target" == "industry_comparison" ]]; then
+            log_info "Building with comparison-benchmarks feature..."
+            cargo build --release --bench "$bench_target" --features=comparison-benchmarks 2>&1 | tail -5
+        else
+            cargo build --release --bench "$bench_target" 2>&1 | tail -5
+        fi
     else
         # Build all benchmark targets
         cargo build --release --bench m1_storage --bench m2_transactions --bench m3_primitives --bench m5_performance --bench m6_search 2>&1 | tail -5
@@ -377,6 +391,11 @@ run_benchmarks() {
 
     # Main benchmark command
     cmd+=("cargo" "bench" "--bench" "$bench_target")
+
+    # Add feature flag for industry comparison
+    if [[ "$bench_target" == "industry_comparison" ]]; then
+        cmd+=("--features=comparison-benchmarks")
+    fi
 
     if [[ ${#criterion_args[@]} -gt 0 ]]; then
         cmd+=("--")
@@ -726,6 +745,14 @@ main() {
                 RUN_M6=true
                 shift
                 ;;
+            --m8)
+                RUN_M8=true
+                shift
+                ;;
+            --comparison)
+                RUN_COMPARISON=true
+                shift
+                ;;
             --tier=*)
                 TIER="${1#*=}"
                 shift
@@ -805,6 +832,12 @@ main() {
         search|SEARCH|m6|M6)
             BENCH_TARGET="m6_search"
             ;;
+        vector|VECTOR|m8|M8)
+            BENCH_TARGET="m8_vector"
+            ;;
+        comparison|COMPARISON)
+            BENCH_TARGET="industry_comparison"
+            ;;
     esac
 
     # Set benchmark target based on milestone flags
@@ -818,6 +851,10 @@ main() {
         BENCH_TARGET="m5_performance"
     elif [[ "$RUN_M6" == "true" ]]; then
         BENCH_TARGET="m6_search"
+    elif [[ "$RUN_M8" == "true" ]]; then
+        BENCH_TARGET="m8_vector"
+    elif [[ "$RUN_COMPARISON" == "true" ]]; then
+        BENCH_TARGET="industry_comparison"
     fi
 
     echo ""
@@ -913,22 +950,28 @@ main() {
             run_benchmarks "$FILTER" "$BASELINE" "$CORES" "$USE_PERF" "$USE_PERF_RECORD" "$DURABILITY_MODE" "$BENCH_TARGET"
         fi
     else
-        log_info "No benchmarks specified. Use --full, --m1, --m2, --m3, --m5, --m6, or --filter=<pattern>"
+        log_info "No benchmarks specified. Use --full, --m1, --m2, --m3, --m5, --m6, --m8, or --filter=<pattern>"
         log_info "Examples:"
         log_info "  $0 --full                    # Run all benchmarks"
         log_info "  $0 --m1                      # Run M1 Storage benchmarks"
         log_info "  $0 --m2                      # Run M2 Transaction benchmarks"
         log_info "  $0 --m5                      # Run M5 JSON benchmarks"
         log_info "  $0 --m6                      # Run M6 Search benchmarks"
+        log_info "  $0 --m8                      # Run M8 Vector benchmarks"
         log_info "  $0 --tier=json               # Run M5 JSON benchmarks"
         log_info "  $0 --tier=search             # Run M6 Search benchmarks"
+        log_info "  $0 --tier=vector             # Run M8 Vector benchmarks"
         log_info "  $0 --m5 --filter=\"json_get\"  # Run json_get benchmarks"
         log_info "  $0 --m6 --filter=\"search_kv\" # Run search_kv benchmarks"
+        log_info "  $0 --m8 --filter=\"vector_search\" # Run vector_search benchmarks"
         log_info "  $0 --m5 --perf               # Run M5 with perf stat"
         log_info "  $0 --m5 --baseline=m5        # Save baseline 'm5'"
         log_info "  $0 --m6 --baseline=m6        # Save baseline 'm6'"
+        log_info "  $0 --m8 --baseline=m8        # Save baseline 'm8'"
         log_info "  $0 --m5 --mode=inmemory      # Run in InMemory mode"
         log_info "  $0 --m5 --all-modes          # Run all three durability modes"
+        log_info "  $0 --comparison              # Run SOTA comparison benchmarks"
+        log_info "  $0 --comparison --filter=\"kv\" # Run KV comparisons only"
     fi
 
     echo ""

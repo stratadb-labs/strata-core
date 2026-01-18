@@ -1255,6 +1255,285 @@ fn format_count(n: u64) -> String {
 }
 
 // =============================================================================
+// Latency Percentile Tracking
+// =============================================================================
+
+/// Latency percentile statistics for a benchmark
+#[derive(Debug, Clone, Default)]
+pub struct LatencyStats {
+    /// Benchmark name
+    pub name: String,
+    /// Minimum latency in nanoseconds
+    pub min_ns: f64,
+    /// Maximum latency in nanoseconds
+    pub max_ns: f64,
+    /// Mean latency in nanoseconds
+    pub mean_ns: f64,
+    /// Median (p50) latency in nanoseconds
+    pub p50_ns: f64,
+    /// 90th percentile latency in nanoseconds
+    pub p90_ns: f64,
+    /// 95th percentile latency in nanoseconds
+    pub p95_ns: f64,
+    /// 99th percentile latency in nanoseconds
+    pub p99_ns: f64,
+    /// 99.9th percentile latency in nanoseconds
+    pub p999_ns: f64,
+    /// Standard deviation in nanoseconds
+    pub std_dev_ns: f64,
+    /// Number of samples
+    pub sample_count: usize,
+}
+
+impl LatencyStats {
+    /// Create from a sorted list of latency samples (in nanoseconds)
+    pub fn from_samples(name: &str, samples: &mut [f64]) -> Self {
+        if samples.is_empty() {
+            return Self {
+                name: name.to_string(),
+                ..Default::default()
+            };
+        }
+
+        samples.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
+
+        let n = samples.len();
+        let min_ns = samples[0];
+        let max_ns = samples[n - 1];
+
+        // Calculate mean
+        let sum: f64 = samples.iter().sum();
+        let mean_ns = sum / n as f64;
+
+        // Calculate percentiles
+        let p50_ns = percentile(samples, 50.0);
+        let p90_ns = percentile(samples, 90.0);
+        let p95_ns = percentile(samples, 95.0);
+        let p99_ns = percentile(samples, 99.0);
+        let p999_ns = percentile(samples, 99.9);
+
+        // Calculate standard deviation
+        let variance: f64 = samples.iter().map(|x| (x - mean_ns).powi(2)).sum::<f64>() / n as f64;
+        let std_dev_ns = variance.sqrt();
+
+        Self {
+            name: name.to_string(),
+            min_ns,
+            max_ns,
+            mean_ns,
+            p50_ns,
+            p90_ns,
+            p95_ns,
+            p99_ns,
+            p999_ns,
+            std_dev_ns,
+            sample_count: n,
+        }
+    }
+
+    /// Format latency value with appropriate unit
+    pub fn format_latency(ns: f64) -> String {
+        if ns >= 1_000_000_000.0 {
+            format!("{:.2} s", ns / 1_000_000_000.0)
+        } else if ns >= 1_000_000.0 {
+            format!("{:.2} ms", ns / 1_000_000.0)
+        } else if ns >= 1_000.0 {
+            format!("{:.2} µs", ns / 1_000.0)
+        } else {
+            format!("{:.0} ns", ns)
+        }
+    }
+
+    /// Print formatted stats
+    pub fn print_report(&self) {
+        eprintln!("\n[Latency Stats: {}]", self.name);
+        eprintln!("  Samples:  {}", self.sample_count);
+        eprintln!("  Min:      {}", Self::format_latency(self.min_ns));
+        eprintln!("  Max:      {}", Self::format_latency(self.max_ns));
+        eprintln!("  Mean:     {}", Self::format_latency(self.mean_ns));
+        eprintln!("  Std Dev:  {}", Self::format_latency(self.std_dev_ns));
+        eprintln!("  Percentiles:");
+        eprintln!("    p50:    {}", Self::format_latency(self.p50_ns));
+        eprintln!("    p90:    {}", Self::format_latency(self.p90_ns));
+        eprintln!("    p95:    {}", Self::format_latency(self.p95_ns));
+        eprintln!("    p99:    {}", Self::format_latency(self.p99_ns));
+        eprintln!("    p99.9:  {}", Self::format_latency(self.p999_ns));
+    }
+
+    /// Generate markdown table row
+    pub fn to_markdown_row(&self) -> String {
+        format!(
+            "| {} | {} | {} | {} | {} | {} | {} |",
+            self.name,
+            Self::format_latency(self.mean_ns),
+            Self::format_latency(self.p50_ns),
+            Self::format_latency(self.p90_ns),
+            Self::format_latency(self.p95_ns),
+            Self::format_latency(self.p99_ns),
+            Self::format_latency(self.p999_ns),
+        )
+    }
+}
+
+/// Calculate percentile from sorted samples
+fn percentile(sorted_samples: &[f64], p: f64) -> f64 {
+    if sorted_samples.is_empty() {
+        return 0.0;
+    }
+    let n = sorted_samples.len();
+    let idx = (p / 100.0 * (n - 1) as f64).round() as usize;
+    let idx = idx.min(n - 1);
+    sorted_samples[idx]
+}
+
+/// Collection of latency stats for multiple benchmarks
+#[derive(Debug, Clone, Default)]
+pub struct LatencyReport {
+    pub stats: Vec<LatencyStats>,
+}
+
+impl LatencyReport {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    pub fn add(&mut self, stats: LatencyStats) {
+        self.stats.push(stats);
+    }
+
+    /// Generate markdown report
+    pub fn to_markdown(&self) -> String {
+        let mut md = String::new();
+
+        md.push_str("## Latency Percentile Report\n\n");
+        md.push_str("| Benchmark | Mean | p50 | p90 | p95 | p99 | p99.9 |\n");
+        md.push_str("|-----------|------|-----|-----|-----|-----|-------|\n");
+
+        for stat in &self.stats {
+            md.push_str(&stat.to_markdown_row());
+            md.push('\n');
+        }
+
+        md.push_str("\n### Key Observations\n\n");
+
+        // Find benchmarks with high tail latency (p99 > 2x p50)
+        let high_tail: Vec<_> = self
+            .stats
+            .iter()
+            .filter(|s| s.p99_ns > s.p50_ns * 2.0)
+            .collect();
+
+        if !high_tail.is_empty() {
+            md.push_str("**Benchmarks with high tail latency (p99 > 2x median):**\n\n");
+            for stat in high_tail {
+                md.push_str(&format!(
+                    "- `{}`: p99 ({}) is {:.1}x median ({})\n",
+                    stat.name,
+                    LatencyStats::format_latency(stat.p99_ns),
+                    stat.p99_ns / stat.p50_ns,
+                    LatencyStats::format_latency(stat.p50_ns),
+                ));
+            }
+            md.push('\n');
+        }
+
+        // Find benchmarks with high variance (std_dev > 50% of mean)
+        let high_variance: Vec<_> = self
+            .stats
+            .iter()
+            .filter(|s| s.std_dev_ns > s.mean_ns * 0.5)
+            .collect();
+
+        if !high_variance.is_empty() {
+            md.push_str("**Benchmarks with high variance (std_dev > 50% mean):**\n\n");
+            for stat in high_variance {
+                md.push_str(&format!(
+                    "- `{}`: std_dev ({}) is {:.0}% of mean ({})\n",
+                    stat.name,
+                    LatencyStats::format_latency(stat.std_dev_ns),
+                    (stat.std_dev_ns / stat.mean_ns) * 100.0,
+                    LatencyStats::format_latency(stat.mean_ns),
+                ));
+            }
+            md.push('\n');
+        }
+
+        md
+    }
+
+    /// Print summary
+    pub fn print_summary(&self) {
+        eprintln!("\n{}", "=".repeat(60));
+        eprintln!("LATENCY PERCENTILE SUMMARY");
+        eprintln!("{}", "=".repeat(60));
+
+        for stat in &self.stats {
+            stat.print_report();
+        }
+    }
+}
+
+/// Manual latency collector for custom benchmarks
+///
+/// Use this when you need to collect raw latency samples outside of Criterion.
+/// Criterion handles percentiles internally, but this is useful for:
+/// - Custom measurement scenarios
+/// - Combining multiple benchmark results
+/// - Post-processing analysis
+#[derive(Debug)]
+pub struct LatencyCollector {
+    name: String,
+    samples: Vec<f64>,
+    capacity: usize,
+}
+
+impl LatencyCollector {
+    /// Create a new collector with expected sample count
+    pub fn new(name: &str, expected_samples: usize) -> Self {
+        Self {
+            name: name.to_string(),
+            samples: Vec::with_capacity(expected_samples),
+            capacity: expected_samples,
+        }
+    }
+
+    /// Record a latency sample in nanoseconds
+    pub fn record_ns(&mut self, latency_ns: f64) {
+        self.samples.push(latency_ns);
+    }
+
+    /// Record a latency sample from Duration
+    pub fn record(&mut self, duration: std::time::Duration) {
+        self.samples.push(duration.as_nanos() as f64);
+    }
+
+    /// Get the number of samples collected
+    pub fn len(&self) -> usize {
+        self.samples.len()
+    }
+
+    /// Check if collector is empty
+    pub fn is_empty(&self) -> bool {
+        self.samples.is_empty()
+    }
+
+    /// Finalize and compute statistics
+    pub fn finalize(mut self) -> LatencyStats {
+        LatencyStats::from_samples(&self.name, &mut self.samples)
+    }
+
+    /// Get current samples without consuming
+    pub fn samples(&self) -> &[f64] {
+        &self.samples
+    }
+
+    /// Reset collector for reuse
+    pub fn reset(&mut self) {
+        self.samples.clear();
+    }
+}
+
+// =============================================================================
 // Benchmark Report Writer
 // =============================================================================
 
@@ -1619,5 +1898,48 @@ mod tests {
         assert!((results.branch_miss_rate().unwrap() - 0.5).abs() < 0.01);
         assert!((results.llc_miss_rate().unwrap() - 5.0).abs() < 0.01);
         assert!((results.ipc().unwrap() - 2.0).abs() < 0.01);
+    }
+
+    #[test]
+    fn test_latency_stats_from_samples() {
+        use super::{LatencyStats, LatencyCollector};
+
+        // Create samples: 100 values from 1 to 100
+        let mut samples: Vec<f64> = (1..=100).map(|x| x as f64).collect();
+        let stats = LatencyStats::from_samples("test", &mut samples);
+
+        assert_eq!(stats.sample_count, 100);
+        assert!((stats.min_ns - 1.0).abs() < 0.01);
+        assert!((stats.max_ns - 100.0).abs() < 0.01);
+        assert!((stats.mean_ns - 50.5).abs() < 0.01);
+        assert!((stats.p50_ns - 50.0).abs() < 1.0); // Approximate
+        assert!((stats.p99_ns - 99.0).abs() < 1.0);
+    }
+
+    #[test]
+    fn test_latency_collector() {
+        use super::LatencyCollector;
+
+        let mut collector = LatencyCollector::new("test_bench", 1000);
+        assert!(collector.is_empty());
+
+        for i in 1..=100 {
+            collector.record_ns(i as f64);
+        }
+        assert_eq!(collector.len(), 100);
+
+        let stats = collector.finalize();
+        assert_eq!(stats.sample_count, 100);
+        assert!((stats.mean_ns - 50.5).abs() < 0.01);
+    }
+
+    #[test]
+    fn test_latency_format() {
+        use super::LatencyStats;
+
+        assert_eq!(LatencyStats::format_latency(50.0), "50 ns");
+        assert_eq!(LatencyStats::format_latency(1500.0), "1.50 µs");
+        assert_eq!(LatencyStats::format_latency(1500000.0), "1.50 ms");
+        assert_eq!(LatencyStats::format_latency(1500000000.0), "1.50 s");
     }
 }
