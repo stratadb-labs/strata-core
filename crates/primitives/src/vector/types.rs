@@ -88,8 +88,32 @@ pub enum StorageDtype {
     /// 32-bit floating point (default)
     #[default]
     F32,
-    // F16,     // Reserved for half precision
-    // Int8,    // Reserved for scalar quantization
+    // F16,     // Reserved for half precision (value = 1)
+    // Int8,    // Reserved for scalar quantization (value = 2)
+}
+
+impl StorageDtype {
+    /// Serialization value for WAL/snapshot
+    pub fn to_byte(&self) -> u8 {
+        match self {
+            StorageDtype::F32 => 0,
+            // StorageDtype::F16 => 1,
+            // StorageDtype::Int8 => 2,
+        }
+    }
+
+    /// Deserialization from WAL/snapshot
+    ///
+    /// Returns None for unknown values, allowing forward compatibility
+    /// when new storage types are added.
+    pub fn from_byte(b: u8) -> Option<Self> {
+        match b {
+            0 => Some(StorageDtype::F32),
+            // 1 => Some(StorageDtype::F16),
+            // 2 => Some(StorageDtype::Int8),
+            _ => None,
+        }
+    }
 }
 
 /// Collection configuration - immutable after creation
@@ -449,7 +473,7 @@ impl From<&VectorConfig> for VectorConfigSerde {
         VectorConfigSerde {
             dimension: config.dimension,
             metric: config.metric.to_byte(),
-            storage_dtype: 0, // F32
+            storage_dtype: config.storage_dtype.to_byte(),
         }
     }
 }
@@ -465,10 +489,14 @@ impl TryFrom<VectorConfigSerde> for VectorConfig {
             ))
         })?;
 
+        // Default to F32 for forward compatibility with old WAL entries
+        let storage_dtype = StorageDtype::from_byte(serde.storage_dtype)
+            .unwrap_or(StorageDtype::F32);
+
         Ok(VectorConfig {
             dimension: serde.dimension,
             metric,
-            storage_dtype: StorageDtype::F32,
+            storage_dtype,
         })
     }
 }

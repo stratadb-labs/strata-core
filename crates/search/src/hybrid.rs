@@ -21,7 +21,7 @@ use in_mem_core::search_types::{
     PrimitiveKind, SearchBudget, SearchRequest, SearchResponse, SearchStats,
 };
 use in_mem_engine::Database;
-use in_mem_primitives::{EventLog, JsonStore, KVStore, RunIndex, StateCell, TraceStore};
+use in_mem_primitives::{EventLog, JsonStore, KVStore, RunIndex, StateCell, TraceStore, VectorStore};
 use std::sync::Arc;
 use std::time::Instant;
 
@@ -81,6 +81,7 @@ pub struct HybridSearch {
     state: StateCell,
     trace: TraceStore,
     run_index: RunIndex,
+    vector: VectorStore,
 }
 
 impl HybridSearch {
@@ -96,6 +97,7 @@ impl HybridSearch {
             state: StateCell::new(db.clone()),
             trace: TraceStore::new(db.clone()),
             run_index: RunIndex::new(db.clone()),
+            vector: VectorStore::new(db.clone()),
             db,
             fuser: Arc::new(SimpleFuser),
         }
@@ -230,6 +232,8 @@ impl HybridSearch {
         primitive: PrimitiveKind,
         req: &SearchRequest,
     ) -> Result<SearchResponse> {
+        use in_mem_primitives::Searchable;
+
         match primitive {
             PrimitiveKind::Kv => self.kv.search(req),
             PrimitiveKind::Json => self.json.search(req),
@@ -237,10 +241,22 @@ impl HybridSearch {
             PrimitiveKind::State => self.state.search(req),
             PrimitiveKind::Trace => self.trace.search(req),
             PrimitiveKind::Run => self.run_index.search(req),
-            // Vector search requires embeddings (not text queries).
-            // Use VectorStore::search_response() directly for semantic search.
-            PrimitiveKind::Vector => Ok(SearchResponse::empty()),
+            // Vector primitive now implements Searchable.
+            // Per M8_ARCHITECTURE.md Section 12.3:
+            // - Keyword search returns empty (by design)
+            // - For vector/hybrid search with embeddings, the orchestrator
+            //   should call vector.search_response() directly with the embedding
+            PrimitiveKind::Vector => Searchable::search(&self.vector, req),
         }
+    }
+
+    /// Get a reference to the VectorStore for direct semantic search
+    ///
+    /// Use this when you have an embedding vector and want to perform
+    /// semantic search. The Searchable::search() method returns empty
+    /// for keyword queries because Vector requires explicit embeddings.
+    pub fn vector(&self) -> &VectorStore {
+        &self.vector
     }
 }
 

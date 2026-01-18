@@ -253,7 +253,9 @@ impl<'a> VectorWalReplayer<'a> {
                     metric: DistanceMetric::from_byte(wal.config.metric).ok_or_else(|| {
                         VectorError::Serialization(format!("Invalid metric: {}", wal.config.metric))
                     })?,
-                    storage_dtype: crate::vector::StorageDtype::F32,
+                    // Use persisted storage_dtype, default to F32 for backward compatibility
+                    storage_dtype: crate::vector::StorageDtype::from_byte(wal.config.storage_dtype)
+                        .unwrap_or(crate::vector::StorageDtype::F32),
                 };
                 self.store
                     .replay_create_collection(wal.run_id, &wal.collection, config)

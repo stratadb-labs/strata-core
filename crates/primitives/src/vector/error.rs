@@ -65,8 +65,10 @@ pub enum VectorError {
     },
 
     /// Collection configuration cannot be changed
-    #[error("Collection config mismatch: {field} cannot be changed")]
+    #[error("Collection '{collection}' config mismatch: {field} cannot be changed")]
     ConfigMismatch {
+        /// Collection name
+        collection: String,
         /// The field that cannot be changed
         field: String,
     },

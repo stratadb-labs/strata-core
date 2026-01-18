@@ -30,7 +30,7 @@ use crate::vector::{
     VectorConfig, VectorEntry, VectorError, VectorId, VectorIndexBackend, VectorMatch,
     VectorRecord, VectorResult,
 };
-use in_mem_core::search_types::{DocRef, SearchHit, SearchResponse, SearchStats};
+use in_mem_core::search_types::{DocRef, SearchBudget, SearchHit, SearchResponse, SearchStats};
 use in_mem_core::types::{Key, Namespace, RunId};
 use in_mem_core::value::Value;
 use in_mem_durability::wal::WALEntry;
@@ -848,45 +848,85 @@ impl VectorStore {
             });
         }
 
-        // Search backend (returns VectorId, score pairs)
-        let candidates = {
-            let state = self.state();
-            let backends = state.backends.read().unwrap();
-            let backend =
-                backends
-                    .get(&collection_id)
-                    .ok_or_else(|| VectorError::CollectionNotFound {
-                        name: collection.to_string(),
-                    })?;
-
-            // Over-fetch if filtering to account for filtered-out results
-            let fetch_k = if filter.is_some() { k * 3 } else { k };
-            backend.search(query, fetch_k)
-        };
-
-        // Load metadata and apply filter
+        // Search backend with adaptive over-fetch for filtering (Issue #453)
+        //
+        // When a metadata filter is active, we over-fetch from the backend to account
+        // for filtered-out results. If the initial fetch doesn't yield enough results,
+        // we retry with a higher multiplier up to a max limit.
+        //
+        // Multiplier strategy: 3x -> 6x -> 12x -> all (capped at collection size)
         let mut matches = Vec::with_capacity(k);
 
-        for (vector_id, score) in candidates {
-            if matches.len() >= k {
-                break;
+        if filter.is_none() {
+            // No filter - simple case, fetch exactly k
+            let candidates = {
+                let state = self.state();
+                let backends = state.backends.read().unwrap();
+                let backend =
+                    backends
+                        .get(&collection_id)
+                        .ok_or_else(|| VectorError::CollectionNotFound {
+                            name: collection.to_string(),
+                        })?;
+                backend.search(query, k)
+            };
+
+            for (vector_id, score) in candidates {
+                let (key, metadata) = self.get_key_and_metadata(run_id, collection, vector_id)?;
+                matches.push(VectorMatch { key, score, metadata });
             }
+        } else {
+            // Filter active - use adaptive over-fetch
+            let multipliers = [3, 6, 12];
+            let collection_size = {
+                let state = self.state();
+                let backends = state.backends.read().unwrap();
+                backends
+                    .get(&collection_id)
+                    .map(|b| b.len())
+                    .unwrap_or(0)
+            };
 
-            // Get key and metadata from KV
-            let (key, metadata) = self.get_key_and_metadata(run_id, collection, vector_id)?;
+            for &mult in &multipliers {
+                let fetch_k = (k * mult).min(collection_size);
+                if fetch_k == 0 {
+                    break;
+                }
 
-            // Apply filter (post-filter)
-            if let Some(ref f) = filter {
-                if !f.matches(&metadata) {
-                    continue;
+                let candidates = {
+                    let state = self.state();
+                    let backends = state.backends.read().unwrap();
+                    let backend =
+                        backends
+                            .get(&collection_id)
+                            .ok_or_else(|| VectorError::CollectionNotFound {
+                                name: collection.to_string(),
+                            })?;
+                    backend.search(query, fetch_k)
+                };
+
+                matches.clear();
+                for (vector_id, score) in candidates {
+                    let (key, metadata) = self.get_key_and_metadata(run_id, collection, vector_id)?;
+
+                    // Apply filter
+                    if let Some(ref f) = filter {
+                        if !f.matches(&metadata) {
+                            continue;
+                        }
+                    }
+
+                    matches.push(VectorMatch { key, score, metadata });
+                    if matches.len() >= k {
+                        break;
+                    }
+                }
+
+                // If we have enough results or searched all vectors, stop
+                if matches.len() >= k || fetch_k >= collection_size {
+                    break;
                 }
             }
-
-            matches.push(VectorMatch {
-                key,
-                score,
-                metadata,
-            });
         }
 
         // Apply facade-level tie-breaking (score desc, key asc)
@@ -941,6 +981,122 @@ impl VectorStore {
         let stats = SearchStats::new(start.elapsed().as_micros() as u64, hits.len());
 
         Ok(SearchResponse::new(hits, false, stats))
+    }
+
+    /// Budget-aware search (Issue #451)
+    ///
+    /// Respects the M6 SearchBudget time and candidate limits.
+    /// Returns (results, truncated) where truncated is true if budget was exhausted.
+    ///
+    /// Budget checks are performed:
+    /// 1. Before starting search (early exit if already over time)
+    /// 2. After similarity computation
+    /// 3. After filtering (if any)
+    pub fn search_with_budget(
+        &self,
+        run_id: RunId,
+        collection: &str,
+        query: &[f32],
+        k: usize,
+        filter: Option<MetadataFilter>,
+        budget: &SearchBudget,
+    ) -> VectorResult<(Vec<VectorMatch>, bool)> {
+        let start = std::time::Instant::now();
+
+        // Early exit if budget already exhausted
+        if start.elapsed().as_micros() as u64 >= budget.max_wall_time_micros {
+            return Ok((Vec::new(), true));
+        }
+
+        // k=0 returns empty
+        if k == 0 {
+            return Ok((Vec::new(), false));
+        }
+
+        // Ensure collection is loaded
+        self.ensure_collection_loaded(run_id, collection)?;
+
+        let collection_id = CollectionId::new(run_id, collection);
+
+        // Validate query dimension
+        let config = self.get_collection_config_required(run_id, collection)?;
+        if query.len() != config.dimension {
+            return Err(VectorError::DimensionMismatch {
+                expected: config.dimension,
+                got: query.len(),
+            });
+        }
+
+        // Check time budget before backend search
+        if start.elapsed().as_micros() as u64 >= budget.max_wall_time_micros {
+            return Ok((Vec::new(), true));
+        }
+
+        // Cap fetch at budget candidate limit
+        let max_candidates = budget.max_candidates_per_primitive.min(budget.max_candidates);
+        let fetch_k = if filter.is_some() {
+            (k * 3).min(max_candidates)
+        } else {
+            k.min(max_candidates)
+        };
+
+        // Search backend
+        let candidates = {
+            let state = self.state();
+            let backends = state.backends.read().unwrap();
+            let backend = backends
+                .get(&collection_id)
+                .ok_or_else(|| VectorError::CollectionNotFound {
+                    name: collection.to_string(),
+                })?;
+            backend.search(query, fetch_k)
+        };
+
+        // Check time budget after search
+        let truncated = start.elapsed().as_micros() as u64 >= budget.max_wall_time_micros;
+        if truncated {
+            return Ok((Vec::new(), true));
+        }
+
+        // Load metadata and apply filter
+        let mut matches = Vec::with_capacity(k);
+
+        for (vector_id, score) in candidates {
+            // Check time budget periodically
+            if matches.len() % 100 == 0 {
+                if start.elapsed().as_micros() as u64 >= budget.max_wall_time_micros {
+                    return Ok((matches, true));
+                }
+            }
+
+            if matches.len() >= k {
+                break;
+            }
+
+            let (key, metadata) = self.get_key_and_metadata(run_id, collection, vector_id)?;
+
+            // Apply filter (post-filter)
+            if let Some(ref f) = filter {
+                if !f.matches(&metadata) {
+                    continue;
+                }
+            }
+
+            matches.push(VectorMatch { key, score, metadata });
+        }
+
+        // Apply facade-level tie-breaking
+        matches.sort_by(|a, b| {
+            b.score
+                .partial_cmp(&a.score)
+                .unwrap_or(std::cmp::Ordering::Equal)
+                .then_with(|| a.key.cmp(&b.key))
+        });
+
+        matches.truncate(k);
+
+        let truncated = start.elapsed().as_micros() as u64 >= budget.max_wall_time_micros;
+        Ok((matches, truncated))
     }
 
     // ========================================================================
@@ -1174,6 +1330,11 @@ impl VectorStore {
     /// It does NOT write to WAL - that would cause infinite loops during replay.
     ///
     /// Called by the global WAL replayer for committed VectorCollectionCreate entries.
+    ///
+    /// # Config Validation (Issue #452)
+    ///
+    /// If collection already exists, validates that the config matches.
+    /// This catches WAL corruption or conflicting create entries.
     pub fn replay_create_collection(
         &self,
         run_id: RunId,
@@ -1181,6 +1342,42 @@ impl VectorStore {
         config: VectorConfig,
     ) -> VectorResult<()> {
         let collection_id = CollectionId::new(run_id, name);
+
+        // Check if collection already exists in backend
+        {
+            let state = self.state();
+            let backends = state.backends.read().unwrap();
+            if let Some(existing_backend) = backends.get(&collection_id) {
+                // Validate config matches (Issue #452)
+                let existing_config = existing_backend.config();
+                if existing_config.dimension != config.dimension {
+                    tracing::warn!(
+                        collection = name,
+                        existing_dim = existing_config.dimension,
+                        wal_dim = config.dimension,
+                        "Config mismatch during WAL replay: dimension differs"
+                    );
+                    return Err(VectorError::DimensionMismatch {
+                        expected: existing_config.dimension,
+                        got: config.dimension,
+                    });
+                }
+                if existing_config.metric != config.metric {
+                    tracing::warn!(
+                        collection = name,
+                        existing_metric = ?existing_config.metric,
+                        wal_metric = ?config.metric,
+                        "Config mismatch during WAL replay: metric differs"
+                    );
+                    return Err(VectorError::ConfigMismatch {
+                        collection: name.to_string(),
+                        field: "metric".to_string(),
+                    });
+                }
+                // Collection already exists with matching config - idempotent replay
+                return Ok(());
+            }
+        }
 
         // Initialize backend (no KV write - KV is replayed separately)
         let backend = self.backend_factory().create(&config);
@@ -1281,7 +1478,7 @@ impl VectorStore {
     }
 }
 
-// ========== Searchable Trait Implementation (M6 Integration) ==========
+// ========== Searchable Trait Implementation (M6 Integration, Issue #436) ==========
 
 impl crate::searchable::Searchable for VectorStore {
     /// Vector search via M6 interface

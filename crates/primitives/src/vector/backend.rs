@@ -65,6 +65,9 @@ pub trait VectorIndexBackend: Send + Sync {
     /// Get distance metric
     fn metric(&self) -> DistanceMetric;
 
+    /// Get full collection config (Issue #452: for config validation during replay)
+    fn config(&self) -> VectorConfig;
+
     /// Get a vector by ID (for metadata lookups after search)
     fn get(&self, id: VectorId) -> Option<&[f32]>;
 

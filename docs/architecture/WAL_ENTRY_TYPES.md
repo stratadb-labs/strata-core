@@ -15,7 +15,7 @@ WAL entry types are single bytes (0x00-0xFF) that identify the type of each entr
 | 0x40-0x4F | State | FROZEN | State cell operations |
 | 0x50-0x5F | Trace | FROZEN | Trace store operations |
 | 0x60-0x6F | Run | FROZEN | Run lifecycle operations |
-| 0x70-0x7F | Vector | RESERVED | Vector store operations (future) |
+| 0x70-0x7F | Vector | FROZEN | Vector store operations (M8) |
 | 0x80-0x8F | Reserved | AVAILABLE | For future primitives |
 | 0x90-0x9F | Reserved | AVAILABLE | For future primitives |
 | 0xA0-0xAF | Reserved | AVAILABLE | For future primitives |
@@ -165,16 +165,79 @@ These are transaction control entries used by the recovery engine.
 [run_id: 16 bytes][timestamp: u64][event_count: u64]
 ```
 
-## Vector Entry Types (0x70-0x7F) - Reserved
+## Vector Entry Types (0x70-0x7F) - M8
 
 | Value | Name | Description |
 |-------|------|-------------|
-| 0x70 | VectorInsert | Insert vector |
-| 0x71 | VectorDelete | Delete vector |
-| 0x72 | VectorUpdate | Update vector |
-| 0x73-0x7F | Reserved | For future Vector use |
+| 0x70 | VectorCollectionCreate | Create a vector collection |
+| 0x71 | VectorCollectionDelete | Delete a vector collection |
+| 0x72 | VectorUpsert | Insert or update a vector |
+| 0x73 | VectorDelete | Delete a vector |
+| 0x74-0x7F | Reserved | For future Vector use |
 
-These are reserved for the Vector primitive (future milestone).
+### VectorCollectionCreate Payload Format (0x70)
+
+```
+[MessagePack encoded WalVectorCollectionCreate]
+```
+
+Fields:
+- `run_id`: RunId (16 bytes UUID)
+- `collection`: String (collection name)
+- `config`: VectorConfigSerde
+  - `dimension`: usize
+  - `metric`: u8 (0=Cosine, 1=Euclidean, 2=DotProduct)
+  - `storage_dtype`: u8 (0=F32, reserved: 1=F16, 2=Int8)
+- `timestamp`: u64 (microseconds since epoch)
+
+### VectorCollectionDelete Payload Format (0x71)
+
+```
+[MessagePack encoded WalVectorCollectionDelete]
+```
+
+Fields:
+- `run_id`: RunId (16 bytes UUID)
+- `collection`: String (collection name)
+- `timestamp`: u64 (microseconds since epoch)
+
+### VectorUpsert Payload Format (0x72)
+
+```
+[MessagePack encoded WalVectorUpsert]
+```
+
+Fields:
+- `run_id`: RunId (16 bytes UUID)
+- `collection`: String (collection name)
+- `key`: String (user-provided key)
+- `vector_id`: u64 (internal VectorId)
+- `embedding`: Vec<f32> (full embedding - TEMPORARY M8 FORMAT)
+- `metadata`: Option<serde_json::Value> (optional JSON metadata)
+- `timestamp`: u64 (microseconds since epoch)
+
+**Note**: Full embeddings in WAL is a temporary M8 format. M9 may optimize with external embedding storage or delta encoding.
+
+### VectorDelete Payload Format (0x73)
+
+```
+[MessagePack encoded WalVectorDelete]
+```
+
+Fields:
+- `run_id`: RunId (16 bytes UUID)
+- `collection`: String (collection name)
+- `key`: String (user-provided key)
+- `vector_id`: u64 (internal VectorId)
+- `timestamp`: u64 (microseconds since epoch)
+
+### Relationship to Snapshots
+
+Vector snapshots use a separate binary format (not WAL entries) for efficiency:
+- Snapshot format is versioned independently (current: v1)
+- Contains full collection state including embeddings
+- WAL entries are applied on top of snapshots during recovery
+- See `crates/primitives/src/vector/snapshot.rs` for snapshot format details
 
 ## Requesting a Range
 

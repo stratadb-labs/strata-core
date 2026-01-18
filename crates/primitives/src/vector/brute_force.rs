@@ -138,6 +138,10 @@ impl VectorIndexBackend for BruteForceBackend {
         self.heap.metric()
     }
 
+    fn config(&self) -> VectorConfig {
+        self.heap.config().clone()
+    }
+
     fn get(&self, id: VectorId) -> Option<&[f32]> {
         self.heap.get(id)
     }
