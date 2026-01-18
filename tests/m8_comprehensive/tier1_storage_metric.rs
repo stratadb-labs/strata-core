@@ -105,9 +105,11 @@ fn test_s2_metric_affects_search_ranking() {
         .unwrap();
 
     // Insert same vectors in both
+    // For cosine: same_dir has identical direction as query, diff_dir is slightly off
+    // For euclidean: close_dist is closer in distance to query
     let query = vec![1.0, 0.0, 0.0];
-    let same_dir = vec![2.0, 0.0, 0.0]; // Same direction, different magnitude
-    let close_dist = vec![1.1, 0.0, 0.0]; // Close euclidean distance
+    let same_dir = vec![2.0, 0.0, 0.0]; // Identical direction to query (cosine = 1.0)
+    let close_dist = vec![1.0, 0.1, 0.0]; // Slightly different direction (cosine < 1.0) but closer euclidean
 
     vector
         .insert(test_db.run_id, "cosine", "same_dir", &same_dir, None)

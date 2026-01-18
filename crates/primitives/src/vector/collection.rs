@@ -60,17 +60,11 @@ pub fn validate_collection_name(name: &str) -> Result<(), VectorError> {
 /// Validate a vector key
 ///
 /// # Validation Rules
-/// - Cannot be empty
+/// - Can be empty (empty string keys are allowed)
 /// - Cannot exceed 1024 characters
 /// - Cannot contain null bytes
 pub fn validate_vector_key(key: &str) -> Result<(), VectorError> {
-    if key.is_empty() {
-        return Err(VectorError::InvalidKey {
-            key: key.to_string(),
-            reason: "Vector key cannot be empty".to_string(),
-        });
-    }
-
+    // Empty string keys are allowed (consistent with other key-value stores)
     if key.len() > 1024 {
         return Err(VectorError::InvalidKey {
             key: key.to_string(),
@@ -185,12 +179,8 @@ mod tests {
 
     #[test]
     fn test_empty_vector_key() {
-        let result = validate_vector_key("");
-        assert!(matches!(
-            result,
-            Err(VectorError::InvalidKey { key, reason })
-            if key.is_empty() && reason.contains("empty")
-        ));
+        // Empty string keys are allowed (consistent with other key-value stores)
+        assert!(validate_vector_key("").is_ok());
     }
 
     #[test]

@@ -10,14 +10,14 @@ fn test_wal_growth_with_operations() {
 
     vector.create_collection(run_id, "embeddings", config_minilm()).unwrap();
 
-    let initial_wal_size = wal_size(&test_db.wal_dir());
+    let initial_wal_size = wal_size(&test_db.wal_path());
 
     // Insert many vectors
     for i in 0..100 {
         vector.insert(run_id, "embeddings", &format!("key_{}", i), &seeded_random_vector(384, i as u64), None).unwrap();
     }
 
-    let after_insert_wal_size = wal_size(&test_db.wal_dir());
+    let after_insert_wal_size = wal_size(&test_db.wal_path());
     assert!(after_insert_wal_size > initial_wal_size, "WAL should grow after inserts");
 
     // Delete some vectors
@@ -25,7 +25,7 @@ fn test_wal_growth_with_operations() {
         vector.delete(run_id, "embeddings", &format!("key_{}", i)).unwrap();
     }
 
-    let after_delete_wal_size = wal_size(&test_db.wal_dir());
+    let after_delete_wal_size = wal_size(&test_db.wal_path());
     assert!(after_delete_wal_size > after_insert_wal_size, "WAL should grow after deletes");
 }
 
