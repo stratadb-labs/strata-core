@@ -44,6 +44,16 @@ pub const TYPE_JSON_DELETE: u8 = 0x22;
 /// JSON destroy (delete entire document) entry
 pub const TYPE_JSON_DESTROY: u8 = 0x23;
 
+// Vector entry type tags (0x70 range) - M8
+/// Vector collection creation entry
+pub const TYPE_VECTOR_COLLECTION_CREATE: u8 = 0x70;
+/// Vector collection deletion entry
+pub const TYPE_VECTOR_COLLECTION_DELETE: u8 = 0x71;
+/// Vector upsert (insert or update) entry
+pub const TYPE_VECTOR_UPSERT: u8 = 0x72;
+/// Vector delete entry
+pub const TYPE_VECTOR_DELETE: u8 = 0x73;
+
 /// Encode WAL entry to bytes
 ///
 /// Format: `[length: u32][type: u8][payload: bytes][crc32: u32]`
@@ -83,6 +93,11 @@ pub fn encode_entry(entry: &WALEntry) -> Result<Vec<u8>> {
         WALEntry::JsonSet { .. } => TYPE_JSON_SET,
         WALEntry::JsonDelete { .. } => TYPE_JSON_DELETE,
         WALEntry::JsonDestroy { .. } => TYPE_JSON_DESTROY,
+        // Vector operations (M8)
+        WALEntry::VectorCollectionCreate { .. } => TYPE_VECTOR_COLLECTION_CREATE,
+        WALEntry::VectorCollectionDelete { .. } => TYPE_VECTOR_COLLECTION_DELETE,
+        WALEntry::VectorUpsert { .. } => TYPE_VECTOR_UPSERT,
+        WALEntry::VectorDelete { .. } => TYPE_VECTOR_DELETE,
     };
 
     // Serialize payload with bincode
@@ -237,6 +252,11 @@ pub fn decode_entry(buf: &[u8], offset: u64) -> Result<(WALEntry, usize)> {
         WALEntry::JsonSet { .. } => TYPE_JSON_SET,
         WALEntry::JsonDelete { .. } => TYPE_JSON_DELETE,
         WALEntry::JsonDestroy { .. } => TYPE_JSON_DESTROY,
+        // Vector operations (M8)
+        WALEntry::VectorCollectionCreate { .. } => TYPE_VECTOR_COLLECTION_CREATE,
+        WALEntry::VectorCollectionDelete { .. } => TYPE_VECTOR_COLLECTION_DELETE,
+        WALEntry::VectorUpsert { .. } => TYPE_VECTOR_UPSERT,
+        WALEntry::VectorDelete { .. } => TYPE_VECTOR_DELETE,
     };
 
     if type_tag != expected_type {

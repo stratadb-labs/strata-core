@@ -25,10 +25,31 @@ use crate::vector::{
 use in_mem_core::search_types::{DocRef, SearchHit, SearchResponse, SearchStats};
 use in_mem_core::types::{Key, Namespace, RunId};
 use in_mem_core::value::Value;
+use in_mem_durability::wal::WALEntry;
 use in_mem_engine::Database;
 use serde_json::Value as JsonValue;
 use std::collections::BTreeMap;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, RwLock};
+
+/// Global VectorId counter for monotonic ID assignment
+/// This counter is shared across all VectorStore instances and is updated during recovery.
+static GLOBAL_VECTOR_ID_COUNTER: AtomicU64 = AtomicU64::new(1);
+
+/// Statistics from vector recovery
+#[derive(Debug, Default, Clone)]
+pub struct RecoveryStats {
+    /// Number of collections created during recovery
+    pub collections_created: usize,
+    /// Number of collections deleted during recovery
+    pub collections_deleted: usize,
+    /// Number of vectors upserted during recovery
+    pub vectors_upserted: usize,
+    /// Number of vectors deleted during recovery
+    pub vectors_deleted: usize,
+    /// Maximum VectorId seen during recovery (for counter restoration)
+    pub max_vector_id: u64,
+}
 
 /// Vector storage and search primitive
 ///
@@ -65,26 +86,294 @@ pub struct VectorStore {
 
 impl VectorStore {
     /// Create a new VectorStore
+    ///
+    /// Automatically calls recover() to restore state from WAL if durability is enabled.
     pub fn new(db: Arc<Database>) -> Self {
-        Self {
+        let store = Self {
             db,
             backends: Arc::new(RwLock::new(BTreeMap::new())),
             backend_factory: IndexBackendFactory::default(),
+        };
+        // Automatically recover from WAL
+        if store.requires_wal() {
+            let _ = store.recover();
         }
+        store
     }
 
     /// Create a new VectorStore with custom backend factory
+    ///
+    /// Automatically calls recover() to restore state from WAL if durability is enabled.
     pub fn with_backend_factory(db: Arc<Database>, factory: IndexBackendFactory) -> Self {
-        Self {
+        let store = Self {
             db,
             backends: Arc::new(RwLock::new(BTreeMap::new())),
             backend_factory: factory,
+        };
+        // Automatically recover from WAL
+        if store.requires_wal() {
+            let _ = store.recover();
         }
+        store
     }
 
     /// Get the underlying database reference
     pub fn database(&self) -> &Arc<Database> {
         &self.db
+    }
+
+    // ========================================================================
+    // WAL Writing (Epic 55 - M8)
+    // ========================================================================
+
+    /// Check if WAL writing is required (not InMemory mode)
+    fn requires_wal(&self) -> bool {
+        self.db.durability_mode().requires_wal()
+    }
+
+    /// Write a WAL entry (if not InMemory mode)
+    fn write_wal_entry(&self, entry: WALEntry) -> VectorResult<()> {
+        if !self.requires_wal() {
+            return Ok(());
+        }
+
+        let wal = self.db.wal();
+        let mut wal_guard = wal.lock().unwrap();
+        wal_guard
+            .append(&entry)
+            .map_err(|e| VectorError::Storage(format!("WAL write failed: {}", e)))?;
+        wal_guard
+            .flush()
+            .map_err(|e| VectorError::Storage(format!("WAL flush failed: {}", e)))?;
+        Ok(())
+    }
+
+    // ========================================================================
+    // WAL Recovery (Epic 55 - M8 Story #424)
+    // ========================================================================
+
+    /// Recover vector state from WAL
+    ///
+    /// This method reads the WAL and replays all committed Vector entries.
+    /// It should be called after VectorStore is created to restore durability.
+    ///
+    /// CRITICAL: This is part of Story #424 (Vector Recovery Implementation)
+    /// The recovery process:
+    /// 1. Read all WAL entries
+    /// 2. For transactional entries: group by transaction, only replay committed
+    /// 3. For standalone Vector entries (not in a transaction): replay directly
+    ///    (these are flushed immediately so they're considered durable)
+    pub fn recover(&self) -> VectorResult<RecoveryStats> {
+        use std::collections::{HashMap, HashSet};
+
+        if !self.requires_wal() {
+            return Ok(RecoveryStats::default());
+        }
+
+        let wal = self.db.wal();
+        let wal_guard = wal.lock().unwrap();
+
+        // Read all WAL entries
+        let entries = wal_guard
+            .read_all()
+            .map_err(|e| VectorError::Storage(format!("WAL read failed: {}", e)))?;
+
+        drop(wal_guard);
+
+        let mut stats = RecoveryStats::default();
+
+        // Track transactions: txn_id -> (run_id, entries, committed)
+        struct TxnState {
+            entries: Vec<WALEntry>,
+            committed: bool,
+        }
+        let mut transactions: HashMap<u64, TxnState> = HashMap::new();
+        let mut active_txn: HashMap<RunId, u64> = HashMap::new();
+        let mut entries_in_txn: HashSet<usize> = HashSet::new(); // Track indices of entries that are in transactions
+
+        // First pass: group transactional entries by transaction
+        for (idx, entry) in entries.iter().enumerate() {
+            match entry {
+                WALEntry::BeginTxn { txn_id, run_id, .. } => {
+                    transactions.insert(*txn_id, TxnState {
+                        entries: Vec::new(),
+                        committed: false,
+                    });
+                    active_txn.insert(*run_id, *txn_id);
+                    entries_in_txn.insert(idx);
+                }
+                WALEntry::CommitTxn { txn_id, .. } => {
+                    if let Some(txn) = transactions.get_mut(txn_id) {
+                        txn.committed = true;
+                    }
+                    entries_in_txn.insert(idx);
+                }
+                WALEntry::AbortTxn { txn_id, run_id } => {
+                    // Remove aborted transaction - its entries won't be replayed
+                    transactions.remove(txn_id);
+                    if active_txn.get(run_id) == Some(txn_id) {
+                        active_txn.remove(run_id);
+                    }
+                    entries_in_txn.insert(idx);
+                }
+                // Vector entries - check if in an active transaction
+                WALEntry::VectorCollectionCreate { run_id, .. }
+                | WALEntry::VectorCollectionDelete { run_id, .. }
+                | WALEntry::VectorUpsert { run_id, .. }
+                | WALEntry::VectorDelete { run_id, .. } => {
+                    if let Some(&txn_id) = active_txn.get(run_id) {
+                        if let Some(txn) = transactions.get_mut(&txn_id) {
+                            txn.entries.push(entry.clone());
+                            entries_in_txn.insert(idx);
+                        }
+                    }
+                    // If not in a transaction, it will be processed as a standalone entry
+                }
+                _ => {} // Ignore KV and JSON entries
+            }
+        }
+
+        // Second pass: replay committed transactional Vector entries
+        let mut committed_txns: Vec<_> = transactions
+            .into_iter()
+            .filter(|(_, txn)| txn.committed)
+            .collect();
+        committed_txns.sort_by_key(|(txn_id, _)| *txn_id);
+
+        for (_txn_id, txn) in committed_txns {
+            for entry in txn.entries {
+                self.replay_vector_entry(&entry, &mut stats)?;
+            }
+        }
+
+        // Third pass: replay standalone Vector entries (not in any transaction)
+        // These are considered durable because they were flushed immediately
+        for (idx, entry) in entries.iter().enumerate() {
+            if entries_in_txn.contains(&idx) {
+                continue; // Skip entries that were part of a transaction
+            }
+
+            match entry {
+                WALEntry::VectorCollectionCreate { .. }
+                | WALEntry::VectorCollectionDelete { .. }
+                | WALEntry::VectorUpsert { .. }
+                | WALEntry::VectorDelete { .. } => {
+                    self.replay_vector_entry(entry, &mut stats)?;
+                }
+                _ => {} // Ignore non-Vector entries
+            }
+        }
+
+        // Update global VectorId counter to ensure determinism (Invariant T4)
+        if stats.max_vector_id > 0 {
+            Self::set_min_vector_id(stats.max_vector_id + 1);
+        }
+
+        Ok(stats)
+    }
+
+    /// Set the minimum VectorId counter value
+    ///
+    /// This ensures that the counter is at least `min_id` to preserve
+    /// VectorId monotonicity across recovery (Invariant T4).
+    fn set_min_vector_id(min_id: u64) {
+        // CAS loop to ensure we only increase, never decrease
+        loop {
+            let current = GLOBAL_VECTOR_ID_COUNTER.load(Ordering::SeqCst);
+            if current >= min_id {
+                break;
+            }
+            if GLOBAL_VECTOR_ID_COUNTER.compare_exchange(current, min_id, Ordering::SeqCst, Ordering::SeqCst).is_ok() {
+                break;
+            }
+        }
+    }
+
+    /// Helper to replay a single Vector WAL entry
+    fn replay_vector_entry(&self, entry: &WALEntry, stats: &mut RecoveryStats) -> VectorResult<()> {
+        match entry {
+            WALEntry::VectorCollectionCreate {
+                run_id,
+                collection,
+                dimension,
+                metric,
+                ..
+            } => {
+                let config = VectorConfig {
+                    dimension: *dimension,
+                    metric: crate::vector::DistanceMetric::from_byte(*metric)
+                        .ok_or_else(|| {
+                            VectorError::Serialization(format!("Invalid metric: {}", metric))
+                        })?,
+                    storage_dtype: crate::vector::StorageDtype::F32,
+                };
+                // Ignore errors if collection already exists (idempotent replay)
+                let _ = self.replay_create_collection(*run_id, collection, config);
+                stats.collections_created += 1;
+            }
+            WALEntry::VectorCollectionDelete {
+                run_id,
+                collection,
+                ..
+            } => {
+                let _ = self.replay_delete_collection(*run_id, collection);
+                stats.collections_deleted += 1;
+            }
+            WALEntry::VectorUpsert {
+                run_id,
+                collection,
+                key,
+                vector_id,
+                embedding,
+                metadata,
+                ..
+            } => {
+                // If collection doesn't exist yet, try to load it from KV
+                // (the KV recovery may have restored the collection config)
+                let collection_id = CollectionId::new(*run_id, collection);
+                if !self.backends.read().unwrap().contains_key(&collection_id) {
+                    // Try to load from KV - collection config should have been restored
+                    if let Ok(Some(config)) = self.load_collection_config(*run_id, collection) {
+                        self.init_backend(&collection_id, &config);
+                    }
+                }
+
+                let meta: Option<JsonValue> = metadata
+                    .as_ref()
+                    .map(|m| serde_json::from_slice(m))
+                    .transpose()
+                    .map_err(|e| VectorError::Serialization(e.to_string()))?;
+
+                // Track max VectorId for counter restoration
+                if *vector_id > stats.max_vector_id {
+                    stats.max_vector_id = *vector_id;
+                }
+
+                // Ignore errors - collection may not exist yet if VectorCollectionCreate
+                // WAL entry wasn't written (possible in some edge cases)
+                let _ = self.replay_upsert(
+                    *run_id,
+                    collection,
+                    key,
+                    VectorId::new(*vector_id),
+                    embedding,
+                    meta,
+                );
+                stats.vectors_upserted += 1;
+            }
+            WALEntry::VectorDelete {
+                run_id,
+                collection,
+                key,
+                vector_id,
+                ..
+            } => {
+                let _ = self.replay_delete(*run_id, collection, key, VectorId::new(*vector_id));
+                stats.vectors_deleted += 1;
+            }
+            _ => {} // Ignore other entries
+        }
+        Ok(())
     }
 
     // ========================================================================
@@ -144,6 +433,15 @@ impl VectorStore {
         // Initialize in-memory backend
         self.init_backend(&collection_id, &config);
 
+        // Write WAL entry for durability (M8 Epic 55)
+        self.write_wal_entry(WALEntry::VectorCollectionCreate {
+            run_id,
+            collection: name.to_string(),
+            dimension: config.dimension,
+            metric: config.metric.to_byte(),
+            version: 1, // TODO: Get proper version from coordinator
+        })?;
+
         Ok(CollectionInfo {
             name: name.to_string(),
             config,
@@ -182,6 +480,13 @@ impl VectorStore {
 
         // Remove in-memory backend
         self.backends.write().unwrap().remove(&collection_id);
+
+        // Write WAL entry for durability (M8 Epic 55)
+        self.write_wal_entry(WALEntry::VectorCollectionDelete {
+            run_id,
+            collection: name.to_string(),
+            version: 1, // TODO: Get proper version from coordinator
+        })?;
 
         Ok(())
     }
@@ -334,6 +639,13 @@ impl VectorStore {
             });
         }
 
+        // Serialize metadata to bytes for WAL storage (before it's consumed)
+        let metadata_bytes = metadata
+            .as_ref()
+            .map(|m| serde_json::to_vec(m))
+            .transpose()
+            .map_err(|e| VectorError::Serialization(e.to_string()))?;
+
         // Check if vector already exists
         let kv_key = Key::new_vector(Namespace::for_run(run_id), collection, key);
         let existing = self.get_vector_record_by_key(&kv_key)?;
@@ -379,6 +691,17 @@ impl VectorStore {
                 txn.put(kv_key.clone(), Value::Bytes(record_bytes.clone()))
             })
             .map_err(|e| VectorError::Storage(e.to_string()))?;
+
+        // Write WAL entry for durability (M8 Epic 55)
+        self.write_wal_entry(WALEntry::VectorUpsert {
+            run_id,
+            collection: collection.to_string(),
+            key: key.to_string(),
+            vector_id: vector_id.as_u64(),
+            embedding: embedding.to_vec(),
+            metadata: metadata_bytes,
+            version: 1, // TODO: Get proper version from coordinator
+        })?;
 
         Ok(())
     }
@@ -457,6 +780,15 @@ impl VectorStore {
         self.db
             .transaction(run_id, |txn| txn.delete(kv_key.clone()))
             .map_err(|e| VectorError::Storage(e.to_string()))?;
+
+        // Write WAL entry for durability (M8 Epic 55)
+        self.write_wal_entry(WALEntry::VectorDelete {
+            run_id,
+            collection: collection.to_string(),
+            key: key.to_string(),
+            vector_id: vector_id.as_u64(),
+            version: 1, // TODO: Get proper version from coordinator
+        })?;
 
         Ok(true)
     }
@@ -657,12 +989,11 @@ impl VectorStore {
     }
 
     /// Allocate a new VectorId (monotonic, never reused)
+    ///
+    /// Uses the global counter that is updated during recovery to ensure
+    /// VectorId monotonicity across restarts (Invariant T4).
     fn allocate_vector_id(&self, _collection_id: &CollectionId) -> VectorId {
-        // For now, use the next available ID based on backend size + 1
-        // This is a simplification - in production, we'd use atomic counters
-        // that persist across restarts
-        static NEXT_ID: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(1);
-        VectorId(NEXT_ID.fetch_add(1, std::sync::atomic::Ordering::SeqCst))
+        VectorId(GLOBAL_VECTOR_ID_COUNTER.fetch_add(1, Ordering::SeqCst))
     }
 
     /// Get key and metadata for a VectorId by scanning KV
