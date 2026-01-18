@@ -957,14 +957,14 @@ EOF
         # Example: "search_kv/small/100  time:   [87.123 µs 89.456 µs 91.789 µs]"
         {
             grep -E "(get_hot|put_hot|kvstore_get|kvstore_put|json_get|json_set|search_kv|search_hybrid|index_operations)" "$output_file" 2>/dev/null || true
-        } | grep "time:" | head -10 | while read -r line; do
+        } | { grep "time:" || true; } | head -10 | while read -r line; do
             bench=$(echo "$line" | awk '{print $1}')
             # Extract the middle value from the time range [low mid high]
             time=$(echo "$line" | sed -n 's/.*\[\([^]]*\)\].*/\1/p' | awk '{print $3, $4}')
             if [[ -n "$bench" && -n "$time" ]]; then
                 echo "| $bench | $time |" >> "$summary_file"
             fi
-        done
+        done || true
     fi
 
     log_success "Summary saved to: $summary_file"
