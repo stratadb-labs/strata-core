@@ -1,6 +1,22 @@
-# Project Milestones: In-Memory Agent Database
+# Strata: Project Milestones
 
-## MVP Target: Single-Node, Embedded Library with Core Primitives + Performance + Replay
+## Core Identity
+
+**Strata is an embedded library.** The server is a deployment mode, not the product.
+
+Like SQLite, the canonical form is a library linked into your application. The server exists for cases where multi-process access or language-agnostic clients are needed, but it adds no new semantics—it is a thin adapter over the core API.
+
+This matters because:
+- Agents want microsecond tool calls, not network round-trips
+- Embedded means zero operational overhead
+- Local-first enables offline execution and deterministic replay
+- The library is the forcing function for correctness; you cannot hide complexity behind the network
+
+If Strata becomes successful, people will build servers on top of it. But the value is being **the SQLite of agent memory**, not another data service.
+
+---
+
+## MVP Target: Single-Node, Embedded Library with Core Primitives + Server Access Mode
 
 ---
 
@@ -272,6 +288,8 @@
 
 **Deliverable**: VectorStore primitive with similarity search, integrated into transaction system and M6 retrieval surface
 
+**Status**: In Progress
+
 **Philosophy**: Vector is not a standalone database feature. It's a **composite primitive** built on KV, enabling semantic search alongside keyword search. KV + JSON + Vector covers 99% of AI agent database needs.
 
 **Success Criteria**:
@@ -289,7 +307,7 @@
 
 ### Gate 3: Index Support
 - [ ] Brute-force search for small datasets
-- [ ] HNSW index for larger datasets (optional, can be deferred to M9)
+- [ ] HNSW index for larger datasets (optional, can be deferred to M11)
 - [ ] Index persistence and recovery
 
 ### Gate 4: M6 Integration
@@ -306,12 +324,125 @@
 
 ---
 
-## Milestone 9: Performance & Indexing
+## Milestone 9: API Stabilization & Universal Protocol
+**Goal**: Stabilize the external API before server implementation and client development
+
+**Deliverable**: Frozen primitive contract, stable API shape, and documented product surfaces
+
+**Status**: Not Started
+
+**Philosophy**: M9 answers the question: "What is the universal way a user interacts with anything in Strata?" Before building the server (M10) or clients (M12), the interface must be stable. This milestone separates invariants from conveniences and substrate from product.
+
+**Success Criteria**:
+
+### Gate 1: Primitive Contract (Constitutional)
+- [ ] Seven invariants documented and enforced:
+  1. Everything is Addressable
+  2. Everything is Versioned
+  3. Everything is Transactional
+  4. Everything Has a Lifecycle
+  5. Everything Exists Within a Run
+  6. Everything is Introspectable
+  7. Reads and Writes Have Consistent Semantics
+- [ ] All 7 primitives conform to all 7 invariants
+- [ ] Conformance tests for each invariant
+
+### Gate 2: Core API Shape
+- [ ] `EntityRef` type for universal addressing
+- [ ] `Versioned<T>` wrapper for all read operations
+- [ ] Unified `Transaction` trait with methods for all primitives
+- [ ] `RunHandle` pattern for scoped access
+- [ ] Consistent error types across primitives
+
+### Gate 3: API Consistency Audit
+- [ ] All reads return `Versioned<T>`
+- [ ] All writes return version information
+- [ ] All primitives accessible through same patterns
+- [ ] No primitive-specific "special cases" in core API
+
+### Gate 4: Documentation
+- [ ] PRIMITIVE_CONTRACT.md finalized (invariants)
+- [ ] CORE_API_SHAPE.md finalized (API patterns)
+- [ ] PRODUCT_SURFACES.md documented (features built on core)
+- [ ] Migration guide from current API
+
+### Gate 5: Validation
+- [ ] Example code works with new API
+- [ ] Existing tests updated to use `Versioned<T>` returns
+- [ ] API review completed
+
+**Risk**: Over-specification. Keep invariants minimal; leave room for API evolution.
+
+**Architecture Docs**:
+- [PRIMITIVE_CONTRACT.md](../architecture/PRIMITIVE_CONTRACT.md) - The invariants
+- [CORE_API_SHAPE.md](../architecture/CORE_API_SHAPE.md) - The API patterns
+- [PRODUCT_SURFACES.md](../architecture/PRODUCT_SURFACES.md) - Features on top of core
+
+---
+
+## Milestone 10: Server & Wire Protocol
+**Goal**: Add server deployment mode for multi-process and multi-language access
+
+**Deliverable**: `strata-server` binary that exposes the Universal Protocol over the network, plus a Rust client library
+
+**Status**: Not Started
+
+**Philosophy**: M10 adds a **deployment mode**, not a new product. Strata remains an embedded library; the server is a thin adapter for cases requiring multi-process sharing or language-agnostic clients. The server adds no new semantics—`request → core API → response`. If the server is adding logic beyond transport, something is wrong. This is the SQLite/rqlite pattern, not the Redis pattern.
+
+**Success Criteria**:
+
+### Gate 1: Server Binary
+- [ ] `strata-server` binary builds and runs
+- [ ] Configurable listen address (default: `127.0.0.1:6380`)
+- [ ] Configurable data directory
+- [ ] Graceful shutdown (SIGTERM/SIGINT)
+- [ ] Startup banner with version and config
+
+### Gate 2: Wire Protocol
+- [ ] Binary protocol defined (MessagePack-RPC or similar)
+- [ ] Request/response framing with length prefix
+- [ ] All `Operation` variants from Universal Protocol supported
+- [ ] Transaction support (begin, execute, commit, rollback)
+- [ ] Error responses with structured error codes
+
+### Gate 3: Connection Management
+- [ ] Accept multiple concurrent connections
+- [ ] Per-connection transaction state
+- [ ] Connection timeout handling
+- [ ] Clean disconnect handling
+
+### Gate 4: Rust Client Library
+- [ ] `strata-client` crate with same API shape as embedded
+- [ ] Connect to server via TCP
+- [ ] All primitive operations work through client
+- [ ] Transaction support through client
+- [ ] Connection pooling (basic)
+
+### Gate 5: Validation
+- [ ] Embedded and client APIs are interchangeable (same trait)
+- [ ] All existing tests pass through client (not just embedded)
+- [ ] Round-trip latency < 1ms for simple operations (localhost)
+- [ ] Basic load test: 10K ops/sec through wire protocol
+
+**Risk**: Protocol design can over-engineer. Start minimal (no auth, no TLS, no multiplexing). Add features in later milestones.
+
+**Non-Goals for M10**:
+- Authentication/authorization (M13)
+- TLS encryption (M13)
+- Connection multiplexing
+- Clustering/replication
+- Admin commands beyond basic health
+
+---
+
+## Milestone 11: Performance & Indexing
 **Goal**: Optimize hot paths and add secondary indexing capabilities
 
 **Deliverable**: Faster queries, better scaling, and indexing infrastructure for all primitives
 
-**Philosophy**: M9 is the "make it fast" milestone. By now we have real workloads from M7/M8. Optimize based on data, not speculation. HNSW refinement belongs here if not completed in M8.
+**Status**: Not Started
+
+**Philosophy**: M11 is the "make it fast" milestone. By now we have real workloads from M7/M8, a stable API from M9, and a server from M10. Optimize based on data, not speculation. HNSW refinement belongs here if not completed in M8.
 
 **Success Criteria**:
 
@@ -339,18 +470,20 @@
 
 ---
 
-## Milestone 10: Python Client
+## Milestone 12: Python Client
 **Goal**: First-class Python client for AI agent developers
 
 **Deliverable**: Python SDK with ergonomic API, async support, and comprehensive documentation
 
-**Philosophy**: Python dominates AI/ML tooling. A clean Python client unlocks the majority of agent developers. This is the MVP client library.
+**Status**: Not Started
+
+**Philosophy**: Python dominates AI/ML tooling. A clean Python client unlocks the majority of agent developers. This is the MVP client library. Requires stable API from M9 and server from M10.
 
 **Success Criteria**:
 
 ### Gate 1: Core Client
 - [ ] Python package installable via pip
-- [ ] Connection management and configuration
+- [ ] Connection to strata-server
 - [ ] All primitive operations exposed (KV, JSON, Event, State, Trace, Run, Vector)
 
 ### Gate 2: Ergonomic API
@@ -372,10 +505,12 @@
 
 ---
 
-## Milestone 11: Security & Multi-Tenancy
+## Milestone 13: Security & Multi-Tenancy
 **Goal**: Production security features and tenant isolation
 
 **Deliverable**: Authentication, authorization, and multi-tenant support
+
+**Status**: Not Started
 
 **Philosophy**: Security is table stakes for production. Multi-tenancy enables SaaS deployment. These features shouldn't slow core development but are essential before production.
 
@@ -397,6 +532,7 @@
 - [ ] Tenant-aware routing
 
 ### Gate 4: Security Hardening
+- [ ] TLS encryption for wire protocol
 - [ ] Encryption at rest (optional)
 - [ ] Audit logging
 - [ ] Security review and penetration testing
@@ -405,12 +541,14 @@
 
 ---
 
-## Milestone 12: Production Readiness
+## Milestone 14: Production Readiness
 **Goal**: Operational excellence for production deployment
 
 **Deliverable**: Observable, maintainable, deployable system
 
-**Philosophy**: M12 is the capstone milestone. Everything needed to run in production with confidence: monitoring, deployment, documentation.
+**Status**: Not Started
+
+**Philosophy**: M14 is the capstone milestone. Everything needed to run in production with confidence: monitoring, deployment, documentation.
 
 **Success Criteria**:
 
@@ -449,16 +587,50 @@
 
 ## Post-MVP Enhancements (Future)
 
+> **See also**: [MAGIC_APIS.md](../architecture/MAGIC_APIS.md) - The five APIs that make Strata unique
+
+### The Five Magic APIs
+
+These APIs transform Strata from "agent storage" into "a substrate for reasoning about agent behavior over time."
+
+#### 1. replay(): Time Travel
+- `replay(run_id)` → Reconstruct full world state
+- `replay_until(run_id, timestamp)` → State at any point in time
+- `replay_range(run_id, t1, t2)` → Event sequence between points
+- Cross-primitive: KV, JSON, StateCell, Vector, Trace, Event all replayed
+- **Makes Strata a debugger, simulator, and learning loop engine**
+
+#### 2. diff(): Change Intelligence
+- `diff_runs(run_a, run_b)` → Compare two runs
+- `diff_states(view_a, view_b)` → Compare two snapshots
+- `diff_range(run_id, t1, t2)` → Changes over time
+- Cross-primitive: KV diffs, JSON path diffs, vector changes, state transitions
+- **No major database has a native diff engine**
+
+#### 3. branch(): Counterfactuals
+- `branch_from(run_id, timestamp)` → Fork from any point in time
+- `fork(run_id)` → Fork current state
+- All primitives snapshotted into new branch (copy-on-write)
+- **Turns Strata into a multiverse engine for what-if simulations**
+
+#### 4. explain(): Causal Reasoning
+- `explain(entity_ref)` → Why is this state what it is?
+- `explain_transition(entity_ref, timestamp)` → Why did this change?
+- Output: prior states, events, operations, trace steps, causal chain
+- **System explainability, not LLM explainability**
+
+#### 5. search(): Semantic Memory Over Time
+- `search_states(query)` → Search historical states
+- `search_events(query)` → Search event history
+- `search_traces(query)` → Search execution traces
+- `search_runs(query)` → Search across runs
+- Combines: keyword, vector similarity, structural filters, temporal constraints
+- **Time-aware semantic memory**
+
 ### JSON Optimization (Structural Storage)
 - Per-node versioning / subtree MVCC
 - Structural sharing for efficient snapshots
 - Array insert/remove with stable identities
-- Diff operations
-
-### Advanced Search
-- Enhanced hybrid search algorithms
-- Learning-to-rank integration
-- Query expansion and synonyms
 
 ### MCP Integration
 - MCP server implementation
@@ -466,7 +638,7 @@
 - IDE integration demos
 
 ### Network Layer Enhancements
-- gRPC server
+- gRPC server (alternative to binary protocol)
 - Additional client libraries (TypeScript, Go)
 - Connection pooling and load balancing
 
@@ -479,7 +651,6 @@
 
 ### Advanced Features
 - Query DSL for complex filters
-- Run forking and lineage tracking
 - Incremental snapshots
 - Distributed mode (far future)
 
@@ -487,7 +658,7 @@
 
 ## MVP Definition
 
-**MVP = Milestones 1-12 Complete**
+**MVP = Milestones 1-14 Complete**
 
 At MVP completion, the system should:
 1. Store agent state in 7 primitives (KV, Events, StateCell, Trace, RunIndex, JSON, **Vector**)
@@ -496,15 +667,16 @@ At MVP completion, the system should:
 4. Persist data with WAL and snapshots
 5. Survive crashes and recover correctly
 6. Replay runs deterministically
-7. Run as embedded library (single-node)
+7. **Run as standalone server with wire protocol access**
 8. Scale near-linearly for disjoint keys (multi-thread)
 9. Have >90% test coverage
 10. **JSON primitive with path-level mutations and region-based conflict detection**
 11. **Retrieval surface with primitive-native search and composite hybrid search**
 12. **Vector primitive with semantic search and hybrid retrieval (keyword + vector)**
-13. **Python client library for AI agent developers**
-14. **Security: authentication, authorization, multi-tenancy**
-15. **Production-ready: observability, deployment, documentation**
+13. **Stable, universal API with documented invariants and consistent patterns**
+14. **Python client library for AI agent developers**
+15. **Security: authentication, authorization, multi-tenancy**
+16. **Production-ready: observability, deployment, documentation**
 
 **Not in MVP**:
 - JSON structural optimization (post-MVP enhancement)
@@ -531,10 +703,12 @@ Current:
 - M8 (Vector Primitive) ← YOU ARE HERE
 
 Remaining:
-- M9 (Performance & Indexing)
-- M10 (Python Client)
-- M11 (Security & Multi-Tenancy)
-- M12 (Production Readiness)
+- M9 (API Stabilization & Universal Protocol)
+- M10 (Server & Wire Protocol)
+- M11 (Performance & Indexing)
+- M12 (Python Client)
+- M13 (Security & Multi-Tenancy)
+- M14 (Production Readiness)
 ```
 
 ---
@@ -558,13 +732,17 @@ M7 (Durability, Snapshots, Replay) ✅
   ↓
 M8 (Vector Primitive) ← Current
   ↓
-M9 (Performance & Indexing)
+M9 (API Stabilization) ← Universal Protocol
   ↓
-M10 (Python Client)
+M10 (Server & Wire Protocol) ← NEW: External Access
   ↓
-M11 (Security & Multi-Tenancy)
+M11 (Performance & Indexing)
   ↓
-M12 (Production Readiness)
+M12 (Python Client)
+  ↓
+M13 (Security & Multi-Tenancy)
+  ↓
+M14 (Production Readiness)
 ```
 
 **Notes**:
@@ -573,8 +751,10 @@ M12 (Production Readiness)
 - M6 adds retrieval surface that M8 (Vector Primitive) will plug into for hybrid search.
 - M7 consolidates all durability concerns: snapshots, replay, storage stabilization.
 - M8 Vector is a composite primitive on KV - enables semantic search alongside keyword search.
-- M9 optimizes based on real workloads from M7/M8. HNSW refinement if needed.
-- M10 Python client is the MVP client library - TypeScript/Go are post-MVP.
+- **M9 stabilizes the API. Answers: "What is the universal way to interact with Strata?"**
+- **M10 makes Strata a server. External clients can connect over the network.**
+- M11 optimizes based on real workloads with stable API and server. HNSW refinement if needed.
+- M12 Python client connects to strata-server - requires M9 API and M10 server.
 
 ---
 
@@ -598,16 +778,21 @@ M12 (Production Readiness)
 3. **Retrieval scope creep (M6)**: Risk of building full search engine ✅ Mitigated
    - Mitigation: Six architectural rules; M6 validates surface only, not relevance
 4. **Vector complexity (M8)**: HNSW can be complex
-   - Mitigation: Start with brute-force, add HNSW when needed; defer refinement to M9
-5. **Security scope creep (M11)**: Security features can expand infinitely
+   - Mitigation: Start with brute-force, add HNSW when needed; defer refinement to M11
+5. **API over-specification (M9)**: Risk of freezing too much too early
+   - Mitigation: Separate invariants (constitutional) from API shape (stable) from product surfaces (evolving)
+6. **Protocol over-engineering (M10)**: Wire protocol can grow unbounded
+   - Mitigation: Start minimal (no auth, no TLS); add features in M13
+7. **Security scope creep (M13)**: Security features can expand infinitely
    - Mitigation: Scope to essential production needs; iterate post-MVP
 
 ### Low-Risk Areas
 1. **Foundation (M1)**: Well-understood patterns ✅ Complete
 2. **API design (M3)**: Can iterate post-MVP ✅ Complete
 3. **JSON API (M5)**: Follows established primitive patterns ✅ Complete
-4. **Python client (M10)**: Well-understood; main risk is API bike-shedding
-5. **Production readiness (M12)**: Standard practices; just needs execution
+4. **Server implementation (M10)**: Well-understood; main risk is scope creep
+5. **Python client (M12)**: Well-understood; main risk is API bike-shedding; mitigated by stable API from M9
+6. **Production readiness (M14)**: Standard practices; just needs execution
 
 ---
 
@@ -623,7 +808,7 @@ M12 (Production Readiness)
 - Redis over TCP: ~100K-200K ops/sec
 - Redis internal loop: Millions ops/sec
 - M4 target: 250K ops/sec (removes blockers)
-- M14 target: Millions ops/sec (Redis parity)
+- Post-MVP target: Millions ops/sec (Redis parity)
 
 ---
 
@@ -638,3 +823,5 @@ M12 (Production Readiness)
 | 5.0 | 2026-01-17 | M6 Retrieval Surfaces complete; 125 tests passing (6 stress tests ignored) |
 | 6.0 | 2026-01-17 | Major roadmap restructure: M7 consolidates durability+snapshots+replay; M8=Vector; M9=Performance; M10=Python; M11=Security; M12=Production. MVP now 12 milestones (M1-M12). Post-MVP becomes enhancements. |
 | 7.0 | 2026-01-17 | M7 Durability complete; 182 comprehensive tests passing; snapshot system, crash recovery, deterministic replay, run lifecycle, storage stabilization all complete. |
+| 8.0 | 2026-01-19 | Inserted M9 (API Stabilization & Universal Protocol); renumbered M9→M10, M10→M11, M11→M12, M12→M13. MVP now 13 milestones (M1-M13). |
+| 9.0 | 2026-01-19 | Inserted M10 (Server & Wire Protocol); renumbered M10→M11, M11→M12, M12→M13, M13→M14. MVP now 14 milestones (M1-M14). |
