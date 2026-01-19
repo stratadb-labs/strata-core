@@ -254,18 +254,51 @@ impl std::fmt::Display for PrimitiveType {
 
 ---
 
-## Story #461: Versioned<T> Wrapper Type
+## Story #470: Versioned<T> Wrapper Type
 
 **File**: `crates/core/src/versioned.rs` (NEW)
 
 **Deliverable**: Universal wrapper for versioned read results
 
+### Unification with Existing VersionedValue
+
+> **Critical Design Decision**: The codebase already has `VersionedValue` in `crates/core/src/value.rs`.
+> M9 cannot introduce a competing `Versioned<T>` abstraction - that creates semantic duplication.
+>
+> **Solution**: `Versioned<T>` is the canonical type. `VersionedValue` becomes a type alias.
+
+The current `VersionedValue`:
+```rust
+// crates/core/src/value.rs (CURRENT)
+pub struct VersionedValue {
+    pub value: Value,
+    pub version: u64,
+    pub timestamp: Timestamp,
+    pub ttl: Option<Duration>,
+}
+```
+
+Must unify with M9's `Versioned<T>`:
+```rust
+// After M9
+pub struct Versioned<T> {
+    pub value: T,
+    pub version: Version,
+    pub timestamp: Timestamp,
+    pub ttl: Option<Duration>,  // Added for compatibility
+}
+
+// Type alias for backwards compatibility
+pub type VersionedValue = Versioned<Value>;
+```
+
 ### Implementation
 
 ```rust
 use crate::{Version, Timestamp};
+use std::time::Duration;
 
-/// Wrapper for any value read from Strata
+/// Wrapper for any value read from the database
 ///
 /// This type expresses Invariant 2: Everything is Versioned.
 /// Every read returns version information. Version information
@@ -274,6 +307,9 @@ use crate::{Version, Timestamp};
 /// IMPORTANT: There is no "read without version" API. If you read
 /// something, you get its version. You can ignore it, but it's
 /// always there.
+///
+/// NOTE: This type unifies with the existing VersionedValue.
+/// After M9, `VersionedValue = Versioned<Value>`.
 #[derive(Debug, Clone)]
 pub struct Versioned<T> {
     /// The actual value
@@ -284,6 +320,9 @@ pub struct Versioned<T> {
 
     /// When this version was created
     pub timestamp: Timestamp,
+
+    /// Optional time-to-live (for primitives that support TTL)
+    pub ttl: Option<Duration>,
 }
 
 impl<T> Versioned<T> {
@@ -293,6 +332,17 @@ impl<T> Versioned<T> {
             value,
             version,
             timestamp,
+            ttl: None,
+        }
+    }
+
+    /// Create with TTL
+    pub fn with_ttl(value: T, version: Version, timestamp: Timestamp, ttl: Option<Duration>) -> Self {
+        Self {
+            value,
+            version,
+            timestamp,
+            ttl,
         }
     }
 
@@ -302,6 +352,7 @@ impl<T> Versioned<T> {
             value,
             version,
             timestamp: Timestamp::now(),
+            ttl: None,
         }
     }
 
@@ -313,6 +364,7 @@ impl<T> Versioned<T> {
             value: f(self.value),
             version: self.version,
             timestamp: self.timestamp,
+            ttl: self.ttl,
         }
     }
 
@@ -322,6 +374,7 @@ impl<T> Versioned<T> {
             value: f(self.value)?,
             version: self.version,
             timestamp: self.timestamp,
+            ttl: self.ttl,
         })
     }
 
@@ -331,6 +384,7 @@ impl<T> Versioned<T> {
             value: &self.value,
             version: self.version,
             timestamp: self.timestamp,
+            ttl: self.ttl,
         }
     }
 
@@ -349,6 +403,19 @@ impl<T> Versioned<T> {
     /// Check if this version is newer than another
     pub fn is_newer_than(&self, other: &Versioned<T>) -> bool {
         self.version > other.version
+    }
+
+    /// Check if the value has expired based on TTL
+    ///
+    /// Compatibility method matching VersionedValue::is_expired()
+    pub fn is_expired(&self) -> bool {
+        if let Some(ttl) = self.ttl {
+            let now = Timestamp::now();
+            let elapsed_micros = now.as_micros().saturating_sub(self.timestamp.as_micros());
+            elapsed_micros >= ttl.as_micros() as u64
+        } else {
+            false
+        }
     }
 }
 
@@ -396,19 +463,23 @@ impl<T> Versioned<Option<T>> {
 
 ### Acceptance Criteria
 
-- [ ] Versioned<T> with value, version, timestamp fields
-- [ ] `new()` and `now()` constructors
-- [ ] `map()` for value transformation
+- [ ] Versioned<T> with value, version, timestamp, ttl fields
+- [ ] `new()` and `now()` constructors (ttl defaults to None)
+- [ ] `with_ttl()` constructor for TTL support
+- [ ] `map()` for value transformation (preserves TTL)
 - [ ] `try_map()` for fallible transformation
 - [ ] `as_ref()` for borrowing
 - [ ] `into_value()` deprecated but available for migration
 - [ ] `is_newer_than()` for version comparison
+- [ ] `is_expired()` for TTL checking (VersionedValue compatibility)
 - [ ] PartialEq, Eq implementations
 - [ ] Transpose for Option inner types
+- [ ] **Type alias**: `pub type VersionedValue = Versioned<Value>;` in value.rs
+- [ ] **Migration**: VersionedValue::new() still works via type alias
 
 ---
 
-## Story #462: Version Enum
+## Story #471: Version Enum
 
 **File**: `crates/core/src/version.rs` (NEW)
 

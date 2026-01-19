@@ -355,7 +355,7 @@ pub enum PrimitiveType {
 ### 4.2 Versioned<T>: Universal Read Result (Invariant 2)
 
 ```rust
-/// Wrapper for any value read from Strata
+/// Wrapper for any value read from the database
 ///
 /// This type expresses Invariant 2: Everything is Versioned.
 /// Every read returns version information.
@@ -369,11 +369,18 @@ pub struct Versioned<T> {
 
     /// When this version was created
     pub timestamp: Timestamp,
+
+    /// Optional time-to-live (for primitives that support TTL)
+    pub ttl: Option<std::time::Duration>,
 }
 
 impl<T> Versioned<T> {
     pub fn new(value: T, version: Version, timestamp: Timestamp) -> Self {
-        Self { value, version, timestamp }
+        Self { value, version, timestamp, ttl: None }
+    }
+
+    pub fn with_ttl(value: T, version: Version, timestamp: Timestamp, ttl: Option<std::time::Duration>) -> Self {
+        Self { value, version, timestamp, ttl }
     }
 
     /// Map the inner value while preserving version info
@@ -382,9 +389,64 @@ impl<T> Versioned<T> {
             value: f(self.value),
             version: self.version,
             timestamp: self.timestamp,
+            ttl: self.ttl,
         }
     }
 }
+```
+
+#### 4.2.1 Unification with Existing VersionedValue
+
+> **The Semantic Question**: Can there be two competing notions of "versioned"?
+>
+> The current codebase has `VersionedValue` in `crates/core/src/value.rs`:
+> ```rust
+> pub struct VersionedValue {
+>     pub value: Value,
+>     pub version: u64,
+>     pub timestamp: Timestamp,
+>     pub ttl: Option<Duration>,
+> }
+> ```
+>
+> M9 introduces `Versioned<T>` as a universal contract. Having both creates semantic duplication:
+> two types that mean the same thing but with different names and slightly different shapes.
+
+**The Solution: Unify Around Versioned<T>**
+
+`Versioned<T>` becomes the **canonical** versioned abstraction. `VersionedValue` becomes a type alias:
+
+```rust
+// In crates/core/src/value.rs (after M9)
+
+/// Type alias for backwards compatibility
+///
+/// New code should use `Versioned<Value>` directly.
+/// This alias exists only for migration compatibility.
+pub type VersionedValue = Versioned<Value>;
+```
+
+**Migration Strategy**:
+
+1. **Phase 1: Add Versioned<T>** - Implement `Versioned<T>` with TTL support
+2. **Phase 2: Add Type Alias** - Make `VersionedValue = Versioned<Value>`
+3. **Phase 3: Update Internal Code** - Migrate internal usage to `Versioned<T>`
+4. **Phase 4: Deprecate Direct Usage** - Warn on direct `VersionedValue` construction
+
+**Field Reconciliation**:
+
+| VersionedValue Field | Versioned<T> Field | Resolution |
+|---------------------|-------------------|------------|
+| `value: Value` | `value: T` | `T = Value` for KV |
+| `version: u64` | `version: Version` | Wrap in `Version::TxnId(u64)` |
+| `timestamp: Timestamp` | `timestamp: Timestamp` | Same (use M9 Timestamp type) |
+| `ttl: Option<Duration>` | `ttl: Option<Duration>` | Add to Versioned<T> |
+
+**Why This Matters**:
+- Single source of truth for "versioned data"
+- API consistency: all reads return `Versioned<T>`
+- No semantic duplication or confusion
+- Existing code continues to work via type alias
 ```
 
 ### 4.3 Version: Universal Version Type

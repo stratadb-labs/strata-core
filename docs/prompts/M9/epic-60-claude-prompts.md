@@ -52,15 +52,16 @@ Before starting ANY story in this epic, read:
 > These types are the API expression of the seven invariants from PRIMITIVE_CONTRACT.md.
 > Every type has a specific purpose tied to an invariant.
 
-| Type | Invariant |
-|------|-----------|
-| EntityRef | Invariant 1: Everything is Addressable |
-| Versioned<T> | Invariant 2: Everything is Versioned |
-| Version | Invariant 2: Everything is Versioned |
-| RunName | Invariant 5: Semantic user-facing run identity |
-| RunId | Invariant 5: Internal storage identity (UUID) |
-| PrimitiveType | Invariant 6: Everything is Introspectable |
-| Timestamp | Invariant 2: Everything is Versioned (temporal) |
+| Type | Invariant | Notes |
+|------|-----------|-------|
+| EntityRef | Invariant 1: Everything is Addressable | 7 variants for 7 primitives |
+| Versioned<T> | Invariant 2: Everything is Versioned | **Canonical versioned type** |
+| VersionedValue | Invariant 2: Everything is Versioned | Type alias: `Versioned<Value>` |
+| Version | Invariant 2: Everything is Versioned | TxnId, Sequence, Counter |
+| RunName | Invariant 5: Semantic user-facing run identity | Human-readable names |
+| RunId | Invariant 5: Internal storage identity (UUID) | Unchanged from current |
+| PrimitiveType | Invariant 6: Everything is Introspectable | 7 primitive types |
+| Timestamp | Invariant 2: Everything is Versioned (temporal) | Microseconds since epoch |
 
 ### Success Criteria
 - [ ] `EntityRef` enum with variants for all 7 primitives
@@ -343,9 +344,39 @@ mod tests {
 ## Story #470: Versioned<T> Wrapper Type
 
 **GitHub Issue**: [#470](https://github.com/anibjoshi/in-mem/issues/470)
-**Estimated Time**: 1.5 hours
+**Estimated Time**: 2 hours
 **Dependencies**: Stories #471, #472
 **Blocks**: All Epic 61 stories
+
+### Critical: Unification with VersionedValue
+
+> **The Semantic Problem**: The codebase already has `VersionedValue` in `crates/core/src/value.rs`.
+> M9 cannot introduce a competing `Versioned<T>` - that creates semantic duplication.
+>
+> **Solution**: `Versioned<T>` is the canonical type. `VersionedValue` becomes a type alias.
+
+**Current VersionedValue** (in `crates/core/src/value.rs`):
+```rust
+pub struct VersionedValue {
+    pub value: Value,
+    pub version: u64,
+    pub timestamp: Timestamp,  // Note: i64 (Unix seconds)
+    pub ttl: Option<Duration>,
+}
+```
+
+**M9 Versioned<T>** must be compatible:
+```rust
+pub struct Versioned<T> {
+    pub value: T,
+    pub version: Version,      // Wrapper around u64
+    pub timestamp: Timestamp,  // M9 Timestamp (microseconds)
+    pub ttl: Option<Duration>, // Added for compatibility
+}
+
+// Then in value.rs:
+pub type VersionedValue = Versioned<Value>;
+```
 
 ### Start Story
 
@@ -365,12 +396,22 @@ Create `crates/core/src/versioned.rs`:
 //! When you read an entity, you know:
 //! 1. Which version you are looking at
 //! 2. When that version came into existence
+//!
+//! NOTE: This type unifies with the existing VersionedValue.
+//! After M9, `VersionedValue = Versioned<Value>`.
 
 use crate::{Version, Timestamp};
+use std::time::Duration;
 
 /// A value with its version and timestamp
 ///
 /// This wrapper ensures version information is never lost when reading entities.
+/// All read operations return `Versioned<T>`.
+///
+/// ## Unification with VersionedValue
+///
+/// This type replaces the previous `VersionedValue` struct. The old type
+/// becomes a type alias: `pub type VersionedValue = Versioned<Value>;`
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Versioned<T> {
     /// The actual value
@@ -379,12 +420,19 @@ pub struct Versioned<T> {
     pub version: Version,
     /// When this version was created
     pub timestamp: Timestamp,
+    /// Optional time-to-live (for primitives that support TTL)
+    pub ttl: Option<Duration>,
 }
 
 impl<T> Versioned<T> {
-    /// Create a new versioned value
+    /// Create a new versioned value (TTL defaults to None)
     pub fn new(value: T, version: Version, timestamp: Timestamp) -> Self {
-        Self { value, version, timestamp }
+        Self { value, version, timestamp, ttl: None }
+    }
+
+    /// Create a versioned value with TTL
+    pub fn with_ttl(value: T, version: Version, timestamp: Timestamp, ttl: Option<Duration>) -> Self {
+        Self { value, version, timestamp, ttl }
     }
 
     /// Transform the inner value, preserving version info
@@ -398,6 +446,7 @@ impl<T> Versioned<T> {
             value: f(self.value),
             version: self.version,
             timestamp: self.timestamp,
+            ttl: self.ttl,
         }
     }
 
@@ -407,6 +456,7 @@ impl<T> Versioned<T> {
             value: &self.value,
             version: self.version.clone(),
             timestamp: self.timestamp,
+            ttl: self.ttl,
         }
     }
 
@@ -433,6 +483,19 @@ impl<T> Versioned<T> {
     pub fn timestamp(&self) -> Timestamp {
         self.timestamp
     }
+
+    /// Check if the value has expired based on TTL
+    ///
+    /// This method provides compatibility with VersionedValue::is_expired().
+    pub fn is_expired(&self) -> bool {
+        if let Some(ttl) = self.ttl {
+            let now = Timestamp::now();
+            let elapsed_micros = now.as_micros().saturating_sub(self.timestamp.as_micros());
+            elapsed_micros >= ttl.as_micros() as u64
+        } else {
+            false
+        }
+    }
 }
 
 impl<T: Default> Default for Versioned<T> {
@@ -441,9 +504,43 @@ impl<T: Default> Default for Versioned<T> {
             value: T::default(),
             version: Version::TxnId(0),
             timestamp: Timestamp::EPOCH,
+            ttl: None,
         }
     }
 }
+```
+
+### Step 2: Update value.rs to use type alias
+
+After creating `versioned.rs`, update `crates/core/src/value.rs`:
+
+```rust
+// At the top of value.rs, add:
+use crate::Versioned;
+
+// Replace the VersionedValue struct with a type alias:
+/// Versioned value with metadata
+///
+/// This is now a type alias for `Versioned<Value>`.
+/// The original struct has been unified into the universal `Versioned<T>` type.
+pub type VersionedValue = Versioned<Value>;
+
+// REMOVE the old struct definition and impl block.
+// The methods are now provided by Versioned<T>.
+```
+
+### Compatibility Note
+
+The following VersionedValue usage patterns continue to work:
+
+```rust
+// Old code (still works via type alias)
+let vv = VersionedValue::new(value, Version::TxnId(1), Timestamp::now());
+assert_eq!(vv.value, value);
+assert!(!vv.is_expired());
+
+// New code (preferred)
+let v: Versioned<Value> = Versioned::new(value, Version::TxnId(1), Timestamp::now());
 ```
 
 ### Tests
@@ -452,6 +549,7 @@ impl<T: Default> Default for Versioned<T> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::time::Duration;
 
     #[test]
     fn test_versioned_new() {
@@ -464,21 +562,38 @@ mod tests {
         assert_eq!(versioned.value, "hello");
         assert_eq!(versioned.version, Version::TxnId(42));
         assert_eq!(versioned.timestamp.as_micros(), 1000);
+        assert!(versioned.ttl.is_none());
     }
 
     #[test]
-    fn test_versioned_map() {
-        let versioned = Versioned::new(
+    fn test_versioned_with_ttl() {
+        let ttl = Duration::from_secs(60);
+        let versioned = Versioned::with_ttl(
+            "data".to_string(),
+            Version::TxnId(1),
+            Timestamp::from_micros(1000),
+            Some(ttl),
+        );
+
+        assert_eq!(versioned.ttl, Some(ttl));
+        assert!(!versioned.is_expired());
+    }
+
+    #[test]
+    fn test_versioned_map_preserves_ttl() {
+        let ttl = Duration::from_secs(30);
+        let versioned = Versioned::with_ttl(
             42i32,
             Version::TxnId(1),
             Timestamp::from_micros(1000),
+            Some(ttl),
         );
 
         let mapped = versioned.map(|v| v.to_string());
 
         assert_eq!(mapped.value, "42");
         assert_eq!(mapped.version, Version::TxnId(1));
-        assert_eq!(mapped.timestamp.as_micros(), 1000);
+        assert_eq!(mapped.ttl, Some(ttl));
     }
 
     #[test]
@@ -507,7 +622,51 @@ mod tests {
         assert_eq!(*versioned.version(), Version::Counter(3));
         assert_eq!(versioned.timestamp().as_micros(), 5000);
     }
+
+    #[test]
+    fn test_versioned_is_expired() {
+        let ttl = Duration::from_secs(1);
+        let old_timestamp = Timestamp::from_micros(0); // Unix epoch
+
+        let versioned = Versioned::with_ttl(
+            "expired",
+            Version::TxnId(1),
+            old_timestamp,
+            Some(ttl),
+        );
+
+        // Should be expired (timestamp is from 1970)
+        assert!(versioned.is_expired());
+
+        // No TTL = never expires
+        let no_ttl = Versioned::new("forever", Version::TxnId(1), old_timestamp);
+        assert!(!no_ttl.is_expired());
+    }
+
+    // === VersionedValue Type Alias Compatibility Tests ===
+
+    #[test]
+    fn test_versioned_value_type_alias() {
+        // This test verifies the type alias works correctly
+        use crate::Value;
+
+        let value = Value::String("test".to_string());
+        let vv: VersionedValue = Versioned::new(
+            value.clone(),
+            Version::TxnId(1),
+            Timestamp::now(),
+        );
+
+        assert_eq!(vv.value, value);
+    }
 }
+```
+
+### Validation
+
+```bash
+~/.cargo/bin/cargo test -p in-mem-core -- versioned
+~/.cargo/bin/cargo clippy -p in-mem-core -- -D warnings
 ```
 
 ### Complete Story
