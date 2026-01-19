@@ -13,10 +13,11 @@ Epic-end validation ensures:
 4. Tests are comprehensive and passing
 5. No regressions introduced
 
-**Note**: This document covers validation for M3 (Epics 13-19), M4 (Epics 20-25), M5 (Epics 26-32), and M6 (Epics 33-39).
+**Note**: This document covers validation for M3 (Epics 13-19), M4 (Epics 20-25), M5 (Epics 26-32), M6 (Epics 33-39), M7 (Epics 40-46), M8 (Epics 47-59), and M9 (Epics 60-64).
 For M4-specific validation, see [Phase 6b: M4 Performance Validation](#phase-6b-m4-performance-validation-m4-only).
 For M5-specific validation, see [Phase 6c: M5 JSON Primitive Validation](#phase-6c-m5-json-primitive-validation-m5-only).
 For M6-specific validation, see [Phase 6d: M6 Retrieval Surfaces Validation](#phase-6d-m6-retrieval-surfaces-validation-m6-only).
+For M9-specific validation, see [Phase 6e: M9 API Stabilization Validation](#phase-6e-m9-api-stabilization-validation-m9-only).
 
 ---
 
@@ -864,6 +865,265 @@ grep -r "trait Scorer\|trait Fuser" crates/search/src/
 
 ---
 
+## Phase 6e: M9 API Stabilization Validation (M9 Only)
+
+**This phase is REQUIRED for all M9 epics (60-64).**
+
+M9 is about **contracts**, not features. Every primitive must conform to the 4 architectural rules and 7 invariants.
+
+### 6e.1 The Four Architectural Rules Verification
+
+```bash
+# Rule 1: Every Read Returns Versioned<T>
+echo "Rule 1: Every read returns Versioned<T>"
+grep -r "fn get.*Result<Option<Versioned" crates/primitives/src/ && echo "PASS" || echo "FAIL: Missing Versioned wrapper"
+
+# Rule 2: Every Write Returns Version
+echo "Rule 2: Every write returns Version"
+grep -r "fn put.*Result<Version" crates/primitives/src/ && echo "PASS" || echo "FAIL: Missing Version return"
+
+# Rule 3: TransactionOps Covers All Primitives
+echo "Rule 3: TransactionOps covers all primitives"
+grep -r "fn kv_\|fn event_\|fn state_\|fn trace_\|fn json_\|fn vector_" crates/concurrency/src/transaction_ops.rs
+# Should find methods for all 7 primitives
+
+# Rule 4: Run Scope Is Always Explicit
+echo "Rule 4: Run scope is explicit"
+grep -r "run_id: &RunId" crates/primitives/src/ | wc -l
+# Should be present in all primitive methods (no thread-local run state)
+```
+
+### 6e.2 The Seven Invariants Verification
+
+```bash
+# Invariant 1: Everything is Addressable (EntityRef)
+~/.cargo/bin/cargo test --package in-mem-core entity_ref
+grep -r "pub enum EntityRef" crates/core/src/
+
+# Invariant 2: Everything is Versioned
+~/.cargo/bin/cargo test --package in-mem-core versioned
+grep -r "pub struct Versioned" crates/core/src/
+
+# Invariant 3: Everything is Transactional
+~/.cargo/bin/cargo test --package in-mem-concurrency transaction_ops
+grep -r "pub trait TransactionOps" crates/concurrency/src/
+
+# Invariant 4: Everything Has a Lifecycle
+~/.cargo/bin/cargo test --package primitives lifecycle
+
+# Invariant 5: Everything Exists Within a Run
+~/.cargo/bin/cargo test --package primitives run_isolation
+
+# Invariant 6: Everything is Introspectable
+grep -r "fn exists" crates/primitives/src/
+
+# Invariant 7: Reads and Writes Have Consistent Semantics
+~/.cargo/bin/cargo test --package primitives read_write_semantics
+```
+
+### 6e.3 Core Types Verification (Epic 60)
+
+```bash
+# Verify EntityRef enum
+~/.cargo/bin/cargo test --package in-mem-core entity_ref
+grep -r "Kv {.*run_id.*key" crates/core/src/
+
+# Verify Versioned<T> wrapper
+~/.cargo/bin/cargo test --package in-mem-core versioned
+grep -A5 "pub struct Versioned" crates/core/src/
+
+# Verify Version enum
+~/.cargo/bin/cargo test --package in-mem-core version
+grep -r "TxnId\|Sequence\|Counter" crates/core/src/
+
+# Verify Timestamp type
+~/.cargo/bin/cargo test --package in-mem-core timestamp
+
+# Verify PrimitiveType enum
+~/.cargo/bin/cargo test --package in-mem-core primitive_type
+
+# Verify RunId standardization
+~/.cargo/bin/cargo test --package in-mem-core run_id
+```
+
+### 6e.4 Versioned Returns Verification (Epic 61)
+
+```bash
+# KVStore versioned returns
+~/.cargo/bin/cargo test --package primitives kv_versioned
+grep -r "fn get.*Versioned<Value>" crates/primitives/src/kv_store.rs
+
+# EventLog versioned returns
+~/.cargo/bin/cargo test --package primitives event_versioned
+grep -r "fn read.*Versioned<Event>" crates/primitives/src/event_log.rs
+
+# StateCell versioned returns
+~/.cargo/bin/cargo test --package primitives state_versioned
+grep -r "fn read.*Versioned" crates/primitives/src/state_cell.rs
+
+# TraceStore versioned returns
+~/.cargo/bin/cargo test --package primitives trace_versioned
+
+# JsonStore versioned returns
+~/.cargo/bin/cargo test --package primitives json_versioned
+
+# VectorStore versioned returns
+~/.cargo/bin/cargo test --package primitives vector_versioned
+
+# RunIndex versioned returns
+~/.cargo/bin/cargo test --package primitives run_index_versioned
+```
+
+### 6e.5 Transaction Unification Verification (Epic 62)
+
+```bash
+# Verify TransactionOps trait
+~/.cargo/bin/cargo test --package in-mem-concurrency transaction_ops
+grep -A50 "pub trait TransactionOps" crates/concurrency/src/transaction_ops.rs
+
+# Verify all primitives in TransactionOps
+grep -r "fn kv_get\|fn kv_put" crates/concurrency/src/transaction_ops.rs
+grep -r "fn event_append\|fn event_read" crates/concurrency/src/transaction_ops.rs
+grep -r "fn state_read\|fn state_cas" crates/concurrency/src/transaction_ops.rs
+grep -r "fn trace_record\|fn trace_query" crates/concurrency/src/transaction_ops.rs
+grep -r "fn json_get\|fn json_set" crates/concurrency/src/transaction_ops.rs
+grep -r "fn vector_upsert\|fn vector_search" crates/concurrency/src/transaction_ops.rs
+
+# Verify RunHandle pattern
+~/.cargo/bin/cargo test --package in-mem-concurrency run_handle
+```
+
+### 6e.6 Error Standardization Verification (Epic 63)
+
+```bash
+# Verify StrataError enum
+~/.cargo/bin/cargo test --package in-mem-core strata_error
+grep -A30 "pub enum StrataError" crates/core/src/error.rs
+
+# Verify all error variants
+grep -r "NotFound\|VersionConflict\|WriteConflict\|TransactionAborted" crates/core/src/error.rs
+grep -r "RunNotFound\|InvalidOperation\|DimensionMismatch" crates/core/src/error.rs
+grep -r "CollectionNotFound\|Storage\|Serialization" crates/core/src/error.rs
+
+# Verify EntityRef in errors
+grep -r "entity_ref: EntityRef" crates/core/src/error.rs
+
+# Verify From implementations
+~/.cargo/bin/cargo test --package in-mem-core error_conversion
+```
+
+### 6e.7 Conformance Testing Verification (Epic 64)
+
+```bash
+# Run all conformance tests
+~/.cargo/bin/cargo test --test conformance
+
+# Run invariant-specific tests
+~/.cargo/bin/cargo test invariant_1_addressable
+~/.cargo/bin/cargo test invariant_2_versioned
+~/.cargo/bin/cargo test invariant_3_transactional
+~/.cargo/bin/cargo test invariant_4_lifecycle
+~/.cargo/bin/cargo test invariant_5_run_scoped
+~/.cargo/bin/cargo test invariant_6_introspectable
+~/.cargo/bin/cargo test invariant_7_read_write
+
+# Run primitive-specific conformance tests
+~/.cargo/bin/cargo test conformance::kv
+~/.cargo/bin/cargo test conformance::event
+~/.cargo/bin/cargo test conformance::state
+~/.cargo/bin/cargo test conformance::trace
+~/.cargo/bin/cargo test conformance::json
+~/.cargo/bin/cargo test conformance::vector
+~/.cargo/bin/cargo test conformance::run
+
+# Run cross-primitive tests
+~/.cargo/bin/cargo test cross_primitive
+```
+
+### 6e.8 Non-Regression Verification
+
+```bash
+# Verify M7/M8 performance targets are maintained
+~/.cargo/bin/cargo bench --bench m7_recovery_performance
+~/.cargo/bin/cargo bench --bench m8_vector_performance
+
+# Run M4 red flag tests (must still pass)
+~/.cargo/bin/cargo test --test m4_red_flags
+
+# Verify existing primitives unaffected
+~/.cargo/bin/cargo test --package primitives kv_store
+~/.cargo/bin/cargo test --package primitives json_store
+~/.cargo/bin/cargo test --package primitives event_log
+~/.cargo/bin/cargo test --package primitives state_cell
+~/.cargo/bin/cargo test --package primitives trace_store
+~/.cargo/bin/cargo test --package primitives vector_store
+```
+
+### 6e.9 M9 Epic-Specific Validation
+
+#### Epic 60: Core Types
+```bash
+~/.cargo/bin/cargo test --package in-mem-core entity_ref
+~/.cargo/bin/cargo test --package in-mem-core versioned
+~/.cargo/bin/cargo test --package in-mem-core version
+~/.cargo/bin/cargo test --package in-mem-core timestamp
+~/.cargo/bin/cargo test --package in-mem-core primitive_type
+~/.cargo/bin/cargo test --package in-mem-core run_id
+```
+
+#### Epic 61: Versioned Returns
+```bash
+# Test each primitive's versioned API
+~/.cargo/bin/cargo test --package primitives test_kv_returns_versioned
+~/.cargo/bin/cargo test --package primitives test_event_returns_versioned
+~/.cargo/bin/cargo test --package primitives test_state_returns_versioned
+~/.cargo/bin/cargo test --package primitives test_trace_returns_versioned
+~/.cargo/bin/cargo test --package primitives test_json_returns_versioned
+~/.cargo/bin/cargo test --package primitives test_vector_returns_versioned
+~/.cargo/bin/cargo test --package primitives test_run_returns_versioned
+```
+
+#### Epic 62: Transaction Unification
+```bash
+~/.cargo/bin/cargo test --package in-mem-concurrency transaction_ops
+~/.cargo/bin/cargo test --package in-mem-concurrency run_handle
+~/.cargo/bin/cargo test --package primitives test_cross_primitive_transaction
+```
+
+#### Epic 63: Error Standardization
+```bash
+~/.cargo/bin/cargo test --package in-mem-core strata_error
+~/.cargo/bin/cargo test --package in-mem-core error_conversion
+~/.cargo/bin/cargo test --package primitives test_error_context
+```
+
+#### Epic 64: Conformance Testing
+```bash
+# Full conformance test suite (49 tests)
+~/.cargo/bin/cargo test --test conformance
+
+# Count conformance tests
+~/.cargo/bin/cargo test --test conformance -- --list 2>/dev/null | grep -c "test"
+# Should be 49 (7 primitives × 7 invariants)
+```
+
+### 6e.10 M9 Performance Checklist
+
+M9 is primarily API changes. Performance impact should be minimal.
+
+| Metric | Target | Red Flag | Actual | Status |
+|--------|--------|----------|--------|--------|
+| Versioned<T> wrapper overhead | < 1% | > 5% | ___ | [ ] |
+| Version return overhead | < 1% | > 5% | ___ | [ ] |
+| StrataError overhead | 0 (error path only) | Any runtime cost | ___ | [ ] |
+| TransactionOps dispatch | 0 (inlined) | > 1% | ___ | [ ] |
+| KV put (no regression) | < 3µs | > 10µs | ___ | [ ] |
+| KV get (no regression) | < 5µs | > 10µs | ___ | [ ] |
+| Vector upsert (no regression) | < 100µs | > 200µs | ___ | [ ] |
+| Vector search (no regression) | < 10ms | > 20ms | ___ | [ ] |
+
+---
+
 ## Phase 7: Final Sign-Off
 
 ### 7.1 Completion Checklist
@@ -884,6 +1144,11 @@ grep -r "trait Scorer\|trait Fuser" crates/search/src/
 | **M6 Only**: Retrieval surfaces validation (Phase 6d) | [ ] |
 | **M6 Only**: Six architectural rules verified | [ ] |
 | **M6 Only**: Non-regression tests pass (M4/M5 targets maintained) | [ ] |
+| **M9 Only**: API stabilization validation (Phase 6e) | [ ] |
+| **M9 Only**: Four architectural rules verified | [ ] |
+| **M9 Only**: Seven invariants verified | [ ] |
+| **M9 Only**: 49 conformance tests pass | [ ] |
+| **M9 Only**: Non-regression tests pass (M7/M8 targets maintained) | [ ] |
 
 ### 7.2 Sign-Off
 
@@ -1085,6 +1350,62 @@ Run the complete epic-end validation for Epic <N>: <Epic Name>.
 6. Algorithm Swappable (Scorer and Fuser are traits)
 ```
 
+### M9 Epic Validation (Epics 60-64)
+
+Use this prompt for M9 API stabilization validation:
+
+```
+## Task: M9 Epic End Validation
+
+Run the complete epic-end validation for Epic <N>: <Epic Name>.
+
+**Steps**:
+1. Run Phase 1 automated checks
+2. Verify all <X> stories are complete (Phase 2)
+3. Verify spec compliance against M9_ARCHITECTURE.md (Phase 3)
+4. Perform code review checklist (Phase 4)
+5. Verify best practices (Phase 5)
+6. Run epic-specific validation (Phase 6)
+7. Run M9 API stabilization validation (Phase 6e) - CRITICAL
+8. Verify ALL four architectural rules
+9. Verify ALL seven invariants (as applicable to epic)
+10. Run non-regression tests (M7/M8 performance targets must be maintained)
+11. Provide final sign-off summary (Phase 7)
+
+**Expected Output**:
+- Pass/fail status for each phase
+- Four architectural rules verification results
+- Seven invariants verification results
+- Conformance test results (49 tests when complete)
+- Non-regression test results (M7/M8 targets maintained)
+- Any issues found with recommendations
+- Final sign-off or list of blockers
+
+**Reference**:
+- **M9 Architecture (AUTHORITATIVE)**: docs/architecture/M9_ARCHITECTURE.md
+- **Primitive Contract (7 Invariants)**: docs/architecture/PRIMITIVE_CONTRACT.md
+- Epic prompt: docs/prompts/M9/epic-<N>-claude-prompts.md
+- M9 Implementation Plan: docs/milestones/M9/M9_IMPLEMENTATION_PLAN.md
+- M9 Prompt Header: docs/prompts/M9/M9_PROMPT_HEADER.md
+- Epic Spec: docs/milestones/M9/EPIC_<N>_*.md
+- Stories: #XXX - #XXX
+
+**CRITICAL**: The four architectural rules are NON-NEGOTIABLE:
+1. Every Read Returns Versioned<T> (no raw values)
+2. Every Write Returns Version (caller knows what was created)
+3. Transaction Trait Covers All Primitives (unified TransactionOps)
+4. Run Scope Is Always Explicit (no ambient/thread-local state)
+
+**CRITICAL**: The seven invariants are NON-NEGOTIABLE:
+1. Addressable (EntityRef for every entity)
+2. Versioned (Versioned<T> wrapper, Version return)
+3. Transactional (all primitives in TransactionOps)
+4. Lifecycle (create/exist/evolve/destroy)
+5. Run-scoped (every entity in exactly one run)
+6. Introspectable (exists() methods)
+7. Read/Write (reads don't modify, writes produce versions)
+```
+
 ---
 
 ## Quick Reference: Validation Commands
@@ -1243,6 +1564,80 @@ grep -r "if.*index_enabled\|Option<InvertedIndex>\|index.is_none()" crates/searc
 echo "Rule 6: Algorithm Swappable"
 grep -r "trait Scorer" crates/search/src/ && echo "PASS: Scorer trait" || echo "FAIL: No Scorer trait"
 grep -r "trait Fuser" crates/search/src/ && echo "PASS: Fuser trait" || echo "FAIL: No Fuser trait"
+```
+
+### M9 Quick Validation
+
+```bash
+# One-liner for Phase 1 + M9 API stabilization validation
+~/.cargo/bin/cargo build --workspace && \
+~/.cargo/bin/cargo test --workspace && \
+~/.cargo/bin/cargo clippy --workspace -- -D warnings && \
+~/.cargo/bin/cargo fmt --check && \
+~/.cargo/bin/cargo test --test conformance && \
+echo "Phase 1 + M9 Validation: PASS"
+
+# Run all M9 core type tests
+~/.cargo/bin/cargo test --package in-mem-core entity_ref
+~/.cargo/bin/cargo test --package in-mem-core versioned
+~/.cargo/bin/cargo test --package in-mem-core version
+~/.cargo/bin/cargo test --package in-mem-core strata_error
+
+# Run M9 conformance tests
+~/.cargo/bin/cargo test --test conformance
+
+# Run M9 invariant tests
+~/.cargo/bin/cargo test invariant_
+
+# Run non-regression tests
+~/.cargo/bin/cargo bench --bench m7_recovery_performance
+~/.cargo/bin/cargo bench --bench m8_vector_performance
+~/.cargo/bin/cargo test --test m4_red_flags
+```
+
+### M9 Four Rules Quick Check
+
+```bash
+# Quick architectural rules verification (run after any M9 change)
+echo "Rule 1: Every read returns Versioned<T>"
+grep -r "fn get.*Result<Option<Versioned" crates/primitives/src/ && echo "PASS" || echo "FAIL"
+
+echo "Rule 2: Every write returns Version"
+grep -r "fn put.*Result<Version" crates/primitives/src/ && echo "PASS" || echo "FAIL"
+
+echo "Rule 3: TransactionOps covers all primitives"
+for method in kv_get kv_put event_append state_read trace_record json_get vector_upsert; do
+  grep -q "fn $method" crates/concurrency/src/transaction_ops.rs && echo "$method: PASS" || echo "$method: FAIL"
+done
+
+echo "Rule 4: Run scope is explicit (no thread-local)"
+grep -r "thread_local.*RunId\|CURRENT_RUN" crates/ && echo "FAIL: Found ambient run state" || echo "PASS: No ambient state"
+```
+
+### M9 Seven Invariants Quick Check
+
+```bash
+# Quick invariants verification (run after any M9 change)
+echo "Invariant 1: Addressable (EntityRef)"
+grep -r "pub enum EntityRef" crates/core/src/ && echo "PASS" || echo "FAIL"
+
+echo "Invariant 2: Versioned (Versioned<T>)"
+grep -r "pub struct Versioned" crates/core/src/ && echo "PASS" || echo "FAIL"
+
+echo "Invariant 3: Transactional (TransactionOps)"
+grep -r "pub trait TransactionOps" crates/concurrency/src/ && echo "PASS" || echo "FAIL"
+
+echo "Invariant 4: Lifecycle (create/exists/destroy)"
+grep -r "fn create\|fn exists\|fn destroy" crates/primitives/src/ | wc -l
+
+echo "Invariant 5: Run-scoped (run_id parameter)"
+grep -r "run_id: &RunId" crates/primitives/src/ | wc -l
+
+echo "Invariant 6: Introspectable (exists methods)"
+grep -r "fn exists" crates/primitives/src/ | wc -l
+
+echo "Invariant 7: Read/Write semantics"
+grep -r "&self.*get\|&mut self.*put\|&mut self.*set" crates/primitives/src/ | head -5
 ```
 
 ---
@@ -1428,6 +1823,85 @@ grep -r "trait Fuser" crates/search/src/ && echo "PASS: Fuser trait" || echo "FA
 | | All EPIC_*.md specs complete | [ ] |
 | | All story PRs merged | [ ] |
 | | Benchmark results documented | [ ] |
+
+---
+
+## M9 Milestone Completion Checklist
+
+**Use this checklist when completing ALL M9 epics (Epic 64 final validation):**
+
+| Category | Requirement | Status |
+|----------|-------------|--------|
+| **Core Types (Epic 60)** | | |
+| | EntityRef enum with all 7 variants | [ ] |
+| | Versioned<T> wrapper with value, version, timestamp | [ ] |
+| | Version enum (TxnId, Sequence, Counter) | [ ] |
+| | Timestamp type with microsecond precision | [ ] |
+| | PrimitiveType enum (7 primitives) | [ ] |
+| | RunId standardized across codebase | [ ] |
+| **Versioned Returns (Epic 61)** | | |
+| | KVStore: get() → Versioned<Value>, put() → Version | [ ] |
+| | EventLog: read() → Versioned<Event>, append() → Version | [ ] |
+| | StateCell: read() → Versioned<State>, cas() → Version | [ ] |
+| | TraceStore: get() → Versioned<Span>, record() → Version | [ ] |
+| | JsonStore: get() → Versioned<JsonValue>, set() → Version | [ ] |
+| | VectorStore: get() → Versioned<Vector>, upsert() → Version | [ ] |
+| | RunIndex: get() → Versioned<RunMetadata> | [ ] |
+| **Transaction Unification (Epic 62)** | | |
+| | TransactionOps trait defined | [ ] |
+| | KV operations in TransactionOps | [ ] |
+| | Event operations in TransactionOps | [ ] |
+| | State operations in TransactionOps | [ ] |
+| | Trace operations in TransactionOps | [ ] |
+| | Json operations in TransactionOps | [ ] |
+| | Vector operations in TransactionOps | [ ] |
+| | RunHandle pattern implemented | [ ] |
+| **Error Standardization (Epic 63)** | | |
+| | StrataError enum with all variants | [ ] |
+| | NotFound with EntityRef | [ ] |
+| | VersionConflict with expected/actual | [ ] |
+| | WriteConflict with EntityRef | [ ] |
+| | TransactionAborted with reason | [ ] |
+| | From implementations for all error types | [ ] |
+| | Error documentation complete | [ ] |
+| **Conformance Testing (Epic 64)** | | |
+| | Invariant 1 tests (Addressable) | [ ] |
+| | Invariant 2 tests (Versioned) | [ ] |
+| | Invariant 3 tests (Transactional) | [ ] |
+| | Invariant 4 tests (Lifecycle) | [ ] |
+| | Invariant 5 tests (Run-scoped) | [ ] |
+| | Invariant 6 tests (Introspectable) | [ ] |
+| | Invariant 7 tests (Read/Write) | [ ] |
+| | Cross-primitive transaction tests | [ ] |
+| | 49 conformance tests passing | [ ] |
+| **Four Architectural Rules** | | |
+| | Rule 1: Every Read Returns Versioned<T> | [ ] |
+| | Rule 2: Every Write Returns Version | [ ] |
+| | Rule 3: TransactionOps Covers All Primitives | [ ] |
+| | Rule 4: Run Scope Is Always Explicit | [ ] |
+| **Seven Invariants** | | |
+| | Invariant 1: Everything is Addressable | [ ] |
+| | Invariant 2: Everything is Versioned | [ ] |
+| | Invariant 3: Everything is Transactional | [ ] |
+| | Invariant 4: Everything Has a Lifecycle | [ ] |
+| | Invariant 5: Everything Exists Within a Run | [ ] |
+| | Invariant 6: Everything is Introspectable | [ ] |
+| | Invariant 7: Reads/Writes Have Consistent Semantics | [ ] |
+| **Non-Regression** | | |
+| | KV put (InMemory) < 3µs | [ ] |
+| | KV get (fast path) < 5µs | [ ] |
+| | Vector upsert < 100µs | [ ] |
+| | Vector search (k=10) < 10ms | [ ] |
+| | Snapshot write (100MB) < 5s | [ ] |
+| | Recovery (100MB + 10K WAL) < 5s | [ ] |
+| | M4 red flags still pass | [ ] |
+| **Documentation** | | |
+| | M9_ARCHITECTURE.md authoritative | [ ] |
+| | PRIMITIVE_CONTRACT.md complete | [ ] |
+| | M9_IMPLEMENTATION_PLAN.md aligned | [ ] |
+| | All EPIC_*.md specs complete | [ ] |
+| | All story PRs merged | [ ] |
+| | API frozen for M10/M12 | [ ] |
 
 ---
 
