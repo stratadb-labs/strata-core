@@ -17,7 +17,7 @@ fn test_snapshot_max_id_persisted() {
         }
 
         max_id_before = (0..100)
-            .map(|i| vector.get(run_id, "embeddings", &format!("key_{}", i)).unwrap().unwrap().vector_id().as_u64())
+            .map(|i| vector.get(run_id, "embeddings", &format!("key_{}", i)).unwrap().unwrap().value.vector_id().as_u64())
             .max()
             .unwrap();
     }
@@ -28,7 +28,7 @@ fn test_snapshot_max_id_persisted() {
 
     // Insert new vector
     vector.insert(run_id, "embeddings", "new_key", &random_vector(384), None).unwrap();
-    let new_id = vector.get(run_id, "embeddings", "new_key").unwrap().unwrap().vector_id().as_u64();
+    let new_id = vector.get(run_id, "embeddings", "new_key").unwrap().unwrap().value.vector_id().as_u64();
 
     assert!(new_id > max_id_before, "max_id not preserved: {} should be > {}", new_id, max_id_before);
 }

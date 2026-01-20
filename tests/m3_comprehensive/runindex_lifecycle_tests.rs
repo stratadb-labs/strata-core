@@ -35,7 +35,7 @@ mod valid_status_transitions {
         tp.run_index.create_run("test-run").unwrap();
 
         let meta = tp.run_index.complete_run("test-run").unwrap();
-        assert_eq!(meta.status, RunStatus::Completed);
+        assert_eq!(meta.value.status, RunStatus::Completed);
     }
 
     #[test]
@@ -44,8 +44,8 @@ mod valid_status_transitions {
         tp.run_index.create_run("test-run").unwrap();
 
         let meta = tp.run_index.fail_run("test-run", "error message").unwrap();
-        assert_eq!(meta.status, RunStatus::Failed);
-        assert_eq!(meta.error, Some("error message".to_string()));
+        assert_eq!(meta.value.status, RunStatus::Failed);
+        assert_eq!(meta.value.error, Some("error message".to_string()));
     }
 
     #[test]
@@ -54,7 +54,7 @@ mod valid_status_transitions {
         tp.run_index.create_run("test-run").unwrap();
 
         let meta = tp.run_index.cancel_run("test-run").unwrap();
-        assert_eq!(meta.status, RunStatus::Cancelled);
+        assert_eq!(meta.value.status, RunStatus::Cancelled);
     }
 
     #[test]
@@ -63,7 +63,7 @@ mod valid_status_transitions {
         tp.run_index.create_run("test-run").unwrap();
 
         let meta = tp.run_index.pause_run("test-run").unwrap();
-        assert_eq!(meta.status, RunStatus::Paused);
+        assert_eq!(meta.value.status, RunStatus::Paused);
     }
 
     #[test]
@@ -72,7 +72,7 @@ mod valid_status_transitions {
         tp.run_index.create_run("test-run").unwrap();
 
         let meta = tp.run_index.archive_run("test-run").unwrap();
-        assert_eq!(meta.status, RunStatus::Archived);
+        assert_eq!(meta.value.status, RunStatus::Archived);
     }
 
     #[test]
@@ -82,7 +82,7 @@ mod valid_status_transitions {
         tp.run_index.pause_run("test-run").unwrap();
 
         let meta = tp.run_index.resume_run("test-run").unwrap();
-        assert_eq!(meta.status, RunStatus::Active);
+        assert_eq!(meta.value.status, RunStatus::Active);
     }
 
     #[test]
@@ -92,7 +92,7 @@ mod valid_status_transitions {
         tp.run_index.pause_run("test-run").unwrap();
 
         let meta = tp.run_index.cancel_run("test-run").unwrap();
-        assert_eq!(meta.status, RunStatus::Cancelled);
+        assert_eq!(meta.value.status, RunStatus::Cancelled);
     }
 
     #[test]
@@ -102,7 +102,7 @@ mod valid_status_transitions {
         tp.run_index.pause_run("test-run").unwrap();
 
         let meta = tp.run_index.archive_run("test-run").unwrap();
-        assert_eq!(meta.status, RunStatus::Archived);
+        assert_eq!(meta.value.status, RunStatus::Archived);
     }
 
     #[test]
@@ -112,7 +112,7 @@ mod valid_status_transitions {
         tp.run_index.complete_run("test-run").unwrap();
 
         let meta = tp.run_index.archive_run("test-run").unwrap();
-        assert_eq!(meta.status, RunStatus::Archived);
+        assert_eq!(meta.value.status, RunStatus::Archived);
     }
 
     #[test]
@@ -122,7 +122,7 @@ mod valid_status_transitions {
         tp.run_index.fail_run("test-run", "error").unwrap();
 
         let meta = tp.run_index.archive_run("test-run").unwrap();
-        assert_eq!(meta.status, RunStatus::Archived);
+        assert_eq!(meta.value.status, RunStatus::Archived);
     }
 
     #[test]
@@ -132,7 +132,7 @@ mod valid_status_transitions {
         tp.run_index.cancel_run("test-run").unwrap();
 
         let meta = tp.run_index.archive_run("test-run").unwrap();
-        assert_eq!(meta.status, RunStatus::Archived);
+        assert_eq!(meta.value.status, RunStatus::Archived);
     }
 
     #[test]
@@ -141,23 +141,23 @@ mod valid_status_transitions {
 
         // Create (Active)
         let meta = tp.run_index.create_run("lifecycle-run").unwrap();
-        assert_eq!(meta.status, RunStatus::Active);
+        assert_eq!(meta.value.status, RunStatus::Active);
 
         // Pause
         let meta = tp.run_index.pause_run("lifecycle-run").unwrap();
-        assert_eq!(meta.status, RunStatus::Paused);
+        assert_eq!(meta.value.status, RunStatus::Paused);
 
         // Resume
         let meta = tp.run_index.resume_run("lifecycle-run").unwrap();
-        assert_eq!(meta.status, RunStatus::Active);
+        assert_eq!(meta.value.status, RunStatus::Active);
 
         // Complete
         let meta = tp.run_index.complete_run("lifecycle-run").unwrap();
-        assert_eq!(meta.status, RunStatus::Completed);
+        assert_eq!(meta.value.status, RunStatus::Completed);
 
         // Archive
         let meta = tp.run_index.archive_run("lifecycle-run").unwrap();
-        assert_eq!(meta.status, RunStatus::Archived);
+        assert_eq!(meta.value.status, RunStatus::Archived);
     }
 }
 
@@ -314,7 +314,7 @@ mod archived_is_terminal {
     fn test_archived_data_still_accessible() {
         let tp = TestPrimitives::new();
         let meta = tp.run_index.create_run("test-run").unwrap();
-        let run_id = RunId::from_string(&meta.run_id).unwrap();
+        let run_id = RunId::from_string(&meta.value.run_id).unwrap();
 
         // Write some data
         tp.kv.put(&run_id, "key", values::int(42)).unwrap();
@@ -339,7 +339,7 @@ mod archived_is_terminal {
         // Run metadata still exists (soft delete)
         let meta = tp.run_index.get_run("test-run").unwrap();
         assert!(meta.is_some());
-        assert_eq!(meta.unwrap().status, RunStatus::Archived);
+        assert_eq!(meta.unwrap().value.status, RunStatus::Archived);
     }
 }
 
@@ -370,7 +370,7 @@ mod cascading_delete {
     fn test_delete_run_removes_kv_data() {
         let tp = TestPrimitives::new();
         let meta = tp.run_index.create_run("test-run").unwrap();
-        let run_id = RunId::from_string(&meta.run_id).unwrap();
+        let run_id = RunId::from_string(&meta.value.run_id).unwrap();
 
         // Write KV data
         tp.kv.put(&run_id, "key1", values::int(1)).unwrap();
@@ -390,7 +390,7 @@ mod cascading_delete {
     fn test_delete_run_removes_events() {
         let tp = TestPrimitives::new();
         let meta = tp.run_index.create_run("test-run").unwrap();
-        let run_id = RunId::from_string(&meta.run_id).unwrap();
+        let run_id = RunId::from_string(&meta.value.run_id).unwrap();
 
         // Append events
         for i in 0..10 {
@@ -411,7 +411,7 @@ mod cascading_delete {
     fn test_delete_run_removes_states() {
         let tp = TestPrimitives::new();
         let meta = tp.run_index.create_run("test-run").unwrap();
-        let run_id = RunId::from_string(&meta.run_id).unwrap();
+        let run_id = RunId::from_string(&meta.value.run_id).unwrap();
 
         // Create state cells
         tp.state_cell
@@ -435,7 +435,7 @@ mod cascading_delete {
     fn test_delete_run_removes_traces() {
         let tp = TestPrimitives::new();
         let meta = tp.run_index.create_run("test-run").unwrap();
-        let run_id = RunId::from_string(&meta.run_id).unwrap();
+        let run_id = RunId::from_string(&meta.value.run_id).unwrap();
 
         // Record traces
         for _ in 0..5 {
@@ -464,7 +464,7 @@ mod cascading_delete {
     fn test_delete_run_removes_all_primitive_data() {
         let tp = TestPrimitives::new();
         let meta = tp.run_index.create_run("test-run").unwrap();
-        let run_id = RunId::from_string(&meta.run_id).unwrap();
+        let run_id = RunId::from_string(&meta.value.run_id).unwrap();
 
         // Write to ALL 5 primitives
         tp.kv.put(&run_id, "key", values::int(1)).unwrap();
@@ -507,8 +507,8 @@ mod cascading_delete {
         // Create two runs
         let meta1 = tp.run_index.create_run("run-1").unwrap();
         let meta2 = tp.run_index.create_run("run-2").unwrap();
-        let run_id1 = RunId::from_string(&meta1.run_id).unwrap();
-        let run_id2 = RunId::from_string(&meta2.run_id).unwrap();
+        let run_id1 = RunId::from_string(&meta1.value.run_id).unwrap();
+        let run_id2 = RunId::from_string(&meta2.value.run_id).unwrap();
 
         // Write to both
         tp.kv.put(&run_id1, "key", values::string("run1")).unwrap();
@@ -576,7 +576,7 @@ mod status_updates_transactional {
             let p = ptp.open();
             let meta = p.run_index.get_run(&run_name).unwrap().unwrap();
             assert_eq!(
-                meta.status,
+                meta.value.status,
                 RunStatus::Completed,
                 "Status not preserved after recovery"
             );
@@ -594,14 +594,14 @@ mod status_updates_transactional {
             let p = ptp.open_strict();
             p.run_index.create_run(&run_name).unwrap();
             let meta = p.run_index.complete_run(&run_name).unwrap();
-            completed_at = meta.completed_at;
+            completed_at = meta.value.completed_at;
         }
 
         {
             let p = ptp.open();
             let meta = p.run_index.get_run(&run_name).unwrap().unwrap();
             assert_eq!(
-                meta.completed_at, completed_at,
+                meta.value.completed_at, completed_at,
                 "completed_at not preserved"
             );
         }
@@ -624,7 +624,7 @@ mod status_updates_transactional {
             let p = ptp.open();
             let meta = p.run_index.get_run(&run_name).unwrap().unwrap();
             assert_eq!(
-                meta.error,
+                meta.value.error,
                 Some(error_msg.to_string()),
                 "Error message not preserved"
             );
@@ -648,7 +648,7 @@ mod status_updates_transactional {
         {
             let p = ptp.open();
             let meta = p.run_index.get_run(&run_name).unwrap().unwrap();
-            assert_eq!(meta.tags, tags, "Tags not preserved after recovery");
+            assert_eq!(meta.value.tags, tags, "Tags not preserved after recovery");
         }
     }
 
@@ -702,7 +702,7 @@ mod status_updates_transactional {
             let p = ptp.open();
             let meta = p.run_index.get_run(&run_name).unwrap().unwrap();
             assert_eq!(
-                meta.status,
+                meta.value.status,
                 RunStatus::Archived,
                 "Final status not preserved"
             );

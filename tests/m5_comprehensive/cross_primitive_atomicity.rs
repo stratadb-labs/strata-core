@@ -35,8 +35,7 @@ fn test_json_kv_atomic_success() {
         json_store
             .get(&run_id, &doc_id, &path("key"))
             .unwrap()
-            .unwrap()
-            .as_str(),
+            .unwrap().value.as_str(),
         Some("value")
     );
 }
@@ -70,24 +69,21 @@ fn test_multiple_json_operations_sequential() {
         json_store
             .get(&run_id, &doc_id, &path("a"))
             .unwrap()
-            .unwrap()
-            .as_i64(),
+            .unwrap().value.as_i64(),
         Some(1)
     );
     assert_eq!(
         json_store
             .get(&run_id, &doc_id, &path("b"))
             .unwrap()
-            .unwrap()
-            .as_i64(),
+            .unwrap().value.as_i64(),
         Some(2)
     );
     assert_eq!(
         json_store
             .get(&run_id, &doc_id, &path("c"))
             .unwrap()
-            .unwrap()
-            .as_i64(),
+            .unwrap().value.as_i64(),
         Some(3)
     );
 
@@ -126,16 +122,14 @@ fn test_multi_document_independence() {
         json_store
             .get(&run_id, &doc1, &root())
             .unwrap()
-            .unwrap()
-            .as_i64(),
+            .unwrap().value.as_i64(),
         Some(100)
     );
     assert_eq!(
         json_store
             .get(&run_id, &doc2, &root())
             .unwrap()
-            .unwrap()
-            .as_i64(),
+            .unwrap().value.as_i64(),
         Some(2)
     );
 }
@@ -167,8 +161,7 @@ fn test_destroy_independence() {
         json_store
             .get(&run_id, &doc2, &root())
             .unwrap()
-            .unwrap()
-            .as_i64(),
+            .unwrap().value.as_i64(),
         Some(2)
     );
 }
@@ -205,7 +198,7 @@ fn test_immediate_visibility() {
             .get(&run_id, &doc_id, &key.parse().unwrap())
             .unwrap()
             .unwrap();
-        assert_eq!(value.as_i64(), Some(i as i64));
+        assert_eq!(value.value.as_i64(), Some(i as i64));
     }
 }
 
@@ -244,16 +237,14 @@ fn test_delete_immediate_visibility() {
         json_store
             .get(&run_id, &doc_id, &path("a"))
             .unwrap()
-            .unwrap()
-            .as_i64(),
+            .unwrap().value.as_i64(),
         Some(1)
     );
     assert_eq!(
         json_store
             .get(&run_id, &doc_id, &path("c"))
             .unwrap()
-            .unwrap()
-            .as_i64(),
+            .unwrap().value.as_i64(),
         Some(3)
     );
 }
@@ -388,7 +379,7 @@ fn test_fast_path_read_write_consistency() {
             .get(&run_id, &doc_id, &key.parse().unwrap())
             .unwrap()
             .unwrap();
-        assert_eq!(read_value.as_i64(), Some(i as i64));
+        assert_eq!(read_value.value.as_i64(), Some(i as i64));
     }
 }
 
@@ -427,8 +418,8 @@ fn test_concurrent_readers_consistency() {
         let name = store.get(&rid, &did, &path("name")).unwrap().unwrap();
         let version = store.get_version(&rid, &did).unwrap().unwrap();
         (
-            counter.as_i64(),
-            name.as_str().map(|s| s.to_string()),
+            counter.value.as_i64(),
+            name.value.as_str().map(|s| s.to_string()),
             version,
         )
     });
@@ -476,6 +467,6 @@ fn test_concurrent_writes_different_docs() {
     for (i, doc_id) in doc_ids.iter().enumerate() {
         let store = JsonStore::new(db.clone());
         let value = store.get(&run_id, doc_id, &root()).unwrap().unwrap();
-        assert_eq!(value.as_i64(), Some(i as i64));
+        assert_eq!(value.value.as_i64(), Some(i as i64));
     }
 }

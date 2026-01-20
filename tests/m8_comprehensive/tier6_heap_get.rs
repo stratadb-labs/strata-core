@@ -16,9 +16,9 @@ fn test_heap_get_existing() {
     vector.insert(test_db.run_id, "embeddings", "key1", &embedding, Some(metadata.clone())).unwrap();
 
     let entry = vector.get(test_db.run_id, "embeddings", "key1").unwrap().unwrap();
-    assert_eq!(entry.key, "key1");
-    assert_eq!(entry.embedding, embedding);
-    assert_eq!(entry.metadata, Some(metadata));
+    assert_eq!(entry.value.key, "key1");
+    assert_eq!(entry.value.embedding, embedding);
+    assert_eq!(entry.value.metadata, Some(metadata));
 }
 
 #[test]

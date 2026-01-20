@@ -44,7 +44,7 @@ fn test_s9_heap_reconstructible() {
     let vector = test_db.vector();
     for (key, expected_emb) in &embeddings {
         let entry = vector.get(run_id, "embeddings", key).unwrap().unwrap();
-        for (i, (expected, actual)) in expected_emb.iter().zip(entry.embedding.iter()).enumerate() {
+        for (i, (expected, actual)) in expected_emb.iter().zip(entry.value.embedding.iter()).enumerate() {
             assert!(
                 (expected - actual).abs() < 1e-6,
                 "S9 VIOLATED: Embedding mismatch for {} at index {}",
@@ -237,7 +237,7 @@ fn test_s9_vectorid_preserved_in_reconstruction() {
                 .get(run_id, "embeddings", &format!("key_{}", i))
                 .unwrap()
                 .unwrap();
-            ids_before.insert(format!("key_{}", i), entry.vector_id());
+            ids_before.insert(format!("key_{}", i), entry.value.vector_id());
         }
     }
 
@@ -249,7 +249,7 @@ fn test_s9_vectorid_preserved_in_reconstruction() {
     for (key, id_before) in &ids_before {
         let entry = vector.get(run_id, "embeddings", key).unwrap().unwrap();
         assert_eq!(
-            *id_before, entry.vector_id(),
+            *id_before, entry.value.vector_id(),
             "S9 VIOLATED: VectorId for {} changed after reconstruction",
             key
         );

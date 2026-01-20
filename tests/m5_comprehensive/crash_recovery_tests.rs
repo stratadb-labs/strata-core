@@ -48,8 +48,7 @@ fn test_document_recovery_basic() {
             store
                 .get(&run_id, &doc_id, &path("name"))
                 .unwrap()
-                .unwrap()
-                .as_str(),
+                .unwrap().value.as_str(),
             Some("Alice")
         );
     }
@@ -64,24 +63,21 @@ fn test_document_recovery_basic() {
             store
                 .get(&run_id, &doc_id, &path("name"))
                 .unwrap()
-                .unwrap()
-                .as_str(),
+                .unwrap().value.as_str(),
             Some("Alice")
         );
         assert_eq!(
             store
                 .get(&run_id, &doc_id, &path("age"))
                 .unwrap()
-                .unwrap()
-                .as_i64(),
+                .unwrap().value.as_i64(),
             Some(30)
         );
         assert_eq!(
             store
                 .get(&run_id, &doc_id, &path("settings.theme"))
                 .unwrap()
-                .unwrap()
-                .as_str(),
+                .unwrap().value.as_str(),
             Some("dark")
         );
     }
@@ -196,8 +192,7 @@ fn test_multi_document_recovery() {
                 store
                     .get(&run_id, doc_id, &root())
                     .unwrap()
-                    .unwrap()
-                    .as_i64(),
+                    .unwrap().value.as_i64(),
                 Some(i as i64)
             );
         }
@@ -251,8 +246,7 @@ fn test_interleaved_operations_recovery() {
             store
                 .get(&run_id, &doc1, &path("b"))
                 .unwrap()
-                .unwrap()
-                .as_i64(),
+                .unwrap().value.as_i64(),
             Some(2)
         );
 
@@ -261,24 +255,21 @@ fn test_interleaved_operations_recovery() {
             store
                 .get(&run_id, &doc2, &path("x"))
                 .unwrap()
-                .unwrap()
-                .as_i64(),
+                .unwrap().value.as_i64(),
             Some(10)
         );
         assert_eq!(
             store
                 .get(&run_id, &doc2, &path("y"))
                 .unwrap()
-                .unwrap()
-                .as_i64(),
+                .unwrap().value.as_i64(),
             Some(20)
         );
         assert_eq!(
             store
                 .get(&run_id, &doc2, &path("z"))
                 .unwrap()
-                .unwrap()
-                .as_i64(),
+                .unwrap().value.as_i64(),
             Some(30)
         );
     }
@@ -327,16 +318,14 @@ fn test_cross_run_recovery() {
             store
                 .get(&run1, &doc_id, &root())
                 .unwrap()
-                .unwrap()
-                .as_i64(),
+                .unwrap().value.as_i64(),
             Some(111)
         );
         assert_eq!(
             store
                 .get(&run2, &doc_id, &root())
                 .unwrap()
-                .unwrap()
-                .as_i64(),
+                .unwrap().value.as_i64(),
             Some(222)
         );
     }
@@ -417,32 +406,28 @@ fn test_complex_structure_recovery() {
             store
                 .get(&run_id, &doc_id, &path("users[0].name"))
                 .unwrap()
-                .unwrap()
-                .as_str(),
+                .unwrap().value.as_str(),
             Some("Alice")
         );
         assert_eq!(
             store
                 .get(&run_id, &doc_id, &path("users[0].age"))
                 .unwrap()
-                .unwrap()
-                .as_i64(),
+                .unwrap().value.as_i64(),
             Some(31) // Modified value
         );
         assert_eq!(
             store
                 .get(&run_id, &doc_id, &path("users[1].name"))
                 .unwrap()
-                .unwrap()
-                .as_str(),
+                .unwrap().value.as_str(),
             Some("Bob")
         );
         assert_eq!(
             store
                 .get(&run_id, &doc_id, &path("metadata.version"))
                 .unwrap()
-                .unwrap()
-                .as_i64(),
+                .unwrap().value.as_i64(),
             Some(2) // Modified value
         );
     }
@@ -496,8 +481,7 @@ fn test_multiple_recovery_cycles() {
             store
                 .get(&run_id, &doc_id, &root())
                 .unwrap()
-                .unwrap()
-                .as_i64(),
+                .unwrap().value.as_i64(),
             Some(3)
         );
         assert_eq!(store.get_version(&run_id, &doc_id).unwrap().unwrap(), 3);
@@ -552,16 +536,14 @@ fn test_operations_after_recovery() {
             store
                 .get(&run_id, &doc_id, &path("b"))
                 .unwrap()
-                .unwrap()
-                .as_i64(),
+                .unwrap().value.as_i64(),
             Some(2)
         );
         assert_eq!(
             store
                 .get(&run_id, &doc_id, &path("c"))
                 .unwrap()
-                .unwrap()
-                .as_i64(),
+                .unwrap().value.as_i64(),
             Some(3)
         );
     }

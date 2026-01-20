@@ -193,6 +193,6 @@ fn test_t1_operations_always_complete() {
             .unwrap();
         assert!(entry.is_some(), "T1 VIOLATED: Vector {} not visible", i);
         let entry = entry.unwrap();
-        assert_eq!(entry.embedding.len(), 384, "T1 VIOLATED: Vector {} incomplete", i);
+        assert_eq!(entry.value.embedding.len(), 384, "T1 VIOLATED: Vector {} incomplete", i);
     }
 }

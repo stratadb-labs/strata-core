@@ -136,7 +136,7 @@ mod primitives_are_projections {
         let run_index_2 = RunIndex::new(tp.db.clone());
 
         // New facade can see the run
-        let run_info = run_index_2.get_run(&meta.name).unwrap();
+        let run_info = run_index_2.get_run(&meta.value.name).unwrap();
         assert!(run_info.is_some());
     }
 
@@ -513,9 +513,9 @@ mod replay_metadata_contract {
         let tp = TestPrimitives::new();
 
         let meta = tp.run_index.create_run("test-run").unwrap();
-        let run_info = tp.run_index.get_run(&meta.name).unwrap().unwrap();
+        let run_info = tp.run_index.get_run(&meta.value.name).unwrap().unwrap();
 
-        assert!(run_info.created_at > 0);
+        assert!(run_info.value.created_at > 0);
     }
 }
 

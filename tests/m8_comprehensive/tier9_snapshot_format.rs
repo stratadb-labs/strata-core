@@ -37,6 +37,6 @@ fn test_snapshot_preserves_collection_config() {
     test_db.reopen();
 
     let info = test_db.vector().get_collection(run_id, "embeddings").unwrap().unwrap();
-    assert_eq!(info.config.dimension, 384);
-    assert_eq!(info.count, 20);
+    assert_eq!(info.value.config.dimension, 384);
+    assert_eq!(info.value.count, 20);
 }

@@ -41,8 +41,7 @@ fn test_wal_replay_deterministic() {
             store
                 .get(&run_id, &doc_id, &path("a"))
                 .unwrap()
-                .unwrap()
-                .as_i64(),
+                .unwrap().value.as_i64(),
             Some(1)
         );
         assert!(store.get(&run_id, &doc_id, &path("b")).unwrap().is_none());
@@ -50,16 +49,14 @@ fn test_wal_replay_deterministic() {
             store
                 .get(&run_id, &doc_id, &path("c"))
                 .unwrap()
-                .unwrap()
-                .as_i64(),
+                .unwrap().value.as_i64(),
             Some(3)
         );
         assert_eq!(
             store
                 .get(&run_id, &doc_id, &path("d"))
                 .unwrap()
-                .unwrap()
-                .as_i64(),
+                .unwrap().value.as_i64(),
             Some(4)
         );
         assert_version(&store, &run_id, &doc_id, 6); // create(1) + 5 ops (3 sets + 1 delete + 1 set)
@@ -82,7 +79,7 @@ fn test_wal_replay_order_matters() {
             .unwrap();
 
         let result = store.get(&run_id, &doc_id, &path("x")).unwrap().unwrap();
-        assert_eq!(result.as_i64(), Some(2), "Last write wins");
+        assert_eq!(result.value.as_i64(), Some(2), "Last write wins");
     }
 
     {
@@ -97,7 +94,7 @@ fn test_wal_replay_order_matters() {
             .unwrap();
 
         let result = store.get(&run_id, &doc_id, &path("x")).unwrap().unwrap();
-        assert_eq!(result.as_i64(), Some(1), "Last write wins");
+        assert_eq!(result.value.as_i64(), Some(1), "Last write wins");
     }
 }
 
@@ -129,7 +126,7 @@ fn test_operations_are_atomic() {
     let nested_value = store
         .get(&run_id, &doc_id, &path("complex.nested.deep.value"))
         .unwrap();
-    assert_eq!(nested_value.unwrap().as_i64(), Some(42));
+    assert_eq!(nested_value.unwrap().value.as_i64(), Some(42));
 }
 
 // =============================================================================
@@ -200,24 +197,21 @@ fn test_multi_document_interleaved_operations() {
         store
             .get(&run_id, &doc1, &root())
             .unwrap()
-            .unwrap()
-            .as_i64(),
+            .unwrap().value.as_i64(),
         Some(11)
     );
     assert_eq!(
         store
             .get(&run_id, &doc2, &root())
             .unwrap()
-            .unwrap()
-            .as_i64(),
+            .unwrap().value.as_i64(),
         Some(22)
     );
     assert_eq!(
         store
             .get(&run_id, &doc3, &root())
             .unwrap()
-            .unwrap()
-            .as_i64(),
+            .unwrap().value.as_i64(),
         Some(33)
     );
 }
@@ -249,8 +243,7 @@ fn test_create_destroy_interleaved() {
         store
             .get(&run_id, &doc_id, &root())
             .unwrap()
-            .unwrap()
-            .as_i64(),
+            .unwrap().value.as_i64(),
         Some(2)
     );
 }
@@ -309,7 +302,7 @@ fn test_complex_nested_operations() {
         .get(&run_id, &doc_id, &path("users[0].settings.theme"))
         .unwrap()
         .unwrap();
-    assert_eq!(theme.as_str(), Some("light"));
+    assert_eq!(theme.value.as_str(), Some("light"));
 
     let email = store
         .get(&run_id, &doc_id, &path("users[0].email"))
@@ -320,7 +313,7 @@ fn test_complex_nested_operations() {
         .get(&run_id, &doc_id, &path("users[0].name"))
         .unwrap()
         .unwrap();
-    assert_eq!(name.as_str(), Some("Alice"));
+    assert_eq!(name.value.as_str(), Some("Alice"));
 }
 
 /// Long sequence of operations.
@@ -348,7 +341,7 @@ fn test_long_operation_sequence() {
             .get(&run_id, &doc_id, &key.parse().unwrap())
             .unwrap()
             .unwrap();
-        assert_eq!(val.as_i64(), Some(i as i64));
+        assert_eq!(val.value.as_i64(), Some(i as i64));
     }
 
     // Version should be 1 (create) + 100 (sets)
@@ -369,8 +362,7 @@ fn test_alternating_set_delete() {
             store
                 .get(&run_id, &doc_id, &path("temp"))
                 .unwrap()
-                .unwrap()
-                .as_i64(),
+                .unwrap().value.as_i64(),
             Some(i as i64)
         );
 
@@ -422,16 +414,14 @@ fn test_run_isolation_in_wal() {
         store
             .get(&run1, &doc_id, &root())
             .unwrap()
-            .unwrap()
-            .as_i64(),
+            .unwrap().value.as_i64(),
         Some(100)
     );
     assert_eq!(
         store
             .get(&run2, &doc_id, &root())
             .unwrap()
-            .unwrap()
-            .as_i64(),
+            .unwrap().value.as_i64(),
         Some(2)
     );
 
@@ -445,16 +435,14 @@ fn test_run_isolation_in_wal() {
         store
             .get(&run1, &doc_id, &root())
             .unwrap()
-            .unwrap()
-            .as_i64(),
+            .unwrap().value.as_i64(),
         Some(100)
     );
     assert_eq!(
         store
             .get(&run2, &doc_id, &root())
             .unwrap()
-            .unwrap()
-            .as_i64(),
+            .unwrap().value.as_i64(),
         Some(200)
     );
 }
@@ -485,8 +473,7 @@ fn test_durability_mode_semantic_equivalence() {
         let b_val = store
             .get(&run_id, &doc_id, &path("b"))
             .unwrap()
-            .unwrap()
-            .as_i64();
+            .unwrap().value.as_i64();
         let a_val = store.get(&run_id, &doc_id, &path("a")).unwrap();
         let version = store.get_version(&run_id, &doc_id).unwrap().unwrap();
 
@@ -525,7 +512,7 @@ fn test_null_value_operations() {
 
     // Read root
     let val = store.get(&run_id, &doc_id, &root()).unwrap().unwrap();
-    assert!(val.is_null());
+    assert!(val.value.is_null());
 
     // Replace null with object
     store
@@ -540,8 +527,7 @@ fn test_null_value_operations() {
         store
             .get(&run_id, &doc_id, &path("field"))
             .unwrap()
-            .unwrap()
-            .as_i64(),
+            .unwrap().value.as_i64(),
         Some(1)
     );
 }
@@ -556,8 +542,7 @@ fn test_array_document_operations() {
         store
             .get(&run_id, &doc_id, &path("[1]"))
             .unwrap()
-            .unwrap()
-            .as_i64(),
+            .unwrap().value.as_i64(),
         Some(2)
     );
 
@@ -569,8 +554,7 @@ fn test_array_document_operations() {
         store
             .get(&run_id, &doc_id, &path("[1]"))
             .unwrap()
-            .unwrap()
-            .as_i64(),
+            .unwrap().value.as_i64(),
         Some(99)
     );
 
@@ -584,16 +568,14 @@ fn test_array_document_operations() {
         store
             .get(&run_id, &doc_id, &path("[0]"))
             .unwrap()
-            .unwrap()
-            .as_i64(),
+            .unwrap().value.as_i64(),
         Some(99)
     );
     assert_eq!(
         store
             .get(&run_id, &doc_id, &path("[1]"))
             .unwrap()
-            .unwrap()
-            .as_i64(),
+            .unwrap().value.as_i64(),
         Some(3)
     );
 }

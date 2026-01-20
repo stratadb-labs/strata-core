@@ -17,8 +17,8 @@ fn test_collection_config_survives_restart() {
 
     let info = test_db.vector().get_collection(run_id, "embeddings").unwrap().unwrap();
 
-    assert_eq!(info.config.dimension, 512);
-    assert_eq!(info.config.metric, DistanceMetric::DotProduct);
+    assert_eq!(info.value.config.dimension, 512);
+    assert_eq!(info.value.config.metric, DistanceMetric::DotProduct);
 }
 
 #[test]
@@ -38,14 +38,14 @@ fn test_multiple_collection_configs_persist() {
     let vector = test_db.vector();
 
     let cosine = vector.get_collection(run_id, "cosine").unwrap().unwrap();
-    assert_eq!(cosine.config.dimension, 384);
-    assert_eq!(cosine.config.metric, DistanceMetric::Cosine);
+    assert_eq!(cosine.value.config.dimension, 384);
+    assert_eq!(cosine.value.config.metric, DistanceMetric::Cosine);
 
     let euclidean = vector.get_collection(run_id, "euclidean").unwrap().unwrap();
-    assert_eq!(euclidean.config.dimension, 768);
-    assert_eq!(euclidean.config.metric, DistanceMetric::Euclidean);
+    assert_eq!(euclidean.value.config.dimension, 768);
+    assert_eq!(euclidean.value.config.metric, DistanceMetric::Euclidean);
 
     let dot = vector.get_collection(run_id, "dot").unwrap().unwrap();
-    assert_eq!(dot.config.dimension, 1536);
-    assert_eq!(dot.config.metric, DistanceMetric::DotProduct);
+    assert_eq!(dot.value.config.dimension, 1536);
+    assert_eq!(dot.value.config.metric, DistanceMetric::DotProduct);
 }

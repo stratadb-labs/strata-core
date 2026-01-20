@@ -30,7 +30,7 @@ fn test_s3_vectorid_stable_across_operations() {
         .get(test_db.run_id, "embeddings", "key2")
         .unwrap()
         .unwrap();
-    let id_before = entry_before.vector_id();
+    let id_before = entry_before.value.vector_id();
 
     // Perform other operations
     vector.delete(test_db.run_id, "embeddings", "key1").unwrap();
@@ -43,7 +43,7 @@ fn test_s3_vectorid_stable_across_operations() {
         .get(test_db.run_id, "embeddings", "key2")
         .unwrap()
         .unwrap();
-    let id_after = entry_after.vector_id();
+    let id_after = entry_after.value.vector_id();
 
     assert_eq!(
         id_before, id_after,
@@ -68,7 +68,7 @@ fn test_s3_vectorid_stable_across_restart() {
             .unwrap();
 
         let entry = vector.get(run_id, "embeddings", "key1").unwrap().unwrap();
-        id_before = entry.vector_id();
+        id_before = entry.value.vector_id();
     }
 
     // Restart
@@ -78,7 +78,7 @@ fn test_s3_vectorid_stable_across_restart() {
     let entry_after = vector.get(run_id, "embeddings", "key1").unwrap().unwrap();
 
     assert_eq!(
-        id_before, entry_after.vector_id(),
+        id_before, entry_after.value.vector_id(),
         "S3 VIOLATED: VectorId changed across restart"
     );
 }
@@ -103,7 +103,7 @@ fn test_s3_vectorid_stable_on_upsert_update() {
         .get(test_db.run_id, "embeddings", "key1")
         .unwrap()
         .unwrap();
-    let id_before = entry_before.vector_id();
+    let id_before = entry_before.value.vector_id();
 
     // Update with new embedding (same key)
     let embedding2 = random_vector(384);
@@ -120,7 +120,7 @@ fn test_s3_vectorid_stable_on_upsert_update() {
         .unwrap();
 
     // The embedding should have been updated
-    assert_eq!(entry_after.embedding, embedding2);
+    assert_eq!(entry_after.value.embedding, embedding2);
 }
 
 /// Test VectorId stability across multiple collections
@@ -156,8 +156,8 @@ fn test_s3_vectorid_stable_multiple_collections() {
 
     // Each collection has its own VectorId space (IDs may be same or different)
     // But they should both be valid
-    assert!(entry1.vector_id().as_u64() > 0 || entry1.vector_id().as_u64() == 0); // Just check it exists
-    assert!(entry2.vector_id().as_u64() > 0 || entry2.vector_id().as_u64() == 0);
+    assert!(entry1.value.vector_id().as_u64() > 0 || entry1.value.vector_id().as_u64() == 0); // Just check it exists
+    assert!(entry2.value.vector_id().as_u64() > 0 || entry2.value.vector_id().as_u64() == 0);
 }
 
 /// Test VectorId stability with many operations
@@ -188,7 +188,7 @@ fn test_s3_vectorid_stable_many_operations() {
     for i in 0..100 {
         let key = format!("key_{}", i);
         let entry = vector.get(test_db.run_id, "embeddings", &key).unwrap().unwrap();
-        ids_before.insert(key, entry.vector_id());
+        ids_before.insert(key, entry.value.vector_id());
     }
 
     // Perform many operations
@@ -218,7 +218,7 @@ fn test_s3_vectorid_stable_many_operations() {
         let entry = vector.get(test_db.run_id, "embeddings", &key).unwrap().unwrap();
         let id_before = ids_before.get(&key).unwrap();
         assert_eq!(
-            *id_before, entry.vector_id(),
+            *id_before, entry.value.vector_id(),
             "S3 VIOLATED: VectorId for {} changed after operations",
             key
         );

@@ -29,7 +29,7 @@ fn test_patch_ordering_matters() {
 
         // Result: $.a = { "b": 1 }
         let result = store.get(&run_id, &doc_id, &path("a.b")).unwrap().unwrap();
-        assert_eq!(result.as_i64(), Some(1));
+        assert_eq!(result.value.as_i64(), Some(1));
     }
 
     // Scenario 2: Reverse order
@@ -79,8 +79,8 @@ fn test_patches_are_not_commutative() {
     let result2 = store2.get(&run_id2, &doc_id2, &path("x")).unwrap().unwrap();
 
     // Results should be different (last write wins)
-    assert_eq!(result1.as_i64(), Some(2));
-    assert_eq!(result2.as_i64(), Some(1));
+    assert_eq!(result1.value.as_i64(), Some(2));
+    assert_eq!(result2.value.as_i64(), Some(1));
 }
 
 /// Last write wins for same-path operations.
@@ -100,7 +100,7 @@ fn test_last_write_wins_same_path() {
         .get(&run_id, &doc_id, &path("value"))
         .unwrap()
         .unwrap();
-    assert_eq!(result.as_i64(), Some(10));
+    assert_eq!(result.value.as_i64(), Some(10));
 }
 
 // =============================================================================
@@ -185,8 +185,7 @@ fn test_patches_see_prior_effects() {
         let current = store
             .get(&run_id, &doc_id, &path("counter"))
             .unwrap()
-            .unwrap()
-            .as_i64()
+            .unwrap().value.as_i64()
             .unwrap();
 
         // Write incremented (simulating patch seeing prior state)
@@ -204,7 +203,7 @@ fn test_patches_see_prior_effects() {
         .get(&run_id, &doc_id, &path("counter"))
         .unwrap()
         .unwrap();
-    assert_eq!(final_val.as_i64(), Some(5));
+    assert_eq!(final_val.value.as_i64(), Some(5));
 }
 
 /// Intermediate objects created by Set are visible to subsequent operations.
@@ -232,8 +231,8 @@ fn test_intermediate_objects_visible_to_subsequent_ops() {
         .unwrap()
         .unwrap();
 
-    assert_eq!(c.as_i64(), Some(1));
-    assert_eq!(d.as_i64(), Some(2));
+    assert_eq!(c.value.as_i64(), Some(1));
+    assert_eq!(d.value.as_i64(), Some(2));
 }
 
 // =============================================================================
@@ -263,8 +262,7 @@ fn test_delete_removes_value() {
         store
             .get(&run_id, &doc_id, &path("keep"))
             .unwrap()
-            .unwrap()
-            .as_str(),
+            .unwrap().value.as_str(),
         Some("this")
     );
 }
@@ -345,7 +343,7 @@ fn test_set_creates_value() {
         .get(&run_id, &doc_id, &path("new.path"))
         .unwrap()
         .unwrap();
-    assert_eq!(val.as_str(), Some("created"));
+    assert_eq!(val.value.as_str(), Some("created"));
 }
 
 /// Set at path overwrites value.
@@ -366,7 +364,7 @@ fn test_set_overwrites_value() {
         .get(&run_id, &doc_id, &path("field"))
         .unwrap()
         .unwrap();
-    assert_eq!(val.as_str(), Some("updated"));
+    assert_eq!(val.value.as_str(), Some("updated"));
 }
 
 /// Set at root replaces entire document.
@@ -400,7 +398,7 @@ fn test_set_root_replaces_all() {
 
     // New data present
     let new = store.get(&run_id, &doc_id, &path("new")).unwrap().unwrap();
-    assert_eq!(new.as_str(), Some("doc"));
+    assert_eq!(new.value.as_str(), Some("doc"));
 }
 
 /// Set preserves siblings.
@@ -431,24 +429,21 @@ fn test_set_preserves_siblings() {
         store
             .get(&run_id, &doc_id, &path("parent.sibling1"))
             .unwrap()
-            .unwrap()
-            .as_str(),
+            .unwrap().value.as_str(),
         Some("keep")
     );
     assert_eq!(
         store
             .get(&run_id, &doc_id, &path("parent.sibling2"))
             .unwrap()
-            .unwrap()
-            .as_str(),
+            .unwrap().value.as_str(),
         Some("keep")
     );
     assert_eq!(
         store
             .get(&run_id, &doc_id, &path("parent.modify"))
             .unwrap()
-            .unwrap()
-            .as_str(),
+            .unwrap().value.as_str(),
         Some("changed")
     );
 }

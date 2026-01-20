@@ -189,10 +189,13 @@ fn versioned_value_map_to_different_type() {
 
 #[test]
 fn versioned_equality_considers_value_and_version() {
-    let v1 = Versioned::new(42, Version::txn(1));
-    let v2 = Versioned::new(42, Version::txn(1));
-    let v3 = Versioned::new(42, Version::txn(2)); // Different version
-    let v4 = Versioned::new(100, Version::txn(1)); // Different value
+    // Use explicit timestamps to avoid timing-related flakiness
+    let ts = Timestamp::from_micros(1000);
+
+    let v1 = Versioned::with_timestamp(42, Version::txn(1), ts);
+    let v2 = Versioned::with_timestamp(42, Version::txn(1), ts);
+    let v3 = Versioned::with_timestamp(42, Version::txn(2), ts); // Different version
+    let v4 = Versioned::with_timestamp(100, Version::txn(1), ts); // Different value
 
     assert_eq!(v1, v2);
     assert_ne!(v1, v3); // Different version

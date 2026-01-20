@@ -581,7 +581,7 @@ mod run_lifecycle_stress {
         let mut run_names = Vec::with_capacity(num_runs);
         for i in 0..num_runs {
             let meta = tp.run_index.create_run(&format!("run-{}", i)).unwrap();
-            run_names.push(meta.name);
+            run_names.push(meta.value.name);
         }
 
         // All runs should exist
@@ -601,7 +601,7 @@ mod run_lifecycle_stress {
         let num_runs = 100;
 
         let run_names: Vec<_> = (0..num_runs)
-            .map(|i| tp.run_index.create_run(&format!("run-{}", i)).unwrap().name)
+            .map(|i| tp.run_index.create_run(&format!("run-{}", i)).unwrap().value.name)
             .collect();
 
         // Rapidly transition each run through lifecycle
@@ -623,7 +623,7 @@ mod run_lifecycle_stress {
         // All should be archived
         for run_name in &run_names {
             let run = tp.run_index.get_run(run_name).unwrap().unwrap();
-            assert_eq!(run.status, RunStatus::Archived);
+            assert_eq!(run.value.status, RunStatus::Archived);
         }
     }
 
@@ -666,7 +666,7 @@ mod run_lifecycle_stress {
         }
 
         // Delete the run from index
-        tp.run_index.delete_run(&run_meta.name).unwrap();
+        tp.run_index.delete_run(&run_meta.value.name).unwrap();
 
         // Note: Deleting from RunIndex removes metadata, but not primitive data
         // Data deletion would be a separate cleanup operation

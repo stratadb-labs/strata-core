@@ -49,9 +49,9 @@ fn test_no_dirty_reads() {
         .unwrap()
         .unwrap();
 
-    assert_eq!(a.as_i64(), Some(1));
-    assert_eq!(b.as_i64(), Some(2));
-    assert_eq!(c.as_i64(), Some(3));
+    assert_eq!(a.value.as_i64(), Some(1));
+    assert_eq!(b.value.as_i64(), Some(2));
+    assert_eq!(c.value.as_i64(), Some(3));
 }
 
 /// Read-your-writes consistency.
@@ -83,7 +83,7 @@ fn test_read_your_writes() {
             .unwrap()
             .unwrap();
         assert_eq!(
-            read.as_i64(),
+            read.value.as_i64(),
             Some(i as i64),
             "Failed to read own write at iteration {}",
             i
@@ -113,8 +113,7 @@ fn test_monotonic_reads() {
         let current = json_store
             .get(&run_id, &doc_id, &root())
             .unwrap()
-            .unwrap()
-            .as_i64()
+            .unwrap().value.as_i64()
             .unwrap();
 
         // Should never see a value older than last seen
@@ -166,8 +165,7 @@ fn test_operations_total_order() {
         json_store
             .get(&run_id, &doc_id, &path("a"))
             .unwrap()
-            .unwrap()
-            .as_i64(),
+            .unwrap().value.as_i64(),
         Some(10)
     );
     assert!(json_store
@@ -178,8 +176,7 @@ fn test_operations_total_order() {
         json_store
             .get(&run_id, &doc_id, &path("c"))
             .unwrap()
-            .unwrap()
-            .as_i64(),
+            .unwrap().value.as_i64(),
         Some(3)
     );
 }
@@ -256,16 +253,14 @@ fn test_multi_document_serial_appearance() {
         json_store
             .get(&run_id, &doc1, &root())
             .unwrap()
-            .unwrap()
-            .as_i64(),
+            .unwrap().value.as_i64(),
         Some(3)
     );
     assert_eq!(
         json_store
             .get(&run_id, &doc2, &root())
             .unwrap()
-            .unwrap()
-            .as_i64(),
+            .unwrap().value.as_i64(),
         Some(2)
     );
 }
@@ -310,8 +305,7 @@ fn test_concurrent_increments_serializable() {
                     let current = store
                         .get(&run_id, &doc_id, &root())
                         .unwrap()
-                        .unwrap()
-                        .as_i64()
+                        .unwrap().value.as_i64()
                         .unwrap();
 
                     // Write incremented value (may conflict with others)
@@ -331,11 +325,11 @@ fn test_concurrent_increments_serializable() {
     // Final value should exist and be valid
     let store = JsonStore::new(db);
     let final_value = store.get(&run_id, &doc_id, &root()).unwrap().unwrap();
-    assert!(final_value.as_i64().is_some());
+    assert!(final_value.value.as_i64().is_some());
 
     // Note: Due to conflicts, final value may be less than total operations
     // But it should be >= 1 (at least one operation succeeded)
-    assert!(final_value.as_i64().unwrap() >= 1);
+    assert!(final_value.value.as_i64().unwrap() >= 1);
 }
 
 /// Concurrent operations on different DOCUMENTS are serializable.
@@ -373,7 +367,7 @@ fn test_concurrent_different_docs_serializable() {
     let store = JsonStore::new(db);
     for (i, doc_id) in doc_ids.iter().enumerate() {
         let value = store.get(&run_id, doc_id, &root()).unwrap().unwrap();
-        assert_eq!(value.as_i64(), Some(i as i64));
+        assert_eq!(value.value.as_i64(), Some(i as i64));
     }
 }
 
@@ -406,14 +400,12 @@ fn test_snapshot_isolation_read() {
     let a = json_store
         .get(&run_id, &doc_id, &path("balance_a"))
         .unwrap()
-        .unwrap()
-        .as_i64()
+        .unwrap().value.as_i64()
         .unwrap();
     let b = json_store
         .get(&run_id, &doc_id, &path("balance_b"))
         .unwrap()
-        .unwrap()
-        .as_i64()
+        .unwrap().value.as_i64()
         .unwrap();
 
     // Both should be from same snapshot
@@ -464,8 +456,7 @@ fn test_overlapping_paths_conflict() {
         json_store
             .get(&run_id, &doc_id, &path("data.value"))
             .unwrap()
-            .unwrap()
-            .as_i64(),
+            .unwrap().value.as_i64(),
         Some(3)
     );
 }
@@ -498,8 +489,7 @@ fn test_no_lost_updates_same_path() {
         json_store
             .get(&run_id, &doc_id, &root())
             .unwrap()
-            .unwrap()
-            .as_i64(),
+            .unwrap().value.as_i64(),
         Some(10)
     );
 }
@@ -532,7 +522,7 @@ fn test_no_phantom_reads() {
         .unwrap();
 
     // All reads should be consistent
-    assert_eq!(elem0.as_i64(), Some(1));
-    assert_eq!(elem1.as_i64(), Some(2));
-    assert_eq!(elem2.as_i64(), Some(3));
+    assert_eq!(elem0.value.as_i64(), Some(1));
+    assert_eq!(elem1.value.as_i64(), Some(2));
+    assert_eq!(elem2.value.as_i64(), Some(3));
 }

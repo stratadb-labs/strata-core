@@ -20,7 +20,7 @@ fn test_rapid_upsert_same_key() {
 
     // Should have the last vector
     let result = vector.get(run_id, "embeddings", "same_key").unwrap().unwrap();
-    assert_eq!(result.embedding, seeded_random_vector(384, 99));
+    assert_eq!(result.value.embedding, seeded_random_vector(384, 99));
 }
 
 #[test]

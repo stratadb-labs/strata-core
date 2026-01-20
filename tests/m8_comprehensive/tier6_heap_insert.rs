@@ -13,7 +13,7 @@ fn test_heap_insert_and_get() {
     vector.insert(test_db.run_id, "embeddings", "key1", &embedding, None).unwrap();
 
     let entry = vector.get(test_db.run_id, "embeddings", "key1").unwrap().unwrap();
-    assert_eq!(entry.embedding, embedding);
+    assert_eq!(entry.value.embedding, embedding);
 }
 
 #[test]
@@ -30,7 +30,7 @@ fn test_heap_upsert_overwrites() {
     vector.insert(test_db.run_id, "embeddings", "key1", &embedding2, None).unwrap();
 
     let entry = vector.get(test_db.run_id, "embeddings", "key1").unwrap().unwrap();
-    assert_eq!(entry.embedding, embedding2);
+    assert_eq!(entry.value.embedding, embedding2);
     assert_eq!(vector.count(test_db.run_id, "embeddings").unwrap(), 1);
 }
 

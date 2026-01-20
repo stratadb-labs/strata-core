@@ -46,11 +46,11 @@ fn test_r4_backend_tiebreak_by_vectorid() {
 
     // key_c has lowest VectorId (inserted first)
     assert!(
-        entry_c.vector_id().as_u64() < entry_a.vector_id().as_u64(),
+        entry_c.value.vector_id().as_u64() < entry_a.value.vector_id().as_u64(),
         "key_c should have lower VectorId than key_a"
     );
     assert!(
-        entry_a.vector_id().as_u64() < entry_b.vector_id().as_u64(),
+        entry_a.value.vector_id().as_u64() < entry_b.value.vector_id().as_u64(),
         "key_a should have lower VectorId than key_b"
     );
 

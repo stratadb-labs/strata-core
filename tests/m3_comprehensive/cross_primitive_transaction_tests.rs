@@ -415,7 +415,7 @@ mod run_status_with_primitives {
 
         // Update status using the run name
         tp.run_index
-            .update_status(&meta.name, RunStatus::Paused)
+            .update_status(&meta.value.name, RunStatus::Paused)
             .unwrap();
 
         // Primitive data still accessible
@@ -424,9 +424,9 @@ mod run_status_with_primitives {
 
         // Complete the run
         tp.run_index
-            .update_status(&meta.name, RunStatus::Active)
+            .update_status(&meta.value.name, RunStatus::Active)
             .unwrap();
-        tp.run_index.complete_run(&meta.name).unwrap();
+        tp.run_index.complete_run(&meta.value.name).unwrap();
 
         // Data still accessible after completion
         assert_eq!(tp.kv.get(&run_id, "key").unwrap().map(|v| v.value), Some(values::int(42)));
@@ -442,8 +442,8 @@ mod run_status_with_primitives {
         tp.kv
             .put(&run_id, "archived_key", values::string("data"))
             .unwrap();
-        tp.run_index.complete_run(&meta.name).unwrap();
-        tp.run_index.archive_run(&meta.name).unwrap();
+        tp.run_index.complete_run(&meta.value.name).unwrap();
+        tp.run_index.archive_run(&meta.value.name).unwrap();
 
         // Data still accessible
         assert_eq!(

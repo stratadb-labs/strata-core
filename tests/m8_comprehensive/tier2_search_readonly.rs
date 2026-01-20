@@ -118,7 +118,7 @@ fn test_r10_search_does_not_modify_embeddings() {
             .get(test_db.run_id, "embeddings", key)
             .unwrap()
             .unwrap();
-        for (i, (&expected, &actual)) in expected_emb.iter().zip(entry.embedding.iter()).enumerate()
+        for (i, (&expected, &actual)) in expected_emb.iter().zip(entry.value.embedding.iter()).enumerate()
         {
             assert!(
                 (expected - actual).abs() < 1e-6,
@@ -164,7 +164,7 @@ fn test_r10_search_does_not_modify_metadata() {
             .get(test_db.run_id, "embeddings", &format!("key_{}", i))
             .unwrap()
             .unwrap();
-        let metadata = entry.metadata.unwrap();
+        let metadata = entry.value.metadata.unwrap();
         assert_eq!(
             metadata["data"], "original",
             "R10 VIOLATED: Search modified metadata for key_{}",
@@ -254,7 +254,7 @@ fn test_r10_search_does_not_affect_collection_info() {
         .unwrap()
         .unwrap();
 
-    assert_eq!(info_before.count, info_after.count);
-    assert_eq!(info_before.config.dimension, info_after.config.dimension);
-    assert_eq!(info_before.config.metric, info_after.config.metric);
+    assert_eq!(info_before.value.count, info_after.value.count);
+    assert_eq!(info_before.value.config.dimension, info_after.value.config.dimension);
+    assert_eq!(info_before.value.config.metric, info_after.value.config.metric);
 }

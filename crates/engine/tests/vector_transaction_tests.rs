@@ -82,9 +82,9 @@ fn test_collection_survives_restart() {
         assert!(info.is_some(), "Collection should survive restart");
 
         let info = info.unwrap();
-        assert_eq!(info.name, "test_col");
-        assert_eq!(info.config.dimension, 3);
-        assert_eq!(info.config.metric, DistanceMetric::Cosine);
+        assert_eq!(info.value.name, "test_col");
+        assert_eq!(info.value.config.dimension, 3);
+        assert_eq!(info.value.config.metric, DistanceMetric::Cosine);
     }
 }
 
@@ -198,7 +198,7 @@ fn test_vectors_survive_restart() {
 
         // Collection should exist with config
         let info = store.get_collection(run_id, "test").unwrap().unwrap();
-        assert_eq!(info.config.dimension, 3);
+        assert_eq!(info.value.config.dimension, 3);
 
         // Note: After restart, vectors need to be loaded into backend
         // The KV data (metadata) survives, but in-memory backend is empty

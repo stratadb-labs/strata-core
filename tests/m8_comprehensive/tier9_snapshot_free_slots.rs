@@ -18,7 +18,7 @@ fn test_snapshot_free_slots_preserved() {
         }
 
         max_id_before_delete = (0..20)
-            .map(|i| vector.get(run_id, "embeddings", &format!("key_{}", i)).unwrap().unwrap().vector_id().as_u64())
+            .map(|i| vector.get(run_id, "embeddings", &format!("key_{}", i)).unwrap().unwrap().value.vector_id().as_u64())
             .max()
             .unwrap();
 
@@ -35,7 +35,7 @@ fn test_snapshot_free_slots_preserved() {
     // Insert new vectors - should get new IDs (not reuse deleted ones)
     for i in 20..25 {
         vector.insert(run_id, "embeddings", &format!("key_{}", i), &seeded_random_vector(384, i as u64), None).unwrap();
-        let new_id = vector.get(run_id, "embeddings", &format!("key_{}", i)).unwrap().unwrap().vector_id().as_u64();
+        let new_id = vector.get(run_id, "embeddings", &format!("key_{}", i)).unwrap().unwrap().value.vector_id().as_u64();
         assert!(new_id > max_id_before_delete, "VectorId {} should be > {} (IDs not reused)", new_id, max_id_before_delete);
     }
 }

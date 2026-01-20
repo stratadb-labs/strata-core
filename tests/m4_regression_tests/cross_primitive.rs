@@ -290,19 +290,19 @@ fn run_status_valid_transitions() {
 
         // Create run (starts as Active)
         let meta = runs.create_run("transition-test").unwrap();
-        assert_eq!(meta.status, RunStatus::Active);
+        assert_eq!(meta.value.status, RunStatus::Active);
 
         // Active -> Paused
         let meta = runs.pause_run("transition-test").unwrap();
-        assert_eq!(meta.status, RunStatus::Paused);
+        assert_eq!(meta.value.status, RunStatus::Paused);
 
         // Paused -> Active
         let meta = runs.resume_run("transition-test").unwrap();
-        assert_eq!(meta.status, RunStatus::Active);
+        assert_eq!(meta.value.status, RunStatus::Active);
 
         // Active -> Completed
         let meta = runs.complete_run("transition-test").unwrap();
-        assert_eq!(meta.status, RunStatus::Completed);
+        assert_eq!(meta.value.status, RunStatus::Completed);
 
         true
     });

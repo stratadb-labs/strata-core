@@ -42,7 +42,7 @@ fn test_large_document_many_keys() {
             .get(&run_id, &doc_id, &key.parse().unwrap())
             .unwrap()
             .unwrap();
-        assert_eq!(value.as_i64(), Some(i as i64));
+        assert_eq!(value.value.as_i64(), Some(i as i64));
     }
 
     // Version should be 1 (create) + 1000 (sets)
@@ -76,7 +76,7 @@ fn test_large_string_values() {
             .get(&run_id, &doc_id, &key.parse().unwrap())
             .unwrap()
             .unwrap();
-        assert_eq!(value.as_str().unwrap().len(), 10_000);
+        assert_eq!(value.value.as_str().unwrap().len(), 10_000);
     }
 }
 
@@ -96,24 +96,21 @@ fn test_large_array() {
         store
             .get(&run_id, &doc_id, &path("[0]"))
             .unwrap()
-            .unwrap()
-            .as_i64(),
+            .unwrap().value.as_i64(),
         Some(0)
     );
     assert_eq!(
         store
             .get(&run_id, &doc_id, &path("[500]"))
             .unwrap()
-            .unwrap()
-            .as_i64(),
+            .unwrap().value.as_i64(),
         Some(500)
     );
     assert_eq!(
         store
             .get(&run_id, &doc_id, &path("[999]"))
             .unwrap()
-            .unwrap()
-            .as_i64(),
+            .unwrap().value.as_i64(),
         Some(999)
     );
 }
@@ -152,7 +149,7 @@ fn test_deep_nesting() {
         .get(&run_id, &doc_id, &path_str.parse().unwrap())
         .unwrap()
         .unwrap();
-    assert_eq!(value.as_str(), Some("deep"));
+    assert_eq!(value.value.as_str(), Some("deep"));
 }
 
 /// Deeply nested array access.
@@ -172,7 +169,7 @@ fn test_deep_array_nesting() {
         .get(&run_id, &doc_id, &path_str.parse().unwrap())
         .unwrap()
         .unwrap();
-    assert_eq!(inner.as_i64(), Some(42));
+    assert_eq!(inner.value.as_i64(), Some(42));
 }
 
 // =============================================================================
@@ -203,8 +200,7 @@ fn test_many_documents() {
             store
                 .get(&run_id, doc_id, &root())
                 .unwrap()
-                .unwrap()
-                .as_i64(),
+                .unwrap().value.as_i64(),
             Some(i as i64)
         );
     }
@@ -252,7 +248,7 @@ fn test_many_documents_many_operations() {
                 .get(&run_id, doc_id, &key.parse().unwrap())
                 .unwrap()
                 .unwrap();
-            assert_eq!(actual.as_i64(), Some(expected as i64));
+            assert_eq!(actual.value.as_i64(), Some(expected as i64));
         }
     }
 }
@@ -352,7 +348,7 @@ fn test_concurrent_writers_different_docs_stress() {
     for doc_id in &doc_ids {
         let store = JsonStore::new(db.clone());
         let value = store.get(&run_id, doc_id, &root()).unwrap().unwrap();
-        assert!(value.as_i64().is_some());
+        assert!(value.value.as_i64().is_some());
     }
 }
 

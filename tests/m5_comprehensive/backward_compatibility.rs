@@ -35,8 +35,8 @@ fn test_crud_api_exists() {
     let exists_result: Result<bool, _> = store.exists(&run_id, &doc_id);
     assert!(exists_result.is_ok());
 
-    // Get
-    let get_result: Result<Option<JsonValue>, _> = store.get(&run_id, &doc_id, &root());
+    // Get - now returns Versioned<JsonValue>
+    let get_result = store.get(&run_id, &doc_id, &root());
     assert!(get_result.is_ok());
 
     // Get version
@@ -271,7 +271,7 @@ fn test_jsonstore_stateless() {
     {
         let store3 = JsonStore::new(db.clone());
         let value = store3.get(&run_id, &doc_id, &root()).unwrap().unwrap();
-        assert_eq!(value.as_i64(), Some(2));
+        assert_eq!(value.value.as_i64(), Some(2));
     }
 }
 
@@ -296,8 +296,7 @@ fn test_multiple_jsonstore_instances() {
         store2
             .get(&run_id, &doc_id, &root())
             .unwrap()
-            .unwrap()
-            .as_i64(),
+            .unwrap().value.as_i64(),
         Some(1)
     );
 
@@ -309,8 +308,7 @@ fn test_multiple_jsonstore_instances() {
         store1
             .get(&run_id, &doc_id, &root())
             .unwrap()
-            .unwrap()
-            .as_i64(),
+            .unwrap().value.as_i64(),
         Some(2)
     );
 }
@@ -335,7 +333,7 @@ fn test_empty_object_valid() {
 
     assert!(store.exists(&run_id, &doc_id).unwrap());
     let value = store.get(&run_id, &doc_id, &root()).unwrap().unwrap();
-    assert!(value.is_object());
+    assert!(value.value.is_object());
 }
 
 /// Empty array is valid initial value.
@@ -345,7 +343,7 @@ fn test_empty_array_valid() {
 
     assert!(store.exists(&run_id, &doc_id).unwrap());
     let value = store.get(&run_id, &doc_id, &root()).unwrap().unwrap();
-    assert!(value.is_array());
+    assert!(value.value.is_array());
 }
 
 /// Null is valid initial value.
@@ -355,5 +353,5 @@ fn test_null_valid() {
 
     assert!(store.exists(&run_id, &doc_id).unwrap());
     let value = store.get(&run_id, &doc_id, &root()).unwrap().unwrap();
-    assert!(value.is_null());
+    assert!(value.value.is_null());
 }

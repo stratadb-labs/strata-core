@@ -28,7 +28,7 @@ fn test_vectorid_assignment_deterministic() {
     for i in 0..20 {
         let r1 = vector1.get(run_id1, "embeddings", &format!("key_{}", i)).unwrap().unwrap();
         let r2 = vector2.get(run_id2, "embeddings", &format!("key_{}", i)).unwrap().unwrap();
-        assert_eq!(r1.vector_id().as_u64(), r2.vector_id().as_u64(), "VectorId should be deterministic for key_{}", i);
+        assert_eq!(r1.value.vector_id().as_u64(), r2.value.vector_id().as_u64(), "VectorId should be deterministic for key_{}", i);
     }
 }
 
@@ -69,7 +69,7 @@ fn test_vectorid_after_delete_deterministic() {
     for i in 10..15 {
         let r1 = vector1.get(run_id1, "embeddings", &format!("key_{}", i)).unwrap().unwrap();
         let r2 = vector2.get(run_id2, "embeddings", &format!("key_{}", i)).unwrap().unwrap();
-        assert_eq!(r1.vector_id().as_u64(), r2.vector_id().as_u64(), "VectorId should be deterministic after deletes for key_{}", i);
+        assert_eq!(r1.value.vector_id().as_u64(), r2.value.vector_id().as_u64(), "VectorId should be deterministic after deletes for key_{}", i);
     }
 }
 
@@ -88,7 +88,7 @@ fn test_vectorid_determinism_across_recovery() {
         }
 
         ids_before = (0..20)
-            .map(|i| vector.get(run_id, "embeddings", &format!("key_{}", i)).unwrap().unwrap().vector_id().as_u64())
+            .map(|i| vector.get(run_id, "embeddings", &format!("key_{}", i)).unwrap().unwrap().value.vector_id().as_u64())
             .collect();
     }
 
@@ -96,7 +96,7 @@ fn test_vectorid_determinism_across_recovery() {
 
     let vector = test_db.vector();
     let ids_after: Vec<u64> = (0..20)
-        .map(|i| vector.get(run_id, "embeddings", &format!("key_{}", i)).unwrap().unwrap().vector_id().as_u64())
+        .map(|i| vector.get(run_id, "embeddings", &format!("key_{}", i)).unwrap().unwrap().value.vector_id().as_u64())
         .collect();
 
     assert_eq!(ids_before, ids_after, "VectorIds should be preserved across recovery");

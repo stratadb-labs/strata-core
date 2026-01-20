@@ -45,8 +45,8 @@ fn test_high_dimension_recovery() {
     // Verify vector data
     for i in [0, 10, 20, 29].iter() {
         let result = vector.get(run_id, "embeddings", &format!("key_{}", i)).unwrap().unwrap();
-        assert_eq!(result.embedding.len(), 1536);
-        assert_eq!(result.embedding, seeded_random_vector(1536, *i as u64));
+        assert_eq!(result.value.embedding.len(), 1536);
+        assert_eq!(result.value.embedding, seeded_random_vector(1536, *i as u64));
     }
 }
 

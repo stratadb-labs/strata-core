@@ -870,9 +870,9 @@ mod runindex_api {
         let tp = TestPrimitives::new();
         let meta = tp.run_index.create_run("my-run").unwrap();
 
-        assert_eq!(meta.name, "my-run");
-        assert_eq!(meta.status, RunStatus::Active);
-        assert!(meta.parent_run.is_none());
+        assert_eq!(meta.value.name, "my-run");
+        assert_eq!(meta.value.status, RunStatus::Active);
+        assert!(meta.value.parent_run.is_none());
     }
 
     #[test]
@@ -893,9 +893,9 @@ mod runindex_api {
             )
             .unwrap();
 
-        assert_eq!(meta.name, "child");
-        assert_eq!(meta.parent_run, Some("parent".to_string()));
-        assert_eq!(meta.tags, vec!["tag1".to_string(), "tag2".to_string()]);
+        assert_eq!(meta.value.name, "child");
+        assert_eq!(meta.value.parent_run, Some("parent".to_string()));
+        assert_eq!(meta.value.tags, vec!["tag1".to_string(), "tag2".to_string()]);
     }
 
     #[test]
@@ -914,7 +914,7 @@ mod runindex_api {
 
         let meta = tp.run_index.get_run("my-run").unwrap();
         assert!(meta.is_some());
-        assert_eq!(meta.unwrap().name, "my-run");
+        assert_eq!(meta.unwrap().value.name, "my-run");
     }
 
     #[test]
@@ -963,7 +963,7 @@ mod runindex_api {
             .run_index
             .update_status("my-run", RunStatus::Paused)
             .unwrap();
-        assert_eq!(meta.status, RunStatus::Paused);
+        assert_eq!(meta.value.status, RunStatus::Paused);
     }
 
     #[test]
@@ -972,8 +972,8 @@ mod runindex_api {
         tp.run_index.create_run("my-run").unwrap();
 
         let meta = tp.run_index.complete_run("my-run").unwrap();
-        assert_eq!(meta.status, RunStatus::Completed);
-        assert!(meta.completed_at.is_some());
+        assert_eq!(meta.value.status, RunStatus::Completed);
+        assert!(meta.value.completed_at.is_some());
     }
 
     #[test]
@@ -982,8 +982,8 @@ mod runindex_api {
         tp.run_index.create_run("my-run").unwrap();
 
         let meta = tp.run_index.fail_run("my-run", "error message").unwrap();
-        assert_eq!(meta.status, RunStatus::Failed);
-        assert_eq!(meta.error, Some("error message".to_string()));
+        assert_eq!(meta.value.status, RunStatus::Failed);
+        assert_eq!(meta.value.error, Some("error message".to_string()));
     }
 
     #[test]
@@ -992,7 +992,7 @@ mod runindex_api {
         tp.run_index.create_run("my-run").unwrap();
 
         let meta = tp.run_index.cancel_run("my-run").unwrap();
-        assert_eq!(meta.status, RunStatus::Cancelled);
+        assert_eq!(meta.value.status, RunStatus::Cancelled);
     }
 
     #[test]
@@ -1001,10 +1001,10 @@ mod runindex_api {
         tp.run_index.create_run("my-run").unwrap();
 
         let meta = tp.run_index.pause_run("my-run").unwrap();
-        assert_eq!(meta.status, RunStatus::Paused);
+        assert_eq!(meta.value.status, RunStatus::Paused);
 
         let meta = tp.run_index.resume_run("my-run").unwrap();
-        assert_eq!(meta.status, RunStatus::Active);
+        assert_eq!(meta.value.status, RunStatus::Active);
     }
 
     #[test]
@@ -1013,7 +1013,7 @@ mod runindex_api {
         tp.run_index.create_run("my-run").unwrap();
 
         let meta = tp.run_index.archive_run("my-run").unwrap();
-        assert_eq!(meta.status, RunStatus::Archived);
+        assert_eq!(meta.value.status, RunStatus::Archived);
     }
 
     #[test]

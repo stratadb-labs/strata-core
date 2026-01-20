@@ -35,7 +35,7 @@ fn test_t2_upsert_overwrites_same_key() {
 
     // Verify it's embedding2, not embedding1
     assert!(
-        (entry.embedding[0] - embedding2[0]).abs() < 1e-6,
+        (entry.value.embedding[0] - embedding2[0]).abs() < 1e-6,
         "T2: Upsert should overwrite with new embedding"
     );
 }
@@ -134,7 +134,7 @@ fn test_t2_upsert_updates_metadata() {
         .unwrap();
 
     assert_eq!(
-        entry.metadata.unwrap()["version"],
+        entry.value.metadata.unwrap()["version"],
         2,
         "T2: Upsert should update metadata"
     );
@@ -176,7 +176,7 @@ fn test_t2_simulated_concurrent_writes() {
         .unwrap();
     let expected = seeded_random_vector(384, 39); // Last write: round 19, writer B = 19*2+1 = 39
     assert!(
-        (entry.embedding[0] - expected[0]).abs() < 1e-6,
+        (entry.value.embedding[0] - expected[0]).abs() < 1e-6,
         "T2: Should have last writer's embedding"
     );
 }

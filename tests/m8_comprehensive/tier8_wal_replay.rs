@@ -50,7 +50,7 @@ fn test_wal_replay_preserves_vectorids() {
 
         for i in 0..30 {
             vector.insert(run_id, "embeddings", &format!("key_{}", i), &seeded_random_vector(384, i as u64), None).unwrap();
-            let id = vector.get(run_id, "embeddings", &format!("key_{}", i)).unwrap().unwrap().vector_id();
+            let id = vector.get(run_id, "embeddings", &format!("key_{}", i)).unwrap().unwrap().value.vector_id();
             ids_before.insert(format!("key_{}", i), id);
         }
     }
@@ -60,7 +60,7 @@ fn test_wal_replay_preserves_vectorids() {
 
     let vector = test_db.vector();
     for (key, id_before) in &ids_before {
-        let id_after = vector.get(run_id, "embeddings", key).unwrap().unwrap().vector_id();
+        let id_after = vector.get(run_id, "embeddings", key).unwrap().unwrap().value.vector_id();
         assert_eq!(*id_before, id_after, "VectorId for {} changed after replay", key);
     }
 }

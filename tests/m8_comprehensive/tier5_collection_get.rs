@@ -16,10 +16,10 @@ fn test_get_collection_info() {
 
     let info = vector.get_collection(test_db.run_id, "embeddings").unwrap().unwrap();
 
-    assert_eq!(info.name, "embeddings");
-    assert_eq!(info.config.dimension, 768);
-    assert_eq!(info.config.metric, DistanceMetric::Euclidean);
-    assert_eq!(info.count, 10);
+    assert_eq!(info.value.name, "embeddings");
+    assert_eq!(info.value.config.dimension, 768);
+    assert_eq!(info.value.config.metric, DistanceMetric::Euclidean);
+    assert_eq!(info.value.count, 10);
 }
 
 #[test]
@@ -38,11 +38,11 @@ fn test_get_collection_count_updates() {
 
     vector.create_collection(test_db.run_id, "embeddings", config_minilm()).unwrap();
 
-    assert_eq!(vector.get_collection(test_db.run_id, "embeddings").unwrap().unwrap().count, 0);
+    assert_eq!(vector.get_collection(test_db.run_id, "embeddings").unwrap().unwrap().value.count, 0);
 
     vector.insert(test_db.run_id, "embeddings", "key1", &random_vector(384), None).unwrap();
-    assert_eq!(vector.get_collection(test_db.run_id, "embeddings").unwrap().unwrap().count, 1);
+    assert_eq!(vector.get_collection(test_db.run_id, "embeddings").unwrap().unwrap().value.count, 1);
 
     vector.delete(test_db.run_id, "embeddings", "key1").unwrap();
-    assert_eq!(vector.get_collection(test_db.run_id, "embeddings").unwrap().unwrap().count, 0);
+    assert_eq!(vector.get_collection(test_db.run_id, "embeddings").unwrap().unwrap().value.count, 0);
 }

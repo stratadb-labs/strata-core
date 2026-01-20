@@ -27,13 +27,13 @@ fn test_json_documents_work_correctly() {
 
     // If TypeTag were wrong, this would fail
     let value = store.get(&run_id, &doc_id, &path("test")).unwrap().unwrap();
-    assert_eq!(value.as_str(), Some("value"));
+    assert_eq!(value.value.as_str(), Some("value"));
 
     let number = store
         .get(&run_id, &doc_id, &path("number"))
         .unwrap()
         .unwrap();
-    assert_eq!(number.as_i64(), Some(42));
+    assert_eq!(number.value.as_i64(), Some(42));
 }
 
 // =============================================================================
@@ -63,8 +63,7 @@ fn test_jsonstore_stateless_facade() {
         store2
             .get(&run_id, &doc_id, &root())
             .unwrap()
-            .unwrap()
-            .as_i64(),
+            .unwrap().value.as_i64(),
         Some(1)
     );
 
@@ -78,8 +77,7 @@ fn test_jsonstore_stateless_facade() {
         store1
             .get(&run_id, &doc_id, &root())
             .unwrap()
-            .unwrap()
-            .as_i64(),
+            .unwrap().value.as_i64(),
         Some(2)
     );
 }
@@ -101,8 +99,7 @@ fn test_jsonstore_cloneable() {
         store2
             .get(&run_id, &doc_id, &root())
             .unwrap()
-            .unwrap()
-            .as_i64(),
+            .unwrap().value.as_i64(),
         Some(1)
     );
 }
@@ -132,24 +129,21 @@ fn test_path_based_operations() {
         store
             .get(&run_id, &doc_id, &path("a.b.c"))
             .unwrap()
-            .unwrap()
-            .as_i64(),
+            .unwrap().value.as_i64(),
         Some(1)
     );
     assert_eq!(
         store
             .get(&run_id, &doc_id, &path("a.b.d"))
             .unwrap()
-            .unwrap()
-            .as_i64(),
+            .unwrap().value.as_i64(),
         Some(2)
     );
     assert_eq!(
         store
             .get(&run_id, &doc_id, &path("a.e"))
             .unwrap()
-            .unwrap()
-            .as_i64(),
+            .unwrap().value.as_i64(),
         Some(3)
     );
 }
@@ -183,8 +177,7 @@ fn test_no_nested_primitives() {
         store
             .get(&run_id, &doc_id, &path("data.items"))
             .unwrap()
-            .unwrap()
-            .as_str(),
+            .unwrap().value.as_str(),
         Some("replaced")
     );
     assert!(store
@@ -285,8 +278,7 @@ fn test_overlapping_paths_conflict_detection() {
         store
             .get(&run_id, &doc_id, &path("a.other"))
             .unwrap()
-            .unwrap()
-            .as_i64(),
+            .unwrap().value.as_i64(),
         Some(4)
     );
 }
@@ -312,24 +304,21 @@ fn test_non_overlapping_paths_no_conflict() {
         store
             .get(&run_id, &doc_id, &path("a"))
             .unwrap()
-            .unwrap()
-            .as_i64(),
+            .unwrap().value.as_i64(),
         Some(1)
     );
     assert_eq!(
         store
             .get(&run_id, &doc_id, &path("b"))
             .unwrap()
-            .unwrap()
-            .as_i64(),
+            .unwrap().value.as_i64(),
         Some(2)
     );
     assert_eq!(
         store
             .get(&run_id, &doc_id, &path("c"))
             .unwrap()
-            .unwrap()
-            .as_i64(),
+            .unwrap().value.as_i64(),
         Some(3)
     );
 }
@@ -353,7 +342,7 @@ fn test_fast_path_reads_committed_state() {
         .get(&run_id, &doc_id, &path("initial"))
         .unwrap()
         .unwrap();
-    assert_eq!(value.as_str(), Some("value"));
+    assert_eq!(value.value.as_str(), Some("value"));
 
     // After modification
     store
@@ -370,7 +359,7 @@ fn test_fast_path_reads_committed_state() {
         .get(&run_id, &doc_id, &path("initial"))
         .unwrap()
         .unwrap();
-    assert_eq!(value.as_str(), Some("modified"));
+    assert_eq!(value.value.as_str(), Some("modified"));
 }
 
 /// Read-your-writes within same sequence.
@@ -396,7 +385,7 @@ fn test_read_your_writes_guarantee() {
             .unwrap()
             .unwrap();
         assert_eq!(
-            read.as_i64(),
+            read.value.as_i64(),
             Some(i as i64),
             "Read-your-writes violated at iteration {}",
             i
@@ -419,8 +408,7 @@ fn test_no_stale_reads() {
         let current = store
             .get(&run_id, &doc_id, &root())
             .unwrap()
-            .unwrap()
-            .as_i64()
+            .unwrap().value.as_i64()
             .unwrap();
 
         // Should never see a stale value
@@ -454,8 +442,7 @@ fn test_set_creates_path() {
         store
             .get(&run_id, &doc_id, &path("a.b.c"))
             .unwrap()
-            .unwrap()
-            .as_i64(),
+            .unwrap().value.as_i64(),
         Some(1)
     );
 }
@@ -516,16 +503,14 @@ fn test_run_isolation() {
         store
             .get(&run1, &doc_id, &root())
             .unwrap()
-            .unwrap()
-            .as_i64(),
+            .unwrap().value.as_i64(),
         Some(1)
     );
     assert_eq!(
         store
             .get(&run2, &doc_id, &root())
             .unwrap()
-            .unwrap()
-            .as_i64(),
+            .unwrap().value.as_i64(),
         Some(2)
     );
 
@@ -537,16 +522,14 @@ fn test_run_isolation() {
         store
             .get(&run1, &doc_id, &root())
             .unwrap()
-            .unwrap()
-            .as_i64(),
+            .unwrap().value.as_i64(),
         Some(100)
     );
     assert_eq!(
         store
             .get(&run2, &doc_id, &root())
             .unwrap()
-            .unwrap()
-            .as_i64(),
+            .unwrap().value.as_i64(),
         Some(2)
     );
 
@@ -586,13 +569,11 @@ fn test_durability_mode_semantic_consistency() {
         let b = store
             .get(&run_id, &doc_id, &path("b"))
             .unwrap()
-            .unwrap()
-            .as_i64();
+            .unwrap().value.as_i64();
         let c = store
             .get(&run_id, &doc_id, &path("c"))
             .unwrap()
-            .unwrap()
-            .as_i64();
+            .unwrap().value.as_i64();
         let v = store.get_version(&run_id, &doc_id).unwrap().unwrap();
 
         (a, b, c, v)

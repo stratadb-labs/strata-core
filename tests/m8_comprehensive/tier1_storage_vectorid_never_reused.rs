@@ -30,17 +30,17 @@ fn test_s4_vectorid_never_reused_after_delete() {
         .get(test_db.run_id, "embeddings", "key1")
         .unwrap()
         .unwrap()
-        .vector_id();
+        .value.vector_id();
     let id2 = vector
         .get(test_db.run_id, "embeddings", "key2")
         .unwrap()
         .unwrap()
-        .vector_id();
+        .value.vector_id();
     let id3 = vector
         .get(test_db.run_id, "embeddings", "key3")
         .unwrap()
         .unwrap()
-        .vector_id();
+        .value.vector_id();
 
     let max_id_before = id1.as_u64().max(id2.as_u64()).max(id3.as_u64());
 
@@ -61,12 +61,12 @@ fn test_s4_vectorid_never_reused_after_delete() {
         .get(test_db.run_id, "embeddings", "key4")
         .unwrap()
         .unwrap()
-        .vector_id();
+        .value.vector_id();
     let id5 = vector
         .get(test_db.run_id, "embeddings", "key5")
         .unwrap()
         .unwrap()
-        .vector_id();
+        .value.vector_id();
 
     // All new IDs must be > max_id_before
     assert!(
@@ -113,7 +113,7 @@ fn test_s4_vectorid_monotonic_within_session() {
             .get(test_db.run_id, "embeddings", &key)
             .unwrap()
             .unwrap()
-            .vector_id()
+            .value.vector_id()
             .as_u64();
 
         assert!(
@@ -145,7 +145,7 @@ fn test_s4_insert_delete_insert_same_key_new_id() {
         .get(test_db.run_id, "embeddings", "key1")
         .unwrap()
         .unwrap()
-        .vector_id();
+        .value.vector_id();
 
     // Delete key
     vector.delete(test_db.run_id, "embeddings", "key1").unwrap();
@@ -158,7 +158,7 @@ fn test_s4_insert_delete_insert_same_key_new_id() {
         .get(test_db.run_id, "embeddings", "key1")
         .unwrap()
         .unwrap()
-        .vector_id();
+        .value.vector_id();
 
     // Second insert must have a NEW VectorId
     assert!(
@@ -195,7 +195,7 @@ fn test_s4_vectorid_monotonic_across_restart() {
                     .get(run_id, "embeddings", &format!("key_{}", i))
                     .unwrap()
                     .unwrap()
-                    .vector_id()
+                    .value.vector_id()
                     .as_u64()
             })
             .max()
@@ -220,7 +220,7 @@ fn test_s4_vectorid_monotonic_across_restart() {
             .get(run_id, "embeddings", &format!("key_{}", i))
             .unwrap()
             .unwrap()
-            .vector_id()
+            .value.vector_id()
             .as_u64();
         assert!(
             id > max_id_before,
@@ -255,7 +255,7 @@ fn test_s4_many_delete_insert_cycles() {
             .get(test_db.run_id, "embeddings", &key)
             .unwrap()
             .unwrap()
-            .vector_id()
+            .value.vector_id()
             .as_u64();
 
         // Check ID hasn't been seen before

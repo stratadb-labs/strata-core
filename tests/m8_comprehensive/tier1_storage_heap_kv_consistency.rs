@@ -34,9 +34,9 @@ fn test_s5_insert_updates_both() {
         .unwrap()
         .unwrap();
 
-    assert_eq!(entry.embedding, embedding, "S5 VIOLATED: Embedding not stored correctly");
+    assert_eq!(entry.value.embedding, embedding, "S5 VIOLATED: Embedding not stored correctly");
     assert_eq!(
-        entry.metadata,
+        entry.value.metadata,
         Some(metadata),
         "S5 VIOLATED: Metadata not stored correctly"
     );
@@ -117,8 +117,8 @@ fn test_s5_consistency_after_crash() {
         );
 
         let entry = entry.unwrap();
-        assert_eq!(entry.embedding.len(), 384, "S5 VIOLATED: Embedding missing for {}", key);
-        assert!(entry.metadata.is_some(), "S5 VIOLATED: Metadata missing for {}", key);
+        assert_eq!(entry.value.embedding.len(), 384, "S5 VIOLATED: Embedding missing for {}", key);
+        assert!(entry.value.metadata.is_some(), "S5 VIOLATED: Metadata missing for {}", key);
     }
 }
 
@@ -163,9 +163,9 @@ fn test_s5_upsert_updates_both() {
         .unwrap()
         .unwrap();
 
-    assert_eq!(entry.embedding, embedding2, "S5 VIOLATED: Embedding not updated on upsert");
+    assert_eq!(entry.value.embedding, embedding2, "S5 VIOLATED: Embedding not updated on upsert");
     assert_eq!(
-        entry.metadata,
+        entry.value.metadata,
         Some(metadata2),
         "S5 VIOLATED: Metadata not updated on upsert"
     );
@@ -251,8 +251,8 @@ fn test_s5_consistency_many_operations() {
         } else {
             assert!(entry.is_some(), "S5 VIOLATED: Key {} missing", key);
             let entry = entry.unwrap();
-            assert_eq!(entry.embedding.len(), 384);
-            assert!(entry.metadata.is_some());
+            assert_eq!(entry.value.embedding.len(), 384);
+            assert!(entry.value.metadata.is_some());
         }
     }
 

@@ -51,7 +51,7 @@ fn test_s2_metric_survives_restart() {
     let vector = test_db.vector();
     let info = vector.get_collection(run_id, "embeddings").unwrap().unwrap();
     assert_eq!(
-        info.config.metric,
+        info.value.config.metric,
         DistanceMetric::Euclidean,
         "S2 VIOLATED: Metric changed after restart"
     );
@@ -85,9 +85,9 @@ fn test_s2_all_metrics_preserved() {
     let euclidean_info = vector.get_collection(run_id, "euclidean").unwrap().unwrap();
     let dotproduct_info = vector.get_collection(run_id, "dotproduct").unwrap().unwrap();
 
-    assert_eq!(cosine_info.config.metric, DistanceMetric::Cosine);
-    assert_eq!(euclidean_info.config.metric, DistanceMetric::Euclidean);
-    assert_eq!(dotproduct_info.config.metric, DistanceMetric::DotProduct);
+    assert_eq!(cosine_info.value.config.metric, DistanceMetric::Cosine);
+    assert_eq!(euclidean_info.value.config.metric, DistanceMetric::Euclidean);
+    assert_eq!(dotproduct_info.value.config.metric, DistanceMetric::DotProduct);
 }
 
 /// Test that metric affects search results correctly

@@ -31,19 +31,19 @@ fn test_r9_embedding_stored_verbatim() {
         .unwrap();
 
     assert!(
-        (entry.embedding[0] - 2.0).abs() < f32::EPSILON,
+        (entry.value.embedding[0] - 2.0).abs() < f32::EPSILON,
         "R9 VIOLATED: Embedding[0] was normalized: {}",
-        entry.embedding[0]
+        entry.value.embedding[0]
     );
     assert!(
-        (entry.embedding[1] - 3.0).abs() < f32::EPSILON,
+        (entry.value.embedding[1] - 3.0).abs() < f32::EPSILON,
         "R9 VIOLATED: Embedding[1] was normalized: {}",
-        entry.embedding[1]
+        entry.value.embedding[1]
     );
     assert!(
-        (entry.embedding[2] - 4.0).abs() < f32::EPSILON,
+        (entry.value.embedding[2] - 4.0).abs() < f32::EPSILON,
         "R9 VIOLATED: Embedding[2] was normalized: {}",
-        entry.embedding[2]
+        entry.value.embedding[2]
     );
 }
 
@@ -73,7 +73,7 @@ fn test_r9_large_magnitude_preserved() {
         .unwrap();
 
     // All values should still be 100.0
-    for (i, &val) in entry.embedding.iter().enumerate() {
+    for (i, &val) in entry.value.embedding.iter().enumerate() {
         assert!(
             (val - 100.0).abs() < f32::EPSILON,
             "R9 VIOLATED: Embedding[{}] was normalized: {} (expected 100.0)",
@@ -108,7 +108,7 @@ fn test_r9_small_magnitude_preserved() {
         .unwrap()
         .unwrap();
 
-    for (i, &val) in entry.embedding.iter().enumerate() {
+    for (i, &val) in entry.value.embedding.iter().enumerate() {
         assert!(
             (val - 0.001).abs() < 1e-6,
             "R9 VIOLATED: Embedding[{}] was normalized: {} (expected 0.001)",
@@ -147,14 +147,14 @@ fn test_r9_negative_values_preserved() {
 
     for i in 0..192 {
         assert!(
-            (entry.embedding[i] - (-1.0)).abs() < f32::EPSILON,
+            (entry.value.embedding[i] - (-1.0)).abs() < f32::EPSILON,
             "R9 VIOLATED: Negative value not preserved at {}",
             i
         );
     }
     for i in 192..384 {
         assert!(
-            (entry.embedding[i] - 1.0).abs() < f32::EPSILON,
+            (entry.value.embedding[i] - 1.0).abs() < f32::EPSILON,
             "R9 VIOLATED: Positive value not preserved at {}",
             i
         );
@@ -184,7 +184,7 @@ fn test_r9_embedding_preserved_across_restart() {
     let vector = test_db.vector();
     let entry = vector.get(run_id, "embeddings", "key1").unwrap().unwrap();
 
-    for (i, (&expected, &actual)) in embedding.iter().zip(entry.embedding.iter()).enumerate() {
+    for (i, (&expected, &actual)) in embedding.iter().zip(entry.value.embedding.iter()).enumerate() {
         assert!(
             (expected - actual).abs() < 1e-6,
             "R9 VIOLATED: Embedding[{}] changed after restart: {} vs {}",
@@ -218,12 +218,12 @@ fn test_r9_unit_vector_not_modified() {
         .unwrap();
 
     assert!(
-        (entry.embedding[0] - 1.0).abs() < f32::EPSILON,
+        (entry.value.embedding[0] - 1.0).abs() < f32::EPSILON,
         "R9: Unit vector modified"
     );
     for i in 1..384 {
         assert!(
-            entry.embedding[i].abs() < f32::EPSILON,
+            entry.value.embedding[i].abs() < f32::EPSILON,
             "R9: Unit vector modified at {}",
             i
         );

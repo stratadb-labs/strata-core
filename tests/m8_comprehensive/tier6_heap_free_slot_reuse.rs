@@ -37,14 +37,14 @@ fn test_slot_reuse_not_id_reuse() {
 
     // Insert and track ID
     vector.insert(test_db.run_id, "embeddings", "key1", &random_vector(384), None).unwrap();
-    let id1 = vector.get(test_db.run_id, "embeddings", "key1").unwrap().unwrap().vector_id();
+    let id1 = vector.get(test_db.run_id, "embeddings", "key1").unwrap().unwrap().value.vector_id();
 
     // Delete
     vector.delete(test_db.run_id, "embeddings", "key1").unwrap();
 
     // Insert same key again
     vector.insert(test_db.run_id, "embeddings", "key1", &random_vector(384), None).unwrap();
-    let id2 = vector.get(test_db.run_id, "embeddings", "key1").unwrap().unwrap().vector_id();
+    let id2 = vector.get(test_db.run_id, "embeddings", "key1").unwrap().unwrap().value.vector_id();
 
     // New ID should be different (IDs are never reused, even if slots are)
     assert!(id2.as_u64() > id1.as_u64(), "VectorId should not be reused");

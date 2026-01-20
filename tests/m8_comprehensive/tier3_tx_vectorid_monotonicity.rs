@@ -36,7 +36,7 @@ fn test_t4_vectorid_monotonic_across_crash() {
                     .get(run_id, "embeddings", &format!("key_{}", i))
                     .unwrap()
                     .unwrap()
-                    .vector_id()
+                    .value.vector_id()
                     .as_u64()
             })
             .max()
@@ -67,7 +67,7 @@ fn test_t4_vectorid_monotonic_across_crash() {
             .get(run_id, "embeddings", &format!("key_{}", i))
             .unwrap()
             .unwrap()
-            .vector_id()
+            .value.vector_id()
             .as_u64();
 
         assert!(
@@ -110,7 +110,7 @@ fn test_t4_max_id_in_snapshot() {
                     .get(run_id, "embeddings", &format!("key_{}", i))
                     .unwrap()
                     .unwrap()
-                    .vector_id()
+                    .value.vector_id()
                     .as_u64()
             })
             .max()
@@ -147,7 +147,7 @@ fn test_t4_max_id_in_snapshot() {
             vector
                 .get(run_id, "embeddings", &format!("key_{}", i))
                 .unwrap()
-                .map(|e| e.vector_id().as_u64())
+                .map(|e| e.value.vector_id().as_u64())
         })
         .max()
         .unwrap();
@@ -167,7 +167,7 @@ fn test_t4_max_id_in_snapshot() {
         .get(run_id, "embeddings", "new_key")
         .unwrap()
         .unwrap()
-        .vector_id()
+        .value.vector_id()
         .as_u64();
 
     assert!(
@@ -210,7 +210,7 @@ fn test_t4_free_slots_in_snapshot() {
                     .get(run_id, "embeddings", &format!("key_{}", i))
                     .unwrap()
                     .unwrap()
-                    .vector_id()
+                    .value.vector_id()
                     .as_u64()
             })
             .collect();
@@ -246,7 +246,7 @@ fn test_t4_free_slots_in_snapshot() {
             .get(run_id, "embeddings", &format!("key_{}", i))
             .unwrap()
             .unwrap()
-            .vector_id()
+            .value.vector_id()
             .as_u64();
 
         assert!(
@@ -294,7 +294,7 @@ fn test_t4_multiple_crash_cycles() {
                 .insert(run_id, "embeddings", &key, &seeded_random_vector(384, (cycle * 10 + i) as u64), None)
                 .unwrap();
 
-            let id = vector.get(run_id, "embeddings", &key).unwrap().unwrap().vector_id().as_u64();
+            let id = vector.get(run_id, "embeddings", &key).unwrap().unwrap().value.vector_id().as_u64();
 
             assert!(
                 id > max_seen_id,
@@ -335,7 +335,7 @@ fn test_t4_delete_insert_same_key_across_crash() {
             .get(run_id, "embeddings", "key1")
             .unwrap()
             .unwrap()
-            .vector_id()
+            .value.vector_id()
             .as_u64();
         vector.delete(run_id, "embeddings", "key1").unwrap();
     }
@@ -354,7 +354,7 @@ fn test_t4_delete_insert_same_key_across_crash() {
         .get(run_id, "embeddings", "key1")
         .unwrap()
         .unwrap()
-        .vector_id()
+        .value.vector_id()
         .as_u64();
 
     assert!(

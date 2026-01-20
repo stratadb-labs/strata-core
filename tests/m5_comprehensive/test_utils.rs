@@ -176,9 +176,9 @@ pub fn assert_get(
         .expect("get failed")
         .expect("path not found");
     assert_eq!(
-        actual, expected,
+        actual.value, expected,
         "Value mismatch at path '{}': expected {:?}, got {:?}",
-        path, expected, actual
+        path, expected, actual.value
     );
 }
 

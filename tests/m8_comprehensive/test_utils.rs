@@ -290,13 +290,13 @@ impl CapturedVectorState {
 
         for key in keys {
             if let Ok(Some(entry)) = vector_store.get(run_id, collection, key) {
-                let vid = entry.vector_id();
+                let vid = entry.value.vector_id();
                 if vid.as_u64() > max_id {
                     max_id = vid.as_u64();
                 }
                 vectors.insert(
                     key.to_string(),
-                    (vid, entry.embedding.clone(), entry.metadata.clone()),
+                    (vid, entry.value.embedding.clone(), entry.value.metadata.clone()),
                 );
             }
         }
@@ -323,25 +323,25 @@ impl CapturedVectorState {
         for i in 0..1000 {
             let key = format!("key_{}", i);
             if let Ok(Some(entry)) = vector_store.get(run_id, collection, &key) {
-                let vid = entry.vector_id();
+                let vid = entry.value.vector_id();
                 if vid.as_u64() > max_id {
                     max_id = vid.as_u64();
                 }
                 vectors.insert(
                     key,
-                    (vid, entry.embedding.clone(), entry.metadata.clone()),
+                    (vid, entry.value.embedding.clone(), entry.value.metadata.clone()),
                 );
             }
             // Also try key_{:02} format
             let key2 = format!("key_{:02}", i);
             if let Ok(Some(entry)) = vector_store.get(run_id, collection, &key2) {
-                let vid = entry.vector_id();
+                let vid = entry.value.vector_id();
                 if vid.as_u64() > max_id {
                     max_id = vid.as_u64();
                 }
                 vectors.insert(
                     key2,
-                    (vid, entry.embedding.clone(), entry.metadata.clone()),
+                    (vid, entry.value.embedding.clone(), entry.value.metadata.clone()),
                 );
             }
         }

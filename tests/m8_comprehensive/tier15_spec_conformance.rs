@@ -39,11 +39,11 @@ fn spec_s3_vectorid_stable() {
 
     // Insert
     vector.insert(run_id, "embeddings", "key1", &seeded_random_vector(384, 1), None).unwrap();
-    let id_after_insert = vector.get(run_id, "embeddings", "key1").unwrap().unwrap().vector_id().as_u64();
+    let id_after_insert = vector.get(run_id, "embeddings", "key1").unwrap().unwrap().value.vector_id().as_u64();
 
     // Update
     vector.insert(run_id, "embeddings", "key1", &seeded_random_vector(384, 2), None).unwrap();
-    let id_after_update = vector.get(run_id, "embeddings", "key1").unwrap().unwrap().vector_id().as_u64();
+    let id_after_update = vector.get(run_id, "embeddings", "key1").unwrap().unwrap().value.vector_id().as_u64();
 
     assert_eq!(id_after_insert, id_after_update, "S3: VectorId must remain stable across updates");
 }
@@ -59,14 +59,14 @@ fn spec_s4_vectorid_never_reused() {
 
     // Insert and capture ID
     vector.insert(run_id, "embeddings", "key1", &random_vector(384), None).unwrap();
-    let original_id = vector.get(run_id, "embeddings", "key1").unwrap().unwrap().vector_id().as_u64();
+    let original_id = vector.get(run_id, "embeddings", "key1").unwrap().unwrap().value.vector_id().as_u64();
 
     // Delete
     vector.delete(run_id, "embeddings", "key1").unwrap();
 
     // Reinsert same key
     vector.insert(run_id, "embeddings", "key1", &random_vector(384), None).unwrap();
-    let new_id = vector.get(run_id, "embeddings", "key1").unwrap().unwrap().vector_id().as_u64();
+    let new_id = vector.get(run_id, "embeddings", "key1").unwrap().unwrap().value.vector_id().as_u64();
 
     assert!(new_id > original_id, "S4: New VectorId {} must be > old VectorId {}", new_id, original_id);
 }
@@ -92,8 +92,8 @@ fn spec_s6_run_isolation() {
     let vec1 = vector.get(run_id_1, "embeddings", "key1").unwrap().unwrap();
     let vec2 = vector.get(run_id_2, "embeddings", "key1").unwrap().unwrap();
 
-    assert_eq!(vec1.embedding.len(), 384);
-    assert_eq!(vec2.embedding.len(), 3);
+    assert_eq!(vec1.value.embedding.len(), 384);
+    assert_eq!(vec2.value.embedding.len(), 3);
 
     // Count should be independent
     assert_eq!(vector.count(run_id_1, "embeddings").unwrap(), 1);
@@ -248,7 +248,7 @@ fn spec_t4_vectorid_monotonicity_across_restarts() {
         }
 
         max_id_before = (0..50)
-            .map(|i| vector.get(run_id, "embeddings", &format!("key_{}", i)).unwrap().unwrap().vector_id().as_u64())
+            .map(|i| vector.get(run_id, "embeddings", &format!("key_{}", i)).unwrap().unwrap().value.vector_id().as_u64())
             .max()
             .unwrap();
     }
@@ -260,7 +260,7 @@ fn spec_t4_vectorid_monotonicity_across_restarts() {
 
     // New vector should get higher ID
     vector.insert(run_id, "embeddings", "new_key", &random_vector(384), None).unwrap();
-    let new_id = vector.get(run_id, "embeddings", "new_key").unwrap().unwrap().vector_id().as_u64();
+    let new_id = vector.get(run_id, "embeddings", "new_key").unwrap().unwrap().value.vector_id().as_u64();
 
     assert!(new_id > max_id_before, "T4: VectorId {} must be > {} after crash recovery", new_id, max_id_before);
 }

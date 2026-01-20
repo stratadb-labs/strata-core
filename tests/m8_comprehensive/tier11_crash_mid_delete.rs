@@ -86,7 +86,7 @@ fn test_delete_reinsert_preserves_new() {
     let result = vector.get(run_id, "embeddings", "key1").unwrap().unwrap();
 
     // Should have the reinserted vector
-    assert_eq!(result.embedding, new_vector);
+    assert_eq!(result.value.embedding, new_vector);
 }
 
 #[test]

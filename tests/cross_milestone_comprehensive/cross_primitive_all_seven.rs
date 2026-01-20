@@ -217,7 +217,7 @@ fn test_cross_primitive_run_isolation() {
         .get(run_b, "iso_col", "v1")
         .expect("get b")
         .unwrap();
-    assert_ne!(a_vec.embedding, b_vec.embedding, "Vectors should be isolated");
+    assert_ne!(a_vec.value.embedding, b_vec.value.embedding, "Vectors should be isolated");
 }
 
 /// Test recovery of all 7 primitives.

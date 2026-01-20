@@ -56,7 +56,7 @@ fn test_recreate_deleted_collection() {
 
     // New collection should exist with new config
     let info = vector.get_collection(run_id, "embeddings").unwrap().unwrap();
-    assert_eq!(info.config.dimension, 3);
+    assert_eq!(info.value.config.dimension, 3);
     assert!(vector.get(run_id, "embeddings", "new_key").unwrap().is_some());
     assert!(vector.get(run_id, "embeddings", "key1").unwrap().is_none());
 }

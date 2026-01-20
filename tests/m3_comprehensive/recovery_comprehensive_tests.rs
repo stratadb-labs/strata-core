@@ -666,7 +666,7 @@ mod runindex_recovery {
         {
             let prims = ptp.open();
             let meta = prims.run_index.create_run("test-run").unwrap();
-            run_name = meta.name.clone();
+            run_name = meta.value.name.clone();
             prims
                 .run_index
                 .update_status(&run_name, RunStatus::Paused)
@@ -677,7 +677,7 @@ mod runindex_recovery {
         {
             let prims = ptp.open();
             let run_info = prims.run_index.get_run(&run_name).unwrap().unwrap();
-            assert_eq!(run_info.status, RunStatus::Paused);
+            assert_eq!(run_info.value.status, RunStatus::Paused);
         }
     }
 
@@ -698,15 +698,15 @@ mod runindex_recovery {
                     values::null(),
                 )
                 .unwrap();
-            run_name = meta.name.clone();
+            run_name = meta.value.name.clone();
         }
 
         // Session 2: Verify metadata
         {
             let prims = ptp.open();
             let run_info = prims.run_index.get_run(&run_name).unwrap().unwrap();
-            assert!(run_info.tags.contains(&"tag1".to_string()));
-            assert!(run_info.tags.contains(&"tag2".to_string()));
+            assert!(run_info.value.tags.contains(&"tag1".to_string()));
+            assert!(run_info.value.tags.contains(&"tag2".to_string()));
         }
     }
 
@@ -722,7 +722,7 @@ mod runindex_recovery {
             let meta1 = prims.run_index.create_run("run-1").unwrap();
             let meta2 = prims.run_index.create_run("run-2").unwrap();
 
-            run_names = vec![meta0.name.clone(), meta1.name.clone(), meta2.name.clone()];
+            run_names = vec![meta0.value.name.clone(), meta1.value.name.clone(), meta2.value.name.clone()];
 
             prims
                 .run_index
@@ -736,13 +736,13 @@ mod runindex_recovery {
             let prims = ptp.open();
 
             let run0 = prims.run_index.get_run(&run_names[0]).unwrap().unwrap();
-            assert_eq!(run0.status, RunStatus::Active);
+            assert_eq!(run0.value.status, RunStatus::Active);
 
             let run1 = prims.run_index.get_run(&run_names[1]).unwrap().unwrap();
-            assert_eq!(run1.status, RunStatus::Paused);
+            assert_eq!(run1.value.status, RunStatus::Paused);
 
             let run2 = prims.run_index.get_run(&run_names[2]).unwrap().unwrap();
-            assert_eq!(run2.status, RunStatus::Completed);
+            assert_eq!(run2.value.status, RunStatus::Completed);
         }
     }
 }

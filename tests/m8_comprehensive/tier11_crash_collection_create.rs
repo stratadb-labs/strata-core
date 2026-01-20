@@ -86,6 +86,6 @@ fn test_collection_config_preserved() {
     let minilm_info = vector.get_collection(run_id, "minilm_col").unwrap().unwrap();
     let small_info = vector.get_collection(run_id, "small_col").unwrap().unwrap();
 
-    assert_eq!(minilm_info.config.dimension, 384);
-    assert_eq!(small_info.config.dimension, 3);
+    assert_eq!(minilm_info.value.config.dimension, 384);
+    assert_eq!(small_info.value.config.dimension, 3);
 }

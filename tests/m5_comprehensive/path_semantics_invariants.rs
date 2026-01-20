@@ -27,7 +27,7 @@ fn test_paths_are_positional_not_identity() {
         .get(&run_id, &doc_id, &path("items[0]"))
         .unwrap()
         .unwrap();
-    assert_eq!(item0.as_str(), Some("A"));
+    assert_eq!(item0.value.as_str(), Some("A"));
 
     // Replace entire array with X at front
     let new_array: JsonValue = serde_json::json!(["X", "A", "B", "C"]).into();
@@ -41,14 +41,14 @@ fn test_paths_are_positional_not_identity() {
         .get(&run_id, &doc_id, &path("items[0]"))
         .unwrap()
         .unwrap();
-    assert_eq!(item0_after.as_str(), Some("X"));
+    assert_eq!(item0_after.value.as_str(), Some("X"));
 
     // "A" is now at items[1]
     let item1 = store
         .get(&run_id, &doc_id, &path("items[1]"))
         .unwrap()
         .unwrap();
-    assert_eq!(item1.as_str(), Some("A"));
+    assert_eq!(item1.value.as_str(), Some("A"));
 }
 
 /// Root path overlaps with everything.
@@ -121,7 +121,7 @@ fn test_read_path_semantically_invalidated_by_ancestor_mutation() {
         .get(&run_id, &doc_id, &path("user.name"))
         .unwrap()
         .unwrap();
-    assert_eq!(original.as_str(), Some("Alice"));
+    assert_eq!(original.value.as_str(), Some("Alice"));
 
     // Mutate the ancestor (replace entire "user" object)
     let new_user: JsonValue = serde_json::json!({
@@ -138,7 +138,7 @@ fn test_read_path_semantically_invalidated_by_ancestor_mutation() {
         .get(&run_id, &doc_id, &path("user.name"))
         .unwrap()
         .unwrap();
-    assert_eq!(after.as_str(), Some("Bob"));
+    assert_eq!(after.value.as_str(), Some("Bob"));
 
     // The semantic invariant: ancestor mutation changes descendant meaning
     assert_ne!(original, after);
@@ -154,20 +154,20 @@ fn test_sibling_writes_independent() {
         .get(&run_id, &doc_id, &path("user.name"))
         .unwrap()
         .unwrap();
-    assert_eq!(name_before.as_str(), Some("Alice"));
+    assert_eq!(name_before.value.as_str(), Some("Alice"));
 
     // Write to sibling
     store
         .set(&run_id, &doc_id, &path("user.age"), JsonValue::from(99i64))
         .unwrap();
 
-    // Name should be unaffected
+    // Name should be unaffected (value same, but version may change due to document-level versioning)
     let name_after = store
         .get(&run_id, &doc_id, &path("user.name"))
         .unwrap()
         .unwrap();
-    assert_eq!(name_after.as_str(), Some("Alice"));
-    assert_eq!(name_before, name_after);
+    assert_eq!(name_after.value.as_str(), Some("Alice"));
+    assert_eq!(name_before.value, name_after.value);
 }
 
 /// Writing to descendant modifies ancestor's subtree.
@@ -197,7 +197,7 @@ fn test_descendant_write_modifies_ancestor_subtree() {
         .get(&run_id, &doc_id, &path("config.settings.theme"))
         .unwrap()
         .unwrap();
-    assert_eq!(theme.as_str(), Some("light"));
+    assert_eq!(theme.value.as_str(), Some("light"));
 }
 
 // =============================================================================
@@ -223,7 +223,7 @@ fn test_array_indices_are_positional() {
         .get(&run_id, &doc_id, &path("items[0].id"))
         .unwrap()
         .unwrap();
-    assert_eq!(id_at_0.as_i64(), Some(1));
+    assert_eq!(id_at_0.value.as_i64(), Some(1));
 
     // Replace entire items array with reversed order
     let reversed: JsonValue = serde_json::json!([
@@ -241,7 +241,7 @@ fn test_array_indices_are_positional() {
         .get(&run_id, &doc_id, &path("items[0].id"))
         .unwrap()
         .unwrap();
-    assert_eq!(id_at_0_after.as_i64(), Some(3));
+    assert_eq!(id_at_0_after.value.as_i64(), Some(3));
 }
 
 /// Deleting an array element shifts indices.
@@ -259,7 +259,7 @@ fn test_array_delete_shifts_indices() {
         .get(&run_id, &doc_id, &path("items[2]"))
         .unwrap()
         .unwrap();
-    assert_eq!(at_2.as_str(), Some("c"));
+    assert_eq!(at_2.value.as_str(), Some("c"));
 
     // Delete items[1] ("b")
     store
@@ -271,14 +271,14 @@ fn test_array_delete_shifts_indices() {
         .get(&run_id, &doc_id, &path("items[2]"))
         .unwrap()
         .unwrap();
-    assert_eq!(at_2_after.as_str(), Some("d"));
+    assert_eq!(at_2_after.value.as_str(), Some("d"));
 
     // And items[1] is now "c" (shifted down from [2])
     let at_1 = store
         .get(&run_id, &doc_id, &path("items[1]"))
         .unwrap()
         .unwrap();
-    assert_eq!(at_1.as_str(), Some("c"));
+    assert_eq!(at_1.value.as_str(), Some("c"));
 }
 
 // =============================================================================
@@ -501,8 +501,8 @@ fn test_run_isolation_same_doc_id() {
     let val1 = store.get(&run1, &doc_id, &root()).unwrap().unwrap();
     let val2 = store.get(&run2, &doc_id, &root()).unwrap().unwrap();
 
-    assert_eq!(val1.as_i64(), Some(1));
-    assert_eq!(val2.as_i64(), Some(2));
+    assert_eq!(val1.value.as_i64(), Some(1));
+    assert_eq!(val2.value.as_i64(), Some(2));
 
     // Modifying one doesn't affect the other
     store
@@ -512,8 +512,8 @@ fn test_run_isolation_same_doc_id() {
     let val1_after = store.get(&run1, &doc_id, &root()).unwrap().unwrap();
     let val2_after = store.get(&run2, &doc_id, &root()).unwrap().unwrap();
 
-    assert_eq!(val1_after.as_i64(), Some(100));
-    assert_eq!(val2_after.as_i64(), Some(2)); // Unchanged
+    assert_eq!(val1_after.value.as_i64(), Some(100));
+    assert_eq!(val2_after.value.as_i64(), Some(2)); // Unchanged
 }
 
 /// Destroying doc in one run doesn't affect another.

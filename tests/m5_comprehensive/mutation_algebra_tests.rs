@@ -26,8 +26,7 @@ fn test_set_not_commutative_same_path() {
     let result1 = store1
         .get(&run_id1, &doc_id1, &path("x"))
         .unwrap()
-        .unwrap()
-        .as_i64();
+        .unwrap().value.as_i64();
 
     // Order 2: set x=2, then x=1
     let (_, store2, run_id2, doc_id2) = setup_doc(JsonValue::object());
@@ -40,8 +39,7 @@ fn test_set_not_commutative_same_path() {
     let result2 = store2
         .get(&run_id2, &doc_id2, &path("x"))
         .unwrap()
-        .unwrap()
-        .as_i64();
+        .unwrap().value.as_i64();
 
     // Different order produces different results
     assert_eq!(result1, Some(2));
@@ -91,13 +89,11 @@ fn test_different_paths_commutative() {
     let a1 = store1
         .get(&run_id1, &doc_id1, &path("a"))
         .unwrap()
-        .unwrap()
-        .as_i64();
+        .unwrap().value.as_i64();
     let b1 = store1
         .get(&run_id1, &doc_id1, &path("b"))
         .unwrap()
-        .unwrap()
-        .as_i64();
+        .unwrap().value.as_i64();
 
     // Order 2: set b=2, then a=1
     let (_, store2, run_id2, doc_id2) = setup_doc(JsonValue::object());
@@ -110,13 +106,11 @@ fn test_different_paths_commutative() {
     let a2 = store2
         .get(&run_id2, &doc_id2, &path("a"))
         .unwrap()
-        .unwrap()
-        .as_i64();
+        .unwrap().value.as_i64();
     let b2 = store2
         .get(&run_id2, &doc_id2, &path("b"))
         .unwrap()
-        .unwrap()
-        .as_i64();
+        .unwrap().value.as_i64();
 
     // Same result regardless of order
     assert_eq!(a1, a2);
@@ -144,8 +138,7 @@ fn test_set_sequence_order_matters() {
     let result1 = store1
         .get(&run_id1, &doc_id1, &path("x"))
         .unwrap()
-        .unwrap()
-        .as_i64();
+        .unwrap().value.as_i64();
 
     // set x=1; (set x=2; set x=3) = set x=3
     let (_, store2, run_id2, doc_id2) = setup_doc(JsonValue::object());
@@ -161,8 +154,7 @@ fn test_set_sequence_order_matters() {
     let result2 = store2
         .get(&run_id2, &doc_id2, &path("x"))
         .unwrap()
-        .unwrap()
-        .as_i64();
+        .unwrap().value.as_i64();
 
     // Same sequence, same result
     assert_eq!(result1, result2);
@@ -189,8 +181,8 @@ fn test_set_same_value_idempotent_result() {
         .unwrap();
     let v2 = store.get(&run_id, &doc_id, &path("x")).unwrap().unwrap();
 
-    // Value unchanged
-    assert_eq!(v1, v2);
+    // Value unchanged (but version increments due to M9 semantics: every write returns a new version)
+    assert_eq!(v1.value, v2.value);
 }
 
 /// Delete on non-existent path is idempotent.
@@ -307,8 +299,7 @@ fn test_set_overwrites_completely() {
         store
             .get(&run_id, &doc_id, &path("data.c"))
             .unwrap()
-            .unwrap()
-            .as_i64(),
+            .unwrap().value.as_i64(),
         Some(3)
     );
 }
@@ -336,16 +327,14 @@ fn test_set_nested_no_sibling_effect() {
         store
             .get(&run_id, &doc_id, &path("data.a"))
             .unwrap()
-            .unwrap()
-            .as_i64(),
+            .unwrap().value.as_i64(),
         Some(100)
     );
     assert_eq!(
         store
             .get(&run_id, &doc_id, &path("data.b"))
             .unwrap()
-            .unwrap()
-            .as_i64(),
+            .unwrap().value.as_i64(),
         Some(2)
     );
 }
@@ -368,8 +357,7 @@ fn test_type_change_on_set() {
     assert!(store
         .get(&run_id, &doc_id, &path("x"))
         .unwrap()
-        .unwrap()
-        .is_i64());
+        .unwrap().value.is_i64());
 
     // Set x to string
     store
@@ -378,8 +366,8 @@ fn test_type_change_on_set() {
 
     // x is now string
     let x = store.get(&run_id, &doc_id, &path("x")).unwrap().unwrap();
-    assert!(x.is_string());
-    assert_eq!(x.as_str(), Some("hello"));
+    assert!(x.value.is_string());
+    assert_eq!(x.value.as_str(), Some("hello"));
 }
 
 /// Setting scalar to object works.
@@ -407,8 +395,7 @@ fn test_scalar_to_object() {
         store
             .get(&run_id, &doc_id, &path("x.nested"))
             .unwrap()
-            .unwrap()
-            .as_bool(),
+            .unwrap().value.as_bool(),
         Some(true)
     );
 }
@@ -433,8 +420,7 @@ fn test_object_to_scalar() {
         store
             .get(&run_id, &doc_id, &path("x"))
             .unwrap()
-            .unwrap()
-            .as_i64(),
+            .unwrap().value.as_i64(),
         Some(42)
     );
     assert!(store
@@ -497,16 +483,14 @@ fn test_complex_operation_sequence() {
         store
             .get(&run_id, &doc_id, &path("users[0].name"))
             .unwrap()
-            .unwrap()
-            .as_str(),
+            .unwrap().value.as_str(),
         Some("Alice")
     );
     assert_eq!(
         store
             .get(&run_id, &doc_id, &path("users[0].age"))
             .unwrap()
-            .unwrap()
-            .as_i64(),
+            .unwrap().value.as_i64(),
         Some(30)
     );
     assert!(store
@@ -517,8 +501,7 @@ fn test_complex_operation_sequence() {
         store
             .get(&run_id, &doc_id, &path("config.debug"))
             .unwrap()
-            .unwrap()
-            .as_bool(),
+            .unwrap().value.as_bool(),
         Some(false)
     );
 }
@@ -548,6 +531,6 @@ fn test_operations_accumulate() {
             .get(&run_id, &doc_id, &key.parse().unwrap())
             .unwrap()
             .unwrap();
-        assert_eq!(value.as_i64(), Some(i as i64));
+        assert_eq!(value.value.as_i64(), Some(i as i64));
     }
 }

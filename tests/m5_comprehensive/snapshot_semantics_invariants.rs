@@ -25,7 +25,7 @@ fn test_read_your_writes_same_sequence() {
 
     // Read immediately after
     let val = store.get(&run_id, &doc_id, &path("x")).unwrap().unwrap();
-    assert_eq!(val.as_i64(), Some(42));
+    assert_eq!(val.value.as_i64(), Some(42));
 }
 
 /// Sequential writes are visible to subsequent reads.
@@ -48,7 +48,7 @@ fn test_sequential_writes_visible() {
             .get(&run_id, &doc_id, &path("counter"))
             .unwrap()
             .unwrap();
-        assert_eq!(val.as_i64(), Some(i as i64));
+        assert_eq!(val.value.as_i64(), Some(i as i64));
     }
 }
 
@@ -76,12 +76,12 @@ fn test_read_overlapping_path_sees_write() {
         .get(&run_id, &doc_id, &path("user.name"))
         .unwrap()
         .unwrap();
-    assert_eq!(name.as_str(), Some("Alice"));
+    assert_eq!(name.value.as_str(), Some("Alice"));
 
     // Read ancestor sees the whole object
     let user = store.get(&run_id, &doc_id, &path("user")).unwrap().unwrap();
-    assert!(user.is_object());
-    assert_eq!(user.get("name").and_then(|v| v.as_str()), Some("Alice"));
+    assert!(user.value.is_object());
+    assert_eq!(user.value.get("name").and_then(|v| v.as_str()), Some("Alice"));
 }
 
 // =============================================================================
@@ -103,7 +103,7 @@ fn test_fast_path_reads_current_state() {
 
     // Fast path read
     let val = store.get(&run_id, &doc_id, &root()).unwrap().unwrap();
-    assert_eq!(val.as_i64(), Some(1));
+    assert_eq!(val.value.as_i64(), Some(1));
 
     // Update
     store
@@ -112,7 +112,7 @@ fn test_fast_path_reads_current_state() {
 
     // Fast path read sees new value
     let val = store.get(&run_id, &doc_id, &root()).unwrap().unwrap();
-    assert_eq!(val.as_i64(), Some(2));
+    assert_eq!(val.value.as_i64(), Some(2));
 }
 
 /// Multiple readers can read concurrently.
@@ -137,7 +137,7 @@ fn test_concurrent_reads_safe() {
             thread::spawn(move || {
                 for _ in 0..100 {
                     let val = store.get(&run_id, &doc_id, &root()).unwrap().unwrap();
-                    assert_eq!(val.as_i64(), Some(42));
+                    assert_eq!(val.value.as_i64(), Some(42));
                 }
             })
         })
@@ -167,7 +167,7 @@ fn test_no_stale_reads() {
 
     // Read
     let r1 = store.get(&run_id, &doc_id, &root()).unwrap().unwrap();
-    assert_eq!(r1.as_str(), Some("v1"));
+    assert_eq!(r1.value.as_str(), Some("v1"));
 
     // Update
     store
@@ -176,7 +176,7 @@ fn test_no_stale_reads() {
 
     // Read again - must see v2, not v1
     let r2 = store.get(&run_id, &doc_id, &root()).unwrap().unwrap();
-    assert_eq!(r2.as_str(), Some("v2"), "Must see current value, not stale");
+    assert_eq!(r2.value.as_str(), Some("v2"), "Must see current value, not stale");
 }
 
 // =============================================================================
@@ -287,8 +287,7 @@ fn test_destroy_then_recreate() {
         store
             .get(&run_id, &doc_id, &root())
             .unwrap()
-            .unwrap()
-            .as_i64(),
+            .unwrap().value.as_i64(),
         Some(1)
     );
 
@@ -306,8 +305,7 @@ fn test_destroy_then_recreate() {
         store
             .get(&run_id, &doc_id, &root())
             .unwrap()
-            .unwrap()
-            .as_i64(),
+            .unwrap().value.as_i64(),
         Some(2)
     );
     assert_version(&store, &run_id, &doc_id, 1);
@@ -339,8 +337,7 @@ fn test_create_immediately_visible() {
         store
             .get(&run_id, &doc_id, &root())
             .unwrap()
-            .unwrap()
-            .as_i64(),
+            .unwrap().value.as_i64(),
         Some(42)
     );
 }
@@ -367,8 +364,7 @@ fn test_duplicate_create_fails() {
         store
             .get(&run_id, &doc_id, &root())
             .unwrap()
-            .unwrap()
-            .as_i64(),
+            .unwrap().value.as_i64(),
         Some(1)
     );
 }
@@ -438,7 +434,7 @@ fn test_concurrent_writes_serialized() {
     // Value should be one of the written values (not corrupted)
     let final_value = store.get(&run_id, &doc_id, &path("value")).unwrap();
     assert!(final_value.is_some(), "Value should exist");
-    assert!(final_value.unwrap().is_i64());
+    assert!(final_value.unwrap().value.is_i64());
 }
 
 /// Concurrent writes to different documents don't interfere.
@@ -487,6 +483,6 @@ fn test_concurrent_writes_different_docs_independent() {
     // Each doc should have its expected value
     for (doc_id, expected) in &doc_ids {
         let val = store.get(&run_id, doc_id, &root()).unwrap().unwrap();
-        assert_eq!(val.as_i64(), Some(*expected as i64));
+        assert_eq!(val.value.as_i64(), Some(*expected as i64));
     }
 }

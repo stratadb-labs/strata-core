@@ -21,7 +21,7 @@ fn test_vectorid_not_reused_after_delete_and_recovery() {
         }
 
         max_id_before = (0..20)
-            .map(|i| vector.get(run_id, "embeddings", &format!("key_{}", i)).unwrap().unwrap().vector_id().as_u64())
+            .map(|i| vector.get(run_id, "embeddings", &format!("key_{}", i)).unwrap().unwrap().value.vector_id().as_u64())
             .max()
             .unwrap();
 
@@ -38,7 +38,7 @@ fn test_vectorid_not_reused_after_delete_and_recovery() {
     // Insert new vectors - IDs should be higher than before
     for i in 0..10 {
         vector.insert(run_id, "embeddings", &format!("new_key_{}", i), &seeded_random_vector(384, i as u64 + 100), None).unwrap();
-        let new_id = vector.get(run_id, "embeddings", &format!("new_key_{}", i)).unwrap().unwrap().vector_id().as_u64();
+        let new_id = vector.get(run_id, "embeddings", &format!("new_key_{}", i)).unwrap().unwrap().value.vector_id().as_u64();
         assert!(new_id > max_id_before, "VectorId {} should be > {} (no reuse after recovery)", new_id, max_id_before);
     }
 }
@@ -65,8 +65,8 @@ fn test_collection_config_preserved_after_recovery() {
     let cosine_info = vector.get_collection(run_id, "cosine_col").unwrap().unwrap();
     let euclidean_info = vector.get_collection(run_id, "euclidean_col").unwrap().unwrap();
 
-    assert_eq!(cosine_info.config.dimension, 384);
-    assert_eq!(euclidean_info.config.dimension, 384);
+    assert_eq!(cosine_info.value.config.dimension, 384);
+    assert_eq!(euclidean_info.value.config.dimension, 384);
     // Verify metric type is preserved (depending on how CollectionInfo exposes this)
 }
 

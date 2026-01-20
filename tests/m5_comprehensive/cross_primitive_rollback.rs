@@ -35,8 +35,7 @@ fn test_failed_op_no_side_effects() {
         json_store
             .get(&run_id, &existing_doc, &root())
             .unwrap()
-            .unwrap()
-            .as_i64(),
+            .unwrap().value.as_i64(),
         Some(42)
     );
     assert_version(&json_store, &run_id, &existing_doc, 1);
@@ -64,8 +63,7 @@ fn test_duplicate_create_fails_cleanly() {
         json_store
             .get(&run_id, &doc_id, &root())
             .unwrap()
-            .unwrap()
-            .as_i64(),
+            .unwrap().value.as_i64(),
         Some(1)
     );
     assert_version(&json_store, &run_id, &doc_id, 1);
@@ -124,8 +122,7 @@ fn test_delete_nonexistent_path_idempotent() {
         json_store
             .get(&run_id, &doc_id, &path("a"))
             .unwrap()
-            .unwrap()
-            .as_i64(),
+            .unwrap().value.as_i64(),
         Some(1)
     );
 }
@@ -165,8 +162,7 @@ fn test_state_valid_after_invalid_ops() {
         json_store
             .get(&run_id, &doc_id, &path("data.value"))
             .unwrap()
-            .unwrap()
-            .as_i64(),
+            .unwrap().value.as_i64(),
         Some(100)
     );
 }
@@ -197,8 +193,7 @@ fn test_multiple_failures_no_accumulation() {
         json_store
             .get(&run_id, &existing_doc, &root())
             .unwrap()
-            .unwrap()
-            .as_i64(),
+            .unwrap().value.as_i64(),
         Some(42)
     );
     assert_version(&json_store, &run_id, &existing_doc, 1);
@@ -256,8 +251,7 @@ fn test_run_isolation_on_error() {
         json_store
             .get(&run1, &doc_id, &root())
             .unwrap()
-            .unwrap()
-            .as_i64(),
+            .unwrap().value.as_i64(),
         Some(100)
     );
 
@@ -295,8 +289,7 @@ fn test_destroy_run_isolation() {
         json_store
             .get(&run2, &doc_id, &root())
             .unwrap()
-            .unwrap()
-            .as_i64(),
+            .unwrap().value.as_i64(),
         Some(2)
     );
 }
@@ -335,24 +328,21 @@ fn test_operations_continue_after_failure() {
         json_store
             .get(&run_id, &doc_id, &path("a"))
             .unwrap()
-            .unwrap()
-            .as_i64(),
+            .unwrap().value.as_i64(),
         Some(1)
     );
     assert_eq!(
         json_store
             .get(&run_id, &doc_id, &path("b"))
             .unwrap()
-            .unwrap()
-            .as_i64(),
+            .unwrap().value.as_i64(),
         Some(2)
     );
     assert_eq!(
         json_store
             .get(&run_id, &doc_id, &path("c"))
             .unwrap()
-            .unwrap()
-            .as_i64(),
+            .unwrap().value.as_i64(),
         Some(3)
     );
 }
@@ -386,8 +376,7 @@ fn test_recreate_after_destroy() {
         json_store
             .get(&run_id, &doc_id, &root())
             .unwrap()
-            .unwrap()
-            .as_i64(),
+            .unwrap().value.as_i64(),
         Some(2)
     );
 
@@ -439,8 +428,7 @@ fn test_concurrent_error_handling() {
         store
             .get(&run_id, &doc_id, &root())
             .unwrap()
-            .unwrap()
-            .as_i64(),
+            .unwrap().value.as_i64(),
         Some(0)
     );
 }

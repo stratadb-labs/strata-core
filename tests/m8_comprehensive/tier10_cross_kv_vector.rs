@@ -86,8 +86,8 @@ fn test_kv_vector_isolation_between_runs() {
     let v1 = vector.get(run_id_1, "embeddings", "vec1").unwrap().unwrap();
     let v2 = vector.get(run_id_2, "embeddings", "vec1").unwrap().unwrap();
 
-    assert_eq!(v1.embedding.len(), 384);
-    assert_eq!(v2.embedding.len(), 3);
+    assert_eq!(v1.value.embedding.len(), 384);
+    assert_eq!(v2.value.embedding.len(), 3);
 }
 
 #[test]

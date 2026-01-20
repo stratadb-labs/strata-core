@@ -75,7 +75,7 @@ fn test_insert_update_preserves_latest() {
     let result = vector.get(run_id, "embeddings", "key1").unwrap().unwrap();
 
     // Should have updated vector
-    assert_eq!(result.embedding, updated_vector);
+    assert_eq!(result.value.embedding, updated_vector);
 }
 
 #[test]

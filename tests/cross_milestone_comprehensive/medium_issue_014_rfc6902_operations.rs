@@ -36,7 +36,7 @@ fn test_supported_patch_operations() {
     // Verify document state
     let doc = json.get(&run_id, &doc_id, &JsonPath::root()).expect("get").unwrap();
     // After delete, "value" should be gone
-    assert!(doc.get("value").is_none());
+    assert!(doc.value.get("value").is_none());
 }
 
 /// Test missing RFC 6902 operations.

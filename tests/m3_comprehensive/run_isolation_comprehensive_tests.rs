@@ -245,7 +245,7 @@ mod run_delete_isolation {
             .unwrap();
 
         // Delete run A from RunIndex
-        tp.run_index.delete_run(&meta_a.name).unwrap();
+        tp.run_index.delete_run(&meta_a.value.name).unwrap();
 
         // Run B data untouched
         assert_eq!(tp.kv.get(&run_b, "key").unwrap().map(|v| v.value), Some(values::string("b")));
@@ -275,18 +275,18 @@ mod run_delete_isolation {
         }
 
         // Delete some metadata entries (0, 2, 4)
-        tp.run_index.delete_run(&metas[0].name).unwrap();
-        tp.run_index.delete_run(&metas[2].name).unwrap();
-        tp.run_index.delete_run(&metas[4].name).unwrap();
+        tp.run_index.delete_run(&metas[0].value.name).unwrap();
+        tp.run_index.delete_run(&metas[2].value.name).unwrap();
+        tp.run_index.delete_run(&metas[4].value.name).unwrap();
 
         // Runs 1, 3 still exist in index
-        assert!(tp.run_index.exists(&metas[1].name).unwrap());
-        assert!(tp.run_index.exists(&metas[3].name).unwrap());
+        assert!(tp.run_index.exists(&metas[1].value.name).unwrap());
+        assert!(tp.run_index.exists(&metas[3].value.name).unwrap());
 
         // Deleted runs no longer in index
-        assert!(!tp.run_index.exists(&metas[0].name).unwrap());
-        assert!(!tp.run_index.exists(&metas[2].name).unwrap());
-        assert!(!tp.run_index.exists(&metas[4].name).unwrap());
+        assert!(!tp.run_index.exists(&metas[0].value.name).unwrap());
+        assert!(!tp.run_index.exists(&metas[2].value.name).unwrap());
+        assert!(!tp.run_index.exists(&metas[4].value.name).unwrap());
     }
 
     #[test]
