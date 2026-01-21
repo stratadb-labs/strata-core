@@ -75,9 +75,9 @@ For each epic in the recommended order:
 
 3. **Implement all stories** per epic specification using TDD
 
-4. **Run epic-end validation**: Full test suite + invariant checks
+4. **Run epic-end validation** (MANDATORY - see below)
 
-5. **Merge to develop**:
+5. **Merge to develop** (only after validation passes):
    ```bash
    git checkout develop
    git merge --no-ff epic-{N}-* -m "Epic {N}: {Name} complete"
@@ -85,6 +85,59 @@ For each epic in the recommended order:
    ```
 
 6. **Proceed to next epic**
+
+## Epic-End Validation (MANDATORY)
+
+**After completing each epic, you MUST run the full epic-end validation before proceeding.**
+
+Reference: `docs/prompts/EPIC_END_VALIDATION.md`
+
+### Quick Validation Checklist
+
+Run all 7 phases for each epic:
+
+```bash
+# Phase 1: Automated Checks
+~/.cargo/bin/cargo build --workspace && \
+~/.cargo/bin/cargo test --workspace && \
+~/.cargo/bin/cargo clippy --workspace -- -D warnings && \
+~/.cargo/bin/cargo fmt --check && \
+~/.cargo/bin/cargo doc --workspace --no-deps && \
+echo "Phase 1: PASS"
+```
+
+| Phase | Description | Required |
+|-------|-------------|----------|
+| 1 | Automated Checks (build, test, clippy, fmt, docs) | ✓ |
+| 2 | Story Completion Verification | ✓ |
+| 3 | Spec Compliance Review (M11_CONTRACT.md) | ✓ |
+| 4 | Code Review Checklist | ✓ |
+| 5 | Best Practices Verification | ✓ |
+| 6 | Epic-Specific Validation (M11 rules below) | ✓ |
+| 7 | Final Sign-Off | ✓ |
+
+### M11-Specific Phase 6 Validation
+
+For M11 epics, Phase 6 must verify the Eight Architectural Rules:
+
+```bash
+# Rule 3: No type coercion
+~/.cargo/bin/cargo test nc_ -- --nocapture
+
+# Rule 5: Wire encoding round-trip
+~/.cargo/bin/cargo test wire_round_trip_ -- --nocapture
+
+# M11 comprehensive tests
+~/.cargo/bin/cargo test --test m11_comprehensive
+```
+
+### DO NOT proceed to the next epic if:
+
+- Any Phase 1 check fails
+- Any story is incomplete
+- Any M11 architectural rule is violated
+- Any invariant (VAL, FAC, WIRE, ERR) is broken
+- Tests are failing
 
 ## Recommended Execution Order
 
