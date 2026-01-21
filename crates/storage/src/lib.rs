@@ -43,6 +43,7 @@ pub mod unified;
 pub mod codec;
 pub mod disk_snapshot;
 pub mod format;
+pub mod recovery;
 pub mod wal;
 
 // In-memory storage re-exports
@@ -74,6 +75,8 @@ pub use format::{
     // WAL format
     Mutation, SegmentHeader, WalRecord, WalRecordError, WalSegment, Writeset, WritesetError,
     SEGMENT_FORMAT_VERSION, SEGMENT_HEADER_SIZE, SEGMENT_MAGIC, WAL_RECORD_FORMAT_VERSION,
+    // MANIFEST format
+    Manifest, ManifestError, ManifestManager, MANIFEST_FORMAT_VERSION, MANIFEST_MAGIC,
 };
 pub use wal::{
     DurabilityMode, TruncateInfo, WalConfig, WalConfigError, WalReadResult, WalReader,
@@ -82,4 +85,8 @@ pub use wal::{
 pub use disk_snapshot::{
     CheckpointCoordinator, CheckpointData, CheckpointError, LoadedSection, LoadedSnapshot,
     SnapshotInfo, SnapshotReadError, SnapshotReader, SnapshotSection, SnapshotWriter,
+};
+pub use recovery::{
+    RecoveryCoordinator, RecoveryError, RecoveryPlan, RecoveryResult, RecoverySnapshot,
+    ReplayStats, WalReplayError, WalReplayer,
 };

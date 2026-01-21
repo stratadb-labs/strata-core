@@ -11,6 +11,7 @@
 //! - `manifest`: MANIFEST file format (added in Epic 72)
 //! - `snapshot`: Snapshot file format (added in Epic 71)
 
+pub mod manifest;
 pub mod primitives;
 pub mod snapshot;
 pub mod wal_record;
@@ -34,3 +35,4 @@ pub use primitives::{
     TraceSnapshotEntry, VectorCollectionSnapshotEntry, VectorSnapshotEntry,
 };
 pub use watermark::{CheckpointInfo, SnapshotWatermark, WatermarkError};
+pub use manifest::{Manifest, ManifestError, ManifestManager, MANIFEST_FORMAT_VERSION, MANIFEST_MAGIC};
