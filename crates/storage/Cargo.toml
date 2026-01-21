@@ -17,6 +17,11 @@ smallvec = { workspace = true }
 serde = { workspace = true }
 thiserror = { workspace = true }
 tracing = { workspace = true }
+uuid = { workspace = true }
+
+# WAL and storage format dependencies
+crc32fast = "1.3"
+byteorder = { workspace = true }
 
 [dev-dependencies]
 proptest = { workspace = true }

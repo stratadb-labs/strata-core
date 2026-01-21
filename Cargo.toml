@@ -105,6 +105,7 @@ proptest = { workspace = true }
 in-mem-primitives = { path = "crates/primitives" }
 in-mem-search = { path = "crates/search" }
 uuid = { workspace = true }
+crc32fast = "1.3"
 
 # =============================================================================
 # FUNCTIONAL BENCHMARKS (New Structure)
