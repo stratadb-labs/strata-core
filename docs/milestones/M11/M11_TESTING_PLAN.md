@@ -1,7 +1,7 @@
 # M11 Testing Plan: Public API & SDK Contract
 
 **Status**: Active
-**Version**: 1.0
+**Version**: 2.0
 **Last Updated**: 2026-01-21
 **Criticality**: HIGHEST - This contract becomes permanent after M11
 
@@ -11,6 +11,17 @@
 
 This document defines the comprehensive testing strategy for M11 (Public API & SDK Contract). Because M11 freezes the public contract that all downstream surfaces depend on, **any bug that escapes testing becomes a permanent liability**. This testing plan is designed to achieve zero-defect quality for all frozen contract elements.
 
+### Milestone Split
+
+M11 is split into two sub-milestones with distinct validation gates:
+
+| Milestone | Scope | Exit Gate |
+|-----------|-------|-----------|
+| **M11a** | Core Contract & API (Value Model, Wire Encoding, Error Model, Facade API, Substrate API) | Core Validation Suite passes (Epic 87a) |
+| **M11b** | Consumer Surfaces (CLI, SDK Foundation) | Surface Validation Suite passes (Epic 87b) |
+
+**Critical**: M11a must be fully validated before M11b work begins. Any defects in the core contract discovered during M11b require fixing and re-validating M11a.
+
 ### Testing Philosophy
 
 1. **Contract First**: Test the contract, not the implementation
@@ -19,22 +30,26 @@ This document defines the comprehensive testing strategy for M11 (Public API & S
 4. **Determinism Proof**: Same inputs must produce identical outputs
 5. **Negative Testing**: Invalid inputs must produce correct errors
 6. **Cross-Surface Parity**: Facade, Substrate, Wire, CLI must be consistent
+7. **Gated Validation**: M11a complete before M11b begins
 
 ### Test Categories
 
-| Category | Purpose | Coverage Target |
-|----------|---------|-----------------|
-| Unit Tests | Individual component correctness | 100% of contract elements |
-| Integration Tests | Cross-component interaction | All API flows |
-| Contract Tests | Invariant verification | All documented invariants |
-| Fuzz Tests | Unexpected input handling | Value model, wire encoding |
-| Property Tests | Mathematical properties | Equality, encoding |
-| Regression Tests | Prevent contract breakage | All frozen elements |
-| Conformance Tests | SDK parity | All SDK mappings |
+| Category | Purpose | Coverage Target | Milestone |
+|----------|---------|-----------------|-----------|
+| Unit Tests | Individual component correctness | 100% of contract elements | M11a/M11b |
+| Integration Tests | Cross-component interaction | All API flows | M11a/M11b |
+| Contract Tests | Invariant verification | All documented invariants | M11a |
+| Fuzz Tests | Unexpected input handling | Value model, wire encoding | M11a |
+| Property Tests | Mathematical properties | Equality, encoding | M11a |
+| Regression Tests | Prevent contract breakage | All frozen elements | M11a/M11b |
+| Conformance Tests | SDK parity | All SDK mappings | M11b |
+| CLI Tests | CLI surface coverage | All CLI commands | M11b |
 
 ---
 
 ## Table of Contents
+
+### M11a Test Suites (Core Contract & API)
 
 1. [Value Model Tests](#1-value-model-tests)
 2. [Wire Encoding Tests](#2-wire-encoding-tests)
@@ -42,16 +57,27 @@ This document defines the comprehensive testing strategy for M11 (Public API & S
 4. [Substrate API Tests](#4-substrate-api-tests)
 5. [Facade→Substrate Desugaring Tests](#5-facadesubstrate-desugaring-tests)
 6. [Error Model Tests](#6-error-model-tests)
-7. [CLI Tests](#7-cli-tests)
 8. [Versioned<T> Tests](#8-versionedt-tests)
 9. [Run Semantics Tests](#9-run-semantics-tests)
 10. [Transaction Semantics Tests](#10-transaction-semantics-tests)
 11. [History & Retention Tests](#11-history--retention-tests)
 12. [Determinism Tests](#12-determinism-tests)
-13. [Contract Stability Tests](#13-contract-stability-tests)
+13. [Contract Stability Tests](#13-contract-stability-tests) (Core elements)
 14. [Fuzz Testing Strategy](#14-fuzz-testing-strategy)
 15. [Test Data Generators](#15-test-data-generators)
 16. [Test Infrastructure](#16-test-infrastructure)
+
+### M11b Test Suites (Consumer Surfaces)
+
+7. [CLI Tests](#7-cli-tests)
+17. [SDK Conformance Tests](#17-sdk-conformance-tests)
+13. [Contract Stability Tests](#13-contract-stability-tests) (Surface elements)
+
+---
+
+# Part I: M11a Test Suites (Core Contract & API)
+
+> **Scope**: These test suites validate the core contract that all downstream surfaces depend on. M11a tests must all pass before M11b work begins.
 
 ---
 
@@ -880,6 +906,14 @@ These tests verify that the facade is a true lossless projection of the substrat
 
 ---
 
+# Part II: M11b Test Suites (Consumer Surfaces)
+
+> **Scope**: These test suites validate consumer surfaces (CLI, SDK) that build on the core contract. M11b tests can only begin after all M11a tests pass.
+>
+> **Prerequisite**: All M11a tests must pass before executing M11b tests.
+
+---
+
 ## 7. CLI Tests
 
 ### 7.1 Argument Parsing Tests
@@ -1413,7 +1447,8 @@ name: M11 Contract Tests
 on: [push, pull_request]
 
 jobs:
-  contract-tests:
+  # M11a: Core Contract & API Tests
+  m11a-core-contract:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -1436,34 +1471,148 @@ jobs:
       - name: Error Model Tests
         run: cargo test --package core error::
 
-      - name: CLI Tests
-        run: cargo test --package cli
-
       - name: Determinism Tests
         run: cargo test --package engine determinism::
 
-      - name: Contract Stability Tests
-        run: cargo test --package tests contract::
+      - name: Contract Stability Tests (Core)
+        run: cargo test --package tests contract::core
 
       - name: Fuzz Tests (limited)
         run: cargo +nightly fuzz run value_fuzz -- -max_total_time=60
+
+  # M11b: Consumer Surfaces Tests (depends on M11a)
+  m11b-consumer-surfaces:
+    needs: m11a-core-contract
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: CLI Tests
+        run: cargo test --package cli
+
+      - name: SDK Rust Tests
+        run: cargo test --package sdk
+
+      - name: SDK Python Tests
+        run: pytest tests/sdk/python/
+
+      - name: SDK JavaScript Tests
+        run: npm test --prefix tests/sdk/js/
+
+      - name: Cross-SDK Interop Tests
+        run: cargo test --package tests sdk_interop::
+
+      - name: Contract Stability Tests (Surface)
+        run: cargo test --package tests contract::surface
 ```
 
 ### 16.4 Coverage Requirements
 
-| Module | Minimum Coverage |
-|--------|------------------|
-| Value Model | 100% |
-| Wire Encoding | 100% |
-| Facade API | 95% |
-| Substrate API | 95% |
-| Error Model | 100% |
-| CLI Parsing | 100% |
-| CLI Output | 100% |
+| Module | Minimum Coverage | Milestone |
+|--------|------------------|-----------|
+| Value Model | 100% | M11a |
+| Wire Encoding | 100% | M11a |
+| Facade API | 95% | M11a |
+| Substrate API | 95% | M11a |
+| Error Model | 100% | M11a |
+| CLI Parsing | 100% | M11b |
+| CLI Output | 100% | M11b |
+| SDK Type Mapping | 95% | M11b |
+
+---
+
+## 17. SDK Conformance Tests
+
+> **Milestone**: M11b (Consumer Surfaces)
+
+### 17.1 Rust SDK Type Mapping Tests
+
+**Test Suite**: `sdk::rust::type_mapping`
+
+| Test ID | Strata Type | Rust Type | Verification |
+|---------|-------------|-----------|--------------|
+| SDK-R-001 | Null | `Option<T>::None` | Correct mapping |
+| SDK-R-002 | Bool | `bool` | Correct mapping |
+| SDK-R-003 | Int | `i64` | Correct mapping |
+| SDK-R-004 | Float | `f64` | Correct mapping |
+| SDK-R-005 | String | `String` | Correct mapping |
+| SDK-R-006 | Bytes | `Vec<u8>` | Correct mapping |
+| SDK-R-007 | Array | `Vec<Value>` | Correct mapping |
+| SDK-R-008 | Object | `HashMap<String, Value>` | Correct mapping |
+| SDK-R-009 | Version | `Version` enum | Tagged union |
+| SDK-R-010 | Versioned<T> | `Versioned<T>` struct | All fields |
+| SDK-R-011 | Error | `StrataError` enum | All variants |
+
+### 17.2 Python SDK Type Mapping Tests
+
+**Test Suite**: `sdk::python::type_mapping`
+
+| Test ID | Strata Type | Python Type | Verification |
+|---------|-------------|-------------|--------------|
+| SDK-PY-001 | Null | `None` | Correct mapping |
+| SDK-PY-002 | Bool | `bool` | Correct mapping |
+| SDK-PY-003 | Int | `int` | Correct mapping |
+| SDK-PY-004 | Float | `float` | Correct mapping |
+| SDK-PY-005 | String | `str` | Correct mapping |
+| SDK-PY-006 | Bytes | `bytes` | Correct mapping |
+| SDK-PY-007 | Array | `list` | Correct mapping |
+| SDK-PY-008 | Object | `dict` | Correct mapping |
+| SDK-PY-009 | Version | Version dataclass | Tagged union |
+| SDK-PY-010 | Versioned<T> | Versioned dataclass | All fields |
+| SDK-PY-011 | Error | `StrataError` exception | All variants |
+
+### 17.3 JavaScript/TypeScript SDK Type Mapping Tests
+
+**Test Suite**: `sdk::js::type_mapping`
+
+| Test ID | Strata Type | JS/TS Type | Verification |
+|---------|-------------|------------|--------------|
+| SDK-JS-001 | Null | `null` | Correct mapping |
+| SDK-JS-002 | Bool | `boolean` | Correct mapping |
+| SDK-JS-003 | Int | `bigint` | **CRITICAL**: Not `number` |
+| SDK-JS-004 | Float | `number` | Correct mapping |
+| SDK-JS-005 | String | `string` | Correct mapping |
+| SDK-JS-006 | Bytes | `Uint8Array` | Correct mapping |
+| SDK-JS-007 | Array | `Array<Value>` | Correct mapping |
+| SDK-JS-008 | Object | `Record<string, Value>` | Correct mapping |
+| SDK-JS-009 | Version | `Version` type | Tagged union |
+| SDK-JS-010 | Versioned<T> | `Versioned<T>` type | All fields |
+| SDK-JS-011 | Error | `StrataError` class | All variants |
+
+### 17.4 SDK Round-Trip Tests
+
+**Test Suite**: `sdk::round_trip`
+
+| Test ID | Test Name | Description |
+|---------|-----------|-------------|
+| SDK-RT-001 | `rust_value_round_trip` | Rust Value → API → Rust Value |
+| SDK-RT-002 | `python_value_round_trip` | Python dict → API → Python dict |
+| SDK-RT-003 | `js_value_round_trip` | JS object → API → JS object |
+| SDK-RT-004 | `cross_sdk_interop_rust_python` | Rust write → Python read |
+| SDK-RT-005 | `cross_sdk_interop_rust_js` | Rust write → JS read |
+| SDK-RT-006 | `cross_sdk_interop_python_rust` | Python write → Rust read |
+| SDK-RT-007 | `cross_sdk_interop_python_js` | Python write → JS read |
+| SDK-RT-008 | `cross_sdk_interop_js_rust` | JS write → Rust read |
+| SDK-RT-009 | `cross_sdk_interop_js_python` | JS write → Python read |
+| SDK-RT-010 | `float_edge_cases_all_sdks` | NaN, Inf, -0.0 across all SDKs |
+
+### 17.5 SDK Error Handling Tests
+
+**Test Suite**: `sdk::errors`
+
+| Test ID | Error | Rust | Python | JS |
+|---------|-------|------|--------|-----|
+| SDK-ERR-001 | `NotFound` | `Err(NotFound)` | `StrataNotFoundError` | Thrown error |
+| SDK-ERR-002 | `WrongType` | `Err(WrongType)` | `StrataWrongTypeError` | Thrown error |
+| SDK-ERR-003 | `InvalidKey` | `Err(InvalidKey)` | `StrataInvalidKeyError` | Thrown error |
+| SDK-ERR-004 | `ConstraintViolation` | `Err(ConstraintViolation)` | `StrataConstraintError` | Thrown error |
+| SDK-ERR-005 | `Conflict` | `Err(Conflict)` | `StrataConflictError` | Thrown error |
 
 ---
 
 ## Appendix A: Test Matrix Summary
+
+### M11a Test Matrix (Core Contract & API)
 
 | Test Category | Test Count | Priority | Automation |
 |---------------|------------|----------|------------|
@@ -1488,24 +1637,44 @@ jobs:
 | Substrate API | 30+ | CRITICAL | Integration |
 | Desugaring Parity | 30+ | CRITICAL | Contract |
 | Error Model | 30+ | CRITICAL | Unit |
-| CLI Parsing | 16 | CRITICAL | Unit |
-| CLI Output | 11 | CRITICAL | Unit |
-| CLI Commands | 18 | CRITICAL | Integration |
 | Versioned<T> | 20+ | CRITICAL | Unit |
 | Run Semantics | 15+ | CRITICAL | Integration |
 | Transaction Semantics | 15+ | CRITICAL | Integration |
 | History & Retention | 15+ | HIGH | Integration |
 | Determinism | 10+ | CRITICAL | Integration |
-| Contract Stability | 10+ | CRITICAL | Regression |
+| Contract Stability (Core) | 10+ | CRITICAL | Regression |
 | Fuzz Tests | N/A | HIGH | Continuous |
 
-**Total Estimated Tests**: 500+
+**M11a Total**: ~400 tests
+
+### M11b Test Matrix (Consumer Surfaces)
+
+| Test Category | Test Count | Priority | Automation |
+|---------------|------------|----------|------------|
+| CLI Parsing | 16 | CRITICAL | Unit |
+| CLI Output | 11 | CRITICAL | Unit |
+| CLI Commands | 18 | CRITICAL | Integration |
+| CLI Run Scoping | 5 | HIGH | Integration |
+| SDK Rust Type Mapping | 11 | CRITICAL | Unit |
+| SDK Python Type Mapping | 11 | CRITICAL | Unit |
+| SDK JS Type Mapping | 11 | CRITICAL | Unit |
+| SDK Round-Trip | 10 | CRITICAL | Integration |
+| SDK Error Handling | 5 | CRITICAL | Integration |
+| Contract Stability (Surface) | 5+ | CRITICAL | Regression |
+
+**M11b Total**: ~100 tests
+
+---
+
+**Combined Total**: 500+ tests
 
 ---
 
 ## Appendix B: Critical Path Tests
 
-These tests MUST pass before M11 can be considered complete:
+### M11a Critical Path (Must pass before M11b begins)
+
+These tests MUST pass before M11a can be considered complete:
 
 1. **All 8 value types construct and round-trip** (VAL-001 to VAL-035, JE-001 to JE-031)
 2. **Float edge cases work** (FLT-001 to FLT-015)
@@ -1520,7 +1689,22 @@ These tests MUST pass before M11 can be considered complete:
 11. **Facade-Substrate parity** (DS-KV-001 to DS-KV-008)
 12. **Error propagation** (DS-ERR-001 to DS-ERR-005)
 13. **Determinism** (DET-001 to DET-003, WAL-001 to WAL-003)
-14. **Contract stability** (FRZ-001 to FRZ-008)
+14. **Contract stability (core)** (FRZ-001 to FRZ-008)
+
+### M11b Critical Path (Must pass for M11 completion)
+
+These tests MUST pass before M11b can be considered complete:
+
+1. **CLI argument parsing** (CLI-P-001 to CLI-P-016)
+2. **CLI output formatting** (CLI-O-001 to CLI-O-011)
+3. **CLI commands for all primitives** (CLI-C-001 to CLI-C-018)
+4. **CLI run scoping** (CLI-RS-001 to CLI-RS-005)
+5. **Rust SDK type mapping** (SDK-R-001 to SDK-R-011)
+6. **Python SDK type mapping** (SDK-PY-001 to SDK-PY-011)
+7. **JS SDK type mapping** (SDK-JS-001 to SDK-JS-011)
+8. **Cross-SDK interoperability** (SDK-RT-004 to SDK-RT-009)
+9. **Float edge cases across all SDKs** (SDK-RT-010)
+10. **SDK error handling** (SDK-ERR-001 to SDK-ERR-005)
 
 ---
 
@@ -1529,7 +1713,8 @@ These tests MUST pass before M11 can be considered complete:
 | Version | Date | Changes |
 |---------|------|---------|
 | 1.0 | 2026-01-21 | Initial comprehensive testing plan |
+| 2.0 | 2026-01-21 | Split into M11a/M11b test suites, added SDK Conformance Tests (Section 17), updated critical paths |
 
 ---
 
-**This testing plan is the quality gate for M11. No release without all critical path tests passing.**
+**This testing plan is the quality gate for M11. M11a must pass before M11b begins. No M11 release without all critical path tests passing.**

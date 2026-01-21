@@ -4,7 +4,14 @@
 
 This document provides the high-level implementation plan for M11 (Public API & SDK Contract).
 
-**Total Scope**: 8 Epics, 50 Stories
+**M11 is split into two parts:**
+
+| Part | Focus | Epics | Stories |
+|------|-------|-------|---------|
+| **M11a** | Core Contract & API | 80, 81, 82, 83, 84, 87a | ~36 |
+| **M11b** | Consumer Surfaces | 85, 86, 87b | ~16 |
+
+**Total Scope**: 8 Epics, ~52 Stories (split across M11a and M11b)
 
 **References**:
 - [M11 Architecture Specification](../../architecture/M11_ARCHITECTURE.md) - Authoritative architectural spec
@@ -17,15 +24,43 @@ This document provides the high-level implementation plan for M11 (Public API & 
 >
 > **M11 does NOT add new capabilities.** It stabilizes, documents, and validates the existing API surface. The engine's seven primitives already exist. M11 ensures they are exposed consistently across all surfaces.
 
+### M11a: Core Contract & API
+
+M11a establishes the **foundation contract** that cannot change:
+- Value Model (8 types, equality, limits)
+- Wire Encoding (JSON, $bytes, $f64, $absent)
+- Error Model (codes, shapes, reasons)
+- Facade API (Redis-like surface)
+- Substrate API (power-user surface)
+- Core Validation (parity tests, round-trip tests, determinism)
+
+**M11a Exit Criteria**: Core contract frozen, Facade↔Substrate parity verified, all core validation tests passing.
+
+### M11b: Consumer Surfaces
+
+M11b builds **user-facing surfaces** on top of the frozen M11a contract:
+- CLI (all facade operations)
+- SDK Foundation (Rust SDK, Python/JS mappings)
+- Full Validation Suite (CLI tests, SDK conformance, regression tests)
+
+**M11b Exit Criteria**: CLI complete, Rust SDK complete, full validation suite passing.
+
+---
+
 **Epic Details**:
+
+**M11a Epics:**
 - [Epic 80: Value Model Stabilization](./EPIC_80_VALUE_MODEL.md)
 - [Epic 81: Facade API Implementation](./EPIC_81_FACADE_API.md)
 - [Epic 82: Substrate API Implementation](./EPIC_82_SUBSTRATE_API.md)
 - [Epic 83: Wire Encoding Contract](./EPIC_83_WIRE_ENCODING.md)
 - [Epic 84: Error Model Finalization](./EPIC_84_ERROR_MODEL.md)
+- Epic 87a: Core Validation (subset of Epic 87)
+
+**M11b Epics:**
 - [Epic 85: CLI Implementation](./EPIC_85_CLI.md)
 - [Epic 86: SDK Foundation](./EPIC_86_SDK_FOUNDATION.md)
-- [Epic 87: Contract Validation Suite](./EPIC_87_CONTRACT_VALIDATION.md)
+- Epic 87b: Surface Validation (subset of Epic 87)
 
 ---
 
@@ -137,6 +172,8 @@ The default run has the canonical name `"default"` (literal string, not UUID). I
 
 ## Epic Overview
 
+### M11a Epics (Core Contract & API)
+
 | Epic | Name | Stories | Dependencies | Status |
 |------|------|---------|--------------|--------|
 | 80 | Value Model Stabilization | 6 | M10 complete | Pending |
@@ -144,9 +181,19 @@ The default run has the canonical name `"default"` (literal string, not UUID). I
 | 82 | Substrate API Implementation | 7 | Epic 80 | Pending |
 | 83 | Wire Encoding Contract | 6 | Epic 80 | Pending |
 | 84 | Error Model Finalization | 5 | Epic 80 | Pending |
-| 85 | CLI Implementation | 8 | Epic 81, 83 | Pending |
-| 86 | SDK Foundation | 5 | Epic 81, 83, 84 | Pending |
-| 87 | Contract Validation Suite | 5 | All above | Pending |
+| 87a | Core Validation Suite | 4 | Epics 80-84 | Pending |
+
+**M11a Total**: 36 stories
+
+### M11b Epics (Consumer Surfaces)
+
+| Epic | Name | Stories | Dependencies | Status |
+|------|------|---------|--------------|--------|
+| 85 | CLI Implementation | 8 | M11a complete | Pending |
+| 86 | SDK Foundation | 5 | M11a complete | Pending |
+| 87b | Surface Validation Suite | 3 | Epics 85-86 | Pending |
+
+**M11b Total**: 16 stories
 
 ---
 
@@ -413,19 +460,18 @@ The default run has the canonical name `"default"` (literal string, not UUID). I
 
 ---
 
-## Epic 87: Contract Validation Suite
+## Epic 87a: Core Validation Suite (M11a)
 
-**Goal**: Comprehensive test suite validating all contract guarantees
+**Goal**: Validate core contract guarantees before building consumer surfaces
 
 | Story | Description | Priority |
 |-------|-------------|----------|
 | #602 | Facade-Substrate Parity Tests | CRITICAL |
 | #603 | Value Round-Trip Tests | CRITICAL |
 | #604 | Wire Encoding Conformance Tests | CRITICAL |
-| #605 | Error Model Validation Tests | CRITICAL |
-| #606 | Determinism Verification Tests | HIGH |
+| #605 | Determinism Verification Tests | CRITICAL |
 
-**Acceptance Criteria**:
+**Acceptance Criteria (M11a Exit Gate)**:
 - [ ] Facade-Substrate parity: every facade operation produces same result as desugared substrate
 - [ ] Value round-trip: all 8 types survive encode/decode
 - [ ] Float edge cases: NaN, +Inf, -Inf, -0.0 all preserved
@@ -434,8 +480,28 @@ The default run has the canonical name `"default"` (literal string, not UUID). I
 - [ ] All error codes produce correct wire shape
 - [ ] Same substrate operations produce same state (determinism)
 - [ ] Timestamp independence (different timestamps, same logical state)
+
+---
+
+## Epic 87b: Surface Validation Suite (M11b)
+
+**Goal**: Validate consumer surfaces and complete contract validation
+
+| Story | Description | Priority |
+|-------|-------------|----------|
+| #607 | CLI Conformance Tests | CRITICAL |
+| #608 | SDK Conformance Test Harness | CRITICAL |
+| #609 | End-to-End Regression Suite | HIGH |
+
+**Acceptance Criteria (M11b Exit Gate)**:
+- [ ] CLI argument parsing tests pass
+- [ ] CLI output formatting tests pass
+- [ ] CLI commands for all primitives working
+- [ ] SDK value mapping tests pass
+- [ ] SDK error handling tests pass
 - [ ] WAL replay determinism verified
 - [ ] Contract stability validated (no accidental breaking changes)
+- [ ] Golden file regression tests pass
 
 ---
 
@@ -503,44 +569,59 @@ The default run has the canonical name `"default"` (literal string, not UUID). I
 ## Dependency Order
 
 ```
-Epic 80 (Value Model Stabilization)
-    ↓
-┌───┴───┬───────────┐
-↓       ↓           ↓
-Epic 81 Epic 82     Epic 83
-(Facade) (Substrate) (Wire)
-    ↓       ↓           ↓
-    └───┬───┴───────────┘
-        ↓
-    Epic 84 (Error Model)
-        ↓
-    ┌───┴───┐
-    ↓       ↓
-Epic 85   Epic 86
-(CLI)     (SDK)
-    ↓       ↓
-    └───┬───┘
-        ↓
-    Epic 87 (Validation)
+            Epic 80 (Value Model Stabilization)
+                        ↓
+            ┌───────────┼───────────┐
+            ↓           ↓           ↓
+        Epic 81     Epic 82     Epic 83
+        (Facade)    (Substrate) (Wire)
+            ↓           ↓           ↓
+            └───────────┼───────────┘
+                        ↓
+                Epic 84 (Error Model)
+                        ↓
+                Epic 87a (Core Validation)
+                        ↓
+    ════════════════════════════════════════
+                M11a COMPLETE
+    ════════════════════════════════════════
+                        ↓
+                ┌───────┴───────┐
+                ↓               ↓
+            Epic 85         Epic 86
+            (CLI)           (SDK)
+                ↓               ↓
+                └───────┬───────┘
+                        ↓
+            Epic 87b (Surface Validation)
+                        ↓
+    ════════════════════════════════════════
+                M11b COMPLETE
+    ════════════════════════════════════════
 ```
 
-**Recommended Implementation Order**:
+**M11a Recommended Implementation Order**:
 1. Epic 80: Value Model Stabilization (foundation for everything)
 2. Epic 83: Wire Encoding Contract (needed early for testing)
 3. Epic 84: Error Model Finalization (needed by API layers)
 4. Epic 81: Facade API Implementation (user-facing layer)
 5. Epic 82: Substrate API Implementation (power-user layer)
-6. Epic 85: CLI Implementation (uses facade + wire)
-7. Epic 86: SDK Foundation (uses facade + wire + error)
-8. Epic 87: Contract Validation Suite (validates everything)
+6. Epic 87a: Core Validation Suite (validates core contract)
+
+**M11b Recommended Implementation Order** (after M11a complete):
+7. Epic 85: CLI Implementation (uses facade + wire)
+8. Epic 86: SDK Foundation (uses facade + wire + error)
+9. Epic 87b: Surface Validation Suite (validates consumer surfaces)
 
 ---
 
 ## Phased Implementation Strategy
 
-> **Guiding Principle**: Stabilize the data model first. Wire encoding must work before APIs. APIs must work before CLI/SDK. Each phase produces a testable, validated increment.
+> **Guiding Principle**: Stabilize the data model first. Wire encoding must work before APIs. APIs must work before CLI/SDK. Each phase produces a testable, validated increment. M11a (Phases 1-4) must be fully validated before starting M11b (Phases 5-6).
 
-### Phase 1: Data Model Foundation
+### M11a Phases
+
+#### Phase 1: Data Model Foundation
 
 Stabilize value model and wire encoding:
 - Value enum finalization
@@ -551,7 +632,7 @@ Stabilize value model and wire encoding:
 
 **Exit Criteria**: All 8 value types encode/decode correctly. Round-trip tests pass.
 
-### Phase 2: Error Model
+#### Phase 2: Error Model
 
 Freeze all error codes and payloads:
 - Error code enumeration
@@ -561,7 +642,7 @@ Freeze all error codes and payloads:
 
 **Exit Criteria**: All error conditions produce correct structured errors.
 
-### Phase 3: API Layers
+#### Phase 3: API Layers
 
 Implement facade and substrate APIs:
 - Facade API with all operations
@@ -571,7 +652,24 @@ Implement facade and substrate APIs:
 
 **Exit Criteria**: Both API layers complete. Parity tests pass.
 
-### Phase 4: CLI + SDK
+#### Phase 4: Core Validation (M11a Exit Gate)
+
+Comprehensive validation of core contract:
+- Value model tests (100% coverage)
+- Wire encoding round-trip tests
+- Facade-Substrate parity tests
+- Error model verification
+- Determinism tests for core APIs
+
+**Exit Criteria**: All M11a contract guarantees validated. Zero defects in core contract.
+
+---
+
+### M11b Phases
+
+**Prerequisite**: M11a must be fully complete and validated before starting M11b.
+
+#### Phase 5: CLI + SDK
 
 Implement consumer surfaces:
 - CLI with Redis-like ergonomics
@@ -581,25 +679,29 @@ Implement consumer surfaces:
 
 **Exit Criteria**: CLI works for all facade operations. SDK conformance harness passes.
 
-### Phase 5: Contract Validation
+#### Phase 6: Surface Validation (M11b Exit Gate)
 
-Comprehensive validation suite:
-- Facade-Substrate parity
-- Value round-trip
-- Wire conformance
-- Determinism verification
+Comprehensive validation of consumer surfaces:
+- CLI argument parsing tests
+- CLI output formatting tests
+- CLI command integration tests
+- SDK conformance tests
+- SDK type mapping verification
 
-**Exit Criteria**: All contract guarantees validated. No regressions.
+**Exit Criteria**: All M11b contract guarantees validated. No regressions in M11a.
+
+---
 
 ### Phase Summary
 
-| Phase | Epics | Key Deliverable | Status |
-|-------|-------|-----------------|--------|
-| 1 | 80, 83 | Data model + wire encoding | Pending |
-| 2 | 84 | Error model | Pending |
-| 3 | 81, 82 | API layers | Pending |
-| 4 | 85, 86 | CLI + SDK | Pending |
-| 5 | 87 | Contract validation | Pending |
+| Phase | Milestone | Epics | Key Deliverable | Status |
+|-------|-----------|-------|-----------------|--------|
+| 1 | M11a | 80, 83 | Data model + wire encoding | Pending |
+| 2 | M11a | 84 | Error model | Pending |
+| 3 | M11a | 81, 82 | API layers | Pending |
+| 4 | M11a | 87a | Core validation | Pending |
+| 5 | M11b | 85, 86 | CLI + SDK | Pending |
+| 6 | M11b | 87b | Surface validation | Pending |
 
 ---
 

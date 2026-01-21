@@ -449,81 +449,114 @@ If Strata becomes successful, people will build servers on top of it. But the va
 
 ---
 
-## Milestone 11: Public API & SDK Contract
-**Goal**: Freeze the public contract so all downstream surfaces (wire, CLI, Rust SDK, server) use consistent semantics
+## Milestone 11a: Core Contract & API
+**Goal**: Freeze the core contract (value model, wire encoding, error model) and implement the two-layer API (Facade + Substrate)
 
-**Deliverable**: Frozen API contract with two-layer model (Facade + Substrate), canonical value model, wire encoding, CLI, and SDK mappings
+**Deliverable**: Frozen core contract with working Facade and Substrate APIs, validated by core contract tests
 
 **Status**: Not Started
 
-**Philosophy**: M11 freezes the **public contract** of Strata. After M11, every downstream surface—wire protocol, CLI, Rust SDK, server—must conform to this contract. Breaking changes require a major version bump. The contract has two layers: Facade (Redis-like for 95% of users) and Substrate (power-user surface exposing runs, versions, transactions, primitives).
+**Philosophy**: M11a establishes the **foundation contract** that cannot change. Value model, wire encoding, error codes, and the API layers (Facade + Substrate) are frozen here. This must be rock-solid before building consumer surfaces (CLI, SDK) on top.
 
 **Key Architectural Invariant**: Every facade call **desugars to exactly one substrate call**. No magic, no hidden semantics.
 
 **Success Criteria**:
 
-### Gate 1: Two-Layer API Model
-- [ ] Facade API implemented (Redis-like: `set`, `get`, `delete`, `exists`, `mget`, `mset`, `incr`)
-- [ ] Substrate API implemented (explicit run/version/primitive: `kv_put`, `kv_get`, `json_set`, etc.)
-- [ ] Facade→Substrate desugaring documented and tested
-- [ ] Escape hatches: `getv()` for versioned reads, `use_run()` for run scoping
-- [ ] Default run named `"default"` (literal string, always exists)
-
-### Gate 2: Value Model Frozen
+### Gate 1: Value Model Frozen
 - [ ] Canonical types: Null, Bool, Int(i64), Float(f64), String, Bytes, Array, Object
 - [ ] Float edge cases: NaN, ±Inf, -0.0 handled with `$f64` wire wrapper
 - [ ] Bytes encoding: `$bytes` base64 wrapper
 - [ ] Size limits enforced: max_key_bytes, max_string_bytes, max_nesting_depth, etc.
 - [ ] Value comparison: structural equality only, no ordering
+- [ ] No implicit type coercions (`Int(1) != Float(1.0)`)
 
-### Gate 3: Versioned<T> Contract
-- [ ] All reads can return `Versioned<T>` with version and timestamp
-- [ ] Version tagged union: `txn`, `sequence`, `counter`
-- [ ] Timestamps in microseconds since Unix epoch
-- [ ] History access with pagination (`limit`, `before`)
-
-### Gate 4: Error Model Frozen
-- [ ] Canonical error codes: NotFound, WrongType, InvalidKey, InvalidPath, HistoryTrimmed, ConstraintViolation, Conflict, etc.
-- [ ] Structured error payloads with `code`, `message`, `details`
-- [ ] `ConstraintViolation` reason codes defined
-
-### Gate 5: Wire Encoding Frozen
+### Gate 2: Wire Encoding Frozen
 - [ ] JSON wire encoding mandatory
 - [ ] Request/response envelope structure frozen
 - [ ] Operation names frozen (e.g., `kv.set`, `json.get`, `substrate.kv.put`)
 - [ ] Special encodings: `$bytes`, `$f64`, `$absent`
 - [ ] Versioned value encoding frozen
+- [ ] Round-trip preserves exact types
 
-### Gate 6: CLI Contract
+### Gate 3: Error Model Frozen
+- [ ] Canonical error codes: NotFound, WrongType, InvalidKey, InvalidPath, HistoryTrimmed, ConstraintViolation, Conflict, etc.
+- [ ] Structured error payloads with `code`, `message`, `details`
+- [ ] `ConstraintViolation` reason codes defined
+
+### Gate 4: Two-Layer API Model
+- [ ] Facade API implemented (Redis-like: `set`, `get`, `delete`, `exists`, `mget`, `mset`, `incr`, `json_*`, `xadd`, `xrange`, `vset`, `vget`, `vdel`, `cas_set`, `cas_get`)
+- [ ] Substrate API implemented (explicit run/version/primitive: `kv_put`, `kv_get`, `json_set`, etc.)
+- [ ] Facade→Substrate desugaring documented and tested
+- [ ] Escape hatches: `getv()` for versioned reads, `use_run()` for run scoping
+- [ ] Default run named `"default"` (literal string, always exists)
+
+### Gate 5: Versioned<T> Contract
+- [ ] All reads can return `Versioned<T>` with version and timestamp
+- [ ] Version tagged union: `txn`, `sequence`, `counter`
+- [ ] Timestamps in microseconds since Unix epoch
+- [ ] History access with pagination (`limit`, `before`)
+
+### Gate 6: Core Validation
+- [ ] Value round-trip tests (all 8 types)
+- [ ] Wire encoding conformance tests
+- [ ] Facade-Substrate parity tests
+- [ ] Error model validation tests
+- [ ] Determinism tests
+
+**Risk**: Over-specification. Keep invariants minimal; leave room for API evolution.
+
+**Contract Doc**: [M11_CONTRACT.md](M11/M11_CONTRACT.md)
+
+---
+
+## Milestone 11b: Consumer Surfaces
+**Goal**: Build CLI, SDK foundation, and complete contract validation on top of frozen M11a contract
+
+**Deliverable**: CLI with all facade operations, Rust SDK, Python/JS mapping definitions, comprehensive contract validation suite
+
+**Status**: Not Started
+
+**Philosophy**: M11b builds **user-facing surfaces** on top of the frozen contract from M11a. CLI and SDK are thin layers that expose the Facade API. The validation suite ensures no regressions.
+
+**Success Criteria**:
+
+### Gate 1: CLI Contract
 - [ ] Redis-like command interface (`strata set x 123`)
+- [ ] All facade operations exposed (KV, JSON, Event, Vector, State, History)
 - [ ] Output conventions frozen ((nil), (integer), JSON)
 - [ ] Argument parsing rules frozen
 - [ ] `--run` flag for run scoping
 - [ ] CLI is facade-only
 
-### Gate 7: SDK Mapping
+### Gate 2: SDK Foundation
+- [ ] Rust SDK implemented with same API shape as embedded
 - [ ] Python value mapping defined (None, bool, int, float, str, bytes, list, dict)
 - [ ] JavaScript value mapping defined (null, boolean, number/BigInt, string, Uint8Array)
-- [ ] Rust mapping defined (direct Value enum)
 - [ ] SDK requirements documented (preserve widths, Bytes vs String, Versioned shape)
 
-### Gate 8: Validation
-- [ ] Redis mental model works: `set`/`get`/`delete` feel familiar
-- [ ] All operations have documented substrate desugaring
-- [ ] CAS semantics tested (value-compare with Option<Value>)
-- [ ] Capability discovery operation (`capabilities()`) works
+### Gate 3: Full Contract Validation
+- [ ] CLI conformance tests (parsing, output, all commands)
+- [ ] SDK conformance test harness
+- [ ] End-to-end regression tests
+- [ ] Golden file tests for contract stability
+- [ ] Redis mental model validation: `set`/`get`/`delete` feel familiar
+
+### Gate 4: Documentation
+- [ ] CLI usage documentation
+- [ ] SDK usage documentation
 - [ ] Contract stability guarantees documented
+- [ ] Capability discovery operation (`capabilities()`) documented
 
-**Risk**: Over-specification. Keep invariants minimal; leave room for API evolution. ✅ Mitigated by explicit "What M11 Does NOT Freeze" section.
+**Risk**: CLI/SDK API bike-shedding. Stick to contract defined in M11a.
 
-**Non-Goals for M11**:
+**Non-Goals for M11a/M11b**:
 - Diff semantics
 - Search ranking algorithms
 - TTL/EXPIRE semantics
 - Consumer groups for events
 - Vector search query DSL
 - JSONPath filters/wildcards
-- Python SDK implementation (M13)
+- Python SDK implementation (M14)
 - MessagePack wire (optional, not required)
 - Run deletion/garbage collection
 
@@ -859,9 +892,10 @@ Completed:
 - M10 (Storage Backend, Retention & Compaction) ✅
 
 Current:
-- M11 (Public API & SDK Contract) ← YOU ARE HERE
+- M11a (Core Contract & API) ← YOU ARE HERE
 
 Remaining:
+- M11b (Consumer Surfaces: CLI, SDK)
 - M12 (Server & Wire Protocol)
 - M13 (Performance & Indexing)
 - M14 (Python Client)
@@ -894,7 +928,9 @@ M9 (API Stabilization) ✅
   ↓
 M10 (Storage Backend, Retention & Compaction) ✅
   ↓
-M11 (Public API & SDK Contract) ← Current
+M11a (Core Contract & API) ← Current
+  ↓
+M11b (Consumer Surfaces: CLI, SDK)
   ↓
 M12 (Server & Wire Protocol)
   ↓
@@ -915,7 +951,8 @@ M16 (Production Readiness)
 - M8 Vector is a composite primitive on KV - enables semantic search alongside keyword search.
 - **M9 stabilizes the internal API. Answers: "What is the universal way to interact with Strata?"**
 - **M10 adds production storage: disk-backed backend, retention policies, compaction, portable artifacts.**
-- **M11 freezes the public contract: two-layer API (Facade + Substrate), value model, wire encoding, CLI, SDK mappings.**
+- **M11a freezes the core contract: value model, wire encoding, error model, and two-layer API (Facade + Substrate).**
+- **M11b builds consumer surfaces: CLI, Rust SDK, Python/JS mappings, and complete validation suite.**
 - **M12 makes Strata a server. External clients can connect over the network.**
 - M13 optimizes based on real workloads with stable API, storage, and server. HNSW refinement if needed.
 - M14 Python client connects to strata-server - requires M11 contract and M12 server.
@@ -998,3 +1035,4 @@ M16 (Production Readiness)
 | 11.0 | 2026-01-20 | M9 API Stabilization complete; `Versioned<T>` wrapper for all read operations, unified error types, 2,105+ tests passing. All primitives conform to 7 invariants. |
 | 12.0 | 2026-01-20 | Inserted M10 (Storage Backend, Retention & Compaction); renumbered M10→M11, M11→M12, M12→M13, M13→M14, M14→M15. MVP now 15 milestones (M1-M15). |
 | 13.0 | 2026-01-21 | M10 Storage Backend complete. Inserted M11 (Public API & SDK Contract) based on M11_CONTRACT.md; renumbered M11→M12, M12→M13, M13→M14, M14→M15, M15→M16. MVP now 16 milestones (M1-M16). |
+| 14.0 | 2026-01-21 | Split M11 into M11a (Core Contract & API) and M11b (Consumer Surfaces). M11a: Value Model, Wire Encoding, Error Model, Facade API, Substrate API, Core Validation. M11b: CLI, SDK Foundation, Full Validation. |
