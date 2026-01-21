@@ -45,6 +45,7 @@ pub mod database;
 pub mod disk_snapshot;
 pub mod format;
 pub mod recovery;
+pub mod retention;
 pub mod testing;
 pub mod wal;
 
@@ -123,6 +124,7 @@ pub use recovery::{
     RecoveryCoordinator, RecoveryError, RecoveryPlan, RecoveryResult, RecoverySnapshot,
     ReplayStats, WalReplayError, WalReplayer,
 };
+pub use retention::{CompositeBuilder, RetentionPolicy, RetentionPolicyError};
 pub use testing::{
     CorruptionResult, CrashConfig, CrashPoint, CrashTestError, CrashTestResult, CrashType,
     DataState, GarbageResult, Operation, RecoveryVerification, ReferenceModel, StateMismatch,
