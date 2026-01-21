@@ -41,6 +41,7 @@ pub mod unified;
 
 // Disk storage (M10)
 pub mod codec;
+pub mod database;
 pub mod disk_snapshot;
 pub mod format;
 pub mod recovery;
@@ -89,4 +90,8 @@ pub use disk_snapshot::{
 pub use recovery::{
     RecoveryCoordinator, RecoveryError, RecoveryPlan, RecoveryResult, RecoverySnapshot,
     ReplayStats, WalReplayError, WalReplayer,
+};
+pub use database::{
+    export_database, import_database, ConfigError, DatabaseConfig, DatabaseHandle,
+    DatabaseHandleError, DatabasePathError, DatabasePaths, ExportInfo,
 };
