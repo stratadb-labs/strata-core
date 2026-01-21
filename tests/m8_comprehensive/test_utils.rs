@@ -7,15 +7,15 @@
 //! - WAL manipulation for crash simulation
 //! - Snapshot creation and verification
 
-use in_mem_core::types::RunId;
-use in_mem_core::value::Value;
-use in_mem_durability::WalEntryType;
-use in_mem_engine::Database;
-use in_mem_primitives::register_vector_recovery;
-use in_mem_primitives::vector::{
+use strata_core::types::RunId;
+use strata_core::value::Value;
+use strata_durability::WalEntryType;
+use strata_engine::Database;
+use strata_primitives::register_vector_recovery;
+use strata_primitives::vector::{
     DistanceMetric, StorageDtype, VectorConfig, VectorError, VectorId, VectorMatch, VectorStore,
 };
-use in_mem_primitives::KVStore;
+use strata_primitives::KVStore;
 use serde_json::json;
 use std::collections::{BTreeMap, HashMap};
 use std::fs::{self, OpenOptions};

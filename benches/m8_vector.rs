@@ -34,9 +34,9 @@
 use criterion::{
     black_box, criterion_group, criterion_main, BenchmarkId, Criterion, Throughput,
 };
-use in_mem_core::types::RunId;
-use in_mem_engine::Database;
-use in_mem_primitives::vector::{DistanceMetric, VectorConfig, VectorStore};
+use strata_core::types::RunId;
+use strata_engine::Database;
+use strata_primitives::vector::{DistanceMetric, VectorConfig, VectorStore};
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -90,7 +90,7 @@ fn durability_label() -> &'static str {
     }
 }
 
-/// Create a VectorStore backed by in-memory database
+/// Create a VectorStore backed by Strata in-memory database
 fn create_vector_store() -> (VectorStore, Arc<Database>) {
     let db = Database::builder().in_memory().open_temp().unwrap();
     let db = Arc::new(db);
@@ -129,7 +129,7 @@ fn vector_create_collection(c: &mut Criterion) {
                         let config = VectorConfig {
                             dimension,
                             metric: DistanceMetric::Cosine,
-                            storage_dtype: in_mem_primitives::vector::StorageDtype::F32,
+                            storage_dtype: strata_primitives::vector::StorageDtype::F32,
                         };
                         let name = format!("collection_{}", i);
 
@@ -168,7 +168,7 @@ fn vector_insert_single(c: &mut Criterion) {
                 let config = VectorConfig {
                     dimension,
                     metric: DistanceMetric::Cosine,
-                    storage_dtype: in_mem_primitives::vector::StorageDtype::F32,
+                    storage_dtype: strata_primitives::vector::StorageDtype::F32,
                 };
                 store
                     .create_collection(run_id, "bench", config)
@@ -216,7 +216,7 @@ fn vector_insert_batch(c: &mut Criterion) {
                         let config = VectorConfig {
                             dimension,
                             metric: DistanceMetric::Cosine,
-                            storage_dtype: in_mem_primitives::vector::StorageDtype::F32,
+                            storage_dtype: strata_primitives::vector::StorageDtype::F32,
                         };
                         store
                             .create_collection(run_id, "bench", config)
@@ -272,7 +272,7 @@ fn vector_get(c: &mut Criterion) {
                 let config = VectorConfig {
                     dimension,
                     metric: DistanceMetric::Cosine,
-                    storage_dtype: in_mem_primitives::vector::StorageDtype::F32,
+                    storage_dtype: strata_primitives::vector::StorageDtype::F32,
                 };
                 store
                     .create_collection(run_id, "bench", config)
@@ -303,7 +303,7 @@ fn vector_get(c: &mut Criterion) {
         let config = VectorConfig {
             dimension,
             metric: DistanceMetric::Cosine,
-            storage_dtype: in_mem_primitives::vector::StorageDtype::F32,
+            storage_dtype: strata_primitives::vector::StorageDtype::F32,
         };
         store
             .create_collection(run_id, "bench", config)
@@ -347,7 +347,7 @@ fn vector_delete(c: &mut Criterion) {
             let config = VectorConfig {
                 dimension,
                 metric: DistanceMetric::Cosine,
-                storage_dtype: in_mem_primitives::vector::StorageDtype::F32,
+                storage_dtype: strata_primitives::vector::StorageDtype::F32,
             };
             store
                 .create_collection(run_id, "bench", config)
@@ -381,7 +381,7 @@ fn vector_delete(c: &mut Criterion) {
         let config = VectorConfig {
             dimension,
             metric: DistanceMetric::Cosine,
-            storage_dtype: in_mem_primitives::vector::StorageDtype::F32,
+            storage_dtype: strata_primitives::vector::StorageDtype::F32,
         };
         store
             .create_collection(run_id, "bench", config)
@@ -427,7 +427,7 @@ fn vector_count(c: &mut Criterion) {
                 let config = VectorConfig {
                     dimension,
                     metric: DistanceMetric::Cosine,
-                    storage_dtype: in_mem_primitives::vector::StorageDtype::F32,
+                    storage_dtype: strata_primitives::vector::StorageDtype::F32,
                 };
                 store
                     .create_collection(run_id, "bench", config)
@@ -466,7 +466,7 @@ fn vector_search(c: &mut Criterion) {
         let config = VectorConfig {
             dimension,
             metric: DistanceMetric::Cosine,
-            storage_dtype: in_mem_primitives::vector::StorageDtype::F32,
+            storage_dtype: strata_primitives::vector::StorageDtype::F32,
         };
         store
             .create_collection(run_id, "bench", config)
@@ -527,7 +527,7 @@ fn vector_dimension_scaling(c: &mut Criterion) {
         let config = VectorConfig {
             dimension: *dimension,
             metric: DistanceMetric::Cosine,
-            storage_dtype: in_mem_primitives::vector::StorageDtype::F32,
+            storage_dtype: strata_primitives::vector::StorageDtype::F32,
         };
         store
             .create_collection(run_id, "bench", config)
@@ -596,7 +596,7 @@ fn vector_metric_comparison(c: &mut Criterion) {
         let config = VectorConfig {
             dimension,
             metric,
-            storage_dtype: in_mem_primitives::vector::StorageDtype::F32,
+            storage_dtype: strata_primitives::vector::StorageDtype::F32,
         };
         store
             .create_collection(run_id, "bench", config)
@@ -644,7 +644,7 @@ fn vector_collection_scaling(c: &mut Criterion) {
         let config = VectorConfig {
             dimension,
             metric: DistanceMetric::Cosine,
-            storage_dtype: in_mem_primitives::vector::StorageDtype::F32,
+            storage_dtype: strata_primitives::vector::StorageDtype::F32,
         };
         store
             .create_collection(run_id, "bench", config)
@@ -698,7 +698,7 @@ fn vector_list_collections(c: &mut Criterion) {
                     let config = VectorConfig {
                         dimension: 384,
                         metric: DistanceMetric::Cosine,
-                        storage_dtype: in_mem_primitives::vector::StorageDtype::F32,
+                        storage_dtype: strata_primitives::vector::StorageDtype::F32,
                     };
                     store
                         .create_collection(run_id, &name, config)

@@ -1,4 +1,4 @@
-//! Core types for in-mem database
+//! Core types for Strata database
 //!
 //! This module defines the foundational types:
 //! - RunId: Unique identifier for agent runs
@@ -199,7 +199,7 @@ impl TypeTag {
 /// # Examples
 ///
 /// ```
-/// use in_mem_core::JsonDocId;
+/// use strata_core::JsonDocId;
 ///
 /// let id1 = JsonDocId::new();
 /// let id2 = JsonDocId::new();
@@ -276,7 +276,7 @@ impl fmt::Display for JsonDocId {
 /// # Examples
 ///
 /// ```
-/// use in_mem_core::{Key, Namespace, TypeTag, RunId};
+/// use strata_core::{Key, Namespace, TypeTag, RunId};
 ///
 /// let run_id = RunId::new();
 /// let ns = Namespace::new("tenant".to_string(), "app".to_string(),
@@ -419,7 +419,7 @@ impl Key {
     /// # Example
     ///
     /// ```
-    /// use in_mem_core::{Key, Namespace, TypeTag, RunId, JsonDocId};
+    /// use strata_core::{Key, Namespace, TypeTag, RunId, JsonDocId};
     ///
     /// let run_id = RunId::new();
     /// let doc_id = JsonDocId::new();
@@ -485,7 +485,7 @@ impl Key {
     ///
     /// This enables efficient prefix scans in BTreeMap:
     /// ```
-    /// # use in_mem_core::{Key, Namespace, RunId};
+    /// # use strata_core::{Key, Namespace, RunId};
     /// # let run_id = RunId::new();
     /// # let ns = Namespace::new("t".to_string(), "a".to_string(), "ag".to_string(), run_id);
     /// let prefix = Key::new_kv(ns.clone(), "user:");

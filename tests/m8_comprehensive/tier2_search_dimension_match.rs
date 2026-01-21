@@ -3,7 +3,7 @@
 //! Invariant R1: Query dimension must match collection dimension.
 
 use crate::test_utils::*;
-use in_mem_primitives::vector::VectorError;
+use strata_primitives::vector::VectorError;
 
 /// Test query with correct dimension works
 #[test]

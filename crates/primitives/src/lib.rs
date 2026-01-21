@@ -1,4 +1,4 @@
-//! Primitives layer for in-mem
+//! Primitives layer for Strata
 //!
 //! Provides high-level primitives as stateless facades over the Database engine:
 //! - **KVStore**: General-purpose key-value storage
@@ -29,7 +29,7 @@
 //! Primitives can be combined within a single transaction using extension traits:
 //!
 //! ```rust,ignore
-//! use in_mem_primitives::extensions::*;
+//! use strata_primitives::extensions::*;
 //!
 //! db.transaction(run_id, |txn| {
 //!     txn.kv_put("key", value)?;

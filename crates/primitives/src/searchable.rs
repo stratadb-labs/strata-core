@@ -3,11 +3,11 @@
 //! This module defines the `Searchable` trait and search support structures
 //! used by all primitives in M6 Retrieval Surfaces.
 
-use in_mem_core::error::Result;
-use in_mem_core::search_types::{
+use strata_core::error::Result;
+use strata_core::search_types::{
     DocRef, SearchHit, SearchRequest, SearchResponse, SearchStats,
 };
-use in_mem_core::PrimitiveType;
+use strata_core::PrimitiveType;
 
 /// Trait for primitives that support search
 ///
@@ -171,7 +171,7 @@ pub fn build_search_response(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use in_mem_core::types::RunId;
+    use strata_core::types::RunId;
 
     #[test]
     fn test_simple_scorer_basic() {

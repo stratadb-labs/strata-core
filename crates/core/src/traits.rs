@@ -22,7 +22,7 @@ use crate::value::Value;
 /// # Examples
 ///
 /// ```
-/// use in_mem_core::traits::Storage;
+/// use strata_core::traits::Storage;
 /// // Storage implementations will be added in Epic 2
 /// ```
 pub trait Storage: Send + Sync {
@@ -144,7 +144,7 @@ pub trait Storage: Send + Sync {
 /// # Examples
 ///
 /// ```
-/// use in_mem_core::traits::SnapshotView;
+/// use strata_core::traits::SnapshotView;
 /// // SnapshotView implementations will be added in Epic 2
 /// ```
 pub trait SnapshotView: Send + Sync {

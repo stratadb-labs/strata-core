@@ -3,7 +3,7 @@
 //! Invariant S4: Once assigned, a VectorId is never recycled (even after deletion).
 
 use crate::test_utils::*;
-use in_mem_primitives::vector::VectorId;
+use strata_primitives::vector::VectorId;
 
 /// Test that VectorIds are never reused after deletion
 #[test]

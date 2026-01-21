@@ -7,8 +7,8 @@
 //! - Cross-run data leakage prevention
 
 use crate::test_utils::{concurrent, values, TestPrimitives};
-use in_mem_core::types::RunId;
-use in_mem_primitives::TraceType;
+use strata_core::types::RunId;
+use strata_primitives::TraceType;
 use std::collections::HashSet;
 
 // =============================================================================

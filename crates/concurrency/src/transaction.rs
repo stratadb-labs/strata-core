@@ -8,12 +8,12 @@
 
 use crate::validation::{validate_transaction, ValidationResult};
 use crate::wal_writer::TransactionWALWriter;
-use in_mem_core::error::{Error, Result};
-use in_mem_core::json::{get_at_path, JsonPatch, JsonPath, JsonValue};
-use in_mem_core::traits::{SnapshotView, Storage};
-use in_mem_core::types::{Key, RunId};
-use in_mem_core::value::Value;
-use in_mem_core::StrataError;
+use strata_core::error::{Error, Result};
+use strata_core::json::{get_at_path, JsonPatch, JsonPath, JsonValue};
+use strata_core::traits::{SnapshotView, Storage};
+use strata_core::types::{Key, RunId};
+use strata_core::value::Value;
+use strata_core::StrataError;
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::time::{Duration, Instant};
 
@@ -420,8 +420,8 @@ impl TransactionContext {
     /// # Example
     ///
     /// ```
-    /// use in_mem_concurrency::TransactionContext;
-    /// use in_mem_core::types::RunId;
+    /// use strata_concurrency::TransactionContext;
+    /// use strata_core::types::RunId;
     ///
     /// let run_id = RunId::new();
     /// let txn = TransactionContext::new(1, run_id, 100);
@@ -458,8 +458,8 @@ impl TransactionContext {
     /// # Example
     ///
     /// ```
-    /// use in_mem_concurrency::{TransactionContext, ClonedSnapshotView};
-    /// use in_mem_core::types::RunId;
+    /// use strata_concurrency::{TransactionContext, ClonedSnapshotView};
+    /// use strata_core::types::RunId;
     /// use std::collections::BTreeMap;
     ///
     /// let run_id = RunId::new();
@@ -879,8 +879,8 @@ impl TransactionContext {
     ///
     /// # Example
     /// ```
-    /// use in_mem_concurrency::TransactionContext;
-    /// use in_mem_core::types::RunId;
+    /// use strata_concurrency::TransactionContext;
+    /// use strata_core::types::RunId;
     /// use std::time::Duration;
     ///
     /// let run_id = RunId::new();
@@ -899,8 +899,8 @@ impl TransactionContext {
     ///
     /// # Example
     /// ```
-    /// use in_mem_concurrency::TransactionContext;
-    /// use in_mem_core::types::RunId;
+    /// use strata_concurrency::TransactionContext;
+    /// use strata_core::types::RunId;
     /// use std::time::Duration;
     ///
     /// let run_id = RunId::new();
@@ -1466,9 +1466,9 @@ impl JsonStoreExt for TransactionContext {
 mod tests {
     use super::*;
     use crate::snapshot::ClonedSnapshotView;
-    use in_mem_core::types::{Namespace, TypeTag};
-    use in_mem_core::Version;
-    use in_mem_core::VersionedValue;
+    use strata_core::types::{Namespace, TypeTag};
+    use strata_core::Version;
+    use strata_core::VersionedValue;
 
     // === Test Helpers ===
 
@@ -2475,7 +2475,7 @@ mod tests {
 
     mod commit_tests {
         use super::*;
-        use in_mem_storage::UnifiedStore;
+        use strata_storage::UnifiedStore;
 
         fn create_test_store() -> UnifiedStore {
             UnifiedStore::new()
@@ -2803,7 +2803,7 @@ mod tests {
 
     mod apply_writes_tests {
         use super::*;
-        use in_mem_storage::UnifiedStore;
+        use strata_storage::UnifiedStore;
 
         fn create_test_store() -> UnifiedStore {
             UnifiedStore::new()
@@ -3016,7 +3016,7 @@ mod tests {
 
     mod rollback_tests {
         use super::*;
-        use in_mem_storage::UnifiedStore;
+        use strata_storage::UnifiedStore;
 
         fn create_test_store() -> UnifiedStore {
             UnifiedStore::new()
@@ -3275,8 +3275,8 @@ mod tests {
     mod write_to_wal_tests {
         use super::*;
         use crate::wal_writer::TransactionWALWriter;
-        use in_mem_durability::wal::{DurabilityMode, WALEntry, WAL};
-        use in_mem_storage::UnifiedStore;
+        use strata_durability::wal::{DurabilityMode, WALEntry, WAL};
+        use strata_storage::UnifiedStore;
         use tempfile::TempDir;
 
         fn create_test_store() -> UnifiedStore {
@@ -3646,8 +3646,8 @@ mod tests {
 
     mod json_types_tests {
         use super::*;
-        use in_mem_core::json::JsonPath;
-        use in_mem_core::types::{JsonDocId, Namespace};
+        use strata_core::json::JsonPath;
+        use strata_core::types::{JsonDocId, Namespace};
 
         fn create_json_key(run_id: RunId, doc_id: &JsonDocId) -> Key {
             Key::new_json(Namespace::for_run(run_id), doc_id)
@@ -3695,7 +3695,7 @@ mod tests {
 
         #[test]
         fn test_json_patch_entry_creation() {
-            use in_mem_core::json::JsonValue;
+            use strata_core::json::JsonValue;
 
             let run_id = RunId::new();
             let doc_id = JsonDocId::new();
@@ -3740,7 +3740,7 @@ mod tests {
 
         #[test]
         fn test_json_patch_entry_clone() {
-            use in_mem_core::json::JsonValue;
+            use strata_core::json::JsonValue;
 
             let run_id = RunId::new();
             let doc_id = JsonDocId::new();
@@ -3790,7 +3790,7 @@ mod tests {
 
         #[test]
         fn test_json_writes_lazy_init() {
-            use in_mem_core::json::JsonValue;
+            use strata_core::json::JsonValue;
 
             let mut txn = create_test_txn();
             let run_id = RunId::new();
@@ -3850,7 +3850,7 @@ mod tests {
 
         #[test]
         fn test_clear_operations_clears_json() {
-            use in_mem_core::json::JsonValue;
+            use strata_core::json::JsonValue;
 
             let mut txn = create_test_txn();
             let run_id = RunId::new();
@@ -3901,7 +3901,7 @@ mod tests {
 
         #[test]
         fn test_json_set_records_write() {
-            use in_mem_core::json::JsonValue;
+            use strata_core::json::JsonValue;
 
             let mut txn = create_test_txn();
             let run_id = RunId::new();
@@ -3936,7 +3936,7 @@ mod tests {
 
         #[test]
         fn test_json_read_your_writes_direct_path() {
-            use in_mem_core::json::JsonValue;
+            use strata_core::json::JsonValue;
 
             let mut txn = create_test_txn();
             let run_id = RunId::new();
@@ -3954,7 +3954,7 @@ mod tests {
 
         #[test]
         fn test_json_read_your_writes_nested_path() {
-            use in_mem_core::json::JsonValue;
+            use strata_core::json::JsonValue;
 
             let mut txn = create_test_txn();
             let run_id = RunId::new();
@@ -3981,7 +3981,7 @@ mod tests {
 
         #[test]
         fn test_json_read_your_deletes() {
-            use in_mem_core::json::JsonValue;
+            use strata_core::json::JsonValue;
 
             let mut txn = create_test_txn();
             let run_id = RunId::new();
@@ -4002,7 +4002,7 @@ mod tests {
 
         #[test]
         fn test_json_inactive_txn_errors() {
-            use in_mem_core::json::JsonValue;
+            use strata_core::json::JsonValue;
 
             let mut txn = create_test_txn();
             let run_id = RunId::new();

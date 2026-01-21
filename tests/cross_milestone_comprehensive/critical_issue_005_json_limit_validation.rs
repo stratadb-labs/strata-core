@@ -29,8 +29,8 @@
 //! 5. Test that valid documents within limits are accepted
 
 use crate::test_utils::*;
-use in_mem_core::json::{JsonPath, JsonValue};
-use in_mem_core::types::JsonDocId;
+use strata_core::json::{JsonPath, JsonValue};
+use strata_core::types::JsonDocId;
 
 // Expected limits per M5_ARCHITECTURE.md
 const MAX_DOCUMENT_SIZE: usize = 16 * 1024 * 1024; // 16 MB

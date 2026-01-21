@@ -1,4 +1,4 @@
-//! Storage layer for in-mem
+//! Storage layer for Strata
 //!
 //! This crate implements the unified storage backend with:
 //! - UnifiedStore: BTreeMap-based storage with RwLock (M3)

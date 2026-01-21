@@ -1,7 +1,7 @@
 //! Tier 4: Distance Metric Edge Cases Tests
 
 use crate::test_utils::*;
-use in_mem_primitives::vector::DistanceMetric;
+use strata_primitives::vector::DistanceMetric;
 
 /// Test zero vector with cosine (should handle gracefully)
 #[test]

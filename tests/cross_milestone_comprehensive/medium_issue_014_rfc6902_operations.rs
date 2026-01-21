@@ -9,8 +9,8 @@
 //! **Impact**: Limited patch capabilities.
 
 use crate::test_utils::*;
-use in_mem_core::json::{JsonPath, JsonValue};
-use in_mem_core::types::JsonDocId;
+use strata_core::json::{JsonPath, JsonValue};
+use strata_core::types::JsonDocId;
 
 /// Test supported patch operations.
 #[test]

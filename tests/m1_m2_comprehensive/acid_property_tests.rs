@@ -7,10 +7,10 @@
 //! - **D**urability: Committed data survives crashes
 
 use super::test_utils::*;
-use in_mem_core::error::Error;
-use in_mem_core::types::Key;
-use in_mem_core::value::Value;
-use in_mem_engine::{Database, RetryConfig};
+use strata_core::error::Error;
+use strata_core::types::Key;
+use strata_core::value::Value;
+use strata_engine::{Database, RetryConfig};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Barrier};
 use std::thread;
@@ -687,8 +687,8 @@ mod durability {
     /// Multiple crash cycles preserve durability
     #[test]
     fn test_durability_multiple_crash_cycles() {
-        use in_mem_core::traits::Storage;
-        use in_mem_durability::wal::{DurabilityMode, WAL};
+        use strata_core::traits::Storage;
+        use strata_durability::wal::{DurabilityMode, WAL};
 
         let pdb = PersistentTestDb::new();
         eprintln!("Test run_id: {:?}", pdb.run_id);
@@ -729,7 +729,7 @@ mod durability {
                 // Count commits
                 let commits = entries
                     .iter()
-                    .filter(|e| matches!(e, in_mem_durability::wal::WALEntry::CommitTxn { .. }))
+                    .filter(|e| matches!(e, strata_durability::wal::WALEntry::CommitTxn { .. }))
                     .count();
                 eprintln!("Committed transactions in WAL: {}", commits);
             }
@@ -738,7 +738,7 @@ mod durability {
             {
                 // Manually check what recovery does
                 let wal_path = pdb.path().join("wal/current.wal");
-                let recovery = in_mem_concurrency::RecoveryCoordinator::new(wal_path.clone());
+                let recovery = strata_concurrency::RecoveryCoordinator::new(wal_path.clone());
                 let recovery_result = recovery.recover().unwrap();
                 eprintln!(
                     "Recovery stats: txns_replayed={}, writes_applied={}, incomplete={}",

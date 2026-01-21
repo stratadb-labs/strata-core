@@ -6,10 +6,10 @@
 //! - Secondary indices: Replayed, not rebuilt
 //! - Derived keys (hashes): Stored, not recomputed
 
-use in_mem_core::types::RunId;
-use in_mem_core::value::Value;
-use in_mem_engine::Database;
-use in_mem_primitives::{EventLog, KVStore, RunIndex, RunStatus, StateCell, TraceStore, TraceType};
+use strata_core::types::RunId;
+use strata_core::value::Value;
+use strata_engine::Database;
+use strata_primitives::{EventLog, KVStore, RunIndex, RunStatus, StateCell, TraceStore, TraceType};
 use std::path::PathBuf;
 use std::sync::Arc;
 use tempfile::TempDir;
@@ -114,7 +114,7 @@ fn test_event_log_chain_survives_recovery() {
     let (db, temp_dir, run_id) = setup();
     let path = get_path(&temp_dir);
 
-    use in_mem_core::contract::Version;
+    use strata_core::contract::Version;
 
     let event_log = EventLog::new(db.clone());
 
@@ -659,7 +659,7 @@ fn test_run_delete_survives_recovery() {
 /// Test cross-primitive transaction survives recovery
 #[test]
 fn test_cross_primitive_transaction_survives_recovery() {
-    use in_mem_primitives::{EventLogExt, KVStoreExt, StateCellExt, TraceStoreExt};
+    use strata_primitives::{EventLogExt, KVStoreExt, StateCellExt, TraceStoreExt};
 
     let (db, temp_dir, run_id) = setup();
     let path = get_path(&temp_dir);

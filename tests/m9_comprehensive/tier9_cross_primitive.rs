@@ -11,12 +11,12 @@
 //! # Story #487: Cross-Primitive Transaction Conformance
 
 use crate::test_utils::test_run_id;
-use in_mem_concurrency::snapshot::ClonedSnapshotView;
-use in_mem_concurrency::TransactionContext;
-use in_mem_core::types::{Namespace, RunId};
-use in_mem_core::value::Value;
-use in_mem_engine::transaction::Transaction;
-use in_mem_engine::transaction_ops::TransactionOps;
+use strata_concurrency::snapshot::ClonedSnapshotView;
+use strata_concurrency::TransactionContext;
+use strata_core::types::{Namespace, RunId};
+use strata_core::value::Value;
+use strata_engine::transaction::Transaction;
+use strata_engine::transaction_ops::TransactionOps;
 
 /// Create a test namespace for a run
 fn create_namespace(run_id: RunId) -> Namespace {
@@ -77,7 +77,7 @@ fn cross_primitive_kv_and_trace_in_same_transaction() {
     let mut ctx = create_context(&ns);
     let mut txn = Transaction::new(&mut ctx, ns.clone());
 
-    use in_mem_core::TraceType;
+    use strata_core::TraceType;
 
     // Use both KV and Trace
     txn.kv_put("operation", Value::String("compute".into())).unwrap();
@@ -118,7 +118,7 @@ fn cross_primitive_all_four_primitives() {
     let mut ctx = create_context(&ns);
     let mut txn = Transaction::new(&mut ctx, ns.clone());
 
-    use in_mem_core::TraceType;
+    use strata_core::TraceType;
 
     // Use all four implemented primitives
     txn.kv_put("key", Value::I64(1)).unwrap();
@@ -214,7 +214,7 @@ fn cross_primitive_read_your_writes_trace() {
     let mut ctx = create_context(&ns);
     let mut txn = Transaction::new(&mut ctx, ns.clone());
 
-    use in_mem_core::TraceType;
+    use strata_core::TraceType;
 
     // Record trace
     let versioned = txn.trace_record(
@@ -257,7 +257,7 @@ fn cross_primitive_version_consistency_mixed() {
     let mut ctx = create_context(&ns);
     let mut txn = Transaction::new(&mut ctx, ns.clone());
 
-    use in_mem_core::TraceType;
+    use strata_core::TraceType;
 
     // KV write
     let kv_version = txn.kv_put("key", Value::I64(1)).unwrap();
@@ -362,7 +362,7 @@ fn cross_primitive_workflow_kv_cache_with_trace() {
     let mut ctx = create_context(&ns);
     let mut txn = Transaction::new(&mut ctx, ns.clone());
 
-    use in_mem_core::TraceType;
+    use strata_core::TraceType;
 
     // Record that we're caching
     txn.trace_record(
@@ -446,7 +446,7 @@ fn cross_primitive_trace_order_preserved() {
     let mut ctx = create_context(&ns);
     let mut txn = Transaction::new(&mut ctx, ns.clone());
 
-    use in_mem_core::TraceType;
+    use strata_core::TraceType;
 
     // Record traces in order
     let t1 = txn.trace_record(

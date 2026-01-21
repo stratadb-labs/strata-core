@@ -5,10 +5,10 @@
 //! and hash chain validity across all durability modes.
 
 use super::*;
-use in_mem_core::contract::Version;
-use in_mem_core::types::RunId;
-use in_mem_core::value::Value;
-use in_mem_primitives::EventLog;
+use strata_core::contract::Version;
+use strata_core::types::RunId;
+use strata_core::value::Value;
+use strata_primitives::EventLog;
 use std::sync::{Arc, Barrier};
 use std::thread;
 

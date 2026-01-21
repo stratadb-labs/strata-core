@@ -17,10 +17,10 @@
 //! 7. Initialize TransactionManager with final version
 
 use crate::TransactionManager;
-use in_mem_core::error::Result;
-use in_mem_durability::recovery::replay_wal;
-use in_mem_durability::wal::{DurabilityMode, WAL};
-use in_mem_storage::ShardedStore;
+use strata_core::error::Result;
+use strata_durability::recovery::replay_wal;
+use strata_durability::wal::{DurabilityMode, WAL};
+use strata_storage::ShardedStore;
 use std::path::PathBuf;
 
 /// Coordinates database recovery after crash or restart
@@ -198,11 +198,11 @@ impl RecoveryStats {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use in_mem_core::traits::Storage;
-    use in_mem_core::types::{Key, Namespace, RunId};
-    use in_mem_core::value::Value;
-    use in_mem_core::Timestamp;
-    use in_mem_durability::wal::WALEntry;
+    use strata_core::traits::Storage;
+    use strata_core::types::{Key, Namespace, RunId};
+    use strata_core::value::Value;
+    use strata_core::Timestamp;
+    use strata_durability::wal::WALEntry;
     use tempfile::TempDir;
 
     fn create_test_namespace(run_id: RunId) -> Namespace {

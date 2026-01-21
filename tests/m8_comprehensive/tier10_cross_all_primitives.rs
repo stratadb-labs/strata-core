@@ -15,7 +15,7 @@ fn test_kv_vector_all_persisted() {
         vector.create_collection(run_id, "embeddings", config_minilm()).unwrap();
 
         let kv = test_db.kv();
-        kv.put(&run_id, "counter", in_mem_core::value::Value::I64(1)).unwrap();
+        kv.put(&run_id, "counter", strata_core::value::Value::I64(1)).unwrap();
 
         vector.insert(run_id, "embeddings", "user1", &random_vector(384), None).unwrap();
     }
@@ -43,8 +43,8 @@ fn test_all_primitives_complex_workflow() {
 
         for i in 0..5 {
             // KV: simple flags/counters
-            kv.put(&run_id, &format!("user:{}:active", i), in_mem_core::value::Value::Bool(true)).unwrap();
-            kv.put(&run_id, &format!("user:{}:login_count", i), in_mem_core::value::Value::I64(0)).unwrap();
+            kv.put(&run_id, &format!("user:{}:active", i), strata_core::value::Value::Bool(true)).unwrap();
+            kv.put(&run_id, &format!("user:{}:login_count", i), strata_core::value::Value::I64(0)).unwrap();
 
             // Vector: embeddings
             vector.insert(run_id, "embeddings", &format!("user_{}", i), &seeded_random_vector(384, i as u64), None).unwrap();
@@ -75,11 +75,11 @@ fn test_all_primitives_partial_update() {
         let kv = test_db.kv();
 
         // Initial state
-        kv.put(&run_id, "version", in_mem_core::value::Value::I64(1)).unwrap();
+        kv.put(&run_id, "version", strata_core::value::Value::I64(1)).unwrap();
         vector.insert(run_id, "embeddings", "main", &seeded_random_vector(384, 1), None).unwrap();
 
         // Update both
-        kv.put(&run_id, "version", in_mem_core::value::Value::I64(2)).unwrap();
+        kv.put(&run_id, "version", strata_core::value::Value::I64(2)).unwrap();
         vector.insert(run_id, "embeddings", "main", &seeded_random_vector(384, 2), None).unwrap();
     }
 
@@ -89,7 +89,7 @@ fn test_all_primitives_partial_update() {
     let kv = test_db.kv();
 
     if let Some(versioned) = kv.get(&run_id, "version").unwrap() {
-        if let in_mem_core::value::Value::I64(v) = versioned.value {
+        if let strata_core::value::Value::I64(v) = versioned.value {
             assert_eq!(v, 2);
         }
     }

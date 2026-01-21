@@ -3,8 +3,8 @@
 //! Tests for HybridSearch orchestration.
 
 use super::test_utils::*;
-use in_mem_core::search_types::{PrimitiveType, SearchRequest};
-use in_mem_search::{DatabaseSearchExt, HybridSearch, RRFFuser};
+use strata_core::search_types::{PrimitiveType, SearchRequest};
+use strata_search::{DatabaseSearchExt, HybridSearch, RRFFuser};
 use std::collections::HashSet;
 use std::sync::Arc;
 

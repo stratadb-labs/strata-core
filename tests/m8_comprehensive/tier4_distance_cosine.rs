@@ -1,7 +1,7 @@
 //! Tier 4: Cosine Similarity Correctness Tests
 
 use crate::test_utils::*;
-use in_mem_primitives::vector::DistanceMetric;
+use strata_primitives::vector::DistanceMetric;
 
 /// Test cosine similarity for identical vectors
 #[test]

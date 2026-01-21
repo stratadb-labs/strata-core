@@ -8,9 +8,9 @@
 //!
 //! Per M4 spec: Hot path must have zero allocations after warmup.
 
-use in_mem_core::types::{Key, Namespace, RunId, TypeTag};
-use in_mem_core::value::Value;
-use in_mem_engine::{Database, TransactionPool, MAX_POOL_SIZE};
+use strata_core::types::{Key, Namespace, RunId, TypeTag};
+use strata_core::value::Value;
+use strata_engine::{Database, TransactionPool, MAX_POOL_SIZE};
 use tempfile::TempDir;
 
 fn create_ns(run_id: RunId) -> Namespace {
@@ -177,7 +177,7 @@ fn test_aborted_transactions_return_to_pool() {
 
     // Run a transaction that fails (returns error from closure)
     let result: Result<(), _> = db.transaction(run_id, |_txn| {
-        Err(in_mem_core::error::Error::InvalidState(
+        Err(strata_core::error::Error::InvalidState(
             "Test error".to_string(),
         ))
     });

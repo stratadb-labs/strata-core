@@ -3,9 +3,9 @@
 //! Tests for error propagation, error types, and error recovery.
 
 use super::test_utils::*;
-use in_mem_core::error::Error;
-use in_mem_core::value::Value;
-use in_mem_engine::{Database, RetryConfig};
+use strata_core::error::Error;
+use strata_core::value::Value;
+use strata_engine::{Database, RetryConfig};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 use std::thread;

@@ -6,7 +6,7 @@
 //! # Usage
 //!
 //! ```ignore
-//! use in_mem_engine::instrumentation::PerfTrace;
+//! use strata_engine::instrumentation::PerfTrace;
 //!
 //! #[cfg(feature = "perf-trace")]
 //! let mut trace = PerfTrace::new();

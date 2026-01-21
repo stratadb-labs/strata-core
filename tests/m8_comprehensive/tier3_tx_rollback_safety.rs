@@ -3,7 +3,7 @@
 //! Invariant T3: Failed transactions leave no partial state.
 
 use crate::test_utils::*;
-use in_mem_primitives::vector::VectorError;
+use strata_primitives::vector::VectorError;
 
 /// Test that failed insert leaves no partial state
 #[test]

@@ -9,11 +9,11 @@
 //! > After crash recovery, the database must correspond to a **prefix of the
 //! > committed transaction history**. No partial transactions may be visible.
 
-use in_mem_durability::wal::DurabilityMode;
-use in_mem_durability::wal_entry_types::WalEntryType;
-use in_mem_durability::Transaction;
-use in_mem_durability::WalWriter;
-use in_mem_durability::{RecoveryEngine, RecoveryOptions};
+use strata_durability::wal::DurabilityMode;
+use strata_durability::wal_entry_types::WalEntryType;
+use strata_durability::Transaction;
+use strata_durability::WalWriter;
+use strata_durability::{RecoveryEngine, RecoveryOptions};
 use tempfile::TempDir;
 
 fn create_test_dir() -> TempDir {
@@ -524,7 +524,7 @@ fn test_entries_to_tx_entries() {
 
     assert_eq!(tx_entries.len(), 3);
 
-    use in_mem_durability::TxEntry;
+    use strata_durability::TxEntry;
     assert!(matches!(tx_entries[0], TxEntry::KvPut { .. }));
     assert!(matches!(tx_entries[1], TxEntry::JsonCreate { .. }));
     assert!(matches!(tx_entries[2], TxEntry::EventAppend { .. }));

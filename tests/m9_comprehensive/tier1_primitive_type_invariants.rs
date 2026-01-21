@@ -4,7 +4,7 @@
 //!
 //! Every primitive has a type that can be queried and enumerated.
 
-use in_mem_core::PrimitiveType;
+use strata_core::PrimitiveType;
 use std::collections::HashSet;
 
 // ============================================================================

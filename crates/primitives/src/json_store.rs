@@ -34,14 +34,14 @@
 //! 6. JSON API feels like other primitives
 
 use crate::extensions::JsonStoreExt;
-use in_mem_concurrency::TransactionContext;
-use in_mem_core::contract::{Timestamp, Version, Versioned};
-use in_mem_core::error::{Error, Result};
-use in_mem_core::json::{delete_at_path, get_at_path, set_at_path, JsonPath, JsonValue, LimitError};
-use in_mem_core::traits::SnapshotView;
-use in_mem_core::types::{JsonDocId, Key, Namespace, RunId};
-use in_mem_core::value::Value;
-use in_mem_engine::Database;
+use strata_concurrency::TransactionContext;
+use strata_core::contract::{Timestamp, Version, Versioned};
+use strata_core::error::{Error, Result};
+use strata_core::json::{delete_at_path, get_at_path, set_at_path, JsonPath, JsonValue, LimitError};
+use strata_core::traits::SnapshotView;
+use strata_core::types::{JsonDocId, Key, Namespace, RunId};
+use strata_core::value::Value;
+use strata_engine::Database;
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 use std::time::SystemTime;
@@ -73,9 +73,9 @@ fn limit_error_to_error(e: LimitError) -> Error {
 /// # Example
 ///
 /// ```rust
-/// use in_mem_primitives::json_store::JsonDoc;
-/// use in_mem_core::types::JsonDocId;
-/// use in_mem_core::json::JsonValue;
+/// use strata_primitives::json_store::JsonDoc;
+/// use strata_core::types::JsonDocId;
+/// use strata_core::json::JsonValue;
 ///
 /// let doc = JsonDoc::new(JsonDocId::new(), JsonValue::from(42i64));
 /// assert_eq!(doc.version, 1);
@@ -141,10 +141,10 @@ impl JsonDoc {
 /// # Example
 ///
 /// ```ignore
-/// use in_mem_primitives::JsonStore;
-/// use in_mem_engine::Database;
-/// use in_mem_core::types::RunId;
-/// use in_mem_core::json::JsonValue;
+/// use strata_primitives::JsonStore;
+/// use strata_engine::Database;
+/// use strata_core::types::RunId;
+/// use strata_core::json::JsonValue;
 ///
 /// let db = Arc::new(Database::builder().in_memory().open_temp()?);
 /// let json = JsonStore::new(db);
@@ -506,7 +506,7 @@ impl JsonStore {
     /// # Example
     ///
     /// ```ignore
-    /// use in_mem_core::SearchRequest;
+    /// use strata_core::SearchRequest;
     ///
     /// let response = json.search(&SearchRequest::new(run_id, "Alice"))?;
     /// for hit in response.hits {
@@ -515,10 +515,10 @@ impl JsonStore {
     /// ```
     pub fn search(
         &self,
-        req: &in_mem_core::SearchRequest,
-    ) -> in_mem_core::error::Result<in_mem_core::SearchResponse> {
+        req: &strata_core::SearchRequest,
+    ) -> strata_core::error::Result<strata_core::SearchResponse> {
         use crate::searchable::{build_search_response, SearchCandidate};
-        use in_mem_core::search_types::DocRef;
+        use strata_core::search_types::DocRef;
         use std::time::Instant;
 
         let start = Instant::now();
@@ -635,13 +635,13 @@ impl JsonStore {
 impl crate::searchable::Searchable for JsonStore {
     fn search(
         &self,
-        req: &in_mem_core::SearchRequest,
-    ) -> in_mem_core::error::Result<in_mem_core::SearchResponse> {
+        req: &strata_core::SearchRequest,
+    ) -> strata_core::error::Result<strata_core::SearchResponse> {
         self.search(req)
     }
 
-    fn primitive_kind(&self) -> in_mem_core::PrimitiveType {
-        in_mem_core::PrimitiveType::Json
+    fn primitive_kind(&self) -> strata_core::PrimitiveType {
+        strata_core::PrimitiveType::Json
     }
 }
 

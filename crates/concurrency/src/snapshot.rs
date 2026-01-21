@@ -19,14 +19,14 @@
 //!
 //! # Future Optimization
 //!
-//! The `SnapshotView` trait (defined in `in_mem_core::traits`) enables
+//! The `SnapshotView` trait (defined in `strata_core::traits`) enables
 //! future implementations like `LazySnapshotView` that read from live
 //! storage with version bounds, avoiding the clone overhead.
 
-use in_mem_core::error::Result;
-use in_mem_core::traits::SnapshotView;
-use in_mem_core::types::Key;
-use in_mem_core::VersionedValue;
+use strata_core::error::Result;
+use strata_core::traits::SnapshotView;
+use strata_core::types::Key;
+use strata_core::VersionedValue;
 use std::collections::BTreeMap;
 use std::sync::Arc;
 
@@ -57,8 +57,8 @@ use std::sync::Arc;
 /// # Example
 ///
 /// ```
-/// use in_mem_concurrency::snapshot::ClonedSnapshotView;
-/// use in_mem_core::traits::SnapshotView;
+/// use strata_concurrency::snapshot::ClonedSnapshotView;
+/// use strata_core::traits::SnapshotView;
 /// use std::collections::BTreeMap;
 ///
 /// // Create empty snapshot
@@ -153,9 +153,9 @@ mod tests {
     // Verify ClonedSnapshotView is Send + Sync (required by SnapshotView trait)
     static_assertions::assert_impl_all!(super::ClonedSnapshotView: Send, Sync);
     use super::*;
-    use in_mem_core::types::{Namespace, RunId, TypeTag};
-    use in_mem_core::value::Value;
-    use in_mem_core::Version;
+    use strata_core::types::{Namespace, RunId, TypeTag};
+    use strata_core::value::Value;
+    use strata_core::Version;
 
     // === Test Helpers ===
 

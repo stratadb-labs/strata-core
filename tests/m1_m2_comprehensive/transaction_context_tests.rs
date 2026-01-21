@@ -3,11 +3,11 @@
 //! Comprehensive tests for TransactionContext methods and state transitions.
 
 use super::test_utils::*;
-use in_mem_concurrency::transaction::{TransactionContext, TransactionStatus};
-use in_mem_core::error::Error;
-use in_mem_core::types::RunId;
-use in_mem_core::value::Value;
-use in_mem_engine::Database;
+use strata_concurrency::transaction::{TransactionContext, TransactionStatus};
+use strata_core::error::Error;
+use strata_core::types::RunId;
+use strata_core::value::Value;
+use strata_engine::Database;
 use std::thread;
 use std::time::Duration;
 use tempfile::TempDir;

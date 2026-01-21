@@ -30,9 +30,9 @@
 
 use crate::wal_writer::TransactionWALWriter;
 use crate::{CommitError, TransactionContext, TransactionStatus};
-use in_mem_core::error::Result;
-use in_mem_core::traits::Storage;
-use in_mem_durability::wal::WAL;
+use strata_core::error::Result;
+use strata_core::traits::Storage;
+use strata_durability::wal::WAL;
 use std::sync::atomic::{AtomicU64, Ordering};
 
 /// Manages transaction lifecycle and atomic commits
@@ -237,10 +237,10 @@ impl Default for TransactionManager {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use in_mem_core::types::{Key, Namespace, RunId, TypeTag};
-    use in_mem_core::value::Value;
-    use in_mem_durability::wal::DurabilityMode;
-    use in_mem_storage::UnifiedStore;
+    use strata_core::types::{Key, Namespace, RunId, TypeTag};
+    use strata_core::value::Value;
+    use strata_durability::wal::DurabilityMode;
+    use strata_storage::UnifiedStore;
     use tempfile::TempDir;
 
     fn create_test_namespace() -> Namespace {
@@ -582,7 +582,7 @@ mod tests {
 
     #[test]
     fn test_wal_entries_have_correct_structure() {
-        use in_mem_durability::wal::WALEntry;
+        use strata_durability::wal::WALEntry;
 
         let (manager, store, mut wal, _temp) = setup_test_env();
         let ns = create_test_namespace();

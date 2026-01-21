@@ -3,11 +3,11 @@
 //! Tests for DocRef identity policies and deduplication behavior.
 
 use super::test_utils::*;
-use in_mem_core::search_types::{DocRef, PrimitiveType, SearchRequest};
-use in_mem_core::types::{JsonDocId, RunId};
-use in_mem_core::value::Value;
-use in_mem_primitives::{KVStore, RunIndex};
-use in_mem_search::DatabaseSearchExt;
+use strata_core::search_types::{DocRef, PrimitiveType, SearchRequest};
+use strata_core::types::{JsonDocId, RunId};
+use strata_core::value::Value;
+use strata_primitives::{KVStore, RunIndex};
+use strata_search::DatabaseSearchExt;
 use std::collections::HashSet;
 
 // ============================================================================

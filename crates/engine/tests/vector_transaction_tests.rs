@@ -8,11 +8,11 @@
 //! - VectorId monotonicity across restarts (Invariant T4)
 //! - Cross-primitive consistency (Vector + KV)
 
-use in_mem_core::types::{Key, Namespace, RunId};
-use in_mem_core::value::Value;
-use in_mem_engine::Database;
-use in_mem_primitives::vector::{DistanceMetric, VectorConfig, VectorStore};
-use in_mem_primitives::register_vector_recovery;
+use strata_core::types::{Key, Namespace, RunId};
+use strata_core::value::Value;
+use strata_engine::Database;
+use strata_primitives::vector::{DistanceMetric, VectorConfig, VectorStore};
+use strata_primitives::register_vector_recovery;
 use std::sync::{Arc, Once};
 use tempfile::TempDir;
 
@@ -507,7 +507,7 @@ fn test_wal_replayer() {
         .unwrap();
 
     // Replay upserts with specific VectorIds
-    use in_mem_primitives::vector::VectorId;
+    use strata_primitives::vector::VectorId;
 
     store
         .replay_upsert(
@@ -548,7 +548,7 @@ fn test_wal_replayer() {
         .unwrap();
 
     // Verify final state
-    use in_mem_primitives::vector::CollectionId;
+    use strata_primitives::vector::CollectionId;
     let collection_id = CollectionId::new(run_id, "replayed");
     let state = store.backends();
     let guard = state.backends.read().unwrap();
@@ -572,7 +572,7 @@ fn test_replay_maintains_id_ordering() {
         .replay_create_collection(run_id, "ordered", config)
         .unwrap();
 
-    use in_mem_primitives::vector::VectorId;
+    use strata_primitives::vector::VectorId;
 
     // Replay with non-sequential IDs (simulating gaps from deletes)
     store
@@ -608,7 +608,7 @@ fn test_replay_maintains_id_ordering() {
         )
         .unwrap();
 
-    use in_mem_primitives::vector::CollectionId;
+    use strata_primitives::vector::CollectionId;
     let collection_id = CollectionId::new(run_id, "ordered");
     let state = store.backends();
     let guard = state.backends.read().unwrap();
@@ -630,7 +630,7 @@ fn test_replay_delete_missing_collection() {
     let (_temp, _db, store) = setup_db();
     let run_id = RunId::new();
 
-    use in_mem_primitives::vector::VectorId;
+    use strata_primitives::vector::VectorId;
 
     // Should not error - idempotent operation
     let result = store.replay_delete(run_id, "nonexistent", "key", VectorId::new(1));
@@ -648,7 +648,7 @@ fn test_replay_delete_collection() {
         .replay_create_collection(run_id, "to_remove", config)
         .unwrap();
 
-    use in_mem_primitives::vector::CollectionId;
+    use strata_primitives::vector::CollectionId;
     let collection_id = CollectionId::new(run_id, "to_remove");
 
     // Backend should exist

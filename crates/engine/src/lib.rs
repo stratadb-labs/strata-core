@@ -1,4 +1,4 @@
-//! Database engine for in-mem
+//! Database engine for Strata
 //!
 //! This crate orchestrates all lower layers:
 //! - Database: Main database struct with open/close

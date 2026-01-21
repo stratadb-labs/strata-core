@@ -5,7 +5,7 @@
 //! Every read returns a Versioned<T> which contains the value, its version,
 //! and its timestamp.
 
-use in_mem_core::{Timestamp, Value, Version, Versioned, VersionedValue};
+use strata_core::{Timestamp, Value, Version, Versioned, VersionedValue};
 use std::time::Duration;
 
 // ============================================================================

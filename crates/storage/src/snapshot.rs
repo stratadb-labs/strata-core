@@ -19,7 +19,7 @@
 use std::collections::BTreeMap;
 use std::sync::Arc;
 
-use in_mem_core::{Key, Result, SnapshotView, VersionedValue};
+use strata_core::{Key, Result, SnapshotView, VersionedValue};
 
 use crate::stored_value::StoredValue;
 
@@ -97,7 +97,7 @@ impl SnapshotView for ClonedSnapshotView {
 mod tests {
     use super::*;
     use crate::UnifiedStore;
-    use in_mem_core::{Namespace, RunId, Storage, TypeTag, Value};
+    use strata_core::{Namespace, RunId, Storage, TypeTag, Value};
 
     /// Helper to create a test namespace
     fn test_namespace() -> Namespace {
@@ -149,7 +149,7 @@ mod tests {
 
     #[test]
     fn test_snapshot_get() {
-        use in_mem_core::Version;
+        use strata_core::Version;
 
         let store = UnifiedStore::new();
         let ns = test_namespace();

@@ -6,7 +6,7 @@
 //! - VersionedValue = Versioned<Value>
 
 use crate::test_utils::test_run_id;
-use in_mem_core::{
+use strata_core::{
     contract::DocRef, // Alias for EntityRef
     EntityRef, JsonDocId, PrimitiveType, Value, Version, Versioned, VersionedValue,
 };
@@ -104,7 +104,7 @@ fn doc_ref_in_collections() {
 #[test]
 #[allow(deprecated)]
 fn primitive_kind_is_primitive_type_alias() {
-    use in_mem_core::PrimitiveKind;
+    use strata_core::PrimitiveKind;
 
     // PrimitiveKind should be usable as PrimitiveType
     let kind: PrimitiveKind = PrimitiveType::Kv;
@@ -115,7 +115,7 @@ fn primitive_kind_is_primitive_type_alias() {
 #[test]
 #[allow(deprecated)]
 fn primitive_kind_all_variants_work() {
-    use in_mem_core::PrimitiveKind;
+    use strata_core::PrimitiveKind;
 
     let kinds: Vec<PrimitiveKind> = vec![
         PrimitiveType::Kv,
@@ -133,7 +133,7 @@ fn primitive_kind_all_variants_work() {
 #[test]
 #[allow(deprecated)]
 fn primitive_kind_methods_work() {
-    use in_mem_core::PrimitiveKind;
+    use strata_core::PrimitiveKind;
 
     let kind: PrimitiveKind = PrimitiveType::Kv;
 

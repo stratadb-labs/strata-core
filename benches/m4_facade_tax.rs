@@ -13,11 +13,11 @@
 //! - B/A0 < 30× (total facade tax)
 
 use criterion::{criterion_group, criterion_main, BenchmarkId, Criterion};
-use in_mem_core::traits::Storage;
-use in_mem_core::types::{Key, Namespace, RunId, TypeTag};
-use in_mem_core::value::{Value, VersionedValue};
-use in_mem_engine::Database;
-use in_mem_primitives::KVStore;
+use strata_core::traits::Storage;
+use strata_core::types::{Key, Namespace, RunId, TypeTag};
+use strata_core::value::{Value, VersionedValue};
+use strata_engine::Database;
+use strata_primitives::KVStore;
 use rustc_hash::FxHashMap;
 use std::sync::Arc;
 use std::time::Duration;

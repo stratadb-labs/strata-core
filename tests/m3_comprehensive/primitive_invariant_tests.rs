@@ -13,11 +13,11 @@
 //! - M3.6: No Hidden Writes - Primitives cannot write outside transactions
 
 use super::test_utils::*;
-use in_mem_core::contract::Version;
-use in_mem_core::error::Error;
-use in_mem_core::types::RunId;
-use in_mem_core::value::Value;
-use in_mem_primitives::{EventLog, KVStore, StateCell, TraceStore, TraceType};
+use strata_core::contract::Version;
+use strata_core::error::Error;
+use strata_core::types::RunId;
+use strata_core::value::Value;
+use strata_primitives::{EventLog, KVStore, StateCell, TraceStore, TraceType};
 
 // ============================================================================
 // M3.1: TypeTag Isolation
@@ -666,7 +666,7 @@ mod no_hidden_writes {
         let tp = TestPrimitives::new();
         let run_id = tp.run_id;
 
-        use in_mem_primitives::extensions::*;
+        use strata_primitives::extensions::*;
 
         // Attempt a transaction that fails
         let result: Result<(), Error> = tp.db.transaction(run_id, |txn| {
@@ -688,7 +688,7 @@ mod no_hidden_writes {
         let tp = TestPrimitives::new();
         let run_id = tp.run_id;
 
-        use in_mem_primitives::extensions::*;
+        use strata_primitives::extensions::*;
 
         // Cross-primitive transaction that fails
         let result: Result<(), Error> = tp.db.transaction(run_id, |txn| {
@@ -718,7 +718,7 @@ mod no_hidden_writes {
         assert_eq!(seq1, 0);
 
         // Failed append (simulate via low-level transaction)
-        use in_mem_primitives::extensions::*;
+        use strata_primitives::extensions::*;
         let result: Result<(), Error> = tp.db.transaction(run_id, |txn| {
             txn.event_append("failed", values::int(2))?;
             Err(Error::InvalidState("abort".to_string()))
@@ -745,7 +745,7 @@ mod no_hidden_writes {
         let v1 = state1.value.version;
 
         // Failed CAS attempt via transaction
-        use in_mem_primitives::extensions::*;
+        use strata_primitives::extensions::*;
         let result: Result<(), Error> = tp.db.transaction(run_id, |txn| {
             txn.state_cas("cell", v1, values::int(2))?;
             Err(Error::InvalidState("abort".to_string()))
@@ -771,7 +771,7 @@ mod no_hidden_writes {
         tp.state_cell.init(&run_id, "cell", values::int(3)).unwrap();
 
         // Failed read-only transaction
-        use in_mem_primitives::extensions::*;
+        use strata_primitives::extensions::*;
         let result: Result<(), Error> = tp.db.transaction(run_id, |txn| {
             let _ = txn.kv_get("key")?;
             let _ = txn.event_read(0)?;

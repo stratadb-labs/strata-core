@@ -3,7 +3,7 @@
 //! Tests recovery behavior across durability modes.
 
 use crate::test_utils::*;
-use in_mem_core::value::Value;
+use strata_core::value::Value;
 
 /// Test strict mode recovery.
 #[test]

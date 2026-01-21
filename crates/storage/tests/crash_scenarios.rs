@@ -4,9 +4,9 @@
 //! These tests validate that WAL corruption, truncation, and partial records
 //! are handled correctly during recovery.
 
-use in_mem_storage::database::{DatabaseConfig, DatabaseHandle};
-use in_mem_storage::format::WalRecord;
-use in_mem_storage::testing::{
+use strata_storage::database::{DatabaseConfig, DatabaseHandle};
+use strata_storage::format::WalRecord;
+use strata_storage::testing::{
     CrashPoint, DataState, ReferenceModel, VerificationResult, WalCorruptionTester,
 };
 use tempfile::tempdir;

@@ -36,8 +36,8 @@ use crate::vector::{
     VectorId, VectorRecord, VectorResult, VectorStore,
 };
 use byteorder::{LittleEndian, ReadBytesExt, WriteBytesExt};
-use in_mem_core::value::Value;
-use in_mem_core::RunId;
+use strata_core::value::Value;
+use strata_core::RunId;
 use serde::{Deserialize, Serialize};
 use std::io::{Read, Write};
 
@@ -243,8 +243,8 @@ impl VectorStore {
 
             // Restore collection configuration in KV
             let collection_record = crate::vector::CollectionRecord::new(&config);
-            let config_key = in_mem_core::types::Key::new_vector_config(
-                in_mem_core::types::Namespace::for_run(header.run_id),
+            let config_key = strata_core::types::Key::new_vector_config(
+                strata_core::types::Namespace::for_run(header.run_id),
                 &header.name,
             );
             let config_bytes = collection_record.to_bytes()?;
@@ -342,7 +342,7 @@ impl VectorStore {
 mod tests {
     use super::*;
     use crate::vector::VectorStore;
-    use in_mem_engine::Database;
+    use strata_engine::Database;
     use std::io::Cursor;
     use std::sync::Arc;
     use tempfile::TempDir;

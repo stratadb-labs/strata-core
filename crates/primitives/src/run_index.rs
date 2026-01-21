@@ -28,12 +28,12 @@
 //!
 //! RunIndex uses a global namespace (not run-scoped) since it manages runs themselves.
 
-use in_mem_concurrency::TransactionContext;
-use in_mem_core::contract::{Timestamp, Version, Versioned};
-use in_mem_core::error::{Error, Result};
-use in_mem_core::types::{Key, Namespace, RunId, TypeTag};
-use in_mem_core::value::Value;
-use in_mem_engine::Database;
+use strata_concurrency::TransactionContext;
+use strata_core::contract::{Timestamp, Version, Versioned};
+use strata_core::error::{Error, Result};
+use strata_core::types::{Key, Namespace, RunId, TypeTag};
+use strata_core::value::Value;
+use strata_engine::Database;
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 
@@ -258,7 +258,7 @@ fn from_stored_value<T: for<'de> Deserialize<'de>>(
 /// ## Example
 ///
 /// ```rust,ignore
-/// use in_mem_primitives::{RunIndex, RunStatus};
+/// use strata_primitives::{RunIndex, RunStatus};
 ///
 /// let ri = RunIndex::new(db.clone());
 ///
@@ -809,7 +809,7 @@ impl RunIndex {
     /// # Example
     ///
     /// ```ignore
-    /// use in_mem_core::SearchRequest;
+    /// use strata_core::SearchRequest;
     ///
     /// let response = run_index.search(&SearchRequest::new(run_id, "active"))?;
     /// for hit in response.hits {
@@ -818,11 +818,11 @@ impl RunIndex {
     /// ```
     pub fn search(
         &self,
-        req: &in_mem_core::SearchRequest,
-    ) -> in_mem_core::error::Result<in_mem_core::SearchResponse> {
+        req: &strata_core::SearchRequest,
+    ) -> strata_core::error::Result<strata_core::SearchResponse> {
         use crate::searchable::{build_search_response, SearchCandidate};
-        use in_mem_core::search_types::DocRef;
-        use in_mem_core::traits::SnapshotView;
+        use strata_core::search_types::DocRef;
+        use strata_core::traits::SnapshotView;
         use std::time::Instant;
 
         let start = Instant::now();
@@ -868,7 +868,7 @@ impl RunIndex {
 
             candidates.push(SearchCandidate::new(
                 DocRef::Run {
-                    run_id: in_mem_core::types::RunId::from_string(&meta.run_id)
+                    run_id: strata_core::types::RunId::from_string(&meta.run_id)
                         .unwrap_or_default(),
                 },
                 text,
@@ -909,13 +909,13 @@ impl RunIndex {
 impl crate::searchable::Searchable for RunIndex {
     fn search(
         &self,
-        req: &in_mem_core::SearchRequest,
-    ) -> in_mem_core::error::Result<in_mem_core::SearchResponse> {
+        req: &strata_core::SearchRequest,
+    ) -> strata_core::error::Result<strata_core::SearchResponse> {
         self.search(req)
     }
 
-    fn primitive_kind(&self) -> in_mem_core::PrimitiveType {
-        in_mem_core::PrimitiveType::Run
+    fn primitive_kind(&self) -> strata_core::PrimitiveType {
+        strata_core::PrimitiveType::Run
     }
 }
 

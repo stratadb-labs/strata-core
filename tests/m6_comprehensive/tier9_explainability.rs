@@ -3,9 +3,9 @@
 //! Tests for result provenance and debugging capabilities.
 
 use super::test_utils::*;
-use in_mem_core::search_types::{PrimitiveType, SearchRequest, SearchStats};
-use in_mem_primitives::KVStore;
-use in_mem_search::DatabaseSearchExt;
+use strata_core::search_types::{PrimitiveType, SearchRequest, SearchStats};
+use strata_primitives::KVStore;
+use strata_search::DatabaseSearchExt;
 
 // ============================================================================
 // Result Provenance Tests

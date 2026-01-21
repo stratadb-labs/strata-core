@@ -15,9 +15,9 @@
 //! # Story #482: Error Documentation and Guidelines
 
 use crate::test_utils::test_run_id;
-use in_mem_core::contract::{EntityRef, Version};
-use in_mem_core::error::StrataError;
-use in_mem_core::types::JsonDocId;
+use strata_core::contract::{EntityRef, Version};
+use strata_core::error::StrataError;
+use strata_core::types::JsonDocId;
 
 // ============================================================================
 // Error Variant Coverage
@@ -469,7 +469,7 @@ fn strata_error_all_entity_types_in_invalid_operation() {
 
 #[test]
 fn strata_error_from_vector_error() {
-    use in_mem_primitives::VectorError;
+    use strata_primitives::VectorError;
 
     // Test dimension mismatch conversion
     let vector_error = VectorError::DimensionMismatch {

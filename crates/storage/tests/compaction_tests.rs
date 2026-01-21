@@ -6,9 +6,9 @@
 //! 3. Never removes the active segment
 //! 4. Handles edge cases (empty WAL, no snapshot, etc.)
 
-use in_mem_storage::compaction::{CompactInfo, CompactMode, CompactionError, WalOnlyCompactor};
-use in_mem_storage::database::{DatabaseConfig, DatabaseHandle};
-use in_mem_storage::format::{ManifestManager, WalRecord, WalSegment};
+use strata_storage::compaction::{CompactInfo, CompactMode, CompactionError, WalOnlyCompactor};
+use strata_storage::database::{DatabaseConfig, DatabaseHandle};
+use strata_storage::format::{ManifestManager, WalRecord, WalSegment};
 use std::sync::{Arc, Mutex};
 use tempfile::tempdir;
 
@@ -305,7 +305,7 @@ fn test_database_handle_with_compaction() {
 
 #[test]
 fn test_tombstone_basic_operations() {
-    use in_mem_storage::compaction::{Tombstone, TombstoneIndex, TombstoneReason};
+    use strata_storage::compaction::{Tombstone, TombstoneIndex, TombstoneReason};
 
     let mut index = TombstoneIndex::new();
     let run_id = test_uuid();
@@ -335,7 +335,7 @@ fn test_tombstone_basic_operations() {
 
 #[test]
 fn test_tombstone_serialization() {
-    use in_mem_storage::compaction::{Tombstone, TombstoneIndex, TombstoneReason};
+    use strata_storage::compaction::{Tombstone, TombstoneIndex, TombstoneReason};
 
     let mut index = TombstoneIndex::new();
     let run_id = test_uuid();
@@ -368,7 +368,7 @@ fn test_tombstone_serialization() {
 
 #[test]
 fn test_tombstone_cleanup() {
-    use in_mem_storage::compaction::{Tombstone, TombstoneIndex, TombstoneReason};
+    use strata_storage::compaction::{Tombstone, TombstoneIndex, TombstoneReason};
 
     let mut index = TombstoneIndex::new();
     let run_id = test_uuid();
@@ -404,7 +404,7 @@ fn test_tombstone_cleanup() {
 
 #[test]
 fn test_tombstone_by_reason() {
-    use in_mem_storage::compaction::{Tombstone, TombstoneIndex, TombstoneReason};
+    use strata_storage::compaction::{Tombstone, TombstoneIndex, TombstoneReason};
 
     let mut index = TombstoneIndex::new();
     let run_id = test_uuid();

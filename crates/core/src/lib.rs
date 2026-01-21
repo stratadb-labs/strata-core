@@ -1,4 +1,4 @@
-//! Core types and traits for in-mem
+//! Core types and traits for Strata
 //!
 //! This crate defines the foundational types used throughout the system:
 //! - RunId: Unique identifier for agent runs

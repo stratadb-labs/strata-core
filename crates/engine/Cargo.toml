@@ -1,5 +1,5 @@
 [package]
-name = "in-mem-engine"
+name = "strata-engine"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
@@ -12,10 +12,10 @@ default = []
 perf-trace = []  # Enable per-layer timing instrumentation for M4
 
 [dependencies]
-in-mem-core = { path = "../core" }
-in-mem-storage = { path = "../storage" }
-in-mem-concurrency = { path = "../concurrency" }
-in-mem-durability = { path = "../durability" }
+strata-core = { path = "../core" }
+strata-storage = { path = "../storage" }
+strata-concurrency = { path = "../concurrency" }
+strata-durability = { path = "../durability" }
 dashmap = { workspace = true }
 once_cell = { workspace = true }
 parking_lot = { workspace = true }
@@ -31,7 +31,7 @@ tempfile = { workspace = true }
 proptest = { workspace = true }
 chrono = { workspace = true }
 criterion = "0.5"
-in-mem-primitives = { path = "../primitives" }
+strata-primitives = { path = "../primitives" }
 serde_json = { workspace = true }
 
 [[bench]]

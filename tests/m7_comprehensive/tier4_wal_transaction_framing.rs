@@ -3,10 +3,10 @@
 //! Tests for TxBegin/TxCommit framing.
 
 use crate::test_utils::*;
-use in_mem_core::types::RunId;
-use in_mem_core::value::Value;
-use in_mem_durability::{Transaction, TxId};
-use in_mem_primitives::KVStore;
+use strata_core::types::RunId;
+use strata_core::value::Value;
+use strata_durability::{Transaction, TxId};
+use strata_primitives::KVStore;
 
 /// Transaction ID is unique
 #[test]

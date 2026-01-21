@@ -3,7 +3,7 @@
 //! Tests that behavior is consistent across durability modes.
 
 use crate::test_utils::*;
-use in_mem_core::value::Value;
+use strata_core::value::Value;
 
 /// Test in-memory and strict produce same results.
 #[test]

@@ -2,7 +2,7 @@
 //!
 //! Run with: cargo bench --bench industry_comparison --features=comparison-benchmarks
 //!
-//! Compares in-mem primitives against industry-leading databases:
+//! Compares Strata primitives against industry-leading databases:
 //!
 //! ## Comparisons by Primitive
 //!
@@ -30,8 +30,8 @@
 //! ## Notes on Fairness
 //!
 //! These comparisons are inherently "unfair" in several ways:
-//! 1. in-mem provides transaction support, other embedded KVs may not
-//! 2. in-mem is optimized for agent workloads, not general-purpose
+//! 1. Strata provides transaction support, other embedded KVs may not
+//! 2. Strata is optimized for agent workloads, not general-purpose
 //! 3. Each database has different design goals and trade-offs
 //!
 //! The purpose is to understand where we stand relative to SOTA,
@@ -99,16 +99,16 @@ fn random_normalized_vector(dimension: usize, seed: u64) -> Vec<f32> {
 // In-Mem Imports
 // ============================================================================
 
-use in_mem_core::types::RunId;
-use in_mem_core::value::Value;
-use in_mem_engine::Database;
-use in_mem_primitives::{EventLog, JsonStore, KVStore, StateCell};
+use strata_core::types::RunId;
+use strata_core::value::Value;
+use strata_engine::Database;
+use strata_primitives::{EventLog, JsonStore, KVStore, StateCell};
 
 #[cfg(feature = "comparison-benchmarks")]
-use in_mem_primitives::vector::{DistanceMetric, VectorConfig, VectorStore};
+use strata_primitives::vector::{DistanceMetric, VectorConfig, VectorStore};
 
 // ============================================================================
-// KVStore Comparison: in-mem vs redb vs LMDB
+// KVStore Comparison: Strata vs redb vs LMDB
 // ============================================================================
 
 /// Compare KVStore point reads against redb and LMDB
@@ -119,7 +119,7 @@ fn kv_comparison_read(c: &mut Criterion) {
     let keys = pregenerate_keys(10000);
     let values = pregenerate_values(10000, 100); // 100-byte values
 
-    // === in-mem KVStore ===
+    // === Strata KVStore ===
     {
         let db = Arc::new(Database::builder().in_memory().open_temp().unwrap());
         let kv = KVStore::new(Arc::clone(&db));
@@ -219,7 +219,7 @@ fn kv_comparison_write(c: &mut Criterion) {
 
     let values = pregenerate_values(1, 100)[0].clone();
 
-    // === in-mem KVStore ===
+    // === Strata KVStore ===
     {
         let db = Arc::new(Database::builder().in_memory().open_temp().unwrap());
         let kv = KVStore::new(Arc::clone(&db));
@@ -308,7 +308,7 @@ fn kv_comparison_batch_write(c: &mut Criterion) {
     let keys = pregenerate_keys(100);
     let values = pregenerate_values(100, 100);
 
-    // === in-mem KVStore ===
+    // === Strata KVStore ===
     {
         let db = Arc::new(Database::builder().in_memory().open_temp().unwrap());
         let kv = KVStore::new(Arc::clone(&db));
@@ -395,7 +395,7 @@ fn kv_comparison_batch_write(c: &mut Criterion) {
 }
 
 // ============================================================================
-// JsonStore Comparison: in-mem vs SQLite JSON1
+// JsonStore Comparison: Strata vs SQLite JSON1
 // ============================================================================
 
 /// Compare JsonStore document insert against SQLite
@@ -403,8 +403,8 @@ fn json_comparison_insert(c: &mut Criterion) {
     let mut group = c.benchmark_group("json_comparison/insert");
     group.measurement_time(Duration::from_secs(10));
 
-    use in_mem_core::json::JsonValue;
-    use in_mem_core::types::JsonDocId;
+    use strata_core::json::JsonValue;
+    use strata_core::types::JsonDocId;
 
     // Create test documents
     let docs: Vec<serde_json::Value> = (0..100)
@@ -424,7 +424,7 @@ fn json_comparison_insert(c: &mut Criterion) {
         })
         .collect();
 
-    // === in-mem JsonStore ===
+    // === Strata JsonStore ===
     {
         let db = Arc::new(Database::builder().in_memory().open_temp().unwrap());
         let json_store = JsonStore::new(Arc::clone(&db));
@@ -479,8 +479,8 @@ fn json_comparison_read(c: &mut Criterion) {
     let mut group = c.benchmark_group("json_comparison/read");
     group.measurement_time(Duration::from_secs(10));
 
-    use in_mem_core::json::JsonValue;
-    use in_mem_core::types::JsonDocId;
+    use strata_core::json::JsonValue;
+    use strata_core::types::JsonDocId;
 
     // Create and store test documents
     let docs: Vec<serde_json::Value> = (0..1000)
@@ -495,7 +495,7 @@ fn json_comparison_read(c: &mut Criterion) {
         })
         .collect();
 
-    // === in-mem JsonStore ===
+    // === Strata JsonStore ===
     {
         let db = Arc::new(Database::builder().in_memory().open_temp().unwrap());
         let json_store = JsonStore::new(Arc::clone(&db));
@@ -572,8 +572,8 @@ fn json_comparison_query(c: &mut Criterion) {
     let mut group = c.benchmark_group("json_comparison/query_by_field");
     group.measurement_time(Duration::from_secs(10));
 
-    use in_mem_core::json::JsonValue;
-    use in_mem_core::types::JsonDocId;
+    use strata_core::json::JsonValue;
+    use strata_core::types::JsonDocId;
 
     // Create test documents with varying scores
     let docs: Vec<serde_json::Value> = (0..1000)
@@ -587,7 +587,7 @@ fn json_comparison_query(c: &mut Criterion) {
         })
         .collect();
 
-    // === in-mem JsonStore (scan-based) ===
+    // === Strata JsonStore (scan-based) ===
     {
         let db = Arc::new(Database::builder().in_memory().open_temp().unwrap());
         let json_store = JsonStore::new(Arc::clone(&db));
@@ -605,7 +605,7 @@ fn json_comparison_query(c: &mut Criterion) {
             })
             .collect();
 
-        // in-mem doesn't have native field query - needs to scan and filter
+        // Strata doesn't have native field query - needs to scan and filter
         // This measures sequential scan cost
         group.bench_function("inmem_jsonstore/scan_filter", |b| {
             let mut seed = BENCH_SEED;
@@ -684,7 +684,7 @@ fn json_comparison_query(c: &mut Criterion) {
 }
 
 // ============================================================================
-// VectorStore Comparison: in-mem vs USearch
+// VectorStore Comparison: Strata vs USearch
 // ============================================================================
 
 #[cfg(feature = "comparison-benchmarks")]
@@ -699,7 +699,7 @@ fn vector_comparison_insert(c: &mut Criterion) {
         .map(|i| random_normalized_vector(DIMENSION, BENCH_SEED + i as u64))
         .collect();
 
-    // === in-mem VectorStore ===
+    // === Strata VectorStore ===
     {
         let db = Arc::new(Database::builder().in_memory().open_temp().unwrap());
         let vector_store = VectorStore::new(Arc::clone(&db));
@@ -773,7 +773,7 @@ fn vector_comparison_search(c: &mut Criterion) {
         .map(|i| random_normalized_vector(DIMENSION, BENCH_SEED + 100000 + i as u64))
         .collect();
 
-    // === in-mem VectorStore ===
+    // === Strata VectorStore ===
     {
         let db = Arc::new(Database::builder().in_memory().open_temp().unwrap());
         let vector_store = VectorStore::new(Arc::clone(&db));
@@ -845,7 +845,7 @@ fn vector_comparison_search(c: &mut Criterion) {
 }
 
 // ============================================================================
-// EventLog Comparison: in-mem vs append-only file baseline
+// EventLog Comparison: Strata vs append-only file baseline
 // ============================================================================
 
 fn eventlog_comparison_append(c: &mut Criterion) {
@@ -855,7 +855,7 @@ fn eventlog_comparison_append(c: &mut Criterion) {
     // Create event payload
     let payload = "event_payload_with_some_reasonable_size_for_testing";
 
-    // === in-mem EventLog ===
+    // === Strata EventLog ===
     {
         let db = Arc::new(Database::builder().in_memory().open_temp().unwrap());
         let event_log = EventLog::new(Arc::clone(&db));
@@ -934,7 +934,7 @@ fn eventlog_comparison_throughput(c: &mut Criterion) {
 
     let payload = "event_payload_data";
 
-    // === in-mem EventLog (1000 events) ===
+    // === Strata EventLog (1000 events) ===
     {
         let db = Arc::new(Database::builder().in_memory().open_temp().unwrap());
         let event_log = EventLog::new(Arc::clone(&db));
@@ -986,14 +986,14 @@ fn eventlog_comparison_throughput(c: &mut Criterion) {
 }
 
 // ============================================================================
-// StateCell Comparison: in-mem vs redb
+// StateCell Comparison: Strata vs redb
 // ============================================================================
 
 fn statecell_comparison_read_write(c: &mut Criterion) {
     let mut group = c.benchmark_group("statecell_comparison");
     group.measurement_time(Duration::from_secs(10));
 
-    // === in-mem StateCell Read ===
+    // === Strata StateCell Read ===
     {
         let db = Arc::new(Database::builder().in_memory().open_temp().unwrap());
         let state = StateCell::new(Arc::clone(&db));
@@ -1007,7 +1007,7 @@ fn statecell_comparison_read_write(c: &mut Criterion) {
         });
     }
 
-    // === in-mem StateCell Write ===
+    // === Strata StateCell Write ===
     {
         let db = Arc::new(Database::builder().in_memory().open_temp().unwrap());
         let state = StateCell::new(Arc::clone(&db));
@@ -1087,7 +1087,7 @@ fn concurrency_comparison_readers(c: &mut Criterion) {
     let keys = pregenerate_keys(10000);
     let values = pregenerate_values(10000, 100);
 
-    // === in-mem KVStore (parallel reads) ===
+    // === Strata KVStore (parallel reads) ===
     {
         let db = Arc::new(Database::builder().in_memory().open_temp().unwrap());
         let kv = KVStore::new(Arc::clone(&db));
@@ -1191,7 +1191,7 @@ fn summary_comparison(c: &mut Criterion) {
     eprintln!("╔══════════════════════════════════════════════════════════════╗");
     eprintln!("║           INDUSTRY COMPARISON BENCHMARK SUMMARY              ║");
     eprintln!("╠══════════════════════════════════════════════════════════════╣");
-    eprintln!("║ Primitive      │ in-mem         │ SOTA Comparison           ║");
+    eprintln!("║ Primitive      │ Strata         │ SOTA Comparison           ║");
     eprintln!("╠════════════════╪════════════════╪═══════════════════════════╣");
     eprintln!("║ KVStore        │ KVStore        │ redb, LMDB (heed)         ║");
     eprintln!("║ JsonStore      │ JsonStore      │ SQLite + JSON1            ║");

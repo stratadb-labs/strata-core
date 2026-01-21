@@ -20,7 +20,7 @@
 //! 5. Verify primitive_name() returns "vector"
 
 use crate::test_utils::*;
-use in_mem_storage::PrimitiveStorageExt;
+use strata_storage::PrimitiveStorageExt;
 
 /// Test that VectorStore implements PrimitiveStorageExt trait.
 #[test]
@@ -198,5 +198,5 @@ fn test_vector_rebuild_indexes() {
 #[test]
 fn test_vector_store_send_sync() {
     fn assert_send_sync<T: Send + Sync + PrimitiveStorageExt>() {}
-    assert_send_sync::<in_mem_primitives::VectorStore>();
+    assert_send_sync::<strata_primitives::VectorStore>();
 }

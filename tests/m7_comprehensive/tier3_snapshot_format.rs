@@ -3,8 +3,8 @@
 //! Tests for snapshot envelope format validation.
 
 use crate::test_utils::*;
-use in_mem_core::value::Value;
-use in_mem_durability::{SNAPSHOT_HEADER_SIZE, SNAPSHOT_MAGIC, SNAPSHOT_VERSION_1};
+use strata_core::value::Value;
+use strata_durability::{SNAPSHOT_HEADER_SIZE, SNAPSHOT_MAGIC, SNAPSHOT_VERSION_1};
 use std::fs::File;
 use std::io::Read;
 

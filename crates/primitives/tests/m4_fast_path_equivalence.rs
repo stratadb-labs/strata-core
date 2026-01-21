@@ -10,10 +10,10 @@
 //!
 //! "Latest committed at snapshot acquisition" is the correct semantic.
 
-use in_mem_core::types::RunId;
-use in_mem_core::value::Value;
-use in_mem_engine::Database;
-use in_mem_primitives::{EventLog, KVStore, StateCell, TraceStore, TraceType};
+use strata_core::types::RunId;
+use strata_core::value::Value;
+use strata_engine::Database;
+use strata_primitives::{EventLog, KVStore, StateCell, TraceStore, TraceType};
 use std::sync::Arc;
 use tempfile::TempDir;
 
@@ -87,7 +87,7 @@ fn kv_batch_get_snapshot_consistency() {
 
     // Write related data atomically
     db.transaction(run_id, |txn| {
-        use in_mem_core::types::{Key, Namespace, TypeTag};
+        use strata_core::types::{Key, Namespace, TypeTag};
         let ns = Namespace::for_run(run_id);
 
         txn.put(

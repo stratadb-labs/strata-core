@@ -1,4 +1,4 @@
-//! Public API layer for in-mem
+//! Public API layer for Strata
 //!
 //! This crate provides the public interface to the database:
 //! - Embedded: In-process library API (M1-M5)

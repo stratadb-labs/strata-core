@@ -53,7 +53,7 @@ const PRIM_COUNT_OFFSET: usize = 38;
 #[test]
 fn test_snapshot_header_size_matches_spec() {
     // When ISSUE-004 is fixed:
-    // use in_mem_durability::SNAPSHOT_HEADER_SIZE;
+    // use strata_durability::SNAPSHOT_HEADER_SIZE;
     // assert_eq!(SNAPSHOT_HEADER_SIZE, SPEC_HEADER_SIZE);
 
     // For now, document the expected size per spec
@@ -77,7 +77,7 @@ fn test_prim_count_at_correct_offset() {
 
     // Create some data so snapshot has content
     let kv = test_db.kv();
-    kv.put(&run_id, "test_key", in_mem_core::value::Value::I64(42))
+    kv.put(&run_id, "test_key", strata_core::value::Value::I64(42))
         .expect("Should put");
 
     // Trigger a snapshot
@@ -191,7 +191,7 @@ fn test_snapshot_validation_minimum_size() {
     );
 
     // When ISSUE-004 is fixed:
-    // use in_mem_durability::validate_snapshot;
+    // use strata_durability::validate_snapshot;
     //
     // // Test that validation rejects files that are too small
     // let too_small = vec![0u8; 42];
@@ -221,7 +221,7 @@ fn test_read_snapshot_header_fields() {
         kv.put(
             &run_id,
             &format!("key_{}", i),
-            in_mem_core::value::Value::I64(i as i64),
+            strata_core::value::Value::I64(i as i64),
         )
         .expect("put");
     }
@@ -308,7 +308,7 @@ fn test_snapshot_version_field() {
     kv.put(
         &test_db.run_id,
         "test",
-        in_mem_core::value::Value::String("test".into()),
+        strata_core::value::Value::String("test".into()),
     )
     .expect("put");
     test_db.db.flush().expect("flush");

@@ -1,4 +1,4 @@
-# in-mem Benchmark Suite - Semantic Regression Harness
+# Strata Benchmark Suite - Semantic Regression Harness
 
 **Philosophy:** Benchmarks exist to detect semantic regressions, not chase arbitrary numbers.
 MVP success is semantic correctness first, performance second.

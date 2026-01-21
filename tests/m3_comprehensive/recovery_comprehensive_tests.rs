@@ -8,9 +8,9 @@
 //! - Multiple recovery cycles
 
 use crate::test_utils::{values, PersistentTestPrimitives};
-use in_mem_core::contract::Version;
-use in_mem_core::value::Value;
-use in_mem_primitives::TraceType;
+use strata_core::contract::Version;
+use strata_core::value::Value;
+use strata_primitives::TraceType;
 
 // =============================================================================
 // Multi-Primitive Recovery
@@ -655,7 +655,7 @@ mod multiple_recovery_cycles {
 
 mod runindex_recovery {
     use super::*;
-    use in_mem_primitives::RunStatus;
+    use strata_primitives::RunStatus;
 
     #[test]
     fn test_run_status_survives_recovery() {

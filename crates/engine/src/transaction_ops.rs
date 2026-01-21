@@ -29,7 +29,7 @@
 //! })?;
 //! ```
 
-use in_mem_core::{
+use strata_core::{
     Event, JsonDocId, JsonPath, JsonValue, MetadataFilter, RunMetadata, RunStatus, State,
     StrataError, Trace, TraceType, Value, VectorEntry, VectorMatch, Version, Versioned,
 };

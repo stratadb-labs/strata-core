@@ -31,7 +31,7 @@ fn test_concurrent_vector_inserts() {
     let run_id = test_db.run_id;
 
     // Create collection
-    let vector = in_mem_primitives::VectorStore::new(db.clone());
+    let vector = strata_primitives::VectorStore::new(db.clone());
     vector.create_collection(run_id, "concurrent", config_small()).expect("create");
 
     // Concurrent inserts from multiple threads
@@ -41,7 +41,7 @@ fn test_concurrent_vector_inserts() {
         let handle = thread::spawn(move || {
             // Each thread creates its own VectorStore instance, but they all share
             // the same backend state via db.extension::<VectorBackendState>()
-            let vector = in_mem_primitives::VectorStore::new(db);
+            let vector = strata_primitives::VectorStore::new(db);
             for i in 0..25 {
                 let key = format!("t{}_v{}", t, i);
                 vector.insert(run_id, "concurrent", &key, &seeded_vector(3, (t * 100 + i) as u64), None)
@@ -72,7 +72,7 @@ fn test_concurrent_search_and_insert() {
     let run_id = test_db.run_id;
 
     // Create and populate collection
-    let vector = in_mem_primitives::VectorStore::new(db.clone());
+    let vector = strata_primitives::VectorStore::new(db.clone());
     vector.create_collection(run_id, "search_insert", config_small()).expect("create");
 
     for i in 0..50 {
@@ -83,7 +83,7 @@ fn test_concurrent_search_and_insert() {
     // Concurrent: one thread searches, others insert
     let db_search = db.clone();
     let search_handle = thread::spawn(move || {
-        let vector = in_mem_primitives::VectorStore::new(db_search);
+        let vector = strata_primitives::VectorStore::new(db_search);
         for _ in 0..100 {
             let query = seeded_vector(3, 42);
             let results = vector.search(run_id, "search_insert", &query, 10, None);
@@ -96,7 +96,7 @@ fn test_concurrent_search_and_insert() {
     let insert_handles: Vec<_> = (0..2).map(|t| {
         let db = db.clone();
         thread::spawn(move || {
-            let vector = in_mem_primitives::VectorStore::new(db);
+            let vector = strata_primitives::VectorStore::new(db);
             for i in 0..25 {
                 let key = format!("new_t{}_v{}", t, i);
                 vector.insert(run_id, "search_insert", &key, &seeded_vector(3, (1000 + t * 100 + i) as u64), None)
@@ -122,8 +122,8 @@ fn test_concurrent_collection_lifecycle() {
     for t in 0..4 {
         let db = db.clone();
         let handle = thread::spawn(move || {
-            let vector = in_mem_primitives::VectorStore::new(db);
-            let run_id = in_mem_core::types::RunId::new();
+            let vector = strata_primitives::VectorStore::new(db);
+            let run_id = strata_core::types::RunId::new();
 
             for i in 0..10 {
                 let name = format!("t{}_col{}", t, i);
@@ -154,7 +154,7 @@ fn test_read_during_modifications() {
     let run_id = test_db.run_id;
 
     // Create collection with initial data
-    let vector = in_mem_primitives::VectorStore::new(db.clone());
+    let vector = strata_primitives::VectorStore::new(db.clone());
     vector.create_collection(run_id, "read_mod", config_small()).expect("create");
 
     for i in 0..100 {
@@ -165,7 +165,7 @@ fn test_read_during_modifications() {
     // Reader thread
     let db_read = db.clone();
     let read_handle = thread::spawn(move || {
-        let vector = in_mem_primitives::VectorStore::new(db_read);
+        let vector = strata_primitives::VectorStore::new(db_read);
         for i in 0..100 {
             let key = format!("v{}", i % 100);
             let result = vector.get(run_id, "read_mod", &key);
@@ -177,7 +177,7 @@ fn test_read_during_modifications() {
     // Modifier thread
     let db_mod = db.clone();
     let mod_handle = thread::spawn(move || {
-        let vector = in_mem_primitives::VectorStore::new(db_mod);
+        let vector = strata_primitives::VectorStore::new(db_mod);
         for i in 0..50 {
             let key = format!("new_v{}", i);
             vector.insert(run_id, "read_mod", &key, &seeded_vector(3, (1000 + i) as u64), None)

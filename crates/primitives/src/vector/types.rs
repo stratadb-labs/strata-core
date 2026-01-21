@@ -1,18 +1,18 @@
 //! Core types for the Vector primitive
 //!
-//! This module re-exports canonical types from in-mem-core and defines
+//! This module re-exports canonical types from strata-core and defines
 //! implementation-specific types for vector storage and search.
 
 use serde_json::Value as JsonValue;
 
 // Re-export canonical vector types from core
-pub use in_mem_core::primitives::{
+pub use strata_core::primitives::{
     CollectionId, CollectionInfo, DistanceMetric, JsonScalar, MetadataFilter, StorageDtype,
     VectorConfig, VectorEntry, VectorId, VectorMatch,
 };
 
 // Re-export RunId for CollectionId usage
-pub use in_mem_core::types::RunId;
+pub use strata_core::types::RunId;
 
 // ============================================================================
 // Story #339: VectorRecord and CollectionRecord (Implementation types)
@@ -252,7 +252,7 @@ mod tests {
 
     #[test]
     fn test_vector_config_zero_dimension() {
-        use in_mem_core::StrataError;
+        use strata_core::StrataError;
         let result = VectorConfig::new(0, DistanceMetric::Cosine);
         assert!(matches!(result, Err(StrataError::InvalidInput { .. })));
     }

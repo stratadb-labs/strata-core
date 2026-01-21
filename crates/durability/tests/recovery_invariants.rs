@@ -11,14 +11,14 @@
 //!
 //! These invariants are non-negotiable and define correctness.
 
-use in_mem_core::contract::Version;
-use in_mem_core::types::{Key, Namespace, RunId};
-use in_mem_core::value::Value;
-use in_mem_core::Timestamp;
-use in_mem_core::Storage;
-use in_mem_durability::recovery::replay_wal;
-use in_mem_durability::wal::{DurabilityMode, WALEntry, WAL};
-use in_mem_storage::UnifiedStore;
+use strata_core::contract::Version;
+use strata_core::types::{Key, Namespace, RunId};
+use strata_core::value::Value;
+use strata_core::Timestamp;
+use strata_core::Storage;
+use strata_durability::recovery::replay_wal;
+use strata_durability::wal::{DurabilityMode, WALEntry, WAL};
+use strata_storage::UnifiedStore;
 use std::collections::HashSet;
 use tempfile::TempDir;
 

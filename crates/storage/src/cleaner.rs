@@ -15,7 +15,7 @@ use std::sync::Arc;
 use std::thread::{self, JoinHandle};
 use std::time::Duration;
 
-use in_mem_core::Storage;
+use strata_core::Storage;
 
 use crate::UnifiedStore;
 
@@ -29,7 +29,7 @@ use crate::UnifiedStore;
 /// ```ignore
 /// use std::sync::Arc;
 /// use std::time::Duration;
-/// use in_mem_storage::{UnifiedStore, TTLCleaner};
+/// use strata_storage::{UnifiedStore, TTLCleaner};
 ///
 /// let store = Arc::new(UnifiedStore::new());
 /// let cleaner = TTLCleaner::new(Arc::clone(&store), Duration::from_secs(60));
@@ -117,7 +117,7 @@ impl TTLCleaner {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use in_mem_core::{Key, Namespace, RunId, Value};
+    use strata_core::{Key, Namespace, RunId, Value};
 
     #[test]
     fn test_ttl_cleaner_creation() {

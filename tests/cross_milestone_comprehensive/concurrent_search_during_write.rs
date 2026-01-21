@@ -16,7 +16,7 @@ fn test_search_consistency_during_writes() {
     let run_id = test_db.run_id;
 
     // Create and populate
-    let vector = in_mem_primitives::VectorStore::new(db.clone());
+    let vector = strata_primitives::VectorStore::new(db.clone());
     vector.create_collection(run_id, "consistency", config_small()).expect("create");
 
     for i in 0..100 {
@@ -30,7 +30,7 @@ fn test_search_consistency_during_writes() {
     let stop_writer = stop.clone();
     let db_writer = db.clone();
     let writer = thread::spawn(move || {
-        let vector = in_mem_primitives::VectorStore::new(db_writer);
+        let vector = strata_primitives::VectorStore::new(db_writer);
         let mut i = 1000;
         while !stop_writer.load(Ordering::Relaxed) {
             let key = format!("write_v{}", i);
@@ -43,7 +43,7 @@ fn test_search_consistency_during_writes() {
     // Search thread - should always get consistent results
     let db_searcher = db.clone();
     let searcher = thread::spawn(move || {
-        let vector = in_mem_primitives::VectorStore::new(db_searcher);
+        let vector = strata_primitives::VectorStore::new(db_searcher);
         for _ in 0..1000 {
             let query = seeded_vector(3, 42);
             let results = vector.search(run_id, "consistency", &query, 10, None);
@@ -72,7 +72,7 @@ fn test_no_phantom_reads() {
     let db = test_db.db.clone();
     let run_id = test_db.run_id;
 
-    let vector = in_mem_primitives::VectorStore::new(db.clone());
+    let vector = strata_primitives::VectorStore::new(db.clone());
     vector.create_collection(run_id, "phantom", config_small()).expect("create");
 
     // Insert initial data

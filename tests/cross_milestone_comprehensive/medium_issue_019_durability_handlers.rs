@@ -17,7 +17,7 @@ fn test_in_memory_mode() {
     let test_db = TestDb::new_in_memory();
     let kv = test_db.kv();
 
-    kv.put(&test_db.run_id, "inmem_key", in_mem_core::value::Value::I64(42))
+    kv.put(&test_db.run_id, "inmem_key", strata_core::value::Value::I64(42))
         .expect("put");
 
     // In-memory mode should not create WAL files
@@ -31,7 +31,7 @@ fn test_buffered_mode() {
     let test_db = TestDb::new(); // buffered mode
     let kv = test_db.kv();
 
-    kv.put(&test_db.run_id, "buffered_key", in_mem_core::value::Value::I64(42))
+    kv.put(&test_db.run_id, "buffered_key", strata_core::value::Value::I64(42))
         .expect("put");
 
     // Buffered mode should batch writes
@@ -46,7 +46,7 @@ fn test_strict_mode() {
 
     {
         let kv = test_db.kv();
-        kv.put(&run_id, "strict_key", in_mem_core::value::Value::I64(42))
+        kv.put(&run_id, "strict_key", strata_core::value::Value::I64(42))
             .expect("put");
     }
 

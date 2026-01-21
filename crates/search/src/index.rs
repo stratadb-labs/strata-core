@@ -20,7 +20,7 @@
 
 use crate::tokenizer::tokenize;
 use dashmap::DashMap;
-use in_mem_core::search_types::DocRef;
+use strata_core::search_types::DocRef;
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
 use std::time::{Duration, Instant};
@@ -340,7 +340,7 @@ impl InvertedIndex {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use in_mem_core::types::RunId;
+    use strata_core::types::RunId;
 
     fn test_doc_ref(name: &str) -> DocRef {
         let run_id = RunId::new();

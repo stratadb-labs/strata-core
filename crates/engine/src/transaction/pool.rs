@@ -13,9 +13,9 @@
 //!
 //! After warmup, the hot path has zero allocations.
 
-use in_mem_concurrency::TransactionContext;
-use in_mem_core::traits::SnapshotView;
-use in_mem_core::types::RunId;
+use strata_concurrency::TransactionContext;
+use strata_core::traits::SnapshotView;
+use strata_core::types::RunId;
 use std::cell::RefCell;
 
 /// Maximum contexts per thread
@@ -161,9 +161,9 @@ impl TransactionPool {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use in_mem_concurrency::snapshot::ClonedSnapshotView;
-    use in_mem_core::types::{Namespace, TypeTag};
-    use in_mem_core::value::Value;
+    use strata_concurrency::snapshot::ClonedSnapshotView;
+    use strata_core::types::{Namespace, TypeTag};
+    use strata_core::value::Value;
     use std::collections::BTreeMap;
 
     fn create_test_namespace() -> Namespace {
@@ -175,8 +175,8 @@ mod tests {
         )
     }
 
-    fn create_test_key(ns: &Namespace, user_key: &[u8]) -> in_mem_core::types::Key {
-        in_mem_core::types::Key::new(ns.clone(), TypeTag::KV, user_key.to_vec())
+    fn create_test_key(ns: &Namespace, user_key: &[u8]) -> strata_core::types::Key {
+        strata_core::types::Key::new(ns.clone(), TypeTag::KV, user_key.to_vec())
     }
 
     #[test]

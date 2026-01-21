@@ -3,9 +3,9 @@
 //! Story #106: Validates optimistic concurrency control behavior
 //! with 2-thread scenarios per M2_TRANSACTION_SEMANTICS.md.
 
-use in_mem_core::types::{Key, Namespace, RunId};
-use in_mem_core::value::Value;
-use in_mem_engine::Database;
+use strata_core::types::{Key, Namespace, RunId};
+use strata_core::value::Value;
+use strata_engine::Database;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Barrier};
 use std::thread;

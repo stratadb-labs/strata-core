@@ -25,7 +25,7 @@ use std::time::Duration;
 
 use parking_lot::RwLock;
 
-use in_mem_core::{Key, Result, RunId, Storage, Timestamp, TypeTag, Value, Version, VersionedValue};
+use strata_core::{Key, Result, RunId, Storage, Timestamp, TypeTag, Value, Version, VersionedValue};
 
 use crate::index::{RunIndex, TypeIndex};
 use crate::snapshot::ClonedSnapshotView;
@@ -443,7 +443,7 @@ impl Storage for UnifiedStore {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use in_mem_core::{Namespace, TypeTag};
+    use strata_core::{Namespace, TypeTag};
     use std::thread;
 
     /// Helper to create a test namespace

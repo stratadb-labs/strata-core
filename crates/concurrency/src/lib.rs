@@ -1,4 +1,4 @@
-//! Concurrency layer for in-mem
+//! Concurrency layer for Strata
 //!
 //! This crate implements optimistic concurrency control (OCC) with:
 //! - TransactionContext: Read/write set tracking
@@ -42,4 +42,4 @@ pub use conflict::{
 };
 
 // Re-export the SnapshotView trait from core for convenience
-pub use in_mem_core::traits::SnapshotView;
+pub use strata_core::traits::SnapshotView;

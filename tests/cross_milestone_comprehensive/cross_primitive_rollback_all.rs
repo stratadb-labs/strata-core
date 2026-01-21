@@ -3,7 +3,7 @@
 //! Tests that rollback affects all primitives atomically.
 
 use crate::test_utils::*;
-use in_mem_core::value::Value;
+use strata_core::value::Value;
 
 /// Test that transaction rollback affects all primitives.
 #[test]

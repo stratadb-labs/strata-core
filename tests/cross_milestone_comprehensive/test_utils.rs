@@ -2,11 +2,11 @@
 //!
 //! Provides common helpers for testing all 7 primitives together.
 
-use in_mem_core::json::{JsonPath, JsonValue};
-use in_mem_core::types::{JsonDocId, RunId};
-use in_mem_core::value::Value;
-use in_mem_engine::Database;
-use in_mem_primitives::{
+use strata_core::json::{JsonPath, JsonValue};
+use strata_core::types::{JsonDocId, RunId};
+use strata_core::value::Value;
+use strata_engine::Database;
+use strata_primitives::{
     register_vector_recovery, DistanceMetric, EventLog, JsonStore, KVStore, RunIndex, StateCell,
     StorageDtype, TraceStore, VectorConfig, VectorStore,
 };
@@ -25,7 +25,7 @@ fn ensure_recovery_registered() {
 }
 
 // Re-export types for tests
-pub use in_mem_primitives::TraceType;
+pub use strata_primitives::TraceType;
 
 // Counter for generating unique keys
 static COUNTER: AtomicU64 = AtomicU64::new(0);
@@ -326,7 +326,7 @@ pub fn assert_all_primitives_healthy(test_db: &TestDb) {
     p.trace
         .record(
             &run_id,
-            in_mem_primitives::TraceType::Thought {
+            strata_primitives::TraceType::Thought {
                 content: "test content".into(),
                 confidence: None,
             },
@@ -355,7 +355,7 @@ pub fn assert_all_primitives_healthy(test_db: &TestDb) {
 
 /// Helper to check if Searchable trait is implemented
 /// Returns true if the search method can be called polymorphically
-pub fn can_search_as_searchable<T: in_mem_primitives::Searchable>(_: &T) -> bool {
+pub fn can_search_as_searchable<T: strata_primitives::Searchable>(_: &T) -> bool {
     true
 }
 

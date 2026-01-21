@@ -14,7 +14,7 @@
 //! # Usage
 //!
 //! ```ignore
-//! use in_mem_search::DatabaseSearchExt;
+//! use strata_search::DatabaseSearchExt;
 //!
 //! let response = db.hybrid().search(&request)?;
 //! ```
@@ -28,7 +28,7 @@ pub mod index;
 pub mod scorer;
 pub mod tokenizer;
 
-use in_mem_engine::Database;
+use strata_engine::Database;
 use std::sync::Arc;
 
 // Re-export commonly used types
@@ -50,7 +50,7 @@ pub use tokenizer::{tokenize, tokenize_unique};
 /// # Example
 ///
 /// ```ignore
-/// use in_mem_search::DatabaseSearchExt;
+/// use strata_search::DatabaseSearchExt;
 /// use std::sync::Arc;
 ///
 /// let db = Arc::new(Database::builder().in_memory().open_temp()?);
@@ -73,8 +73,8 @@ impl DatabaseSearchExt for Arc<Database> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use in_mem_core::search_types::SearchRequest;
-    use in_mem_core::types::RunId;
+    use strata_core::search_types::SearchRequest;
+    use strata_core::types::RunId;
 
     #[test]
     fn test_database_search_ext() {

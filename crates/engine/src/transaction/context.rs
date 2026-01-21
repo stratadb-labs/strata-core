@@ -16,12 +16,12 @@
 //! - Trace recording with sequence allocation
 
 use crate::transaction_ops::TransactionOps;
-use in_mem_concurrency::TransactionContext;
-use in_mem_core::{
+use strata_concurrency::TransactionContext;
+use strata_core::{
     EntityRef, Event, JsonDocId, JsonPath, JsonValue, MetadataFilter, RunMetadata, RunStatus, State,
     StrataError, Timestamp, Trace, TraceType, Value, VectorEntry, VectorMatch, Version, Versioned,
 };
-use in_mem_core::types::{Key, Namespace, RunId, TypeTag};
+use strata_core::types::{Key, Namespace, RunId, TypeTag};
 use sha2::{Sha256, Digest};
 
 /// Transaction wrapper that implements TransactionOps
@@ -709,7 +709,7 @@ impl<'a> TransactionOps for Transaction<'a> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use in_mem_concurrency::snapshot::ClonedSnapshotView;
+    use strata_concurrency::snapshot::ClonedSnapshotView;
 
     fn create_test_namespace() -> Namespace {
         let run_id = RunId::new();

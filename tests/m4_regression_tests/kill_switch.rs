@@ -15,9 +15,9 @@
 //! | MVCC corruption | Panic in primitive ops |
 
 use super::*;
-use in_mem_core::types::RunId;
-use in_mem_core::value::Value;
-use in_mem_primitives::{EventLog, KVStore, RunIndex, StateCell, TraceStore, TraceType};
+use strata_core::types::RunId;
+use strata_core::value::Value;
+use strata_primitives::{EventLog, KVStore, RunIndex, StateCell, TraceStore, TraceType};
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 use std::thread;

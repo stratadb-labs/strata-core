@@ -23,19 +23,19 @@
 //! - Metadata key: `<namespace>:<TypeTag::Event>:__meta__`
 
 use crate::extensions::EventLogExt;
-use in_mem_concurrency::TransactionContext;
-use in_mem_core::contract::{Timestamp, Version, Versioned};
-use in_mem_core::error::Result;
-use in_mem_core::types::{Key, Namespace, RunId};
-use in_mem_core::value::Value;
-use in_mem_engine::{Database, RetryConfig};
+use strata_concurrency::TransactionContext;
+use strata_core::contract::{Timestamp, Version, Versioned};
+use strata_core::error::Result;
+use strata_core::types::{Key, Namespace, RunId};
+use strata_core::value::Value;
+use strata_engine::{Database, RetryConfig};
 use serde::{Deserialize, Serialize};
 use std::collections::hash_map::DefaultHasher;
 use std::hash::{Hash, Hasher};
 use std::sync::Arc;
 
 // Re-export Event and ChainVerification from core
-pub use in_mem_core::primitives::{ChainVerification, Event};
+pub use strata_core::primitives::{ChainVerification, Event};
 
 /// EventLog metadata stored per run
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
@@ -97,10 +97,10 @@ fn from_stored_value<T: for<'de> Deserialize<'de>>(
 /// # Example
 ///
 /// ```ignore
-/// use in_mem_primitives::EventLog;
-/// use in_mem_engine::Database;
-/// use in_mem_core::types::RunId;
-/// use in_mem_core::value::Value;
+/// use strata_primitives::EventLog;
+/// use strata_engine::Database;
+/// use strata_core::types::RunId;
+/// use strata_core::value::Value;
 ///
 /// let db = Arc::new(Database::open("/path/to/data")?);
 /// let log = EventLog::new(db);
@@ -227,7 +227,7 @@ impl EventLog {
     /// Uses direct snapshot read which maintains snapshot isolation.
     /// Returns Versioned<Event> if found.
     pub fn read(&self, run_id: &RunId, sequence: u64) -> Result<Option<Versioned<Event>>> {
-        use in_mem_core::traits::SnapshotView;
+        use strata_core::traits::SnapshotView;
 
         let snapshot = self.db.storage().create_snapshot();
         let ns = self.namespace_for_run(run_id);
@@ -236,7 +236,7 @@ impl EventLog {
         match snapshot.get(&event_key)? {
             Some(vv) => {
                 let event: Event = from_stored_value(&vv.value)
-                    .map_err(|e| in_mem_core::error::Error::SerializationError(e.to_string()))?;
+                    .map_err(|e| strata_core::error::Error::SerializationError(e.to_string()))?;
                 Ok(Some(Versioned::with_timestamp(
                     event.clone(),
                     Version::Sequence(sequence),
@@ -259,7 +259,7 @@ impl EventLog {
             match txn.get(&event_key)? {
                 Some(v) => {
                     let event: Event = from_stored_value(&v).map_err(|e| {
-                        in_mem_core::error::Error::SerializationError(e.to_string())
+                        strata_core::error::Error::SerializationError(e.to_string())
                     })?;
                     Ok(Some(Versioned::with_timestamp(
                         event.clone(),
@@ -284,7 +284,7 @@ impl EventLog {
                 let event_key = Key::new_event(ns.clone(), seq);
                 if let Some(v) = txn.get(&event_key)? {
                     let event: Event = from_stored_value(&v).map_err(|e| {
-                        in_mem_core::error::Error::SerializationError(e.to_string())
+                        strata_core::error::Error::SerializationError(e.to_string())
                     })?;
                     events.push(Versioned::with_timestamp(
                         event.clone(),
@@ -320,7 +320,7 @@ impl EventLog {
             match txn.get(&event_key)? {
                 Some(v) => {
                     let event: Event = from_stored_value(&v).map_err(|e| {
-                        in_mem_core::error::Error::SerializationError(e.to_string())
+                        strata_core::error::Error::SerializationError(e.to_string())
                     })?;
                     Ok(Some(Versioned::with_timestamp(
                         event.clone(),
@@ -337,7 +337,7 @@ impl EventLog {
     ///
     /// Bypasses full transaction overhead for read-only access.
     pub fn len(&self, run_id: &RunId) -> Result<u64> {
-        use in_mem_core::traits::SnapshotView;
+        use strata_core::traits::SnapshotView;
 
         let snapshot = self.db.storage().create_snapshot();
         let ns = self.namespace_for_run(run_id);
@@ -387,7 +387,7 @@ impl EventLog {
                 let event_key = Key::new_event(ns.clone(), seq);
                 let event: Event = match txn.get(&event_key)? {
                     Some(v) => from_stored_value(&v).map_err(|e| {
-                        in_mem_core::error::Error::SerializationError(e.to_string())
+                        strata_core::error::Error::SerializationError(e.to_string())
                     })?,
                     None => {
                         return Ok(ChainVerification {
@@ -459,7 +459,7 @@ impl EventLog {
                 let event_key = Key::new_event(ns.clone(), seq);
                 if let Some(v) = txn.get(&event_key)? {
                     let event: Event = from_stored_value(&v).map_err(|e| {
-                        in_mem_core::error::Error::SerializationError(e.to_string())
+                        strata_core::error::Error::SerializationError(e.to_string())
                     })?;
                     if event.event_type == event_type {
                         filtered.push(Versioned::with_timestamp(
@@ -491,7 +491,7 @@ impl EventLog {
                 let event_key = Key::new_event(ns.clone(), seq);
                 if let Some(v) = txn.get(&event_key)? {
                     let event: Event = from_stored_value(&v).map_err(|e| {
-                        in_mem_core::error::Error::SerializationError(e.to_string())
+                        strata_core::error::Error::SerializationError(e.to_string())
                     })?;
                     types.insert(event.event_type);
                 }
@@ -510,7 +510,7 @@ impl EventLog {
     /// # Example
     ///
     /// ```ignore
-    /// use in_mem_core::SearchRequest;
+    /// use strata_core::SearchRequest;
     ///
     /// let response = log.search(&SearchRequest::new(run_id, "error"))?;
     /// for hit in response.hits {
@@ -519,11 +519,11 @@ impl EventLog {
     /// ```
     pub fn search(
         &self,
-        req: &in_mem_core::SearchRequest,
-    ) -> in_mem_core::error::Result<in_mem_core::SearchResponse> {
+        req: &strata_core::SearchRequest,
+    ) -> strata_core::error::Result<strata_core::SearchResponse> {
         use crate::searchable::{build_search_response, SearchCandidate};
-        use in_mem_core::search_types::DocRef;
-        use in_mem_core::traits::SnapshotView;
+        use strata_core::search_types::DocRef;
+        use strata_core::traits::SnapshotView;
         use std::time::Instant;
 
         let start = Instant::now();
@@ -534,7 +534,7 @@ impl EventLog {
         let meta_key = Key::new_event_meta(ns.clone());
         let meta: EventLogMeta = match snapshot.get(&meta_key)? {
             Some(vv) => from_stored_value(&vv.value).unwrap_or_default(),
-            None => return Ok(in_mem_core::SearchResponse::empty()),
+            None => return Ok(strata_core::SearchResponse::empty()),
         };
 
         let mut candidates = Vec::new();
@@ -605,13 +605,13 @@ impl EventLog {
 impl crate::searchable::Searchable for EventLog {
     fn search(
         &self,
-        req: &in_mem_core::SearchRequest,
-    ) -> in_mem_core::error::Result<in_mem_core::SearchResponse> {
+        req: &strata_core::SearchRequest,
+    ) -> strata_core::error::Result<strata_core::SearchResponse> {
         self.search(req)
     }
 
-    fn primitive_kind(&self) -> in_mem_core::PrimitiveType {
-        in_mem_core::PrimitiveType::Event
+    fn primitive_kind(&self) -> strata_core::PrimitiveType {
+        strata_core::PrimitiveType::Event
     }
 }
 

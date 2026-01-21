@@ -27,7 +27,7 @@
 //! # Usage
 //!
 //! ```ignore
-//! use in_mem_storage::wal::{WalWriter, WalReader, WalConfig, DurabilityMode};
+//! use strata_storage::wal::{WalWriter, WalReader, WalConfig, DurabilityMode};
 //!
 //! // Write records
 //! let mut writer = WalWriter::new(

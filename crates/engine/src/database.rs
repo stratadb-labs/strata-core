@@ -22,16 +22,16 @@
 use crate::coordinator::{TransactionCoordinator, TransactionMetrics};
 use crate::transaction::TransactionPool;
 use dashmap::DashMap;
-use in_mem_concurrency::{
+use strata_concurrency::{
     validate_transaction, RecoveryCoordinator, TransactionContext, TransactionWALWriter,
 };
-use in_mem_core::error::{Error, Result};
-use in_mem_core::traits::Storage;
-use in_mem_core::types::{Key, RunId};
-use in_mem_core::value::Value;
-use in_mem_core::VersionedValue;
-use in_mem_durability::wal::{DurabilityMode, WAL};
-use in_mem_storage::ShardedStore;
+use strata_core::error::{Error, Result};
+use strata_core::traits::Storage;
+use strata_core::types::{Key, RunId};
+use strata_core::value::Value;
+use strata_core::VersionedValue;
+use strata_durability::wal::{DurabilityMode, WAL};
+use strata_storage::ShardedStore;
 use parking_lot::Mutex as ParkingMutex;
 use std::any::{Any, TypeId};
 use std::path::{Path, PathBuf};
@@ -128,8 +128,8 @@ impl RetryConfig {
 /// # Example
 ///
 /// ```ignore
-/// use in_mem_engine::{Database, DatabaseBuilder};
-/// use in_mem_durability::wal::DurabilityMode;
+/// use strata_engine::{Database, DatabaseBuilder};
+/// use strata_durability::wal::DurabilityMode;
 ///
 /// // InMemory mode for tests (fastest)
 /// let db = Database::builder()
@@ -324,8 +324,8 @@ impl Default for DatabaseBuilder {
 /// # Example
 ///
 /// ```ignore
-/// use in_mem_engine::Database;
-/// use in_mem_core::types::RunId;
+/// use strata_engine::Database;
+/// use strata_core::types::RunId;
 ///
 /// let db = Database::open("/path/to/data")?;
 /// let run_id = RunId::new();
@@ -418,7 +418,7 @@ impl Database {
     /// # Example
     ///
     /// ```ignore
-    /// use in_mem_engine::Database;
+    /// use strata_engine::Database;
     ///
     /// let db = Database::open("/path/to/data")?;
     /// let storage = db.storage();
@@ -1385,7 +1385,7 @@ impl Database {
     /// ```
     pub fn replay_run(&self, run_id: RunId) -> Result<crate::replay::ReadOnlyView> {
         use crate::replay::ReadOnlyView;
-        use in_mem_core::types::TypeTag;
+        use strata_core::types::TypeTag;
 
         // Create an empty view for this run
         let mut view = ReadOnlyView::new(run_id);
@@ -1410,7 +1410,7 @@ impl Database {
 
                     // Events are stored as JSON strings in Value::String
                     // Parse and extract event_type and payload
-                    if let in_mem_core::value::Value::String(json_str) = &versioned_value.value {
+                    if let strata_core::value::Value::String(json_str) = &versioned_value.value {
                         if let Ok(parsed) =
                             serde_json::from_str::<serde_json::Value>(json_str)
                         {
@@ -1422,12 +1422,12 @@ impl Database {
 
                             // Extract payload as Value
                             let payload = if let Some(p) = parsed.get("payload") {
-                                // Convert serde_json::Value to in_mem_core::value::Value
+                                // Convert serde_json::Value to strata_core::value::Value
                                 serde_json::from_value(p.clone()).unwrap_or(
-                                    in_mem_core::value::Value::Null,
+                                    strata_core::value::Value::Null,
                                 )
                             } else {
-                                in_mem_core::value::Value::Null
+                                strata_core::value::Value::Null
                             };
 
                             view.append_event(event_type, payload);
@@ -1506,11 +1506,11 @@ impl Drop for Database {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use in_mem_core::types::{Key, Namespace, RunId};
-    use in_mem_core::value::Value;
-    use in_mem_core::Storage;
-    use in_mem_core::Timestamp;
-    use in_mem_durability::wal::WALEntry;
+    use strata_core::types::{Key, Namespace, RunId};
+    use strata_core::value::Value;
+    use strata_core::Storage;
+    use strata_core::Timestamp;
+    use strata_durability::wal::WALEntry;
     use tempfile::TempDir;
 
     fn now() -> Timestamp {

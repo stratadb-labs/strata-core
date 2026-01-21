@@ -2,11 +2,11 @@
 //!
 //! Provides common helpers for creating databases, documents, and assertions.
 
-pub use in_mem_core::json::{JsonPath, JsonValue};
-pub use in_mem_core::types::{JsonDocId, RunId};
-pub use in_mem_durability::wal::DurabilityMode;
-pub use in_mem_engine::Database;
-pub use in_mem_primitives::JsonStore;
+pub use strata_core::json::{JsonPath, JsonValue};
+pub use strata_core::types::{JsonDocId, RunId};
+pub use strata_durability::wal::DurabilityMode;
+pub use strata_engine::Database;
+pub use strata_primitives::JsonStore;
 use std::sync::Arc;
 
 // =============================================================================

@@ -100,7 +100,7 @@ pub enum LimitError {
 /// # Examples
 ///
 /// ```
-/// use in_mem_core::JsonValue;
+/// use strata_core::JsonValue;
 ///
 /// // From JSON literals
 /// let obj = JsonValue::object();
@@ -417,7 +417,7 @@ pub enum PathParseError {
 /// # Examples
 ///
 /// ```
-/// use in_mem_core::json::PathSegment;
+/// use strata_core::json::PathSegment;
 ///
 /// let key = PathSegment::Key("name".to_string());
 /// let idx = PathSegment::Index(0);
@@ -461,7 +461,7 @@ impl fmt::Display for PathSegment {
 /// # Examples
 ///
 /// ```
-/// use in_mem_core::json::JsonPath;
+/// use strata_core::json::JsonPath;
 ///
 /// // Create paths
 /// let root = JsonPath::root();
@@ -806,7 +806,7 @@ impl fmt::Display for JsonPath {
 /// # Examples
 ///
 /// ```
-/// use in_mem_core::json::{JsonPatch, JsonPath, JsonValue};
+/// use strata_core::json::{JsonPatch, JsonPath, JsonValue};
 ///
 /// // Create patches
 /// let set = JsonPatch::set("user.name", JsonValue::from("Alice"));
@@ -981,7 +981,7 @@ pub enum JsonPathError {
 /// # Examples
 ///
 /// ```
-/// use in_mem_core::json::{JsonValue, JsonPath, get_at_path};
+/// use strata_core::json::{JsonValue, JsonPath, get_at_path};
 ///
 /// let json: JsonValue = serde_json::json!({
 ///     "user": {
@@ -1047,7 +1047,7 @@ pub fn get_at_path<'a>(value: &'a JsonValue, path: &JsonPath) -> Option<&'a Json
 /// # Examples
 ///
 /// ```
-/// use in_mem_core::json::{JsonValue, JsonPath, get_at_path_mut};
+/// use strata_core::json::{JsonValue, JsonPath, get_at_path_mut};
 ///
 /// let mut json: JsonValue = serde_json::json!({
 ///     "user": {
@@ -1062,7 +1062,7 @@ pub fn get_at_path<'a>(value: &'a JsonValue, path: &JsonPath) -> Option<&'a Json
 /// }
 ///
 /// // Verify the change
-/// use in_mem_core::json::get_at_path;
+/// use strata_core::json::get_at_path;
 /// let name = get_at_path(&json, &path).unwrap();
 /// assert_eq!(name.as_str(), Some("Bob"));
 /// ```
@@ -1113,7 +1113,7 @@ pub fn get_at_path_mut<'a>(value: &'a mut JsonValue, path: &JsonPath) -> Option<
 /// # Examples
 ///
 /// ```
-/// use in_mem_core::json::{JsonValue, JsonPath, set_at_path, get_at_path};
+/// use strata_core::json::{JsonValue, JsonPath, set_at_path, get_at_path};
 ///
 /// // Set value at nested path, creating intermediate objects
 /// let mut json = JsonValue::object();
@@ -1270,7 +1270,7 @@ fn value_type_name(value: &serde_json::Value) -> &'static str {
 /// # Examples
 ///
 /// ```
-/// use in_mem_core::json::{JsonValue, JsonPath, delete_at_path, get_at_path};
+/// use strata_core::json::{JsonValue, JsonPath, delete_at_path, get_at_path};
 ///
 /// // Delete object key
 /// let mut json: JsonValue = r#"{"name": "Alice", "age": 30}"#.parse().unwrap();
@@ -1359,7 +1359,7 @@ pub fn delete_at_path(
 /// # Examples
 ///
 /// ```
-/// use in_mem_core::json::{JsonValue, JsonPath, JsonPatch, apply_patches, get_at_path};
+/// use strata_core::json::{JsonValue, JsonPath, JsonPatch, apply_patches, get_at_path};
 ///
 /// let mut json = JsonValue::object();
 ///

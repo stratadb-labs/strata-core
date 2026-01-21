@@ -7,9 +7,9 @@
 //! - Multi-threaded (with conflict): >2K txns/sec
 
 use criterion::{black_box, criterion_group, criterion_main, BenchmarkId, Criterion, Throughput};
-use in_mem_core::types::{Key, Namespace, RunId};
-use in_mem_core::value::Value;
-use in_mem_engine::Database;
+use strata_core::types::{Key, Namespace, RunId};
+use strata_core::value::Value;
+use strata_engine::Database;
 use std::sync::Arc;
 use std::thread;
 use tempfile::TempDir;

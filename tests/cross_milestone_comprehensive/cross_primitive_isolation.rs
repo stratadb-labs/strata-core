@@ -3,9 +3,9 @@
 //! Tests run isolation across all primitives.
 
 use crate::test_utils::*;
-use in_mem_core::json::{JsonPath, JsonValue};
-use in_mem_core::types::{JsonDocId, RunId};
-use in_mem_core::value::Value;
+use strata_core::json::{JsonPath, JsonValue};
+use strata_core::types::{JsonDocId, RunId};
+use strata_core::value::Value;
 
 /// Test complete run isolation across all primitives.
 #[test]

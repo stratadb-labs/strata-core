@@ -10,10 +10,10 @@
 //! - Snapshot acquisition: <500ns (red flag: >2µs)
 
 use criterion::{criterion_group, criterion_main, BenchmarkId, Criterion, Throughput};
-use in_mem_core::types::RunId;
-use in_mem_core::value::{Value, VersionedValue};
-use in_mem_engine::Database;
-use in_mem_primitives::KVStore;
+use strata_core::types::RunId;
+use strata_core::value::{Value, VersionedValue};
+use strata_engine::Database;
+use strata_primitives::KVStore;
 use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::Duration;
@@ -178,7 +178,7 @@ fn snapshot_benchmarks(c: &mut Criterion) {
 
 /// Transaction pooling benchmarks
 fn transaction_pool_benchmarks(c: &mut Criterion) {
-    use in_mem_engine::TransactionPool;
+    use strata_engine::TransactionPool;
 
     let mut group = c.benchmark_group("transaction_pool");
     group.measurement_time(Duration::from_secs(5));
@@ -242,7 +242,7 @@ fn read_path_benchmarks(c: &mut Criterion) {
 
 /// Facade tax benchmarks - measures overhead at each layer
 fn facade_tax_benchmarks(c: &mut Criterion) {
-    use in_mem_core::types::{Key, Namespace, TypeTag};
+    use strata_core::types::{Key, Namespace, TypeTag};
 
     let mut group = c.benchmark_group("facade_tax");
     group.measurement_time(Duration::from_secs(5));

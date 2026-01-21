@@ -1,7 +1,7 @@
 //! Tier 8: WAL Entry Format Tests
 
 use crate::test_utils::*;
-use in_mem_durability::WalEntryType;
+use strata_durability::WalEntryType;
 
 #[test]
 fn test_wal_entry_types() {
@@ -19,12 +19,12 @@ fn test_vector_operations_use_correct_wal_types() {
 
 #[test]
 fn test_wal_entry_serialization() {
-    use in_mem_primitives::vector::{
+    use strata_primitives::vector::{
         create_wal_collection_create, create_wal_upsert, create_wal_delete,
         WalVectorCollectionCreate, WalVectorUpsert, WalVectorDelete,
         VectorConfig, DistanceMetric,
     };
-    use in_mem_core::RunId;
+    use strata_core::RunId;
 
     let run_id = RunId::new();
 
@@ -32,7 +32,7 @@ fn test_wal_entry_serialization() {
     let config = VectorConfig {
         dimension: 384,
         metric: DistanceMetric::Cosine,
-        storage_dtype: in_mem_primitives::vector::StorageDtype::F32,
+        storage_dtype: strata_primitives::vector::StorageDtype::F32,
     };
     let create_payload = create_wal_collection_create(run_id, "test", &config);
     let bytes = create_payload.to_bytes().unwrap();
@@ -46,7 +46,7 @@ fn test_wal_entry_serialization() {
         run_id,
         "test",
         "key1",
-        in_mem_primitives::vector::VectorId::new(1),
+        strata_primitives::vector::VectorId::new(1),
         &embedding,
         None,
     );

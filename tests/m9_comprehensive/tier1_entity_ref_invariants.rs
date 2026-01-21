@@ -9,7 +9,7 @@
 //! - Used to retrieve the entity later
 
 use crate::test_utils::{all_entity_refs, assert_same_hash, test_run_id};
-use in_mem_core::{EntityRef, JsonDocId, PrimitiveType};
+use strata_core::{EntityRef, JsonDocId, PrimitiveType};
 use std::collections::{HashMap, HashSet};
 
 // ============================================================================

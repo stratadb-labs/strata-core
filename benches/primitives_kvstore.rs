@@ -23,13 +23,13 @@
 mod bench_env;
 
 use criterion::{black_box, criterion_group, criterion_main, BenchmarkId, Criterion, Throughput};
-use in_mem_core::traits::Storage;
-use in_mem_core::types::{Key, Namespace, RunId};
-use in_mem_core::value::Value;
-use in_mem_durability::wal::DurabilityMode;
-use in_mem_engine::Database;
-use in_mem_primitives::KVStore;
-use in_mem_storage::UnifiedStore;
+use strata_core::traits::Storage;
+use strata_core::types::{Key, Namespace, RunId};
+use strata_core::value::Value;
+use strata_durability::wal::DurabilityMode;
+use strata_engine::Database;
+use strata_primitives::KVStore;
+use strata_storage::UnifiedStore;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 use tempfile::TempDir;

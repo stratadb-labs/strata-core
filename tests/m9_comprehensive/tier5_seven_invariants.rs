@@ -4,7 +4,7 @@
 //! This is the comprehensive validation that M9 Phase 1 is complete.
 
 use crate::test_utils::{all_entity_refs, all_primitive_types, test_run_id};
-use in_mem_core::{
+use strata_core::{
     EntityRef, JsonDocId, PrimitiveType, RunName, Timestamp, Value, Version, Versioned,
 };
 use std::collections::{HashMap, HashSet};

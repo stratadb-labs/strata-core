@@ -9,7 +9,7 @@
 //! # Example
 //!
 //! ```ignore
-//! use in_mem_storage::testing::{WalCorruptionTester, CrashConfig, CrashPoint, ReferenceModel};
+//! use strata_storage::testing::{WalCorruptionTester, CrashConfig, CrashPoint, ReferenceModel};
 //!
 //! // Test recovery from WAL corruption
 //! let tester = WalCorruptionTester::new("path/to/db");

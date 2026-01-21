@@ -23,7 +23,7 @@
 
 use crate::wal::WALEntry;
 use crc32fast::Hasher;
-use in_mem_core::error::{Error, Result};
+use strata_core::error::{Error, Result};
 use std::io::{Cursor, Read, Write};
 
 /// Entry type tags for forward compatibility
@@ -72,8 +72,8 @@ pub const TYPE_VECTOR_DELETE: u8 = 0x73;
 /// # Example
 ///
 /// ```ignore
-/// use in_mem_durability::encoding::encode_entry;
-/// use in_mem_durability::wal::WALEntry;
+/// use strata_durability::encoding::encode_entry;
+/// use strata_durability::wal::WALEntry;
 ///
 /// let entry = WALEntry::CommitTxn { txn_id: 1, run_id };
 /// let bytes = encode_entry(&entry)?;
@@ -162,7 +162,7 @@ pub fn encode_entry(entry: &WALEntry) -> Result<Vec<u8>> {
 /// # Example
 ///
 /// ```ignore
-/// use in_mem_durability::encoding::decode_entry;
+/// use strata_durability::encoding::decode_entry;
 ///
 /// let bytes = read_from_file();
 /// let (entry, consumed) = decode_entry(&bytes, file_offset)?;
@@ -272,9 +272,9 @@ pub fn decode_entry(buf: &[u8], offset: u64) -> Result<(WALEntry, usize)> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use in_mem_core::types::{Key, Namespace, RunId};
-    use in_mem_core::value::Value;
-    use in_mem_core::Timestamp;
+    use strata_core::types::{Key, Namespace, RunId};
+    use strata_core::value::Value;
+    use strata_core::Timestamp;
     use uuid::Uuid;
 
     /// Helper to get current timestamp
@@ -541,8 +541,8 @@ mod tests {
     // JSON Entry Encoding Tests (Story #279)
     // ========================================================================
 
-    use in_mem_core::json::JsonPath;
-    use in_mem_core::types::JsonDocId;
+    use strata_core::json::JsonPath;
+    use strata_core::types::JsonDocId;
 
     #[test]
     fn test_json_create_encode_decode() {

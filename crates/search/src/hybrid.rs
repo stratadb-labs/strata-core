@@ -16,11 +16,11 @@
 //! HybridSearch is STATELESS. It holds only references to Database and primitives.
 
 use crate::fuser::{Fuser, SimpleFuser};
-use in_mem_core::error::Result;
-use in_mem_core::search_types::{SearchBudget, SearchRequest, SearchResponse, SearchStats};
-use in_mem_core::PrimitiveType;
-use in_mem_engine::Database;
-use in_mem_primitives::{EventLog, JsonStore, KVStore, RunIndex, StateCell, TraceStore, VectorStore};
+use strata_core::error::Result;
+use strata_core::search_types::{SearchBudget, SearchRequest, SearchResponse, SearchStats};
+use strata_core::PrimitiveType;
+use strata_engine::Database;
+use strata_primitives::{EventLog, JsonStore, KVStore, RunIndex, StateCell, TraceStore, VectorStore};
 use std::sync::Arc;
 use std::time::Instant;
 
@@ -231,7 +231,7 @@ impl HybridSearch {
         primitive: PrimitiveType,
         req: &SearchRequest,
     ) -> Result<SearchResponse> {
-        use in_mem_primitives::Searchable;
+        use strata_primitives::Searchable;
 
         match primitive {
             PrimitiveType::Kv => self.kv.search(req),
@@ -266,8 +266,8 @@ impl HybridSearch {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use in_mem_core::types::RunId;
-    use in_mem_core::value::Value;
+    use strata_core::types::RunId;
+    use strata_core::value::Value;
 
     fn test_db() -> Arc<Database> {
         Arc::new(

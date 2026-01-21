@@ -1,19 +1,19 @@
 [package]
-name = "in-mem-primitives"
+name = "strata-primitives"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
 authors.workspace = true
 license.workspace = true
 repository.workspace = true
-description = "High-level primitives for in-mem agent database"
+description = "High-level primitives for Strata agent database"
 
 [dependencies]
-in-mem-core = { path = "../core" }
-in-mem-engine = { path = "../engine" }
-in-mem-concurrency = { path = "../concurrency" }
-in-mem-durability = { path = "../durability" }
-in-mem-storage = { path = "../storage" }
+strata-core = { path = "../core" }
+strata-engine = { path = "../engine" }
+strata-concurrency = { path = "../concurrency" }
+strata-durability = { path = "../durability" }
+strata-storage = { path = "../storage" }
 rmp-serde = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }

@@ -1,5 +1,5 @@
 [package]
-name = "in-mem-concurrency"
+name = "strata-concurrency"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
@@ -8,9 +8,9 @@ license.workspace = true
 repository.workspace = true
 
 [dependencies]
-in-mem-core = { path = "../core" }
-in-mem-storage = { path = "../storage" }
-in-mem-durability = { path = "../durability" }
+strata-core = { path = "../core" }
+strata-storage = { path = "../storage" }
+strata-durability = { path = "../durability" }
 chrono = { workspace = true }
 parking_lot = { workspace = true }
 rmp-serde = { workspace = true }

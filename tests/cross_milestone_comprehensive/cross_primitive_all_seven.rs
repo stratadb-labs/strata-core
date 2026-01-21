@@ -15,10 +15,10 @@
 //! This file tests all 7 primitives in a single atomic transaction.
 
 use crate::test_utils::*;
-use in_mem_core::json::{JsonPath, JsonValue};
-use in_mem_core::types::JsonDocId;
-use in_mem_core::value::Value;
-use in_mem_primitives::TraceType;
+use strata_core::json::{JsonPath, JsonValue};
+use strata_core::types::JsonDocId;
+use strata_core::value::Value;
+use strata_primitives::TraceType;
 
 /// Test atomic transaction with all 7 primitives.
 ///
@@ -158,7 +158,7 @@ fn test_cross_primitive_visibility() {
 fn test_cross_primitive_run_isolation() {
     let test_db = TestDb::new();
     let run_a = test_db.run_id;
-    let run_b = in_mem_core::types::RunId::new();
+    let run_b = strata_core::types::RunId::new();
     let p = test_db.all_primitives();
 
     // Create vector collections for both runs

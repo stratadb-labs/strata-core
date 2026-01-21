@@ -14,7 +14,7 @@ fn test_search_respects_time_budget() {
     // Populate with lots of data
     for i in 0..1000 {
         p.kv.put(&run_id, &format!("key_{}", i),
-            in_mem_core::value::Value::String(format!("value {}", i)))
+            strata_core::value::Value::String(format!("value {}", i)))
             .expect("put");
     }
 
@@ -34,7 +34,7 @@ fn test_search_respects_candidate_limit() {
     // Populate data
     for i in 0..100 {
         p.kv.put(&run_id, &format!("candidate_{}", i),
-            in_mem_core::value::Value::String("match".into()))
+            strata_core::value::Value::String("match".into()))
             .expect("put");
     }
 

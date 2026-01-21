@@ -27,18 +27,18 @@
 //! - Key format: `<namespace>:<TypeTag::State>:<cell_name>`
 
 use crate::extensions::StateCellExt;
-use in_mem_concurrency::TransactionContext;
-use in_mem_core::contract::{Version, Versioned};
-use in_mem_core::error::Result;
-use in_mem_core::types::{Key, Namespace, RunId};
-use in_mem_core::value::Value;
-use in_mem_core::Timestamp;
-use in_mem_engine::{Database, RetryConfig};
+use strata_concurrency::TransactionContext;
+use strata_core::contract::{Version, Versioned};
+use strata_core::error::Result;
+use strata_core::types::{Key, Namespace, RunId};
+use strata_core::value::Value;
+use strata_core::Timestamp;
+use strata_engine::{Database, RetryConfig};
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 
 // Re-export State from core
-pub use in_mem_core::primitives::State;
+pub use strata_core::primitives::State;
 
 /// Serialize a struct to Value::String for storage
 fn to_stored_value<T: Serialize>(v: &T) -> Value {
@@ -68,8 +68,8 @@ fn from_stored_value<T: for<'de> Deserialize<'de>>(
 /// ## Example
 ///
 /// ```rust,ignore
-/// use in_mem_primitives::StateCell;
-/// use in_mem_core::value::Value;
+/// use strata_primitives::StateCell;
+/// use strata_core::value::Value;
 ///
 /// let sc = StateCell::new(db.clone());
 /// let run_id = RunId::new();
@@ -130,7 +130,7 @@ impl StateCell {
 
             // Check if exists
             if txn.get(&key)?.is_some() {
-                return Err(in_mem_core::error::Error::InvalidOperation(format!(
+                return Err(strata_core::error::Error::InvalidOperation(format!(
                     "StateCell '{}' already exists",
                     name
                 )));
@@ -152,7 +152,7 @@ impl StateCell {
     ///
     /// # Story #468: StateCell Versioned Returns
     pub fn read(&self, run_id: &RunId, name: &str) -> Result<Option<Versioned<State>>> {
-        use in_mem_core::traits::SnapshotView;
+        use strata_core::traits::SnapshotView;
 
         let snapshot = self.db.storage().create_snapshot();
         let key = self.key_for(run_id, name);
@@ -160,7 +160,7 @@ impl StateCell {
         match snapshot.get(&key)? {
             Some(vv) => {
                 let state: State = from_stored_value(&vv.value)
-                    .map_err(|e| in_mem_core::error::Error::SerializationError(e.to_string()))?;
+                    .map_err(|e| strata_core::error::Error::SerializationError(e.to_string()))?;
                 let version = Version::counter(state.version);
                 let timestamp = Timestamp::from_micros(state.updated_at as u64);
                 Ok(Some(Versioned::with_timestamp(state, version, timestamp)))
@@ -180,7 +180,7 @@ impl StateCell {
             match txn.get(&key)? {
                 Some(v) => {
                     let state: State = from_stored_value(&v).map_err(|e| {
-                        in_mem_core::error::Error::SerializationError(e.to_string())
+                        strata_core::error::Error::SerializationError(e.to_string())
                     })?;
                     let version = Version::counter(state.version);
                     let timestamp = Timestamp::from_micros(state.updated_at as u64);
@@ -212,7 +212,7 @@ impl StateCell {
     ///
     /// Uses direct snapshot read which maintains snapshot isolation.
     pub fn exists(&self, run_id: &RunId, name: &str) -> Result<bool> {
-        use in_mem_core::traits::SnapshotView;
+        use strata_core::traits::SnapshotView;
 
         let snapshot = self.db.storage().create_snapshot();
         let key = self.key_for(run_id, name);
@@ -252,9 +252,9 @@ impl StateCell {
 
             let current: State = match txn.get(&key)? {
                 Some(v) => from_stored_value(&v)
-                    .map_err(|e| in_mem_core::error::Error::SerializationError(e.to_string()))?,
+                    .map_err(|e| strata_core::error::Error::SerializationError(e.to_string()))?,
                 None => {
-                    return Err(in_mem_core::error::Error::InvalidOperation(format!(
+                    return Err(strata_core::error::Error::InvalidOperation(format!(
                         "StateCell '{}' not found",
                         name
                     )))
@@ -262,7 +262,7 @@ impl StateCell {
             };
 
             if current.version != expected_version {
-                return Err(in_mem_core::error::Error::VersionMismatch {
+                return Err(strata_core::error::Error::VersionMismatch {
                     expected: expected_version,
                     actual: current.version,
                 });
@@ -292,7 +292,7 @@ impl StateCell {
             let new_version = match txn.get(&key)? {
                 Some(v) => {
                     let current: State = from_stored_value(&v).map_err(|e| {
-                        in_mem_core::error::Error::SerializationError(e.to_string())
+                        strata_core::error::Error::SerializationError(e.to_string())
                     })?;
                     current.version + 1
                 }
@@ -364,10 +364,10 @@ impl StateCell {
                 // Read current state within the transaction
                 let current: State = match txn.get(&key)? {
                     Some(v) => from_stored_value(&v).map_err(|e| {
-                        in_mem_core::error::Error::SerializationError(e.to_string())
+                        strata_core::error::Error::SerializationError(e.to_string())
                     })?,
                     None => {
-                        return Err(in_mem_core::error::Error::InvalidOperation(format!(
+                        return Err(strata_core::error::Error::InvalidOperation(format!(
                             "StateCell '{}' not found",
                             name_owned
                         )))
@@ -424,7 +424,7 @@ impl StateCell {
     /// # Example
     ///
     /// ```ignore
-    /// use in_mem_core::SearchRequest;
+    /// use strata_core::SearchRequest;
     ///
     /// let response = state.search(&SearchRequest::new(run_id, "counter"))?;
     /// for hit in response.hits {
@@ -433,11 +433,11 @@ impl StateCell {
     /// ```
     pub fn search(
         &self,
-        req: &in_mem_core::SearchRequest,
-    ) -> in_mem_core::error::Result<in_mem_core::SearchResponse> {
+        req: &strata_core::SearchRequest,
+    ) -> strata_core::error::Result<strata_core::SearchResponse> {
         use crate::searchable::{build_search_response, SearchCandidate};
-        use in_mem_core::search_types::DocRef;
-        use in_mem_core::traits::SnapshotView;
+        use strata_core::search_types::DocRef;
+        use strata_core::traits::SnapshotView;
         use std::time::Instant;
 
         let start = Instant::now();
@@ -508,13 +508,13 @@ impl StateCell {
 impl crate::searchable::Searchable for StateCell {
     fn search(
         &self,
-        req: &in_mem_core::SearchRequest,
-    ) -> in_mem_core::error::Result<in_mem_core::SearchResponse> {
+        req: &strata_core::SearchRequest,
+    ) -> strata_core::error::Result<strata_core::SearchResponse> {
         self.search(req)
     }
 
-    fn primitive_kind(&self) -> in_mem_core::PrimitiveType {
-        in_mem_core::PrimitiveType::State
+    fn primitive_kind(&self) -> strata_core::PrimitiveType {
+        strata_core::PrimitiveType::State
     }
 }
 
@@ -528,7 +528,7 @@ impl StateCellExt for TransactionContext {
         match self.get(&key)? {
             Some(v) => {
                 let state: State = from_stored_value(&v)
-                    .map_err(|e| in_mem_core::error::Error::SerializationError(e.to_string()))?;
+                    .map_err(|e| strata_core::error::Error::SerializationError(e.to_string()))?;
                 Ok(Some(state.value))
             }
             None => Ok(None),
@@ -541,9 +541,9 @@ impl StateCellExt for TransactionContext {
 
         let current: State = match self.get(&key)? {
             Some(v) => from_stored_value(&v)
-                .map_err(|e| in_mem_core::error::Error::SerializationError(e.to_string()))?,
+                .map_err(|e| strata_core::error::Error::SerializationError(e.to_string()))?,
             None => {
-                return Err(in_mem_core::error::Error::InvalidOperation(format!(
+                return Err(strata_core::error::Error::InvalidOperation(format!(
                     "StateCell '{}' not found",
                     name
                 )))
@@ -551,7 +551,7 @@ impl StateCellExt for TransactionContext {
         };
 
         if current.version != expected_version {
-            return Err(in_mem_core::error::Error::VersionMismatch {
+            return Err(strata_core::error::Error::VersionMismatch {
                 expected: expected_version,
                 actual: current.version,
             });
@@ -574,7 +574,7 @@ impl StateCellExt for TransactionContext {
         let new_version = match self.get(&key)? {
             Some(v) => {
                 let current: State = from_stored_value(&v)
-                    .map_err(|e| in_mem_core::error::Error::SerializationError(e.to_string()))?;
+                    .map_err(|e| strata_core::error::Error::SerializationError(e.to_string()))?;
                 current.version + 1
             }
             None => 1,
@@ -771,7 +771,7 @@ mod tests {
         let result = sc.cas(&run_id, "counter", 999, Value::I64(1));
         assert!(matches!(
             result,
-            Err(in_mem_core::error::Error::VersionMismatch { .. })
+            Err(strata_core::error::Error::VersionMismatch { .. })
         ));
     }
 

@@ -4,7 +4,7 @@
 //!
 //! Every entity belongs to exactly one run. Runs have semantic names for users.
 
-use in_mem_core::{RunName, RunNameError, MAX_RUN_NAME_LENGTH};
+use strata_core::{RunName, RunNameError, MAX_RUN_NAME_LENGTH};
 use std::collections::HashSet;
 
 // ============================================================================

@@ -3,9 +3,9 @@
 //! Tests for PrimitiveStorageExt and registry operations.
 
 use crate::test_utils::*;
-use in_mem_core::types::RunId;
-use in_mem_core::value::Value;
-use in_mem_durability::{PrimitiveKind, WalEntryType};
+use strata_core::types::RunId;
+use strata_core::value::Value;
+use strata_durability::{PrimitiveKind, WalEntryType};
 
 /// WalEntryType registry is complete
 #[test]

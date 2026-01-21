@@ -13,7 +13,7 @@
 //! # Example
 //!
 //! ```ignore
-//! use in_mem_storage::testing::WalCorruptionTester;
+//! use strata_storage::testing::WalCorruptionTester;
 //!
 //! let tester = WalCorruptionTester::new("path/to/db");
 //! tester.truncate_wal_tail(50)?;

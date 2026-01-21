@@ -7,9 +7,9 @@
 //! - Extension trait composition
 
 use crate::test_utils::{values, PersistentTestPrimitives, TestPrimitives};
-use in_mem_core::contract::Version;
-use in_mem_core::value::Value;
-use in_mem_primitives::{RunStatus, TraceType};
+use strata_core::contract::Version;
+use strata_core::value::Value;
+use strata_primitives::{RunStatus, TraceType};
 
 // =============================================================================
 // Atomic Multi-Primitive Operations
@@ -397,7 +397,7 @@ mod run_scoped_transactions {
 
 mod run_status_with_primitives {
     use super::*;
-    use in_mem_core::types::RunId;
+    use strata_core::types::RunId;
 
     #[test]
     fn test_run_status_independent_of_primitive_data() {

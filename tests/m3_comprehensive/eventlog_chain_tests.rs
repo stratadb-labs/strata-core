@@ -12,8 +12,8 @@
 //! - M3.11: Metadata Consistency - len() matches actual count, head() returns most recent
 
 use super::test_utils::*;
-use in_mem_core::contract::Version;
-use in_mem_core::types::RunId;
+use strata_core::contract::Version;
+use strata_core::types::RunId;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 
@@ -136,7 +136,7 @@ mod append_only {
 
 mod monotonic_sequences {
     use super::*;
-    use in_mem_core::error::Error;
+    use strata_core::error::Error;
 
     #[test]
     fn test_sequences_start_at_zero() {
@@ -183,7 +183,7 @@ mod monotonic_sequences {
         assert!(matches!(version0, Version::Sequence(0)));
 
         // Failed transaction that tries to append
-        use in_mem_primitives::extensions::*;
+        use strata_primitives::extensions::*;
         let result: Result<(), Error> = tp.db.transaction(run_id, |txn| {
             txn.event_append("failed", values::int(1))?;
             Err(Error::InvalidState("abort".to_string()))
@@ -484,7 +484,7 @@ mod total_order_under_concurrency {
             .unwrap()
             .iter()
             .map(|e| {
-                if let in_mem_core::value::Value::I64(v) = e.value.payload {
+                if let strata_core::value::Value::I64(v) = e.value.payload {
                     v
                 } else {
                     panic!("Wrong type")
@@ -498,7 +498,7 @@ mod total_order_under_concurrency {
             .unwrap()
             .iter()
             .map(|e| {
-                if let in_mem_core::value::Value::I64(v) = e.value.payload {
+                if let strata_core::value::Value::I64(v) = e.value.payload {
                     v
                 } else {
                     panic!("Wrong type")

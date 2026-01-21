@@ -16,12 +16,12 @@
 //! # Story #495: Invariant 7 Conformance Tests (Trace portion)
 
 use crate::test_utils::test_run_id;
-use in_mem_concurrency::snapshot::ClonedSnapshotView;
-use in_mem_concurrency::TransactionContext;
-use in_mem_core::types::{Namespace, RunId};
-use in_mem_core::{EntityRef, PrimitiveType, TraceType, Value};
-use in_mem_engine::transaction::Transaction;
-use in_mem_engine::transaction_ops::TransactionOps;
+use strata_concurrency::snapshot::ClonedSnapshotView;
+use strata_concurrency::TransactionContext;
+use strata_core::types::{Namespace, RunId};
+use strata_core::{EntityRef, PrimitiveType, TraceType, Value};
+use strata_engine::transaction::Transaction;
+use strata_engine::transaction_ops::TransactionOps;
 use std::collections::HashMap;
 
 /// Create a test namespace for a run

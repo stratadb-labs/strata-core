@@ -13,13 +13,13 @@
 //!
 //! Total: ~49 tests (7 primitives × 7 invariants)
 
-use in_mem_core::contract::{EntityRef, PrimitiveType, Version};
-use in_mem_core::json::JsonPath;
-use in_mem_core::types::{JsonDocId, RunId};
-use in_mem_core::value::Value;
-use in_mem_engine::Database;
-use in_mem_primitives::extensions::*;
-use in_mem_primitives::*;
+use strata_core::contract::{EntityRef, PrimitiveType, Version};
+use strata_core::json::JsonPath;
+use strata_core::types::{JsonDocId, RunId};
+use strata_core::value::Value;
+use strata_engine::Database;
+use strata_primitives::extensions::*;
+use strata_primitives::*;
 use std::sync::Arc;
 
 fn setup() -> (Arc<Database>, RunId) {
@@ -538,12 +538,12 @@ mod invariant_3_transactional {
     fn cross_primitive_transaction_rolls_back_completely() {
         let (db, run_id) = setup();
 
-        let result: Result<(), in_mem_core::error::Error> = db.transaction(run_id, |txn| {
+        let result: Result<(), strata_core::error::Error> = db.transaction(run_id, |txn| {
             txn.kv_put("key", Value::I64(1))?;
             txn.event_append("event", Value::String("payload".into()))?;
 
             // Force rollback
-            Err(in_mem_core::error::Error::InvalidOperation(
+            Err(strata_core::error::Error::InvalidOperation(
                 "intentional".into(),
             ))
         });

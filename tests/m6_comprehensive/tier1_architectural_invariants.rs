@@ -4,11 +4,11 @@
 //! These are sacred invariants that must never break.
 
 use super::test_utils::*;
-use in_mem_core::search_types::{PrimitiveType, SearchRequest, SearchResponse};
-use in_mem_core::types::RunId;
-use in_mem_core::value::Value;
-use in_mem_primitives::{KVStore, RunIndex};
-use in_mem_search::{BM25LiteScorer, DatabaseSearchExt, Fuser, HybridSearch, RRFFuser, Scorer};
+use strata_core::search_types::{PrimitiveType, SearchRequest, SearchResponse};
+use strata_core::types::RunId;
+use strata_core::value::Value;
+use strata_primitives::{KVStore, RunIndex};
+use strata_search::{BM25LiteScorer, DatabaseSearchExt, Fuser, HybridSearch, RRFFuser, Scorer};
 use std::collections::HashSet;
 use std::sync::Arc;
 
@@ -41,7 +41,7 @@ fn test_tier1_rule1_search_returns_docref_not_data() {
 /// DocRef size is bounded
 #[test]
 fn test_tier1_rule1_docref_size_bounded() {
-    use in_mem_core::search_types::DocRef;
+    use strata_core::search_types::DocRef;
 
     // DocRef should be reasonably small
     assert!(
@@ -173,7 +173,7 @@ fn test_tier1_rule4_snapshot_consistent() {
 /// Index is disabled by default
 #[test]
 fn test_tier1_rule5_index_disabled_by_default() {
-    use in_mem_search::InvertedIndex;
+    use strata_search::InvertedIndex;
 
     let index = InvertedIndex::new();
     assert!(!index.is_enabled(), "Index should be disabled by default");
@@ -182,8 +182,8 @@ fn test_tier1_rule5_index_disabled_by_default() {
 /// No index overhead when disabled
 #[test]
 fn test_tier1_rule5_no_overhead_when_disabled() {
-    use in_mem_core::search_types::DocRef;
-    use in_mem_search::InvertedIndex;
+    use strata_core::search_types::DocRef;
+    use strata_search::InvertedIndex;
 
     let index = InvertedIndex::new();
     let run_id = RunId::new();

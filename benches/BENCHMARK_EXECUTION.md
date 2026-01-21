@@ -7,7 +7,7 @@ Use this prompt to systematically execute the benchmark suite and document resul
 ## Execution Prompt
 
 ```
-Execute the in-mem benchmark suite in the following order. Document all results.
+Execute the Strata benchmark suite in the following order. Document all results.
 Do NOT optimize during this run - just measure and record.
 ```
 

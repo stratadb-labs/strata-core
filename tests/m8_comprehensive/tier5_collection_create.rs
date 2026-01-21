@@ -1,7 +1,7 @@
 //! Tier 5: Collection Create Tests
 
 use crate::test_utils::*;
-use in_mem_primitives::vector::{DistanceMetric, VectorError};
+use strata_primitives::vector::{DistanceMetric, VectorError};
 
 #[test]
 fn test_create_collection() {

@@ -16,7 +16,7 @@
 //! # Usage
 //!
 //! ```ignore
-//! use in_mem_storage::codec::{StorageCodec, IdentityCodec};
+//! use strata_storage::codec::{StorageCodec, IdentityCodec};
 //!
 //! let codec = IdentityCodec;
 //! let data = b"hello world";

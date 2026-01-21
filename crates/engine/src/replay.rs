@@ -25,10 +25,10 @@
 //! - Story #315: diff_runs() - Key-level comparison
 //! - Story #316: Orphaned run detection
 
-use in_mem_core::run_types::{RunEventOffsets, RunMetadata, RunStatus};
-use in_mem_core::types::{Key, RunId};
-use in_mem_core::value::Value;
-use in_mem_core::{EntityRef, StrataError};
+use strata_core::run_types::{RunEventOffsets, RunMetadata, RunStatus};
+use strata_core::types::{Key, RunId};
+use strata_core::value::Value;
+use strata_core::{EntityRef, StrataError};
 use std::collections::HashMap;
 use thiserror::Error;
 
@@ -60,8 +60,8 @@ pub enum RunError {
     Storage(String),
 }
 
-impl From<in_mem_core::error::Error> for RunError {
-    fn from(e: in_mem_core::error::Error) -> Self {
+impl From<strata_core::error::Error> for RunError {
+    fn from(e: strata_core::error::Error) -> Self {
         RunError::Storage(e.to_string())
     }
 }
@@ -534,7 +534,7 @@ pub enum ReplayError {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use in_mem_core::types::Namespace;
+    use strata_core::types::Namespace;
 
     fn test_namespace() -> Namespace {
         Namespace::for_run(RunId::new())

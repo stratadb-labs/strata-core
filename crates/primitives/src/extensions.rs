@@ -9,7 +9,7 @@
 //! ## Usage
 //!
 //! ```rust,ignore
-//! use in_mem_primitives::extensions::*;
+//! use strata_primitives::extensions::*;
 //!
 //! db.transaction(run_id, |txn| {
 //!     // KV operation
@@ -39,9 +39,9 @@
 //! - Consistent behavior between standalone and transaction APIs
 //! - Easier maintenance and testing
 
-use in_mem_core::contract::Version;
-use in_mem_core::json::{JsonPath, JsonValue};
-use in_mem_core::{Result, Value};
+use strata_core::contract::Version;
+use strata_core::json::{JsonPath, JsonValue};
+use strata_core::{Result, Value};
 
 // Forward declarations - traits are defined here, implementations
 // are added in their respective primitive modules.

@@ -3,8 +3,8 @@
 //! Tests for WAL entry envelope format.
 
 use crate::test_utils::*;
-use in_mem_core::value::Value;
-use in_mem_durability::{WalEntryType, MAX_WAL_ENTRY_SIZE, WAL_FORMAT_VERSION};
+use strata_core::value::Value;
+use strata_durability::{WalEntryType, MAX_WAL_ENTRY_SIZE, WAL_FORMAT_VERSION};
 
 /// WAL format version is defined
 #[test]

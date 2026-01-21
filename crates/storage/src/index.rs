@@ -5,7 +5,7 @@
 //! - RunIndex: Maps RunId → Set<Key> for fast run-scoped queries (critical for replay)
 //! - TypeIndex: Maps TypeTag → Set<Key> for primitive-specific queries
 
-use in_mem_core::{Key, RunId, TypeTag};
+use strata_core::{Key, RunId, TypeTag};
 use std::collections::{HashMap, HashSet};
 
 /// Secondary index: RunId → Keys
@@ -136,7 +136,7 @@ impl TypeIndex {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use in_mem_core::Namespace;
+    use strata_core::Namespace;
 
     /// Helper to create a test namespace
     fn test_namespace(run_id: RunId) -> Namespace {

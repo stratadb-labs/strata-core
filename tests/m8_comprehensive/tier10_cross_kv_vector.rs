@@ -16,8 +16,8 @@ fn test_kv_vector_both_persisted() {
 
         // Write to both KV and Vector
         let kv = test_db.kv();
-        kv.put(&run_id, "user:1:name", in_mem_core::value::Value::String("Alice".into())).unwrap();
-        kv.put(&run_id, "user:1:email", in_mem_core::value::Value::String("alice@example.com".into())).unwrap();
+        kv.put(&run_id, "user:1:name", strata_core::value::Value::String("Alice".into())).unwrap();
+        kv.put(&run_id, "user:1:email", strata_core::value::Value::String("alice@example.com".into())).unwrap();
 
         vector.insert(run_id, "embeddings", "user:1:embedding", &random_vector(384), None).unwrap();
     }
@@ -43,7 +43,7 @@ fn test_kv_vector_multiple_operations() {
         let kv = test_db.kv();
 
         for i in 0..10 {
-            kv.put(&run_id, &format!("key_{}", i), in_mem_core::value::Value::String(format!("value_{}", i))).unwrap();
+            kv.put(&run_id, &format!("key_{}", i), strata_core::value::Value::String(format!("value_{}", i))).unwrap();
             vector.insert(run_id, "embeddings", &format!("vec_{}", i), &seeded_random_vector(384, i as u64), None).unwrap();
         }
     }
@@ -64,8 +64,8 @@ fn test_kv_vector_isolation_between_runs() {
     let test_db = TestDb::new_strict();
 
     // Use new run IDs to test isolation
-    let run_id_1 = in_mem_core::types::RunId::new();
-    let run_id_2 = in_mem_core::types::RunId::new();
+    let run_id_1 = strata_core::types::RunId::new();
+    let run_id_2 = strata_core::types::RunId::new();
 
     let vector = test_db.vector();
     let kv = test_db.kv();
@@ -75,11 +75,11 @@ fn test_kv_vector_isolation_between_runs() {
     vector.create_collection(run_id_2, "embeddings", config_small()).unwrap();
 
     // Insert into run 1
-    kv.put(&run_id_1, "key1", in_mem_core::value::Value::String("run1_value".into())).unwrap();
+    kv.put(&run_id_1, "key1", strata_core::value::Value::String("run1_value".into())).unwrap();
     vector.insert(run_id_1, "embeddings", "vec1", &random_vector(384), None).unwrap();
 
     // Insert into run 2
-    kv.put(&run_id_2, "key1", in_mem_core::value::Value::String("run2_value".into())).unwrap();
+    kv.put(&run_id_2, "key1", strata_core::value::Value::String("run2_value".into())).unwrap();
     vector.insert(run_id_2, "embeddings", "vec1", &random_vector(3), None).unwrap();
 
     // Verify isolation
@@ -103,7 +103,7 @@ fn test_kv_vector_delete_operations() {
 
         // Insert
         for i in 0..10 {
-            kv.put(&run_id, &format!("key_{}", i), in_mem_core::value::Value::I64(i)).unwrap();
+            kv.put(&run_id, &format!("key_{}", i), strata_core::value::Value::I64(i)).unwrap();
             vector.insert(run_id, "embeddings", &format!("vec_{}", i), &seeded_random_vector(384, i as u64), None).unwrap();
         }
 

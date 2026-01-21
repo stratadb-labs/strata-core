@@ -13,8 +13,8 @@ use std::sync::Arc;
 use std::thread;
 use std::time::{Duration, Instant};
 
-use in_mem_core::{Key, Namespace, RunId, SnapshotView, Storage, Value};
-use in_mem_storage::UnifiedStore;
+use strata_core::{Key, Namespace, RunId, SnapshotView, Storage, Value};
+use strata_storage::UnifiedStore;
 
 // ============================================================================
 // Helper Functions

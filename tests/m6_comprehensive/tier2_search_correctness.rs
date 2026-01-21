@@ -3,11 +3,11 @@
 //! Validates search determinism, exhaustiveness, and filter behavior.
 
 use super::test_utils::*;
-use in_mem_core::search_types::{PrimitiveType, SearchRequest};
-use in_mem_core::types::RunId;
-use in_mem_core::value::Value;
-use in_mem_primitives::{KVStore, RunIndex};
-use in_mem_search::DatabaseSearchExt;
+use strata_core::search_types::{PrimitiveType, SearchRequest};
+use strata_core::types::RunId;
+use strata_core::value::Value;
+use strata_primitives::{KVStore, RunIndex};
+use strata_search::DatabaseSearchExt;
 
 // ============================================================================
 // Determinism Tests

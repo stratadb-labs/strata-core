@@ -2,9 +2,9 @@
 //!
 //! Tests for inverted index behavior and consistency.
 
-use in_mem_core::search_types::DocRef;
-use in_mem_core::types::RunId;
-use in_mem_search::InvertedIndex;
+use strata_core::search_types::DocRef;
+use strata_core::types::RunId;
+use strata_search::InvertedIndex;
 
 // ============================================================================
 // Index Enable/Disable Tests

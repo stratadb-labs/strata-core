@@ -7,9 +7,9 @@
 //! - Run isolation
 
 use super::*;
-use in_mem_core::types::RunId;
-use in_mem_core::value::Value;
-use in_mem_primitives::KVStore;
+use strata_core::types::RunId;
+use strata_core::value::Value;
+use strata_primitives::KVStore;
 
 /// Read your own writes within same session
 #[test]

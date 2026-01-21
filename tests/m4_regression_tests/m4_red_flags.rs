@@ -5,11 +5,11 @@
 //!
 //! Run with: cargo test --test m4_red_flags -- --nocapture
 
-use in_mem_core::types::RunId;
-use in_mem_core::value::Value;
-use in_mem_core::Storage;
-use in_mem_engine::{Database, TransactionPool};
-use in_mem_primitives::KVStore;
+use strata_core::types::RunId;
+use strata_core::value::Value;
+use strata_core::Storage;
+use strata_engine::{Database, TransactionPool};
+use strata_primitives::KVStore;
 use std::sync::Arc;
 use std::time::Instant;
 
@@ -55,8 +55,8 @@ fn red_flag_snapshot_acquisition() {
 /// A0 = raw storage put, A1 = primitive layer put
 #[test]
 fn red_flag_facade_tax_a1_a0() {
-    use in_mem_core::types::{Key, Namespace, TypeTag};
-    use in_mem_core::Storage;
+    use strata_core::types::{Key, Namespace, TypeTag};
+    use strata_core::Storage;
 
     let db = Arc::new(Database::builder().in_memory().open_temp().unwrap());
     let kv = KVStore::new(db.clone());
@@ -133,7 +133,7 @@ fn red_flag_facade_tax_b_a1() {
     let start = Instant::now();
     for i in 0..ITERATIONS {
         db.transaction(run_id, |txn| {
-            use in_mem_core::types::{Key, Namespace, TypeTag};
+            use strata_core::types::{Key, Namespace, TypeTag};
             let ns = Namespace::for_run(run_id);
             let key = Key::new(ns, TypeTag::KV, format!("bkey{}", i).into_bytes());
             txn.put(key, Value::I64(i as i64))

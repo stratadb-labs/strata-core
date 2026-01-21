@@ -49,7 +49,7 @@ use tracing::{debug, info, warn};
 /// Instead of implementing `SnapshotSerializable`, implement `PrimitiveStorageExt`:
 ///
 /// ```ignore
-/// use in_mem_storage::PrimitiveStorageExt;
+/// use strata_storage::PrimitiveStorageExt;
 ///
 /// impl PrimitiveStorageExt for MyPrimitive {
 ///     fn primitive_type_id(&self) -> u8 { ... }
@@ -64,7 +64,7 @@ use tracing::{debug, info, warn};
 /// The blanket impl will make it automatically work with snapshot writer.
 #[deprecated(
     since = "0.2.0",
-    note = "Use PrimitiveStorageExt from in_mem_storage instead"
+    note = "Use PrimitiveStorageExt from strata_storage instead"
 )]
 pub trait SnapshotSerializable {
     /// Serialize primitive state for snapshot
@@ -85,19 +85,19 @@ pub trait SnapshotSerializable {
 
 // Blanket implementation: PrimitiveStorageExt automatically implements SnapshotSerializable
 #[allow(deprecated)]
-impl<T: in_mem_storage::PrimitiveStorageExt> SnapshotSerializable for T {
+impl<T: strata_storage::PrimitiveStorageExt> SnapshotSerializable for T {
     fn snapshot_serialize(&self) -> Result<Vec<u8>, SnapshotError> {
-        in_mem_storage::PrimitiveStorageExt::snapshot_serialize(self)
+        strata_storage::PrimitiveStorageExt::snapshot_serialize(self)
             .map_err(|e| SnapshotError::Serialize(e.to_string()))
     }
 
     fn snapshot_deserialize(&mut self, data: &[u8]) -> Result<(), SnapshotError> {
-        in_mem_storage::PrimitiveStorageExt::snapshot_deserialize(self, data)
+        strata_storage::PrimitiveStorageExt::snapshot_deserialize(self, data)
             .map_err(|e| SnapshotError::Deserialize(e.to_string()))
     }
 
     fn primitive_type_id(&self) -> u8 {
-        in_mem_storage::PrimitiveStorageExt::primitive_type_id(self)
+        strata_storage::PrimitiveStorageExt::primitive_type_id(self)
     }
 }
 

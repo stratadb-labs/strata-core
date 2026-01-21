@@ -2,7 +2,7 @@
 //!
 //! Tests for BM25-lite scorer correctness.
 
-use in_mem_search::{tokenize, tokenize_unique, BM25LiteScorer, Scorer, ScorerContext, SearchDoc};
+use strata_search::{tokenize, tokenize_unique, BM25LiteScorer, Scorer, ScorerContext, SearchDoc};
 use std::collections::HashMap;
 
 // ============================================================================

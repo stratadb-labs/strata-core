@@ -1,5 +1,5 @@
 [package]
-name = "in-mem"
+name = "strata"
 version = "0.1.0"
 edition = "2021"
 
@@ -20,9 +20,9 @@ members = [
 version = "0.1.0"
 edition = "2021"
 rust-version = "1.70"
-authors = ["in-mem contributors"]
+authors = ["Strata contributors"]
 license = "MIT"
-repository = "https://github.com/anibjoshi/in-mem"
+repository = "https://github.com/anibjoshi/strata"
 
 [workspace.dependencies]
 # Core dependencies shared across crates
@@ -83,11 +83,11 @@ comparison-benchmarks = ["dep:redb", "dep:heed", "dep:rusqlite"]
 usearch-enabled = ["dep:usearch"]
 
 [dependencies]
-in-mem-core = { path = "crates/core" }
-in-mem-storage = { path = "crates/storage" }
-in-mem-concurrency = { path = "crates/concurrency" }
-in-mem-durability = { path = "crates/durability" }
-in-mem-engine = { path = "crates/engine" }
+strata-core = { path = "crates/core" }
+strata-storage = { path = "crates/storage" }
+strata-concurrency = { path = "crates/concurrency" }
+strata-durability = { path = "crates/durability" }
+strata-engine = { path = "crates/engine" }
 
 # Optional SOTA comparison dependencies (enable with --features=comparison-benchmarks)
 redb = { version = "2.0", optional = true }
@@ -102,8 +102,8 @@ chrono = { workspace = true }
 serde_json = { workspace = true }
 rustc-hash = { workspace = true }
 proptest = { workspace = true }
-in-mem-primitives = { path = "crates/primitives" }
-in-mem-search = { path = "crates/search" }
+strata-primitives = { path = "crates/primitives" }
+strata-search = { path = "crates/search" }
 uuid = { workspace = true }
 crc32fast = "1.3"
 

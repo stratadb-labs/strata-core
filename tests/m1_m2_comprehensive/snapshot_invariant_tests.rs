@@ -11,10 +11,10 @@
 //! 5. **Write Invisibility Until Commit**: Own writes are visible, but not to others
 
 use super::test_utils::*;
-use in_mem_core::error::Error;
-use in_mem_core::types::Key;
-use in_mem_core::value::Value;
-use in_mem_engine::{Database, RetryConfig};
+use strata_core::error::Error;
+use strata_core::types::Key;
+use strata_core::value::Value;
+use strata_engine::{Database, RetryConfig};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Barrier};
 use std::thread;
@@ -852,7 +852,7 @@ mod conflict_detection {
 
                 // Write to a DIFFERENT key (to test that the transaction can commit)
                 let other_key = kv_key(
-                    &in_mem_core::types::Namespace::new(
+                    &strata_core::types::Namespace::new(
                         "test".to_string(),
                         "test".to_string(),
                         "test".to_string(),

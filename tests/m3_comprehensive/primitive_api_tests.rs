@@ -8,9 +8,9 @@
 //! - RunIndex: create_run/get_run/update_status/fail_run/complete_run/delete_run
 
 use crate::test_utils::{values, TestPrimitives};
-use in_mem_core::contract::Version;
-use in_mem_core::value::Value;
-use in_mem_primitives::{RunStatus, TraceType};
+use strata_core::contract::Version;
+use strata_core::value::Value;
+use strata_primitives::{RunStatus, TraceType};
 
 // =============================================================================
 // KVStore API Tests

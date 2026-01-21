@@ -6,7 +6,7 @@
 //! From M5_ARCHITECTURE.md Section 8.2 (Conflict Matrix)
 
 use crate::test_utils::*;
-use in_mem_core::json::JsonPatch;
+use strata_core::json::JsonPatch;
 
 // =============================================================================
 // Path Overlap Conflict Matrix Tests (Section 8.2)

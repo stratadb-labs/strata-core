@@ -3,9 +3,9 @@
 //! Tests concurrent operations across multiple primitives.
 
 use crate::test_utils::*;
-use in_mem_core::json::JsonValue;
-use in_mem_core::types::JsonDocId;
-use in_mem_core::value::Value;
+use strata_core::json::JsonValue;
+use strata_core::types::JsonDocId;
+use strata_core::value::Value;
 use std::thread;
 
 /// Test concurrent operations on all primitives.
@@ -19,8 +19,8 @@ fn test_concurrent_all_primitives() {
     // KV thread
     let db_kv = db.clone();
     handles.push(thread::spawn(move || {
-        let kv = in_mem_primitives::KVStore::new(db_kv);
-        let run_id = in_mem_core::types::RunId::new();
+        let kv = strata_primitives::KVStore::new(db_kv);
+        let run_id = strata_core::types::RunId::new();
         for i in 0..100 {
             kv.put(&run_id, &format!("kv_{}", i), Value::I64(i)).expect("kv put");
         }
@@ -29,8 +29,8 @@ fn test_concurrent_all_primitives() {
     // JSON thread
     let db_json = db.clone();
     handles.push(thread::spawn(move || {
-        let json = in_mem_primitives::JsonStore::new(db_json);
-        let run_id = in_mem_core::types::RunId::new();
+        let json = strata_primitives::JsonStore::new(db_json);
+        let run_id = strata_core::types::RunId::new();
         for i in 0..100 {
             let doc_id = JsonDocId::new();
             json.create(&run_id, &doc_id, JsonValue::from(serde_json::json!({"i": i})))
@@ -41,8 +41,8 @@ fn test_concurrent_all_primitives() {
     // Event thread
     let db_event = db.clone();
     handles.push(thread::spawn(move || {
-        let event = in_mem_primitives::EventLog::new(db_event);
-        let run_id = in_mem_core::types::RunId::new();
+        let event = strata_primitives::EventLog::new(db_event);
+        let run_id = strata_core::types::RunId::new();
         for i in 0..100 {
             event.append(&run_id, "type", Value::I64(i))
                 .expect("event append");
@@ -52,8 +52,8 @@ fn test_concurrent_all_primitives() {
     // Vector thread
     let db_vec = db.clone();
     handles.push(thread::spawn(move || {
-        let vector = in_mem_primitives::VectorStore::new(db_vec);
-        let run_id = in_mem_core::types::RunId::new();
+        let vector = strata_primitives::VectorStore::new(db_vec);
+        let run_id = strata_core::types::RunId::new();
         vector.create_collection(run_id, "concurrent_col", config_small()).expect("create");
         for i in 0..100 {
             vector.insert(run_id, "concurrent_col", &format!("v_{}", i), &seeded_vector(3, i as u64), None)
@@ -75,7 +75,7 @@ fn test_concurrent_same_run() {
     let run_id = test_db.run_id;
 
     // Setup: create vector collection
-    let vector = in_mem_primitives::VectorStore::new(db.clone());
+    let vector = strata_primitives::VectorStore::new(db.clone());
     vector.create_collection(run_id, "same_run", config_small()).expect("create");
 
     let mut handles = vec![];
@@ -84,8 +84,8 @@ fn test_concurrent_same_run() {
     for t in 0..4 {
         let db = db.clone();
         let handle = thread::spawn(move || {
-            let kv = in_mem_primitives::KVStore::new(db.clone());
-            let vector = in_mem_primitives::VectorStore::new(db);
+            let kv = strata_primitives::KVStore::new(db.clone());
+            let vector = strata_primitives::VectorStore::new(db);
 
             for i in 0..25 {
                 let key = format!("t{}_item{}", t, i);

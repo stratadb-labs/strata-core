@@ -1,4 +1,4 @@
-//! Durability layer for in-mem
+//! Durability layer for Strata
 //!
 //! This crate implements write-ahead logging and snapshots:
 //! - WAL: Append-only write-ahead log

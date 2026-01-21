@@ -47,8 +47,8 @@ use uuid::Uuid;
 /// # Example
 ///
 /// ```ignore
-/// use in_mem_durability::WalWriter;
-/// use in_mem_durability::WalEntryType;
+/// use strata_durability::WalWriter;
+/// use strata_durability::WalEntryType;
 ///
 /// let mut writer = WalWriter::open("test.wal", DurabilityMode::Strict)?;
 ///
@@ -373,7 +373,7 @@ impl WalWriter {
     /// * `timestamp_micros` - Start timestamp in microseconds since epoch
     pub fn write_run_begin(
         &mut self,
-        run_id: in_mem_core::types::RunId,
+        run_id: strata_core::types::RunId,
         timestamp_micros: u64,
     ) -> Result<u64, WalEntryError> {
         let entry = crate::run_lifecycle::create_run_begin_entry(run_id, timestamp_micros);
@@ -395,7 +395,7 @@ impl WalWriter {
     /// * `event_count` - Total number of events recorded during the run
     pub fn write_run_end(
         &mut self,
-        run_id: in_mem_core::types::RunId,
+        run_id: strata_core::types::RunId,
         timestamp_micros: u64,
         event_count: u64,
     ) -> Result<u64, WalEntryError> {

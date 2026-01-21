@@ -3,10 +3,10 @@
 //! Tests verifying that different runs are completely isolated from each other.
 //! Each run has its own namespace and cannot see or affect other runs' data.
 
-use in_mem_core::types::RunId;
-use in_mem_core::value::Value;
-use in_mem_engine::Database;
-use in_mem_primitives::{EventLog, KVStore, RunIndex, StateCell, TraceStore, TraceType};
+use strata_core::types::RunId;
+use strata_core::value::Value;
+use strata_engine::Database;
+use strata_primitives::{EventLog, KVStore, RunIndex, StateCell, TraceStore, TraceType};
 use std::sync::Arc;
 use tempfile::TempDir;
 
@@ -49,7 +49,7 @@ fn test_event_log_isolation() {
     let (db, _temp) = setup();
     let event_log = EventLog::new(db.clone());
 
-    use in_mem_core::contract::Version;
+    use strata_core::contract::Version;
 
     let run1 = RunId::new();
     let run2 = RunId::new();

@@ -5,7 +5,7 @@
 //! These tests ensure patch ordering and conflict semantics are preserved.
 
 use crate::test_utils::*;
-use in_mem_core::json::JsonPatch;
+use strata_core::json::JsonPatch;
 
 // =============================================================================
 // Patch Ordering Tests

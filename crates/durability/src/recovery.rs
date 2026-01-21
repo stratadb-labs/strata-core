@@ -21,11 +21,11 @@
 //! bypass normal version allocation.
 
 use crate::wal::{WALEntry, WAL};
-use in_mem_core::error::Result;
-use in_mem_core::json::{delete_at_path, set_at_path, JsonValue};
-use in_mem_core::traits::Storage;
-use in_mem_core::types::{JsonDocId, Key, Namespace, RunId};
-use in_mem_core::value::Value;
+use strata_core::error::Result;
+use strata_core::json::{delete_at_path, set_at_path, JsonValue};
+use strata_core::traits::Storage;
+use strata_core::types::{JsonDocId, Key, Namespace, RunId};
+use strata_core::value::Value;
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
 use tracing::warn;
@@ -102,13 +102,13 @@ impl RecoveryJsonDoc {
     /// Serialize to msgpack bytes
     fn to_bytes(&self) -> Result<Vec<u8>> {
         rmp_serde::to_vec(self)
-            .map_err(|e| in_mem_core::error::Error::SerializationError(e.to_string()))
+            .map_err(|e| strata_core::error::Error::SerializationError(e.to_string()))
     }
 
     /// Deserialize from msgpack bytes
     fn from_bytes(bytes: &[u8]) -> Result<Self> {
         rmp_serde::from_slice(bytes)
-            .map_err(|e| in_mem_core::error::Error::SerializationError(e.to_string()))
+            .map_err(|e| strata_core::error::Error::SerializationError(e.to_string()))
     }
 }
 
@@ -379,9 +379,9 @@ pub fn validate_transactions(entries: &[WALEntry]) -> ValidationResult {
 /// # Example
 ///
 /// ```ignore
-/// use in_mem_durability::recovery::replay_wal;
-/// use in_mem_durability::wal::{WAL, DurabilityMode};
-/// use in_mem_storage::UnifiedStore;
+/// use strata_durability::recovery::replay_wal;
+/// use strata_durability::wal::{WAL, DurabilityMode};
+/// use strata_storage::UnifiedStore;
 ///
 /// let wal = WAL::open("data/wal/segment.wal", DurabilityMode::default())?;
 /// let storage = UnifiedStore::new();
@@ -413,9 +413,9 @@ pub fn replay_wal<S: Storage + ?Sized>(wal: &WAL, storage: &S) -> Result<ReplayS
 /// # Example
 ///
 /// ```ignore
-/// use in_mem_durability::recovery::{replay_wal_with_options, ReplayOptions};
-/// use in_mem_durability::wal::{WAL, DurabilityMode};
-/// use in_mem_storage::UnifiedStore;
+/// use strata_durability::recovery::{replay_wal_with_options, ReplayOptions};
+/// use strata_durability::wal::{WAL, DurabilityMode};
+/// use strata_storage::UnifiedStore;
 /// use std::sync::Arc;
 ///
 /// let wal = WAL::open("data/wal/segment.wal", DurabilityMode::default())?;
@@ -690,7 +690,7 @@ fn apply_transaction<S: Storage + ?Sized>(
             } => {
                 // Deserialize the JSON value from msgpack bytes
                 let value: JsonValue = rmp_serde::from_slice(value_bytes).map_err(|e| {
-                    in_mem_core::error::Error::SerializationError(format!(
+                    strata_core::error::Error::SerializationError(format!(
                         "Failed to deserialize JSON value during recovery: {}",
                         e
                     ))
@@ -725,7 +725,7 @@ fn apply_transaction<S: Storage + ?Sized>(
                     let mut doc = match &vv.value {
                         Value::Bytes(bytes) => RecoveryJsonDoc::from_bytes(bytes)?,
                         _ => {
-                            return Err(in_mem_core::error::Error::InvalidOperation(
+                            return Err(strata_core::error::Error::InvalidOperation(
                                 "Expected bytes for JSON document".to_string(),
                             ))
                         }
@@ -733,7 +733,7 @@ fn apply_transaction<S: Storage + ?Sized>(
 
                     // Deserialize the new value
                     let new_value: JsonValue = rmp_serde::from_slice(value_bytes).map_err(|e| {
-                        in_mem_core::error::Error::SerializationError(format!(
+                        strata_core::error::Error::SerializationError(format!(
                             "Failed to deserialize JSON value during recovery: {}",
                             e
                         ))
@@ -741,7 +741,7 @@ fn apply_transaction<S: Storage + ?Sized>(
 
                     // Apply the path mutation
                     set_at_path(&mut doc.value, path, new_value).map_err(|e| {
-                        in_mem_core::error::Error::InvalidOperation(format!(
+                        strata_core::error::Error::InvalidOperation(format!(
                             "Failed to set path during recovery: {}",
                             e
                         ))
@@ -782,7 +782,7 @@ fn apply_transaction<S: Storage + ?Sized>(
                     let mut doc = match &vv.value {
                         Value::Bytes(bytes) => RecoveryJsonDoc::from_bytes(bytes)?,
                         _ => {
-                            return Err(in_mem_core::error::Error::InvalidOperation(
+                            return Err(strata_core::error::Error::InvalidOperation(
                                 "Expected bytes for JSON document".to_string(),
                             ))
                         }
@@ -790,7 +790,7 @@ fn apply_transaction<S: Storage + ?Sized>(
 
                     // Apply the path deletion
                     delete_at_path(&mut doc.value, path).map_err(|e| {
-                        in_mem_core::error::Error::InvalidOperation(format!(
+                        strata_core::error::Error::InvalidOperation(format!(
                             "Failed to delete path during recovery: {}",
                             e
                         ))
@@ -845,11 +845,11 @@ fn apply_transaction<S: Storage + ?Sized>(
 mod tests {
     use super::*;
     use crate::wal::DurabilityMode;
-    use in_mem_core::types::{Key, Namespace};
-    use in_mem_core::value::Value;
-    use in_mem_core::Timestamp;
-    use in_mem_core::Storage; // Need trait in scope for .get() and .current_version()
-    use in_mem_storage::UnifiedStore; // Used in tests (still implements Storage)
+    use strata_core::types::{Key, Namespace};
+    use strata_core::value::Value;
+    use strata_core::Timestamp;
+    use strata_core::Storage; // Need trait in scope for .get() and .current_version()
+    use strata_storage::UnifiedStore; // Used in tests (still implements Storage)
     use tempfile::TempDir;
 
     /// Helper to get current timestamp
@@ -2310,8 +2310,8 @@ mod tests {
     // JSON Crash Recovery Tests (Story #281)
     // ========================================================================
 
-    use in_mem_core::json::{JsonPath, JsonValue};
-    use in_mem_core::types::JsonDocId;
+    use strata_core::json::{JsonPath, JsonValue};
+    use strata_core::types::JsonDocId;
 
     /// Serialize a JsonValue to msgpack bytes (for WAL entry construction)
     fn json_to_msgpack(value: &JsonValue) -> Vec<u8> {

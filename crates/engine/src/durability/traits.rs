@@ -28,9 +28,9 @@
 //! | Buffered | <30µs | Production default |
 //! | Strict | ~2ms | Audit logs, checkpoints |
 
-use in_mem_concurrency::TransactionContext;
-use in_mem_core::error::Result;
-use in_mem_core::types::RunId;
+use strata_concurrency::TransactionContext;
+use strata_core::error::Result;
+use strata_core::types::RunId;
 
 /// Durability behavior abstraction
 ///
@@ -46,7 +46,7 @@ use in_mem_core::types::RunId;
 /// # Example
 ///
 /// ```ignore
-/// use in_mem_engine::durability::Durability;
+/// use strata_engine::durability::Durability;
 ///
 /// fn commit_with_durability<D: Durability>(
 ///     durability: &D,

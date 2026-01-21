@@ -26,7 +26,7 @@ fn test_primitive_storage_ext_canonical() {
     let test_db = TestDb::new_strict();
     let kv = test_db.kv();
 
-    kv.put(&test_db.run_id, "snap_test", in_mem_core::value::Value::I64(42))
+    kv.put(&test_db.run_id, "snap_test", strata_core::value::Value::I64(42))
         .expect("put");
 
     test_db.db.flush().expect("flush");

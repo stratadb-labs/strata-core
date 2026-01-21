@@ -98,10 +98,10 @@ fn test_high_dimension_vectors() {
     let run_id = test_db.run_id;
 
     // Create collection with high dimensions (1536 like OpenAI embeddings)
-    let config = in_mem_primitives::VectorConfig {
+    let config = strata_primitives::VectorConfig {
         dimension: 1536,
-        metric: in_mem_primitives::DistanceMetric::Cosine,
-        storage_dtype: in_mem_primitives::StorageDtype::F32,
+        metric: strata_primitives::DistanceMetric::Cosine,
+        storage_dtype: strata_primitives::StorageDtype::F32,
     };
 
     vector.create_collection(run_id, "high_dim", config).expect("create");

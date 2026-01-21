@@ -6,13 +6,13 @@
 //! - Automatic WAL recovery
 //! - Multiple write/close/reopen cycles
 
-use in_mem_core::contract::Version;
-use in_mem_core::types::{Key, Namespace, RunId};
-use in_mem_core::value::Value;
-use in_mem_core::Timestamp;
-use in_mem_core::Storage;
-use in_mem_durability::wal::{DurabilityMode, WALEntry};
-use in_mem_engine::Database;
+use strata_core::contract::Version;
+use strata_core::types::{Key, Namespace, RunId};
+use strata_core::value::Value;
+use strata_core::Timestamp;
+use strata_core::Storage;
+use strata_durability::wal::{DurabilityMode, WALEntry};
+use strata_engine::Database;
 use tempfile::TempDir;
 
 fn now() -> Timestamp {

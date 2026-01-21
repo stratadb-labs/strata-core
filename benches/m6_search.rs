@@ -19,12 +19,12 @@
 //! - kv_put InMemory: < 3µs
 
 use criterion::{criterion_group, criterion_main, BenchmarkId, Criterion, Throughput};
-use in_mem_core::search_types::{PrimitiveKind, SearchBudget, SearchRequest};
-use in_mem_core::types::RunId;
-use in_mem_core::value::Value;
-use in_mem_engine::Database;
-use in_mem_primitives::{EventLog, KVStore};
-use in_mem_search::{DatabaseSearchExt, InvertedIndex};
+use strata_core::search_types::{PrimitiveKind, SearchBudget, SearchRequest};
+use strata_core::types::RunId;
+use strata_core::value::Value;
+use strata_engine::Database;
+use strata_primitives::{EventLog, KVStore};
+use strata_search::{DatabaseSearchExt, InvertedIndex};
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -290,12 +290,12 @@ fn index_operations_benchmarks(c: &mut Criterion) {
         index.enable();
 
         let run_id = RunId::new();
-        let ns = in_mem_core::types::Namespace::for_run(run_id);
+        let ns = strata_core::types::Namespace::for_run(run_id);
 
         // Index many documents
         for i in 0..1000 {
-            let doc_ref = in_mem_core::search_types::DocRef::Kv {
-                key: in_mem_core::types::Key::new_kv(ns.clone(), &format!("doc_{}", i)),
+            let doc_ref = strata_core::search_types::DocRef::Kv {
+                key: strata_core::types::Key::new_kv(ns.clone(), &format!("doc_{}", i)),
             };
             let content = format!("searchable content item {}", i);
             index.index_document(&doc_ref, &content, None);
@@ -312,13 +312,13 @@ fn index_operations_benchmarks(c: &mut Criterion) {
         index.enable();
 
         let run_id = RunId::new();
-        let ns = in_mem_core::types::Namespace::for_run(run_id);
+        let ns = strata_core::types::Namespace::for_run(run_id);
         let mut counter = 0u64;
 
         b.iter(|| {
             counter += 1;
-            let doc_ref = in_mem_core::search_types::DocRef::Kv {
-                key: in_mem_core::types::Key::new_kv(ns.clone(), &format!("doc_{}", counter)),
+            let doc_ref = strata_core::search_types::DocRef::Kv {
+                key: strata_core::types::Key::new_kv(ns.clone(), &format!("doc_{}", counter)),
             };
             index.index_document(&doc_ref, "searchable test content data", None);
         });
@@ -332,12 +332,12 @@ fn index_operations_benchmarks(c: &mut Criterion) {
         index.enable();
 
         let run_id = RunId::new();
-        let ns = in_mem_core::types::Namespace::for_run(run_id);
+        let ns = strata_core::types::Namespace::for_run(run_id);
 
         // Index documents with varying term frequencies
         for i in 0..1000 {
-            let doc_ref = in_mem_core::search_types::DocRef::Kv {
-                key: in_mem_core::types::Key::new_kv(ns.clone(), &format!("doc_{}", i)),
+            let doc_ref = strata_core::search_types::DocRef::Kv {
+                key: strata_core::types::Key::new_kv(ns.clone(), &format!("doc_{}", i)),
             };
             let content = if i % 10 == 0 {
                 "rare unique special content"
@@ -376,11 +376,11 @@ fn index_scaling_benchmarks(c: &mut Criterion) {
                 index.enable();
 
                 let run_id = RunId::new();
-                let ns = in_mem_core::types::Namespace::for_run(run_id);
+                let ns = strata_core::types::Namespace::for_run(run_id);
 
                 for i in 0..doc_count {
-                    let doc_ref = in_mem_core::search_types::DocRef::Kv {
-                        key: in_mem_core::types::Key::new_kv(ns.clone(), &format!("doc_{}", i)),
+                    let doc_ref = strata_core::search_types::DocRef::Kv {
+                        key: strata_core::types::Key::new_kv(ns.clone(), &format!("doc_{}", i)),
                     };
                     let content = format!("searchable content item {} with various words", i);
                     index.index_document(&doc_ref, &content, None);

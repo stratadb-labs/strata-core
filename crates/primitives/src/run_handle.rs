@@ -30,13 +30,13 @@
 use crate::extensions::{
     EventLogExt, JsonStoreExt, KVStoreExt, StateCellExt, TraceStoreExt, VectorStoreExt,
 };
-use in_mem_concurrency::TransactionContext;
-use in_mem_core::contract::{Timestamp, Version, Versioned};
-use in_mem_core::error::Result;
-use in_mem_core::json::{JsonPath, JsonValue};
-use in_mem_core::types::RunId;
-use in_mem_core::value::Value;
-use in_mem_engine::Database;
+use strata_concurrency::TransactionContext;
+use strata_core::contract::{Timestamp, Version, Versioned};
+use strata_core::error::Result;
+use strata_core::json::{JsonPath, JsonValue};
+use strata_core::types::RunId;
+use strata_core::value::Value;
+use strata_engine::Database;
 use std::sync::Arc;
 
 // ============================================================================

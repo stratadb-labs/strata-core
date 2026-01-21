@@ -4,9 +4,9 @@
 //! These tests verify truncation behavior, ordering preservation, and isolation.
 
 use super::test_utils::*;
-use in_mem_core::search_types::{SearchBudget, SearchRequest};
-use in_mem_primitives::KVStore;
-use in_mem_search::DatabaseSearchExt;
+use strata_core::search_types::{SearchBudget, SearchRequest};
+use strata_primitives::KVStore;
+use strata_search::DatabaseSearchExt;
 use std::collections::HashSet;
 
 // ============================================================================

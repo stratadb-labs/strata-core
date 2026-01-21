@@ -1,7 +1,7 @@
 //! Tier 5: Collection Config Persistence Tests
 
 use crate::test_utils::*;
-use in_mem_primitives::vector::DistanceMetric;
+use strata_primitives::vector::DistanceMetric;
 
 #[test]
 fn test_collection_config_survives_restart() {

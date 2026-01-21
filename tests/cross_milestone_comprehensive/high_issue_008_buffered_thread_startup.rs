@@ -25,7 +25,7 @@ fn test_buffered_auto_starts_flush_thread() {
         kv.put(
             &test_db.run_id,
             &format!("key_{}", i),
-            in_mem_core::value::Value::I64(i),
+            strata_core::value::Value::I64(i),
         )
         .expect("put");
     }
@@ -54,7 +54,7 @@ fn test_buffered_no_data_loss() {
     // Write data
     {
         let kv = test_db.kv();
-        kv.put(&run_id, "important", in_mem_core::value::Value::String("data".into()))
+        kv.put(&run_id, "important", strata_core::value::Value::String("data".into()))
             .expect("put");
     }
 

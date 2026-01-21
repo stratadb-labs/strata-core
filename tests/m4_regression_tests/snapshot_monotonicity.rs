@@ -7,9 +7,9 @@
 //! might be returned due to race conditions or incorrect version filtering.
 
 use super::*;
-use in_mem_core::types::RunId;
-use in_mem_core::value::Value;
-use in_mem_primitives::{EventLog, KVStore, StateCell};
+use strata_core::types::RunId;
+use strata_core::value::Value;
+use strata_primitives::{EventLog, KVStore, StateCell};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Barrier};
 use std::thread;

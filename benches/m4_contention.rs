@@ -12,10 +12,10 @@
 //! - 4-thread disjoint throughput: ≥800K ops/sec
 
 use criterion::{criterion_group, criterion_main, BenchmarkId, Criterion, Throughput};
-use in_mem_core::types::RunId;
-use in_mem_core::value::Value;
-use in_mem_engine::Database;
-use in_mem_primitives::KVStore;
+use strata_core::types::RunId;
+use strata_core::value::Value;
+use strata_engine::Database;
+use strata_primitives::KVStore;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
 use std::time::Duration;

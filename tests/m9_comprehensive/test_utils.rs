@@ -6,7 +6,7 @@
 
 #![allow(dead_code)] // Utilities are for future use across phases
 
-use in_mem_core::{EntityRef, JsonDocId, PrimitiveType, RunId, RunName, Timestamp, Version, Versioned};
+use strata_core::{EntityRef, JsonDocId, PrimitiveType, RunId, RunName, Timestamp, Version, Versioned};
 use std::collections::HashSet;
 
 /// Create a test RunId

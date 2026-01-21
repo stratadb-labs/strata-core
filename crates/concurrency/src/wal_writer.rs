@@ -15,11 +15,11 @@
 //! writer.write_commit()?;
 //! ```
 
-use in_mem_core::error::Result;
-use in_mem_core::types::{Key, RunId};
-use in_mem_core::value::Value;
-use in_mem_core::Timestamp;
-use in_mem_durability::wal::{WALEntry, WAL};
+use strata_core::error::Result;
+use strata_core::types::{Key, RunId};
+use strata_core::value::Value;
+use strata_core::Timestamp;
+use strata_durability::wal::{WALEntry, WAL};
 
 /// Writes transaction operations to WAL
 ///
@@ -247,8 +247,8 @@ impl<'a> TransactionWALWriter<'a> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use in_mem_core::types::Namespace;
-    use in_mem_durability::wal::DurabilityMode;
+    use strata_core::types::Namespace;
+    use strata_durability::wal::DurabilityMode;
     use tempfile::TempDir;
 
     fn create_test_wal() -> (WAL, TempDir) {

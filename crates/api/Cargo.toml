@@ -1,5 +1,5 @@
 [package]
-name = "in-mem-api"
+name = "strata-api"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
@@ -8,9 +8,9 @@ license.workspace = true
 repository.workspace = true
 
 [dependencies]
-in-mem-core = { path = "../core" }
-in-mem-engine = { path = "../engine" }
-in-mem-primitives = { path = "../primitives" }
+strata-core = { path = "../core" }
+strata-engine = { path = "../engine" }
+strata-primitives = { path = "../primitives" }
 serde = { workspace = true }
 thiserror = { workspace = true }
 tracing = { workspace = true }

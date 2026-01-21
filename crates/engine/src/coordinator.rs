@@ -9,9 +9,9 @@
 //! - Transaction metrics (started, committed, aborted)
 //! - Commit rate calculation
 
-use in_mem_concurrency::{RecoveryResult, TransactionContext, TransactionManager};
-use in_mem_core::types::RunId;
-use in_mem_storage::ShardedStore;
+use strata_concurrency::{RecoveryResult, TransactionContext, TransactionManager};
+use strata_core::types::RunId;
+use strata_storage::ShardedStore;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 
@@ -215,7 +215,7 @@ mod tests {
 
     #[test]
     fn test_coordinator_from_recovery() {
-        use in_mem_concurrency::RecoveryStats;
+        use strata_concurrency::RecoveryStats;
 
         let stats = RecoveryStats {
             txns_replayed: 5,

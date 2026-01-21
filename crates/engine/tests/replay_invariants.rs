@@ -12,9 +12,9 @@
 //! **CRITICAL**: Replay NEVER writes to the canonical store.
 //! ReadOnlyView is derived, not authoritative.
 
-use in_mem_core::types::{Key, Namespace, RunId};
-use in_mem_core::value::Value;
-use in_mem_engine::{diff_views, DiffPrimitiveKind, ReadOnlyView};
+use strata_core::types::{Key, Namespace, RunId};
+use strata_core::value::Value;
+use strata_engine::{diff_views, DiffPrimitiveKind, ReadOnlyView};
 use std::collections::HashMap;
 
 /// Helper to create a test namespace

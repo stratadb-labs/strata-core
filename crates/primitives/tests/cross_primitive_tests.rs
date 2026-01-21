@@ -2,10 +2,10 @@
 //!
 //! Tests verifying that multiple primitives can participate in atomic transactions.
 
-use in_mem_core::types::RunId;
-use in_mem_core::value::Value;
-use in_mem_engine::Database;
-use in_mem_primitives::{
+use strata_core::types::RunId;
+use strata_core::value::Value;
+use strata_engine::Database;
+use strata_primitives::{
     EventLog, EventLogExt, KVStore, KVStoreExt, StateCell, StateCellExt, TraceStore, TraceStoreExt,
 };
 use std::sync::Arc;

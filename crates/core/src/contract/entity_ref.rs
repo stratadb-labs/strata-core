@@ -22,7 +22,7 @@
 //! ## Usage
 //!
 //! ```
-//! use in_mem_core::{EntityRef, RunId, PrimitiveType};
+//! use strata_core::{EntityRef, RunId, PrimitiveType};
 //!
 //! let run_id = RunId::new();
 //!

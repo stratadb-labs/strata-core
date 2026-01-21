@@ -10,9 +10,9 @@
 //! - Cross-primitive stress
 
 use crate::test_utils::{concurrent, values, TestPrimitives};
-use in_mem_core::contract::Version;
-use in_mem_core::value::Value;
-use in_mem_primitives::TraceType;
+use strata_core::contract::Version;
+use strata_core::value::Value;
+use strata_primitives::TraceType;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 
@@ -570,7 +570,7 @@ mod cross_primitive_stress {
 
 mod run_lifecycle_stress {
     use super::*;
-    use in_mem_primitives::RunStatus;
+    use strata_primitives::RunStatus;
 
     #[test]
     #[ignore]

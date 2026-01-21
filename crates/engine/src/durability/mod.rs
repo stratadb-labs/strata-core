@@ -17,8 +17,8 @@
 //! is handled internally by the WAL - no separate handler instantiation is needed.
 //!
 //! ```ignore
-//! use in_mem_engine::Database;
-//! use in_mem_durability::wal::DurabilityMode;
+//! use strata_engine::Database;
+//! use strata_durability::wal::DurabilityMode;
 //!
 //! // InMemory mode for fastest performance
 //! let db = Database::builder()
@@ -96,4 +96,4 @@ pub use strict::StrictDurability;
 pub use traits::{CommitData, Durability, DurabilityExt};
 
 // Re-export DurabilityMode from durability crate for convenience
-pub use in_mem_durability::wal::DurabilityMode;
+pub use strata_durability::wal::DurabilityMode;

@@ -3,7 +3,7 @@
 //! Invariant S6: Collections scoped to RunId.
 
 use crate::test_utils::*;
-use in_mem_core::types::RunId;
+use strata_core::types::RunId;
 
 /// Test that different runs are isolated
 #[test]

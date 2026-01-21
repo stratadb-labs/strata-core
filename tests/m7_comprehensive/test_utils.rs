@@ -6,10 +6,10 @@
 //! - WAL manipulation for crash simulation
 //! - Snapshot creation and verification
 
-use in_mem_core::types::RunId;
-use in_mem_core::value::Value;
-use in_mem_engine::Database;
-use in_mem_primitives::KVStore;
+use strata_core::types::RunId;
+use strata_core::value::Value;
+use strata_engine::Database;
+use strata_primitives::KVStore;
 use std::collections::HashMap;
 use std::fs::{self, OpenOptions};
 use std::hash::{Hash, Hasher};
@@ -287,7 +287,7 @@ pub fn assert_db_healthy(db: &Arc<Database>, run_id: &RunId) {
 
 /// Create a run and register it with the database
 pub fn create_test_run(db: &Arc<Database>) -> RunId {
-    use in_mem_primitives::RunIndex as PrimitiveRunIndex;
+    use strata_primitives::RunIndex as PrimitiveRunIndex;
 
     let run_id = RunId::new();
     let run_index = PrimitiveRunIndex::new(db.clone());

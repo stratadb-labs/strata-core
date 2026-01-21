@@ -13,7 +13,7 @@
 //! # Example
 //!
 //! ```ignore
-//! use in_mem_storage::retention::{RetentionPolicy, CompositeBuilder};
+//! use strata_storage::retention::{RetentionPolicy, CompositeBuilder};
 //! use std::time::Duration;
 //!
 //! // Keep all versions (default)
@@ -29,7 +29,7 @@
 use std::collections::HashMap;
 use std::time::Duration;
 
-use in_mem_core::PrimitiveType;
+use strata_core::PrimitiveType;
 
 /// Retention policy for a run
 ///

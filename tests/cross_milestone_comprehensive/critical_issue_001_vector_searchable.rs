@@ -22,8 +22,8 @@
 //! 4. Verify HybridSearch workaround for VectorStore
 
 use crate::test_utils::*;
-use in_mem_core::contract::PrimitiveType;
-use in_mem_primitives::Searchable;
+use strata_core::contract::PrimitiveType;
+use strata_primitives::Searchable;
 
 /// Test that VectorStore implements the Searchable trait.
 ///
@@ -144,7 +144,7 @@ fn test_all_primitives_as_searchable() {
 /// with an explicit embedding vector.
 #[test]
 fn test_vector_keyword_search_returns_empty() {
-    use in_mem_core::search_types::SearchRequest;
+    use strata_core::search_types::SearchRequest;
 
     let test_db = TestDb::new();
     let vector_store = test_db.vector();
@@ -190,7 +190,7 @@ fn test_search_request_structure() {
     let run_id = test_db.run_id;
 
     // SearchRequest uses builder pattern, not Default
-    let _search_req = in_mem_core::search_types::SearchRequest::new(run_id, "test query")
+    let _search_req = strata_core::search_types::SearchRequest::new(run_id, "test query")
         .with_k(10);
 
     // When ISSUE-001 is fixed, VectorStore.search(&search_req) should work

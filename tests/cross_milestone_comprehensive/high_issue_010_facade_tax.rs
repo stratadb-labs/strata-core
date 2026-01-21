@@ -22,7 +22,7 @@ fn test_facade_overhead_ratio() {
 
     // Warm up
     for i in 0..100 {
-        kv.put(&run_id, &format!("warmup_{}", i), in_mem_core::value::Value::I64(i))
+        kv.put(&run_id, &format!("warmup_{}", i), strata_core::value::Value::I64(i))
             .expect("put");
     }
 
@@ -30,7 +30,7 @@ fn test_facade_overhead_ratio() {
     let iterations = 1000;
     let start = Instant::now();
     for i in 0..iterations {
-        kv.put(&run_id, &format!("perf_key_{}", i), in_mem_core::value::Value::I64(i))
+        kv.put(&run_id, &format!("perf_key_{}", i), strata_core::value::Value::I64(i))
             .expect("put");
     }
     let elapsed = start.elapsed();
@@ -57,6 +57,6 @@ fn test_non_transactional_fast_path() {
     let kv = test_db.kv();
 
     // For now, verify basic put works
-    kv.put(&test_db.run_id, "fast", in_mem_core::value::Value::I64(1))
+    kv.put(&test_db.run_id, "fast", strata_core::value::Value::I64(1))
         .expect("put");
 }

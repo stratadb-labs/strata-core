@@ -21,18 +21,18 @@ use std::path::Path;
 use std::sync::Arc;
 use std::time::Duration;
 
-use in_mem_core::PrimitiveType;
-use in_mem_storage::codec::{IdentityCodec, StorageCodec};
-use in_mem_storage::compaction::{CompactInfo, CompactMode, TombstoneIndex, WalOnlyCompactor};
-use in_mem_storage::database::{DatabaseConfig, DatabaseHandle};
-use in_mem_storage::format::{
+use strata_core::PrimitiveType;
+use strata_storage::codec::{IdentityCodec, StorageCodec};
+use strata_storage::compaction::{CompactInfo, CompactMode, TombstoneIndex, WalOnlyCompactor};
+use strata_storage::database::{DatabaseConfig, DatabaseHandle};
+use strata_storage::format::{
     Manifest, ManifestManager, WalRecord, WalSegment, MANIFEST_FORMAT_VERSION, MANIFEST_MAGIC,
     SEGMENT_FORMAT_VERSION, SEGMENT_HEADER_SIZE, SEGMENT_MAGIC, WAL_RECORD_FORMAT_VERSION,
 };
-use in_mem_storage::recovery::{RecoveryCoordinator, RecoveryError};
-use in_mem_storage::retention::RetentionPolicy;
-use in_mem_storage::testing::{CrashPoint, DataState, ReferenceModel, WalCorruptionTester};
-use in_mem_storage::wal::{DurabilityMode, WalConfig, WalReader, WalWriter};
+use strata_storage::recovery::{RecoveryCoordinator, RecoveryError};
+use strata_storage::retention::RetentionPolicy;
+use strata_storage::testing::{CrashPoint, DataState, ReferenceModel, WalCorruptionTester};
+use strata_storage::wal::{DurabilityMode, WalConfig, WalReader, WalWriter};
 use tempfile::tempdir;
 
 // =============================================================================
@@ -1429,7 +1429,7 @@ mod architectural_rules {
     /// and retrieved correctly - demonstrating they are treated as data.
     #[test]
     fn rule5_retention_policies_are_database_entries() {
-        use in_mem_storage::retention::system_namespace;
+        use strata_storage::retention::system_namespace;
 
         // Test that retention policy key generation works
         let run_id = test_uuid();
@@ -1500,7 +1500,7 @@ mod architectural_rules {
 
 mod portability_tests {
     use super::*;
-    use in_mem_storage::database::{export_database, import_database};
+    use strata_storage::database::{export_database, import_database};
 
     /// Database directory is portable by copy
     #[test]
@@ -2135,7 +2135,7 @@ mod crash_harness_tests {
 
 mod tombstone_tests {
     use super::*;
-    use in_mem_storage::compaction::{Tombstone, TombstoneReason};
+    use strata_storage::compaction::{Tombstone, TombstoneReason};
 
     /// Tombstones are internal implementation details
     #[test]
@@ -2473,7 +2473,7 @@ mod success_criteria_tests {
     /// Gate 5: Portability
     mod gate5_portability {
         use super::*;
-        use in_mem_storage::database::export_database;
+        use strata_storage::database::export_database;
 
         #[test]
         fn database_directory_portable_by_copy() {

@@ -23,10 +23,10 @@
 //! - `Drop` implementation ensures clean shutdown
 
 use super::Durability;
-use in_mem_concurrency::TransactionContext;
-use in_mem_concurrency::TransactionWALWriter;
-use in_mem_core::error::Result;
-use in_mem_durability::wal::WAL;
+use strata_concurrency::TransactionContext;
+use strata_concurrency::TransactionWALWriter;
+use strata_core::error::Result;
+use strata_durability::wal::WAL;
 use parking_lot::{Condvar, Mutex};
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::Arc;
@@ -55,7 +55,7 @@ use std::time::{Duration, Instant};
 /// **Recommended**: Use `threaded()` to auto-start the background flush thread:
 ///
 /// ```ignore
-/// use in_mem_engine::durability::BufferedDurability;
+/// use strata_engine::durability::BufferedDurability;
 ///
 /// // Thread is automatically started - recommended approach
 /// let durability = BufferedDurability::threaded(
@@ -404,7 +404,7 @@ impl std::fmt::Debug for BufferedDurability {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use in_mem_durability::wal::DurabilityMode;
+    use strata_durability::wal::DurabilityMode;
     use tempfile::TempDir;
 
     fn create_test_wal() -> (TempDir, Arc<Mutex<WAL>>) {

@@ -5,9 +5,9 @@
 //! across all durability modes.
 
 use super::*;
-use in_mem_core::types::RunId;
-use in_mem_core::value::Value;
-use in_mem_primitives::StateCell;
+use strata_core::types::RunId;
+use strata_core::value::Value;
+use strata_primitives::StateCell;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Barrier};
 use std::thread;

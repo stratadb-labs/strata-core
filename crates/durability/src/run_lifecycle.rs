@@ -21,7 +21,7 @@
 
 use crate::wal_entry_types::WalEntryType;
 use crate::wal_types::{TxId, WalEntry, WalEntryError};
-use in_mem_core::types::RunId;
+use strata_core::types::RunId;
 
 /// Payload size for RunBegin entry
 pub const RUN_BEGIN_PAYLOAD_SIZE: usize = 24; // 16 bytes run_id + 8 bytes timestamp

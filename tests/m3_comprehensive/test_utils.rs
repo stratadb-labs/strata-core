@@ -3,11 +3,11 @@
 //! Provides helpers for setting up primitives, creating test data,
 //! and asserting M3-specific invariants.
 
-use in_mem_core::error::Error;
-use in_mem_core::types::RunId;
-use in_mem_core::value::Value;
-use in_mem_engine::Database;
-use in_mem_primitives::{EventLog, KVStore, RunIndex, StateCell, TraceStore};
+use strata_core::error::Error;
+use strata_core::types::RunId;
+use strata_core::value::Value;
+use strata_engine::Database;
+use strata_primitives::{EventLog, KVStore, RunIndex, StateCell, TraceStore};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 use tempfile::TempDir;
@@ -106,7 +106,7 @@ impl PersistentTestPrimitives {
         let db = Arc::new(
             Database::open_with_mode(
                 self.temp_dir.path().join("db"),
-                in_mem_durability::wal::DurabilityMode::Strict,
+                strata_durability::wal::DurabilityMode::Strict,
             )
             .expect("Failed to open database"),
         );
@@ -224,8 +224,8 @@ pub mod assert_helpers {
 /// M3 invariant assertion helpers
 pub mod invariants {
     use super::*;
-    use in_mem_core::contract::Versioned;
-    use in_mem_primitives::Event;
+    use strata_core::contract::Versioned;
+    use strata_primitives::Event;
 
     /// Assert that EventLog chain is valid (M3.9)
     pub fn assert_chain_integrity(events: &[Versioned<Event>]) {

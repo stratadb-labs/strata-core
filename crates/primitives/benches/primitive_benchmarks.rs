@@ -9,10 +9,10 @@
 //! - Cross-primitive txn: >1K ops/sec
 
 use criterion::{criterion_group, criterion_main, Criterion, Throughput};
-use in_mem_core::types::RunId;
-use in_mem_core::value::Value;
-use in_mem_engine::Database;
-use in_mem_primitives::{
+use strata_core::types::RunId;
+use strata_core::value::Value;
+use strata_engine::Database;
+use strata_primitives::{
     EventLog, EventLogExt, KVStore, KVStoreExt, StateCell, StateCellExt, TraceStore, TraceStoreExt,
     TraceType,
 };

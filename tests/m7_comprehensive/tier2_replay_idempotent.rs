@@ -8,9 +8,9 @@
 //! - Interleaved replays of different runs
 
 use crate::test_utils::*;
-use in_mem_core::types::RunId;
-use in_mem_core::value::Value;
-use in_mem_primitives::KVStore;
+use strata_core::types::RunId;
+use strata_core::value::Value;
+use strata_primitives::KVStore;
 use std::sync::Arc;
 
 /// P6: Multiple replays produce identical views

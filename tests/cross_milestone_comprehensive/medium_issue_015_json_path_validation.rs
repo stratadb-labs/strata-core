@@ -9,8 +9,8 @@
 //! **Impact**: JSON path conflicts may not be detected during transactions.
 
 use crate::test_utils::*;
-use in_mem_core::json::JsonValue;
-use in_mem_core::types::JsonDocId;
+use strata_core::json::JsonValue;
+use strata_core::types::JsonDocId;
 
 /// Test JSON path conflict detection.
 #[test]

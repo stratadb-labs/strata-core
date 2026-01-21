@@ -9,7 +9,7 @@
 //! **Impact**: Potential silent data corruption if configs differ.
 
 use crate::test_utils::*;
-use in_mem_primitives::{DistanceMetric, StorageDtype, VectorConfig};
+use strata_primitives::{DistanceMetric, StorageDtype, VectorConfig};
 
 /// Test config validation on recovery.
 #[test]

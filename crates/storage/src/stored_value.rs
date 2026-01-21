@@ -7,7 +7,7 @@
 
 use std::time::Duration;
 
-use in_mem_core::{Timestamp, Value, Version, VersionedValue};
+use strata_core::{Timestamp, Value, Version, VersionedValue};
 
 /// A stored value with optional TTL
 ///

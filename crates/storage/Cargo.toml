@@ -1,5 +1,5 @@
 [package]
-name = "in-mem-storage"
+name = "strata-storage"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
@@ -8,7 +8,7 @@ license.workspace = true
 repository.workspace = true
 
 [dependencies]
-in-mem-core = { path = "../core" }
+strata-core = { path = "../core" }
 chrono = { workspace = true }
 parking_lot = { workspace = true }
 dashmap = { workspace = true }

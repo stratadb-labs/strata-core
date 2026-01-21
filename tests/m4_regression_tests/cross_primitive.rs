@@ -5,9 +5,9 @@
 //! across multiple primitive types.
 
 use super::*;
-use in_mem_core::types::RunId;
-use in_mem_core::value::Value;
-use in_mem_primitives::{EventLog, KVStore, RunIndex, RunStatus, StateCell, TraceStore, TraceType};
+use strata_core::types::RunId;
+use strata_core::value::Value;
+use strata_primitives::{EventLog, KVStore, RunIndex, RunStatus, StateCell, TraceStore, TraceType};
 use std::sync::{Arc, Barrier};
 use std::thread;
 
@@ -26,7 +26,7 @@ fn cross_primitive_transaction_atomicity() {
         // Transaction touching all three primitives
         // Note: KVStore.transaction creates a single transaction context
         let result = db.transaction(run_id, |txn| {
-            use in_mem_core::types::{Key, Namespace, TypeTag};
+            use strata_core::types::{Key, Namespace, TypeTag};
 
             // KV write
             let kv_key = Key::new(Namespace::for_run(run_id), TypeTag::KV, b"txn_key".to_vec());

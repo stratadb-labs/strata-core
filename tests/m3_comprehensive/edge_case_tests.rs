@@ -7,9 +7,9 @@
 //! - Concurrent edge cases
 
 use crate::test_utils::{concurrent, values, TestPrimitives};
-use in_mem_core::contract::Version;
-use in_mem_core::value::Value;
-use in_mem_primitives::TraceType;
+use strata_core::contract::Version;
+use strata_core::value::Value;
+use strata_primitives::TraceType;
 use std::sync::Arc;
 
 // =============================================================================

@@ -6,10 +6,10 @@
 //! - Incomplete transactions are detected
 //! - Recovery stops at first bad entry
 
-use in_mem_core::types::{Key, Namespace, RunId};
-use in_mem_core::value::Value;
-use in_mem_core::Timestamp;
-use in_mem_durability::wal::{DurabilityMode, WALEntry, WAL};
+use strata_core::types::{Key, Namespace, RunId};
+use strata_core::value::Value;
+use strata_core::Timestamp;
+use strata_durability::wal::{DurabilityMode, WALEntry, WAL};
 use std::fs::OpenOptions;
 use std::io::{Read, Seek, SeekFrom, Write};
 use tempfile::TempDir;

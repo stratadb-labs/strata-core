@@ -22,7 +22,7 @@
 //! └──────────────────┴──────────────────┴────────────────────────────┘
 //! ```
 
-use in_mem_core::{EntityRef, JsonDocId, RunId};
+use strata_core::{EntityRef, JsonDocId, RunId};
 
 /// Mutation tag bytes
 const MUTATION_PUT: u8 = 0x01;

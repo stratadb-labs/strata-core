@@ -9,7 +9,7 @@
 //! **Impact**: When F16/Int8 quantization is added in M9, WAL format will need breaking change.
 
 use crate::test_utils::*;
-use in_mem_primitives::{StorageDtype, VectorConfig, DistanceMetric};
+use strata_primitives::{StorageDtype, VectorConfig, DistanceMetric};
 
 /// Test that storage_dtype is persisted in WAL.
 #[test]

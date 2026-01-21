@@ -23,7 +23,7 @@
 //! ## Usage
 //!
 //! ```
-//! use in_mem_core::contract::{
+//! use strata_core::contract::{
 //!     EntityRef, Versioned, Version, Timestamp, PrimitiveType, RunName
 //! };
 //! ```

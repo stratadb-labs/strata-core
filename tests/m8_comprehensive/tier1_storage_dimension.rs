@@ -3,7 +3,7 @@
 //! Invariant S1: Collection dimension cannot change after creation.
 
 use crate::test_utils::*;
-use in_mem_primitives::vector::{DistanceMetric, VectorError};
+use strata_primitives::vector::{DistanceMetric, VectorError};
 
 /// Test that inserting a vector with wrong dimension fails
 #[test]

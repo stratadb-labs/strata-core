@@ -1,6 +1,6 @@
 //! Error types for the Vector primitive
 
-use in_mem_core::{EntityRef, RunId, StrataError};
+use strata_core::{EntityRef, RunId, StrataError};
 use thiserror::Error;
 
 /// Errors specific to the Vector primitive

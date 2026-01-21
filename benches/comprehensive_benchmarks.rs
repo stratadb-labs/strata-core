@@ -1,4 +1,4 @@
-//! Comprehensive Benchmark Suite for in-mem
+//! Comprehensive Benchmark Suite for Strata
 //!
 //! This benchmark suite answers three critical questions:
 //! 1. Is it fast enough for its intended workloads?
@@ -45,11 +45,11 @@
 //! ```
 
 use criterion::{black_box, criterion_group, criterion_main, BenchmarkId, Criterion, Throughput};
-use in_mem_core::traits::Storage;
-use in_mem_core::types::{Key, Namespace, RunId, TypeTag};
-use in_mem_core::value::Value;
-use in_mem_durability::wal::DurabilityMode;
-use in_mem_engine::Database;
+use strata_core::traits::Storage;
+use strata_core::types::{Key, Namespace, RunId, TypeTag};
+use strata_core::value::Value;
+use strata_durability::wal::DurabilityMode;
+use strata_engine::Database;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Barrier};
 use std::thread;

@@ -3,10 +3,10 @@
 //! These tests are marked #[ignore] and run manually with --ignored flag.
 
 use super::test_utils::*;
-use in_mem_core::search_types::{SearchBudget, SearchRequest};
-use in_mem_core::value::Value;
-use in_mem_primitives::{KVStore, RunIndex};
-use in_mem_search::DatabaseSearchExt;
+use strata_core::search_types::{SearchBudget, SearchRequest};
+use strata_core::value::Value;
+use strata_primitives::{KVStore, RunIndex};
+use strata_search::DatabaseSearchExt;
 use std::sync::Arc;
 use std::thread;
 use std::time::{Duration, Instant};

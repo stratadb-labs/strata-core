@@ -31,13 +31,13 @@ use crate::vector::{
     VectorConfig, VectorEntry, VectorError, VectorId, VectorIndexBackend, VectorMatch,
     VectorRecord, VectorResult,
 };
-use in_mem_concurrency::TransactionContext;
-use in_mem_core::contract::{Timestamp, Version, Versioned};
-use in_mem_core::search_types::{DocRef, SearchBudget, SearchHit, SearchResponse, SearchStats};
-use in_mem_core::types::{Key, Namespace, RunId};
-use in_mem_core::value::Value;
-use in_mem_durability::wal::WALEntry;
-use in_mem_engine::Database;
+use strata_concurrency::TransactionContext;
+use strata_core::contract::{Timestamp, Version, Versioned};
+use strata_core::search_types::{DocRef, SearchBudget, SearchHit, SearchResponse, SearchStats};
+use strata_core::types::{Key, Namespace, RunId};
+use strata_core::value::Value;
+use strata_durability::wal::WALEntry;
+use strata_engine::Database;
 use serde_json::Value as JsonValue;
 use std::collections::BTreeMap;
 use std::sync::{Arc, RwLock};
@@ -88,9 +88,9 @@ impl Default for VectorBackendState {
 /// # Example
 ///
 /// ```ignore
-/// use in_mem_primitives::VectorStore;
-/// use in_mem_engine::Database;
-/// use in_mem_core::types::RunId;
+/// use strata_primitives::VectorStore;
+/// use strata_engine::Database;
+/// use strata_core::types::RunId;
 ///
 /// let db = Arc::new(Database::open("/path/to/data")?);
 /// let store = VectorStore::new(db.clone());
@@ -501,7 +501,7 @@ impl VectorStore {
     /// Returns CollectionInfo for each collection, including current vector count.
     /// Results are sorted by name for determinism (Invariant R4).
     pub fn list_collections(&self, run_id: RunId) -> VectorResult<Vec<CollectionInfo>> {
-        use in_mem_core::traits::SnapshotView;
+        use strata_core::traits::SnapshotView;
 
         let namespace = Namespace::for_run(run_id);
         let prefix = Key::new_vector_config_prefix(namespace);
@@ -560,7 +560,7 @@ impl VectorStore {
         let config_key = Key::new_vector_config(Namespace::for_run(run_id), name);
 
         // Read from snapshot
-        use in_mem_core::traits::SnapshotView;
+        use strata_core::traits::SnapshotView;
         let snapshot = self.db.storage().create_snapshot();
 
         let Some(versioned_value) = snapshot
@@ -601,7 +601,7 @@ impl VectorStore {
 
     /// Check if a collection exists
     pub fn collection_exists(&self, run_id: RunId, name: &str) -> VectorResult<bool> {
-        use in_mem_core::traits::SnapshotView;
+        use strata_core::traits::SnapshotView;
 
         let config_key = Key::new_vector_config(Namespace::for_run(run_id), name);
         let snapshot = self.db.storage().create_snapshot();
@@ -737,7 +737,7 @@ impl VectorStore {
         let kv_key = Key::new_vector(Namespace::for_run(run_id), collection, key);
 
         // Get record from KV with version info
-        use in_mem_core::traits::SnapshotView;
+        use strata_core::traits::SnapshotView;
         let snapshot = self.db.storage().create_snapshot();
         let Some(versioned_value) = snapshot
             .get(&kv_key)
@@ -1161,7 +1161,7 @@ impl VectorStore {
 
     /// Get a vector record by KV key
     fn get_vector_record_by_key(&self, key: &Key) -> VectorResult<Option<VectorRecord>> {
-        use in_mem_core::traits::SnapshotView;
+        use strata_core::traits::SnapshotView;
 
         let snapshot = self.db.storage().create_snapshot();
         let Some(versioned) = snapshot
@@ -1193,7 +1193,7 @@ impl VectorStore {
         collection: &str,
         target_id: VectorId,
     ) -> VectorResult<(String, Option<JsonValue>)> {
-        use in_mem_core::traits::SnapshotView;
+        use strata_core::traits::SnapshotView;
 
         let namespace = Namespace::for_run(run_id);
         let prefix = Key::vector_collection_prefix(namespace, collection);
@@ -1252,7 +1252,7 @@ impl VectorStore {
         drop(backends);
 
         // Backend not loaded - count from KV
-        use in_mem_core::traits::SnapshotView;
+        use strata_core::traits::SnapshotView;
         let namespace = Namespace::for_run(run_id);
         let prefix = Key::vector_collection_prefix(namespace, name);
 
@@ -1266,7 +1266,7 @@ impl VectorStore {
 
     /// Delete all vectors in a collection
     fn delete_all_vectors(&self, run_id: RunId, name: &str) -> VectorResult<()> {
-        use in_mem_core::traits::SnapshotView;
+        use strata_core::traits::SnapshotView;
 
         let namespace = Namespace::for_run(run_id);
         let prefix = Key::vector_collection_prefix(namespace, name);
@@ -1301,7 +1301,7 @@ impl VectorStore {
         run_id: RunId,
         name: &str,
     ) -> VectorResult<Option<VectorConfig>> {
-        use in_mem_core::traits::SnapshotView;
+        use strata_core::traits::SnapshotView;
 
         let config_key = Key::new_vector_config(Namespace::for_run(run_id), name);
         let snapshot = self.db.storage().create_snapshot();
@@ -1532,9 +1532,9 @@ impl crate::searchable::Searchable for VectorStore {
     /// 3. Fusing results via RRF
     fn search(
         &self,
-        req: &in_mem_core::SearchRequest,
-    ) -> in_mem_core::error::Result<in_mem_core::SearchResponse> {
-        use in_mem_core::search_types::{SearchMode, SearchResponse, SearchStats};
+        req: &strata_core::SearchRequest,
+    ) -> strata_core::error::Result<strata_core::SearchResponse> {
+        use strata_core::search_types::{SearchMode, SearchResponse, SearchStats};
         use std::time::Instant;
 
         let start = Instant::now();
@@ -1567,17 +1567,17 @@ impl crate::searchable::Searchable for VectorStore {
         }
     }
 
-    fn primitive_kind(&self) -> in_mem_core::PrimitiveType {
-        in_mem_core::PrimitiveType::Vector
+    fn primitive_kind(&self) -> strata_core::PrimitiveType {
+        strata_core::PrimitiveType::Vector
     }
 }
 
 // ========== PrimitiveStorageExt Trait Implementation (Issue #438) ==========
 
-impl in_mem_storage::PrimitiveStorageExt for VectorStore {
+impl strata_storage::PrimitiveStorageExt for VectorStore {
     /// Vector primitive type ID is 7
     fn primitive_type_id(&self) -> u8 {
-        in_mem_storage::primitive_type_ids::VECTOR
+        strata_storage::primitive_type_ids::VECTOR
     }
 
     /// Vector WAL entry types: 0x70-0x73
@@ -1588,10 +1588,10 @@ impl in_mem_storage::PrimitiveStorageExt for VectorStore {
     /// Serialize vector state for snapshot
     ///
     /// Wraps the existing snapshot_serialize method with a Vec<u8> buffer.
-    fn snapshot_serialize(&self) -> Result<Vec<u8>, in_mem_storage::PrimitiveExtError> {
+    fn snapshot_serialize(&self) -> Result<Vec<u8>, strata_storage::PrimitiveExtError> {
         let mut buffer = Vec::new();
         self.snapshot_serialize(&mut buffer)
-            .map_err(|e| in_mem_storage::PrimitiveExtError::Serialization(e.to_string()))?;
+            .map_err(|e| strata_storage::PrimitiveExtError::Serialization(e.to_string()))?;
         Ok(buffer)
     }
 
@@ -1599,12 +1599,12 @@ impl in_mem_storage::PrimitiveStorageExt for VectorStore {
     ///
     /// Wraps the existing snapshot_deserialize method.
     /// Note: Uses interior mutability via the RwLock in VectorBackendState.
-    fn snapshot_deserialize(&mut self, data: &[u8]) -> Result<(), in_mem_storage::PrimitiveExtError> {
+    fn snapshot_deserialize(&mut self, data: &[u8]) -> Result<(), strata_storage::PrimitiveExtError> {
         use std::io::Cursor;
         let mut cursor = Cursor::new(data);
         // Note: snapshot_deserialize takes &self and uses interior mutability
         VectorStore::snapshot_deserialize(self, &mut cursor)
-            .map_err(|e| in_mem_storage::PrimitiveExtError::Deserialization(e.to_string()))
+            .map_err(|e| strata_storage::PrimitiveExtError::Deserialization(e.to_string()))
     }
 
     /// Apply a WAL entry during recovery
@@ -1615,19 +1615,19 @@ impl in_mem_storage::PrimitiveStorageExt for VectorStore {
         &mut self,
         entry_type: u8,
         payload: &[u8],
-    ) -> Result<(), in_mem_storage::PrimitiveExtError> {
+    ) -> Result<(), strata_storage::PrimitiveExtError> {
         use crate::vector::wal::VectorWalReplayer;
-        use in_mem_durability::WalEntryType;
+        use strata_durability::WalEntryType;
         use std::convert::TryFrom;
 
         let wal_entry_type = WalEntryType::try_from(entry_type).map_err(|_| {
-            in_mem_storage::PrimitiveExtError::UnknownEntryType(entry_type)
+            strata_storage::PrimitiveExtError::UnknownEntryType(entry_type)
         })?;
 
         let replayer = VectorWalReplayer::new(self);
         replayer
             .apply(wal_entry_type, payload)
-            .map_err(|e| in_mem_storage::PrimitiveExtError::InvalidOperation(e.to_string()))
+            .map_err(|e| strata_storage::PrimitiveExtError::InvalidOperation(e.to_string()))
     }
 
     /// Primitive name for logging/debugging
@@ -1639,7 +1639,7 @@ impl in_mem_storage::PrimitiveStorageExt for VectorStore {
     ///
     /// For M8 BruteForce backend, no indexes need rebuilding.
     /// M9 HNSW may need to rebuild graph structure here.
-    fn rebuild_indexes(&mut self) -> Result<(), in_mem_storage::PrimitiveExtError> {
+    fn rebuild_indexes(&mut self) -> Result<(), strata_storage::PrimitiveExtError> {
         // BruteForce backend has no derived indexes to rebuild.
         // HNSW (M9) would rebuild the graph here.
         Ok(())
@@ -1670,7 +1670,7 @@ fn now_micros() -> u64 {
 // and apply them at commit time, but this requires significant infrastructure.
 
 impl VectorStoreExt for TransactionContext {
-    fn vector_get(&mut self, collection: &str, key: &str) -> in_mem_core::Result<Option<Vec<f32>>> {
+    fn vector_get(&mut self, collection: &str, key: &str) -> strata_core::Result<Option<Vec<f32>>> {
         // VectorStore embeddings are stored in VectorHeap (in-memory backend),
         // which is not accessible from TransactionContext.
         //
@@ -1680,7 +1680,7 @@ impl VectorStoreExt for TransactionContext {
         // To properly support this, TransactionContext would need access to
         // Database::extension::<VectorBackendState>().
         let _ = (collection, key); // Mark as intentionally unused
-        Err(in_mem_core::error::Error::InvalidOperation(
+        Err(strata_core::error::Error::InvalidOperation(
             "VectorStore get operations are not supported in cross-primitive transactions. \
              Embeddings are stored in in-memory backends not accessible from TransactionContext. \
              Use VectorStore::get() directly outside of transactions."
@@ -1693,7 +1693,7 @@ impl VectorStoreExt for TransactionContext {
         collection: &str,
         key: &str,
         embedding: &[f32],
-    ) -> in_mem_core::Result<Version> {
+    ) -> strata_core::Result<Version> {
         // VectorStore inserts require:
         // 1. Adding embedding to VectorHeap (in-memory)
         // 2. Getting a VectorId from the backend's allocator
@@ -1703,7 +1703,7 @@ impl VectorStoreExt for TransactionContext {
         // Steps 1, 2, and 4 require access to VectorBackendState which is
         // not available from TransactionContext.
         let _ = (collection, key, embedding); // Mark as intentionally unused
-        Err(in_mem_core::error::Error::InvalidOperation(
+        Err(strata_core::error::Error::InvalidOperation(
             "VectorStore insert operations are not supported in cross-primitive transactions. \
              Vector operations require access to in-memory backends not accessible from \
              TransactionContext. Use VectorStore::insert() directly outside of transactions."

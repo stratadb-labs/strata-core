@@ -6,7 +6,7 @@
 //! - EntityRef: run_id extraction from all variants
 
 use crate::test_utils::{all_entity_refs, test_run_id};
-use in_mem_core::{EntityRef, JsonDocId, PrimitiveType, Timestamp, Version};
+use strata_core::{EntityRef, JsonDocId, PrimitiveType, Timestamp, Version};
 use std::time::Duration;
 
 // ============================================================================
@@ -201,7 +201,7 @@ fn entity_ref_display_format_informative() {
 
 #[test]
 fn versioned_accepts_all_version_variants() {
-    use in_mem_core::Versioned;
+    use strata_core::Versioned;
 
     // Old VersionedValue had version: u64. New uses Version enum.
     let v1 = Versioned::new(42, Version::txn(1));
@@ -220,7 +220,7 @@ fn versioned_accepts_all_version_variants() {
 
 #[test]
 fn versioned_timestamp_is_microseconds() {
-    use in_mem_core::Versioned;
+    use strata_core::Versioned;
 
     let v = Versioned::new(42, Version::txn(1));
 

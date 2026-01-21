@@ -3,7 +3,7 @@
 //! Invariant R5: Facade sorts by (score desc, key asc).
 
 use crate::test_utils::*;
-use in_mem_primitives::vector::DistanceMetric;
+use strata_primitives::vector::DistanceMetric;
 
 /// Test that facade breaks ties by key (ascending)
 #[test]

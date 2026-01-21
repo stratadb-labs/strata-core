@@ -24,18 +24,18 @@
 //! - Index key format: `<namespace>:<TypeTag::Trace>:__idx_{type}__{value}__{trace_id}`
 
 use crate::extensions::TraceStoreExt;
-use in_mem_concurrency::TransactionContext;
-use in_mem_core::contract::{Version, Versioned};
-use in_mem_core::error::{Error, Result};
-use in_mem_core::types::{Key, Namespace, RunId};
-use in_mem_core::value::Value;
-use in_mem_core::Timestamp;
-use in_mem_engine::Database;
+use strata_concurrency::TransactionContext;
+use strata_core::contract::{Version, Versioned};
+use strata_core::error::{Error, Result};
+use strata_core::types::{Key, Namespace, RunId};
+use strata_core::value::Value;
+use strata_core::Timestamp;
+use strata_engine::Database;
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 
 // Re-export Trace types from core
-pub use in_mem_core::primitives::{Trace, TraceTree, TraceType};
+pub use strata_core::primitives::{Trace, TraceTree, TraceType};
 
 /// Extension trait for trace ID generation (requires uuid crate)
 pub trait TraceIdGenerator {
@@ -93,8 +93,8 @@ fn from_stored_value<T: for<'de> Deserialize<'de>>(
 /// ## Example
 ///
 /// ```rust,ignore
-/// use in_mem_primitives::{TraceStore, TraceType};
-/// use in_mem_core::value::Value;
+/// use strata_primitives::{TraceStore, TraceType};
+/// use strata_core::value::Value;
 ///
 /// let ts = TraceStore::new(db.clone());
 /// let run_id = RunId::new();
@@ -259,7 +259,7 @@ impl TraceStore {
     ///
     /// # Story #469: TraceStore Versioned Returns
     pub fn get(&self, run_id: &RunId, trace_id: &str) -> Result<Option<Versioned<Trace>>> {
-        use in_mem_core::traits::SnapshotView;
+        use strata_core::traits::SnapshotView;
 
         let snapshot = self.db.storage().create_snapshot();
         let key = self.key_for(run_id, trace_id);
@@ -302,7 +302,7 @@ impl TraceStore {
     ///
     /// Uses direct snapshot read which maintains snapshot isolation.
     pub fn exists(&self, run_id: &RunId, trace_id: &str) -> Result<bool> {
-        use in_mem_core::traits::SnapshotView;
+        use strata_core::traits::SnapshotView;
 
         let snapshot = self.db.storage().create_snapshot();
         let key = self.key_for(run_id, trace_id);
@@ -560,7 +560,7 @@ impl TraceStore {
     /// # Example
     ///
     /// ```ignore
-    /// use in_mem_core::SearchRequest;
+    /// use strata_core::SearchRequest;
     ///
     /// let response = trace.search(&SearchRequest::new(run_id, "reasoning"))?;
     /// for hit in response.hits {
@@ -569,11 +569,11 @@ impl TraceStore {
     /// ```
     pub fn search(
         &self,
-        req: &in_mem_core::SearchRequest,
-    ) -> in_mem_core::error::Result<in_mem_core::SearchResponse> {
+        req: &strata_core::SearchRequest,
+    ) -> strata_core::error::Result<strata_core::SearchResponse> {
         use crate::searchable::{build_search_response, SearchCandidate};
-        use in_mem_core::search_types::DocRef;
-        use in_mem_core::traits::SnapshotView;
+        use strata_core::search_types::DocRef;
+        use strata_core::traits::SnapshotView;
         use std::time::Instant;
 
         let start = Instant::now();
@@ -647,13 +647,13 @@ impl TraceStore {
 impl crate::searchable::Searchable for TraceStore {
     fn search(
         &self,
-        req: &in_mem_core::SearchRequest,
-    ) -> in_mem_core::error::Result<in_mem_core::SearchResponse> {
+        req: &strata_core::SearchRequest,
+    ) -> strata_core::error::Result<strata_core::SearchResponse> {
         self.search(req)
     }
 
-    fn primitive_kind(&self) -> in_mem_core::PrimitiveType {
-        in_mem_core::PrimitiveType::Trace
+    fn primitive_kind(&self) -> strata_core::PrimitiveType {
+        strata_core::PrimitiveType::Trace
     }
 }
 

@@ -12,9 +12,9 @@
 //! - M3.20: Status Updates Are Transactional - Atomic with other operations
 
 use super::test_utils::*;
-use in_mem_core::types::RunId;
-use in_mem_core::value::Value;
-use in_mem_primitives::{RunIndex, RunStatus, TraceType};
+use strata_core::types::RunId;
+use strata_core::value::Value;
+use strata_primitives::{RunIndex, RunStatus, TraceType};
 
 // ============================================================================
 // M3.16: Valid Status Transitions

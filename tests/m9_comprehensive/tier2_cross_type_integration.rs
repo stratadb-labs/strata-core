@@ -4,7 +4,7 @@
 //! correctly as a cohesive system.
 
 use crate::test_utils::{all_entity_refs, all_primitive_types, test_run_id};
-use in_mem_core::{
+use strata_core::{
     EntityRef, JsonDocId, PrimitiveType, Timestamp, Value, Version, Versioned,
     VersionedValue,
 };

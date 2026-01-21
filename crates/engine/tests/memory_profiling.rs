@@ -3,9 +3,9 @@
 //! Story #108: Documents ClonedSnapshotView memory overhead
 //! and TransactionContext footprint.
 
-use in_mem_core::types::{Key, Namespace, RunId};
-use in_mem_core::value::Value;
-use in_mem_engine::Database;
+use strata_core::types::{Key, Namespace, RunId};
+use strata_core::value::Value;
+use strata_engine::Database;
 use std::mem;
 use tempfile::TempDir;
 
@@ -194,13 +194,13 @@ fn test_aborted_transaction_cleanup() {
 
     // Create and abort many transactions
     for round in 0..100 {
-        let result: Result<(), in_mem_core::error::Error> = db.transaction(run_id, |txn| {
+        let result: Result<(), strata_core::error::Error> = db.transaction(run_id, |txn| {
             for i in 0..100 {
                 let key = Key::new_kv(ns.clone(), format!("abort_{}_key_{}", round, i));
                 txn.put(key, Value::I64(i as i64))?;
             }
             // Force abort
-            Err(in_mem_core::error::Error::InvalidState(
+            Err(strata_core::error::Error::InvalidState(
                 "intentional abort".to_string(),
             ))
         });

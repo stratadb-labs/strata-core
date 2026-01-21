@@ -23,13 +23,13 @@
 //! Primitives register their recovery functions at startup:
 //!
 //! ```ignore
-//! use in_mem_engine::{register_recovery_participant, RecoveryParticipant};
+//! use strata_engine::{register_recovery_participant, RecoveryParticipant};
 //!
 //! // Called once at initialization
 //! register_recovery_participant(RecoveryParticipant::new("vector", recover_vector_state));
 //! ```
 
-use in_mem_core::error::Result;
+use strata_core::error::Result;
 use parking_lot::RwLock;
 use tracing::info;
 

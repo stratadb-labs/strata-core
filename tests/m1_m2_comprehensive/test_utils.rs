@@ -1,10 +1,10 @@
 //! Common test utilities for M1+M2 comprehensive tests
 
-use in_mem_core::contract::Version;
-use in_mem_core::traits::Storage;
-use in_mem_core::types::{Key, Namespace, RunId};
-use in_mem_core::value::Value;
-use in_mem_engine::Database;
+use strata_core::contract::Version;
+use strata_core::traits::Storage;
+use strata_core::types::{Key, Namespace, RunId};
+use strata_core::value::Value;
+use strata_engine::Database;
 use std::path::Path;
 use std::sync::atomic::{AtomicU64, Ordering};
 use tempfile::TempDir;
@@ -194,7 +194,7 @@ impl PersistentTestDb {
     pub fn open_strict(&self) -> Database {
         Database::open_with_mode(
             self.temp_dir.path().join("db"),
-            in_mem_durability::wal::DurabilityMode::Strict,
+            strata_durability::wal::DurabilityMode::Strict,
         )
         .expect("Failed to open database with strict mode")
     }
@@ -218,7 +218,7 @@ impl Default for PersistentTestDb {
 
 /// Assertion helpers
 pub mod assert_helpers {
-    use in_mem_core::error::Error;
+    use strata_core::error::Error;
 
     /// Assert that a result is a conflict error
     pub fn assert_conflict<T>(result: Result<T, Error>) {
@@ -369,9 +369,9 @@ impl DatabaseStateSnapshot {
 
         // Create prefix keys for different types and scan
         for type_tag in [
-            in_mem_core::types::TypeTag::KV,
-            in_mem_core::types::TypeTag::Event,
-            in_mem_core::types::TypeTag::State,
+            strata_core::types::TypeTag::KV,
+            strata_core::types::TypeTag::Event,
+            strata_core::types::TypeTag::State,
         ] {
             let prefix = Key::new(ns.clone(), type_tag, vec![]);
             if let Ok(iter_entries) = storage.scan_prefix(&prefix, u64::MAX) {
@@ -499,7 +499,7 @@ impl StateDiff {
 /// Invariant assertion helpers
 pub mod invariants {
     use super::*;
-    use in_mem_engine::Database;
+    use strata_engine::Database;
 
     /// Assert that database state before crash equals state after recovery
     /// This is THE fundamental M1 invariant

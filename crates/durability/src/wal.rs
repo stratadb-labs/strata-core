@@ -36,7 +36,7 @@
 //! - `Async` - background thread fsyncs periodically (fast, may lose recent writes)
 
 use crate::encoding::{decode_entry, encode_entry};
-use in_mem_core::{
+use strata_core::{
     error::{Error, Result},
     json::JsonPath,
     types::{JsonDocId, Key, RunId},
@@ -496,7 +496,7 @@ impl Default for DurabilityMode {
 /// # Example
 ///
 /// ```ignore
-/// use in_mem_durability::wal::{WAL, WALEntry, DurabilityMode};
+/// use strata_durability::wal::{WAL, WALEntry, DurabilityMode};
 ///
 /// // Open with default batched mode
 /// let mut wal = WAL::open("data/wal/segment.wal", DurabilityMode::default())?;
@@ -855,7 +855,7 @@ impl Drop for WAL {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use in_mem_core::types::Namespace;
+    use strata_core::types::Namespace;
 
     /// Helper to get current timestamp
     fn now() -> Timestamp {
@@ -1491,8 +1491,8 @@ mod tests {
     // JSON Entry Type Tests (Story #278)
     // ========================================================================
 
-    use in_mem_core::json::JsonPath;
-    use in_mem_core::types::JsonDocId;
+    use strata_core::json::JsonPath;
+    use strata_core::types::JsonDocId;
 
     #[test]
     fn test_json_create_entry() {

@@ -9,11 +9,11 @@
 //!
 //! Per spec Section 4: These tests validate M1 compatibility and M2 transaction semantics.
 
-use in_mem_core::error::Error;
-use in_mem_core::traits::Storage;
-use in_mem_core::types::{Key, Namespace, RunId};
-use in_mem_core::value::Value;
-use in_mem_engine::{Database, RetryConfig};
+use strata_core::error::Error;
+use strata_core::traits::Storage;
+use strata_core::types::{Key, Namespace, RunId};
+use strata_core::value::Value;
+use strata_engine::{Database, RetryConfig};
 use std::sync::Arc;
 use std::thread;
 use tempfile::TempDir;

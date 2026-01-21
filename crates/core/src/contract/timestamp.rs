@@ -16,7 +16,7 @@
 //! Never expose raw arithmetic. Use explicit constructors:
 //!
 //! ```
-//! use in_mem_core::Timestamp;
+//! use strata_core::Timestamp;
 //!
 //! let now = Timestamp::now();
 //! let from_secs = Timestamp::from_secs(1000);

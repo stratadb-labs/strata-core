@@ -3,8 +3,8 @@
 //! Tests HybridSearch across multiple primitives.
 
 use crate::test_utils::*;
-use in_mem_core::json::JsonValue;
-use in_mem_core::types::JsonDocId;
+use strata_core::json::JsonValue;
+use strata_core::types::JsonDocId;
 
 /// Test hybrid search orchestrates multiple primitives.
 #[test]
@@ -14,7 +14,7 @@ fn test_hybrid_orchestrates_primitives() {
     let p = test_db.all_primitives();
 
     // Populate primitives with related content
-    p.kv.put(&run_id, "topic1", in_mem_core::value::Value::String("machine learning algorithm".into()))
+    p.kv.put(&run_id, "topic1", strata_core::value::Value::String("machine learning algorithm".into()))
         .expect("kv");
     let doc_id = JsonDocId::new();
     p.json.create(&run_id, &doc_id, JsonValue::from(serde_json::json!({

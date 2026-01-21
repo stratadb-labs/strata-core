@@ -13,7 +13,7 @@
 /// # Example
 ///
 /// ```
-/// use in_mem_search::tokenizer::tokenize;
+/// use strata_search::tokenizer::tokenize;
 ///
 /// let tokens = tokenize("Hello, World!");
 /// assert_eq!(tokens, vec!["hello", "world"]);
@@ -31,7 +31,7 @@ pub fn tokenize(text: &str) -> Vec<String> {
 /// # Example
 ///
 /// ```
-/// use in_mem_search::tokenizer::tokenize_unique;
+/// use strata_search::tokenizer::tokenize_unique;
 ///
 /// let tokens = tokenize_unique("test test TEST");
 /// assert_eq!(tokens, vec!["test"]);

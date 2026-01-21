@@ -21,15 +21,15 @@
 //! - No primitive-specific patterns
 
 use crate::test_utils::test_run_id;
-use in_mem_concurrency::snapshot::ClonedSnapshotView;
-use in_mem_concurrency::TransactionContext;
-use in_mem_core::contract::{EntityRef, Version, Versioned};
-use in_mem_core::error::StrataError;
-use in_mem_core::types::{Namespace, RunId};
-use in_mem_core::value::Value;
-use in_mem_core::{Event, State, Trace, TraceType};
-use in_mem_engine::transaction::Transaction;
-use in_mem_engine::transaction_ops::TransactionOps;
+use strata_concurrency::snapshot::ClonedSnapshotView;
+use strata_concurrency::TransactionContext;
+use strata_core::contract::{EntityRef, Version, Versioned};
+use strata_core::error::StrataError;
+use strata_core::types::{Namespace, RunId};
+use strata_core::value::Value;
+use strata_core::{Event, State, Trace, TraceType};
+use strata_engine::transaction::Transaction;
+use strata_engine::transaction_ops::TransactionOps;
 
 /// Create a test namespace for a run
 fn create_namespace(run_id: RunId) -> Namespace {
@@ -618,7 +618,7 @@ fn versioned_into_value_extracts_value() {
 #[test]
 fn entity_ref_covers_all_primitives() {
     let run_id = test_run_id();
-    use in_mem_core::types::JsonDocId;
+    use strata_core::types::JsonDocId;
 
     // All 7 primitives have EntityRef variants
     let refs = vec![
@@ -632,7 +632,7 @@ fn entity_ref_covers_all_primitives() {
     ];
 
     // Each ref reports correct primitive type
-    use in_mem_core::PrimitiveType;
+    use strata_core::PrimitiveType;
     assert_eq!(refs[0].primitive_type(), PrimitiveType::Kv);
     assert_eq!(refs[1].primitive_type(), PrimitiveType::Event);
     assert_eq!(refs[2].primitive_type(), PrimitiveType::State);
@@ -655,7 +655,7 @@ fn entity_ref_covers_all_primitives() {
 fn gate1_all_primitives_conform_to_invariant_1_addressable() {
     // Every entity has a stable identity via EntityRef
     let run_id = test_run_id();
-    use in_mem_core::types::JsonDocId;
+    use strata_core::types::JsonDocId;
 
     // KV addressable
     let kv_ref = EntityRef::kv(run_id, "key");

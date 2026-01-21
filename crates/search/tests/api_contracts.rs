@@ -5,12 +5,12 @@
 //!
 //! See `docs/architecture/M6_ARCHITECTURE.md` for authoritative specification.
 
-use in_mem_core::search_types::{PrimitiveType, SearchRequest, SearchResponse};
-use in_mem_core::types::RunId;
-use in_mem_core::value::Value;
-use in_mem_engine::Database;
-use in_mem_primitives::{KVStore, RunIndex};
-use in_mem_search::{DatabaseSearchExt, HybridSearch, RRFFuser};
+use strata_core::search_types::{PrimitiveType, SearchRequest, SearchResponse};
+use strata_core::types::RunId;
+use strata_core::value::Value;
+use strata_engine::Database;
+use strata_primitives::{KVStore, RunIndex};
+use strata_search::{DatabaseSearchExt, HybridSearch, RRFFuser};
 use std::collections::HashSet;
 use std::sync::Arc;
 

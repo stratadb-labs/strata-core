@@ -22,8 +22,8 @@
 //! - `VersionedValue`: Contract type returned to callers (no TTL)
 
 use dashmap::DashMap;
-use in_mem_core::types::{Key, RunId};
-use in_mem_core::{Timestamp, Version, VersionedValue};
+use strata_core::types::{Key, RunId};
+use strata_core::{Timestamp, Version, VersionedValue};
 use rustc_hash::FxHashMap;
 use std::collections::VecDeque;
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -168,7 +168,7 @@ impl Default for Shard {
 /// # Example
 ///
 /// ```ignore
-/// use in_mem_storage::ShardedStore;
+/// use strata_storage::ShardedStore;
 /// use std::sync::Arc;
 ///
 /// let store = Arc::new(ShardedStore::new());
@@ -316,10 +316,10 @@ impl ShardedStore {
     /// repeated syscalls. All writes in a transaction share the same timestamp.
     pub fn apply_batch(
         &self,
-        writes: &[(Key, in_mem_core::value::Value)],
+        writes: &[(Key, strata_core::value::Value)],
         deletes: &[Key],
         version: u64,
-    ) -> in_mem_core::error::Result<()> {
+    ) -> strata_core::error::Result<()> {
         use std::sync::atomic::Ordering;
 
         // Capture timestamp once for entire batch (M4 optimization)
@@ -442,7 +442,7 @@ impl ShardedStore {
     pub fn list_by_type(
         &self,
         run_id: &RunId,
-        type_tag: in_mem_core::types::TypeTag,
+        type_tag: strata_core::types::TypeTag,
     ) -> Vec<(Key, VersionedValue)> {
         self.shards
             .get(run_id)
@@ -464,7 +464,7 @@ impl ShardedStore {
     }
 
     /// Count entries of a specific type for a run
-    pub fn count_by_type(&self, run_id: &RunId, type_tag: in_mem_core::types::TypeTag) -> usize {
+    pub fn count_by_type(&self, run_id: &RunId, type_tag: strata_core::types::TypeTag) -> usize {
         self.shards
             .get(run_id)
             .map(|shard| {
@@ -517,7 +517,7 @@ impl ShardedStore {
     ///
     /// ```ignore
     /// use std::sync::Arc;
-    /// use in_mem_storage::ShardedStore;
+    /// use strata_storage::ShardedStore;
     ///
     /// let store = Arc::new(ShardedStore::new());
     /// let snapshot = store.snapshot();
@@ -548,7 +548,7 @@ impl ShardedStore {
     ///
     /// ```ignore
     /// use std::sync::Arc;
-    /// use in_mem_storage::ShardedStore;
+    /// use strata_storage::ShardedStore;
     ///
     /// let store = Arc::new(ShardedStore::new());
     /// let snapshot = store.create_snapshot();  // Same as store.snapshot()
@@ -647,7 +647,7 @@ impl ShardedSnapshot {
     #[inline]
     pub fn contains(&self, key: &Key) -> bool {
         // Use the SnapshotView trait method for proper version filtering
-        use in_mem_core::traits::SnapshotView;
+        use strata_core::traits::SnapshotView;
         SnapshotView::get(self, key).ok().flatten().is_some()
     }
 
@@ -665,7 +665,7 @@ impl ShardedSnapshot {
     pub fn list_by_type(
         &self,
         run_id: &RunId,
-        type_tag: in_mem_core::types::TypeTag,
+        type_tag: strata_core::types::TypeTag,
     ) -> Vec<(Key, VersionedValue)> {
         self.store.list_by_type(run_id, type_tag)
     }
@@ -700,9 +700,9 @@ impl std::fmt::Debug for ShardedSnapshot {
 // Storage Trait Implementation (Story #231)
 // ============================================================================
 
-use in_mem_core::error::Result;
-use in_mem_core::traits::Storage;
-use in_mem_core::value::Value;
+use strata_core::error::Result;
+use strata_core::traits::Storage;
+use strata_core::value::Value;
 use std::time::Duration;
 
 impl Storage for ShardedStore {
@@ -863,7 +863,7 @@ impl Storage for ShardedStore {
 // SnapshotView Trait Implementation (Story #231)
 // ============================================================================
 
-use in_mem_core::traits::SnapshotView;
+use strata_core::traits::SnapshotView;
 
 impl SnapshotView for ShardedSnapshot {
     /// Get value from snapshot with MVCC version filtering
@@ -1023,7 +1023,7 @@ mod tests {
     // ========================================================================
 
     fn create_test_key(run_id: RunId, name: &str) -> Key {
-        use in_mem_core::types::Namespace;
+        use strata_core::types::Namespace;
         let ns = Namespace::new(
             "tenant".to_string(),
             "app".to_string(),
@@ -1033,13 +1033,13 @@ mod tests {
         Key::new_kv(ns, name)
     }
 
-    fn create_stored_value(value: in_mem_core::value::Value, version: u64) -> StoredValue {
+    fn create_stored_value(value: strata_core::value::Value, version: u64) -> StoredValue {
         StoredValue::new(value, Version::txn(version), None)
     }
 
     #[test]
     fn test_put_and_get() {
-        use in_mem_core::value::Value;
+        use strata_core::value::Value;
 
         let store = ShardedStore::new();
         let run_id = RunId::new();
@@ -1066,7 +1066,7 @@ mod tests {
 
     #[test]
     fn test_delete() {
-        use in_mem_core::value::Value;
+        use strata_core::value::Value;
 
         let store = ShardedStore::new();
         let run_id = RunId::new();
@@ -1093,7 +1093,7 @@ mod tests {
 
     #[test]
     fn test_contains() {
-        use in_mem_core::value::Value;
+        use strata_core::value::Value;
 
         let store = ShardedStore::new();
         let run_id = RunId::new();
@@ -1107,7 +1107,7 @@ mod tests {
 
     #[test]
     fn test_overwrite() {
-        use in_mem_core::value::Value;
+        use strata_core::value::Value;
 
         let store = ShardedStore::new();
         let run_id = RunId::new();
@@ -1123,7 +1123,7 @@ mod tests {
 
     #[test]
     fn test_multiple_runs_isolated() {
-        use in_mem_core::value::Value;
+        use strata_core::value::Value;
 
         let store = ShardedStore::new();
         let run1 = RunId::new();
@@ -1143,7 +1143,7 @@ mod tests {
 
     #[test]
     fn test_apply_batch() {
-        use in_mem_core::value::Value;
+        use strata_core::value::Value;
 
         let store = ShardedStore::new();
         let run_id = RunId::new();
@@ -1169,7 +1169,7 @@ mod tests {
 
     #[test]
     fn test_run_entry_count() {
-        use in_mem_core::value::Value;
+        use strata_core::value::Value;
 
         let store = ShardedStore::new();
         let run_id = RunId::new();
@@ -1187,7 +1187,7 @@ mod tests {
 
     #[test]
     fn test_concurrent_writes_different_runs() {
-        use in_mem_core::value::Value;
+        use strata_core::value::Value;
         use std::thread;
 
         let store = Arc::new(ShardedStore::new());
@@ -1233,7 +1233,7 @@ mod tests {
 
     #[test]
     fn test_list_run() {
-        use in_mem_core::value::Value;
+        use strata_core::value::Value;
 
         let store = ShardedStore::new();
         let run_id = RunId::new();
@@ -1255,8 +1255,8 @@ mod tests {
 
     #[test]
     fn test_list_by_prefix() {
-        use in_mem_core::types::Namespace;
-        use in_mem_core::value::Value;
+        use strata_core::types::Namespace;
+        use strata_core::value::Value;
 
         let store = ShardedStore::new();
         let run_id = RunId::new();
@@ -1293,8 +1293,8 @@ mod tests {
 
     #[test]
     fn test_list_by_prefix_empty() {
-        use in_mem_core::types::Namespace;
-        use in_mem_core::value::Value;
+        use strata_core::types::Namespace;
+        use strata_core::value::Value;
 
         let store = ShardedStore::new();
         let run_id = RunId::new();
@@ -1319,8 +1319,8 @@ mod tests {
 
     #[test]
     fn test_list_by_type() {
-        use in_mem_core::types::{Namespace, TypeTag};
-        use in_mem_core::value::Value;
+        use strata_core::types::{Namespace, TypeTag};
+        use strata_core::value::Value;
 
         let store = ShardedStore::new();
         let run_id = RunId::new();
@@ -1369,8 +1369,8 @@ mod tests {
 
     #[test]
     fn test_count_by_type() {
-        use in_mem_core::types::{Namespace, TypeTag};
-        use in_mem_core::value::Value;
+        use strata_core::types::{Namespace, TypeTag};
+        use strata_core::value::Value;
 
         let store = ShardedStore::new();
         let run_id = RunId::new();
@@ -1402,7 +1402,7 @@ mod tests {
 
     #[test]
     fn test_run_ids() {
-        use in_mem_core::value::Value;
+        use strata_core::value::Value;
 
         let store = ShardedStore::new();
         let run1 = RunId::new();
@@ -1432,7 +1432,7 @@ mod tests {
 
     #[test]
     fn test_clear_run() {
-        use in_mem_core::value::Value;
+        use strata_core::value::Value;
 
         let store = ShardedStore::new();
         let run_id = RunId::new();
@@ -1464,8 +1464,8 @@ mod tests {
 
     #[test]
     fn test_list_sorted_order() {
-        use in_mem_core::types::Namespace;
-        use in_mem_core::value::Value;
+        use strata_core::types::Namespace;
+        use strata_core::value::Value;
 
         let store = ShardedStore::new();
         let run_id = RunId::new();
@@ -1528,7 +1528,7 @@ mod tests {
 
     #[test]
     fn test_snapshot_read_operations() {
-        use in_mem_core::value::Value;
+        use strata_core::value::Value;
 
         let store = Arc::new(ShardedStore::new());
         let run_id = RunId::new();
@@ -1553,7 +1553,7 @@ mod tests {
 
     #[test]
     fn test_snapshot_list_operations() {
-        use in_mem_core::value::Value;
+        use strata_core::value::Value;
 
         let store = Arc::new(ShardedStore::new());
         let run_id = RunId::new();
@@ -1579,7 +1579,7 @@ mod tests {
 
     #[test]
     fn test_snapshot_multiple_concurrent() {
-        use in_mem_core::value::Value;
+        use strata_core::value::Value;
 
         let store = Arc::new(ShardedStore::new());
         let run_id = RunId::new();
@@ -1686,7 +1686,7 @@ mod tests {
             let key = create_test_key(run_id, &format!("key{}", i));
             store.put(
                 key,
-                create_stored_value(in_mem_core::value::Value::I64(i), 1),
+                create_stored_value(strata_core::value::Value::I64(i), 1),
             );
         }
 
@@ -1715,9 +1715,9 @@ mod tests {
 
     #[test]
     fn test_storage_trait_get_put() {
-        use in_mem_core::traits::Storage;
-        use in_mem_core::types::Namespace;
-        use in_mem_core::value::Value;
+        use strata_core::traits::Storage;
+        use strata_core::types::Namespace;
+        use strata_core::value::Value;
 
         let store = ShardedStore::new();
         let run_id = RunId::new();
@@ -1736,9 +1736,9 @@ mod tests {
 
     #[test]
     fn test_storage_trait_get_versioned() {
-        use in_mem_core::traits::Storage;
-        use in_mem_core::types::Namespace;
-        use in_mem_core::value::Value;
+        use strata_core::traits::Storage;
+        use strata_core::types::Namespace;
+        use strata_core::value::Value;
 
         let store = ShardedStore::new();
         let run_id = RunId::new();
@@ -1759,9 +1759,9 @@ mod tests {
 
     #[test]
     fn test_storage_trait_delete() {
-        use in_mem_core::traits::Storage;
-        use in_mem_core::types::Namespace;
-        use in_mem_core::value::Value;
+        use strata_core::traits::Storage;
+        use strata_core::types::Namespace;
+        use strata_core::value::Value;
 
         let store = ShardedStore::new();
         let run_id = RunId::new();
@@ -1779,9 +1779,9 @@ mod tests {
 
     #[test]
     fn test_storage_trait_scan_prefix() {
-        use in_mem_core::traits::Storage;
-        use in_mem_core::types::Namespace;
-        use in_mem_core::value::Value;
+        use strata_core::traits::Storage;
+        use strata_core::types::Namespace;
+        use strata_core::value::Value;
 
         let store = ShardedStore::new();
         let run_id = RunId::new();
@@ -1819,9 +1819,9 @@ mod tests {
 
     #[test]
     fn test_storage_trait_scan_by_run() {
-        use in_mem_core::traits::Storage;
-        use in_mem_core::types::Namespace;
-        use in_mem_core::value::Value;
+        use strata_core::traits::Storage;
+        use strata_core::types::Namespace;
+        use strata_core::value::Value;
 
         let store = ShardedStore::new();
         let run1 = RunId::new();
@@ -1864,9 +1864,9 @@ mod tests {
 
     #[test]
     fn test_storage_trait_put_with_version() {
-        use in_mem_core::traits::Storage;
-        use in_mem_core::types::Namespace;
-        use in_mem_core::value::Value;
+        use strata_core::traits::Storage;
+        use strata_core::types::Namespace;
+        use strata_core::value::Value;
 
         let store = ShardedStore::new();
         let run_id = RunId::new();
@@ -1886,9 +1886,9 @@ mod tests {
 
     #[test]
     fn test_snapshot_view_trait() {
-        use in_mem_core::traits::{SnapshotView, Storage};
-        use in_mem_core::types::Namespace;
-        use in_mem_core::value::Value;
+        use strata_core::traits::{SnapshotView, Storage};
+        use strata_core::types::Namespace;
+        use strata_core::value::Value;
 
         let store = Arc::new(ShardedStore::new());
         let run_id = RunId::new();
@@ -1923,9 +1923,9 @@ mod tests {
 
     #[test]
     fn test_snapshot_view_scan_prefix() {
-        use in_mem_core::traits::{SnapshotView, Storage};
-        use in_mem_core::types::Namespace;
-        use in_mem_core::value::Value;
+        use strata_core::traits::{SnapshotView, Storage};
+        use strata_core::types::Namespace;
+        use strata_core::value::Value;
 
         let store = Arc::new(ShardedStore::new());
         let run_id = RunId::new();

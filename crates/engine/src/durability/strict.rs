@@ -18,9 +18,9 @@
 //! - One fsync per transaction (batching possible in future)
 
 use super::Durability;
-use in_mem_concurrency::{TransactionContext, TransactionWALWriter};
-use in_mem_core::error::Result;
-use in_mem_durability::wal::WAL;
+use strata_concurrency::{TransactionContext, TransactionWALWriter};
+use strata_core::error::Result;
+use strata_durability::wal::WAL;
 use std::sync::{Arc, Mutex};
 
 /// Strict durability - fsync on every commit
@@ -38,8 +38,8 @@ use std::sync::{Arc, Mutex};
 /// # Example
 ///
 /// ```ignore
-/// use in_mem_engine::durability::{Durability, StrictDurability};
-/// use in_mem_durability::wal::WAL;
+/// use strata_engine::durability::{Durability, StrictDurability};
+/// use strata_durability::wal::WAL;
 /// use std::sync::{Arc, Mutex};
 ///
 /// let wal = Arc::new(Mutex::new(WAL::open("data/wal", DurabilityMode::Strict)?));
@@ -83,7 +83,7 @@ impl Durability for StrictDurability {
     fn persist(&self, txn: &TransactionContext, commit_version: u64) -> Result<()> {
         // Acquire WAL lock
         let mut wal = self.wal.lock().map_err(|e| {
-            in_mem_core::error::Error::InvalidOperation(format!("WAL lock poisoned: {}", e))
+            strata_core::error::Error::InvalidOperation(format!("WAL lock poisoned: {}", e))
         })?;
 
         // Write transaction to WAL in a scoped block
@@ -131,7 +131,7 @@ impl Durability for StrictDurability {
     /// any buffered filesystem data is persisted.
     fn shutdown(&self) -> Result<()> {
         let wal = self.wal.lock().map_err(|e| {
-            in_mem_core::error::Error::InvalidOperation(format!("WAL lock poisoned: {}", e))
+            strata_core::error::Error::InvalidOperation(format!("WAL lock poisoned: {}", e))
         })?;
         // Final fsync to ensure any buffered data is persisted
         wal.fsync()
@@ -162,7 +162,7 @@ impl std::fmt::Debug for StrictDurability {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use in_mem_durability::wal::DurabilityMode;
+    use strata_durability::wal::DurabilityMode;
     use tempfile::TempDir;
 
     fn create_test_wal() -> (TempDir, Arc<Mutex<WAL>>) {

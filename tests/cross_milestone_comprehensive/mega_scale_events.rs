@@ -3,7 +3,7 @@
 //! Tests with many events.
 
 use crate::test_utils::*;
-use in_mem_core::value::Value;
+use strata_core::value::Value;
 
 /// Test 100K events in single log.
 #[test]

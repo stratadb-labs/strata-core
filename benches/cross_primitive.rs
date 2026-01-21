@@ -27,11 +27,11 @@
 //! - Primitive creation: < 10µs each
 
 use criterion::{black_box, criterion_group, criterion_main, Criterion, Throughput};
-use in_mem_core::json::JsonValue;
-use in_mem_core::types::{JsonDocId, RunId};
-use in_mem_core::value::Value;
-use in_mem_engine::Database;
-use in_mem_primitives::{EventLog, JsonStore, KVStore, StateCell, TraceStore, TraceType};
+use strata_core::json::JsonValue;
+use strata_core::types::{JsonDocId, RunId};
+use strata_core::value::Value;
+use strata_engine::Database;
+use strata_primitives::{EventLog, JsonStore, KVStore, StateCell, TraceStore, TraceType};
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -57,7 +57,7 @@ fn durability_label() -> &'static str {
     }
 }
 
-/// Create an in-memory database
+/// Create a Strata in-memory database
 fn create_db() -> Arc<Database> {
     Arc::new(Database::builder().in_memory().open_temp().unwrap())
 }

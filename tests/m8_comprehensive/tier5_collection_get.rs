@@ -1,7 +1,7 @@
 //! Tier 5: Collection Get Tests
 
 use crate::test_utils::*;
-use in_mem_primitives::vector::DistanceMetric;
+use strata_primitives::vector::DistanceMetric;
 
 #[test]
 fn test_get_collection_info() {

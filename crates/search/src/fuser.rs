@@ -7,8 +7,8 @@
 //!
 //! See `docs/architecture/M6_ARCHITECTURE.md` for authoritative specification.
 
-use in_mem_core::search_types::{DocRef, SearchHit, SearchResponse};
-use in_mem_core::PrimitiveType;
+use strata_core::search_types::{DocRef, SearchHit, SearchResponse};
+use strata_core::PrimitiveType;
 
 // ============================================================================
 // FusedResult
@@ -252,8 +252,8 @@ impl Fuser for RRFFuser {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use in_mem_core::search_types::{DocRef, SearchStats};
-    use in_mem_core::types::RunId;
+    use strata_core::search_types::{DocRef, SearchStats};
+    use strata_core::types::RunId;
 
     fn make_hit(doc_ref: DocRef, score: f32, rank: u32) -> SearchHit {
         SearchHit {

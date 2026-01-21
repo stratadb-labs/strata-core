@@ -9,7 +9,7 @@
 //! # Example
 //!
 //! ```ignore
-//! use in_mem_storage::database::{DatabaseHandle, DatabaseConfig};
+//! use strata_storage::database::{DatabaseHandle, DatabaseConfig};
 //!
 //! // Create a new database
 //! let handle = DatabaseHandle::create("my.db", DatabaseConfig::default())?;

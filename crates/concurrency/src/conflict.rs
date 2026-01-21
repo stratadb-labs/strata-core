@@ -11,8 +11,8 @@
 
 use std::collections::HashMap;
 
-use in_mem_core::json::JsonPath;
-use in_mem_core::types::Key;
+use strata_core::json::JsonPath;
+use strata_core::types::Key;
 
 use crate::transaction::{JsonPatchEntry, JsonPathRead};
 
@@ -352,8 +352,8 @@ pub fn check_all_conflicts(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use in_mem_core::json::JsonPatch;
-    use in_mem_core::types::{JsonDocId, Namespace, RunId};
+    use strata_core::json::JsonPatch;
+    use strata_core::types::{JsonDocId, Namespace, RunId};
 
     fn test_key() -> Key {
         Key::new_json(Namespace::for_run(RunId::new()), &JsonDocId::new())

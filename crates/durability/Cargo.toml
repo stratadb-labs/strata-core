@@ -1,5 +1,5 @@
 [package]
-name = "in-mem-durability"
+name = "strata-durability"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
@@ -8,8 +8,8 @@ license.workspace = true
 repository.workspace = true
 
 [dependencies]
-in-mem-core = { path = "../core" }
-in-mem-storage = { path = "../storage" }
+strata-core = { path = "../core" }
+strata-storage = { path = "../storage" }
 bincode = { workspace = true }
 serde = { workspace = true }
 rmp-serde = { workspace = true }

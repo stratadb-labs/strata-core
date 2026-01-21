@@ -3,7 +3,7 @@
 //! Invariant S2: Distance metric cannot change after creation.
 
 use crate::test_utils::*;
-use in_mem_primitives::vector::{DistanceMetric, VectorError};
+use strata_primitives::vector::{DistanceMetric, VectorError};
 
 /// Test that recreating collection with different metric fails
 #[test]

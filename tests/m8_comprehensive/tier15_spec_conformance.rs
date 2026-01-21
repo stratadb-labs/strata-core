@@ -77,8 +77,8 @@ fn spec_s6_run_isolation() {
     let test_db = TestDb::new_strict();
     let vector = test_db.vector();
 
-    let run_id_1 = in_mem_core::types::RunId::new();
-    let run_id_2 = in_mem_core::types::RunId::new();
+    let run_id_1 = strata_core::types::RunId::new();
+    let run_id_2 = strata_core::types::RunId::new();
 
     // Create same collection name in different runs
     vector.create_collection(run_id_1, "embeddings", config_minilm()).unwrap();

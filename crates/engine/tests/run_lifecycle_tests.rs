@@ -9,15 +9,15 @@
 //! - Story #315: diff_runs() key-level comparison
 //! - Story #316: Orphaned run detection
 
-use in_mem_core::run_types::{RunMetadata, RunStatus};
-use in_mem_core::types::{Key, Namespace, RunId};
-use in_mem_core::value::Value;
-use in_mem_durability::wal::DurabilityMode;
-use in_mem_durability::{
+use strata_core::run_types::{RunMetadata, RunStatus};
+use strata_core::types::{Key, Namespace, RunId};
+use strata_core::value::Value;
+use strata_durability::wal::DurabilityMode;
+use strata_durability::{
     create_run_begin_entry, create_run_end_entry, parse_run_begin_payload, parse_run_end_payload,
     WalEntry, WalWriter,
 };
-use in_mem_engine::{diff_views, DiffEntry, DiffPrimitiveKind, ReadOnlyView, RunDiff, RunIndex};
+use strata_engine::{diff_views, DiffEntry, DiffPrimitiveKind, ReadOnlyView, RunDiff, RunIndex};
 use tempfile::TempDir;
 
 // ============================================================================
@@ -158,7 +158,7 @@ fn test_run_lifecycle_wal_sequence() {
     }
 
     // Verify entries were written
-    let mut reader = in_mem_durability::WalReader::open(&wal_path).unwrap();
+    let mut reader = strata_durability::WalReader::open(&wal_path).unwrap();
     let mut entries = Vec::new();
     while let Some(entry) = reader.next_entry().unwrap() {
         entries.push(entry);

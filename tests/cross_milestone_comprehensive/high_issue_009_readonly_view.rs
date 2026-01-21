@@ -12,7 +12,7 @@
 //! **Impact**: Replay invariants P1-P3 not fully implemented.
 
 use crate::test_utils::*;
-use in_mem_core::value::Value;
+use strata_core::value::Value;
 
 /// Test ReadOnlyView construction from EventLog.
 #[test]
@@ -46,7 +46,7 @@ fn test_readonly_view_includes_wal() {
 
     // Write data to WAL
     let kv = test_db.kv();
-    kv.put(&run_id, "wal_data", in_mem_core::value::Value::I64(42))
+    kv.put(&run_id, "wal_data", strata_core::value::Value::I64(42))
         .expect("put");
 
     test_db.db.flush().expect("flush");
@@ -66,7 +66,7 @@ fn test_readonly_view_includes_snapshot() {
     // Create data that will be in snapshot
     let kv = test_db.kv();
     for i in 0..100 {
-        kv.put(&run_id, &format!("snap_key_{}", i), in_mem_core::value::Value::I64(i))
+        kv.put(&run_id, &format!("snap_key_{}", i), strata_core::value::Value::I64(i))
             .expect("put");
     }
 
@@ -86,15 +86,15 @@ fn test_replay_determinism() {
     let kv = test_db.kv();
 
     // Write, delete, write again
-    kv.put(&run_id, "key", in_mem_core::value::Value::I64(1)).expect("put");
+    kv.put(&run_id, "key", strata_core::value::Value::I64(1)).expect("put");
     kv.delete(&run_id, "key").expect("delete");
-    kv.put(&run_id, "key", in_mem_core::value::Value::I64(2)).expect("put");
+    kv.put(&run_id, "key", strata_core::value::Value::I64(2)).expect("put");
 
     test_db.db.flush().expect("flush");
 
     // Final state should be value=2 regardless of intermediate states
     let value = kv.get(&run_id, "key").expect("get").map(|v| v.value);
-    assert_eq!(value, Some(in_mem_core::value::Value::I64(2)));
+    assert_eq!(value, Some(strata_core::value::Value::I64(2)));
 
     // When ISSUE-009 is fixed:
     // let view = test_db.db.replay_run(run_id)?;

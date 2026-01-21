@@ -11,9 +11,9 @@
 //! 5. **Prefix Consistency**: Replaying prefix of WAL reconstructs prefix state
 
 use super::test_utils::*;
-use in_mem_core::types::Key;
-use in_mem_core::value::Value;
-use in_mem_engine::Database;
+use strata_core::types::Key;
+use strata_core::value::Value;
+use strata_engine::Database;
 use std::collections::HashMap;
 use tempfile::TempDir;
 
@@ -169,7 +169,7 @@ mod recovery_completeness {
 
 mod no_partial_writes {
     use super::*;
-    use in_mem_core::error::Error;
+    use strata_core::error::Error;
 
     /// Aborted transaction must leave no trace
     #[test]
@@ -794,11 +794,11 @@ mod incomplete_transaction_handling {
             .unwrap();
 
             // Second: abort a transaction (simulates incomplete)
-            let _: Result<(), in_mem_core::error::Error> = db.transaction(pdb.run_id, |txn| {
+            let _: Result<(), strata_core::error::Error> = db.transaction(pdb.run_id, |txn| {
                 for (i, key) in aborted_keys.iter().enumerate() {
                     txn.put(key.clone(), values::int(i as i64))?;
                 }
-                Err(in_mem_core::error::Error::InvalidState("abort".to_string()))
+                Err(strata_core::error::Error::InvalidState("abort".to_string()))
             });
 
             DatabaseStateSnapshot::capture(&db, &pdb.ns)
@@ -847,12 +847,12 @@ mod incomplete_transaction_handling {
 
             // Many aborted transactions
             for batch in 0..10 {
-                let _: Result<(), in_mem_core::error::Error> = db.transaction(pdb.run_id, |txn| {
+                let _: Result<(), strata_core::error::Error> = db.transaction(pdb.run_id, |txn| {
                     for i in 0..10 {
                         let key = kv_key(&pdb.ns, &format!("abort_{}_{}", batch, i));
                         txn.put(key, values::int(999))?;
                     }
-                    Err(in_mem_core::error::Error::InvalidState("abort".to_string()))
+                    Err(strata_core::error::Error::InvalidState("abort".to_string()))
                 });
             }
         }

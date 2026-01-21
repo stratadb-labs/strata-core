@@ -3,11 +3,11 @@
 //! Tests for begin_run, end_run, orphan detection.
 
 use crate::test_utils::*;
-use in_mem_core::run_types::{RunMetadata, RunStatus};
-use in_mem_core::types::RunId;
-use in_mem_core::value::Value;
-use in_mem_engine::RunIndex;
-use in_mem_primitives::KVStore;
+use strata_core::run_types::{RunMetadata, RunStatus};
+use strata_core::types::RunId;
+use strata_core::value::Value;
+use strata_engine::RunIndex;
+use strata_primitives::KVStore;
 
 /// Run ID is unique
 #[test]

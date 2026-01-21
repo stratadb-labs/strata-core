@@ -12,8 +12,8 @@ use std::sync::Arc;
 use std::thread;
 use std::time::Duration;
 
-use in_mem_core::{Key, Namespace, RunId, SnapshotView, Storage, TypeTag, Value};
-use in_mem_storage::{TTLCleaner, UnifiedStore};
+use strata_core::{Key, Namespace, RunId, SnapshotView, Storage, TypeTag, Value};
+use strata_storage::{TTLCleaner, UnifiedStore};
 
 // ============================================================================
 // Helper Functions
@@ -199,7 +199,7 @@ mod edge_cases {
 
         let result = store.get(&key).unwrap().unwrap();
         assert_eq!(result.value, Value::I64(2));
-        assert_eq!(result.version, in_mem_core::Version::txn(v2));
+        assert_eq!(result.version, strata_core::Version::txn(v2));
     }
 
     #[test]
@@ -1029,7 +1029,7 @@ mod version_ordering {
 
             // The version in the stored value should match
             let stored = store.get(&key).unwrap().unwrap();
-            assert_eq!(stored.version, in_mem_core::Version::txn(version));
+            assert_eq!(stored.version, strata_core::Version::txn(version));
         }
     }
 }

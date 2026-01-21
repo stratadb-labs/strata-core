@@ -12,7 +12,7 @@
 //! - `DocRef` is now `EntityRef` (re-exported from contract module)
 //! - `PrimitiveKind` is now `PrimitiveType` (re-exported from contract module)
 //!
-//! Import from crate root: `use in_mem_core::{EntityRef, DocRef, PrimitiveType};`
+//! Import from crate root: `use strata_core::{EntityRef, DocRef, PrimitiveType};`
 //!
 //! These types define the interface contracts for search operations.
 //! See `docs/architecture/M6_ARCHITECTURE.md` for authoritative specification.
@@ -134,7 +134,7 @@ pub enum SearchMode {
 /// # Examples
 ///
 /// ```
-/// use in_mem_core::{SearchRequest, SearchBudget, RunId};
+/// use strata_core::{SearchRequest, SearchBudget, RunId};
 ///
 /// let run_id = RunId::new();
 /// let req = SearchRequest::new(run_id, "authentication error")

@@ -10,9 +10,9 @@
 //!
 //! # Story #478: RunHandle Pattern Implementation
 
-use in_mem_core::types::RunId;
-use in_mem_primitives::run_handle::RunHandle;
-use in_mem_engine::Database;
+use strata_core::types::RunId;
+use strata_primitives::run_handle::RunHandle;
+use strata_engine::Database;
 use std::sync::Arc;
 
 /// Create a test database and RunHandle
@@ -126,7 +126,7 @@ fn kv_handle_put_and_get() {
     let (_, handle) = setup();
     let kv = handle.kv();
 
-    kv.put("key", in_mem_core::value::Value::String("value".into())).unwrap();
+    kv.put("key", strata_core::value::Value::String("value".into())).unwrap();
     let result = kv.get("key").unwrap();
 
     assert!(result.is_some());
@@ -138,7 +138,7 @@ fn kv_handle_exists() {
     let kv = handle.kv();
 
     assert!(!kv.exists("key").unwrap());
-    kv.put("key", in_mem_core::value::Value::I64(42)).unwrap();
+    kv.put("key", strata_core::value::Value::I64(42)).unwrap();
     assert!(kv.exists("key").unwrap());
 }
 
@@ -147,7 +147,7 @@ fn kv_handle_delete() {
     let (_, handle) = setup();
     let kv = handle.kv();
 
-    kv.put("key", in_mem_core::value::Value::I64(42)).unwrap();
+    kv.put("key", strata_core::value::Value::I64(42)).unwrap();
     assert!(kv.exists("key").unwrap());
 
     kv.delete("key").unwrap();
@@ -163,8 +163,8 @@ fn event_handle_append_returns_sequence() {
     let (_, handle) = setup();
     let events = handle.events();
 
-    let seq1 = events.append("test-event", in_mem_core::value::Value::Null).unwrap();
-    let seq2 = events.append("test-event", in_mem_core::value::Value::Null).unwrap();
+    let seq1 = events.append("test-event", strata_core::value::Value::Null).unwrap();
+    let seq2 = events.append("test-event", strata_core::value::Value::Null).unwrap();
 
     // Sequences should be monotonically increasing
     assert!(seq2 > seq1);
@@ -175,7 +175,7 @@ fn event_handle_read_by_sequence() {
     let (_, handle) = setup();
     let events = handle.events();
 
-    let seq = events.append("my-event", in_mem_core::value::Value::I64(42)).unwrap();
+    let seq = events.append("my-event", strata_core::value::Value::I64(42)).unwrap();
     let result = events.read(seq).unwrap();
 
     assert!(result.is_some());
@@ -199,7 +199,7 @@ fn state_handle_set_and_read() {
     let (_, handle) = setup();
     let state = handle.state();
 
-    state.set("counter", in_mem_core::value::Value::I64(0)).unwrap();
+    state.set("counter", strata_core::value::Value::I64(0)).unwrap();
     let result = state.read("counter").unwrap();
 
     assert!(result.is_some());
@@ -226,8 +226,8 @@ fn run_handle_transaction_with_kv_ops() {
     let (_, handle) = setup();
 
     handle.transaction(|txn| {
-        use in_mem_primitives::extensions::KVStoreExt;
-        txn.kv_put("key", in_mem_core::value::Value::String("value".into()))?;
+        use strata_primitives::extensions::KVStoreExt;
+        txn.kv_put("key", strata_core::value::Value::String("value".into()))?;
         Ok(())
     }).unwrap();
 
@@ -241,8 +241,8 @@ fn run_handle_transaction_returns_value() {
     let (_, handle) = setup();
 
     let result = handle.transaction(|txn| {
-        use in_mem_primitives::extensions::KVStoreExt;
-        txn.kv_put("key", in_mem_core::value::Value::I64(42))?;
+        use strata_primitives::extensions::KVStoreExt;
+        txn.kv_put("key", strata_core::value::Value::I64(42))?;
         Ok("success")
     });
 
@@ -263,10 +263,10 @@ fn run_handle_isolates_between_runs() {
     let handle2 = RunHandle::new(db.clone(), run2);
 
     // Write to run1
-    handle1.kv().put("key", in_mem_core::value::Value::String("run1".into())).unwrap();
+    handle1.kv().put("key", strata_core::value::Value::String("run1".into())).unwrap();
 
     // Write same key to run2
-    handle2.kv().put("key", in_mem_core::value::Value::String("run2".into())).unwrap();
+    handle2.kv().put("key", strata_core::value::Value::String("run2".into())).unwrap();
 
     // Each run has its own value
     let v1 = handle1.kv().get("key").unwrap().unwrap();
@@ -286,8 +286,8 @@ fn run_handle_events_isolated() {
     let handle2 = RunHandle::new(db.clone(), run2);
 
     // Append events to run1
-    let seq1 = handle1.events().append("e1", in_mem_core::value::Value::Null).unwrap();
-    let _seq2 = handle1.events().append("e2", in_mem_core::value::Value::Null).unwrap();
+    let seq1 = handle1.events().append("e1", strata_core::value::Value::Null).unwrap();
+    let _seq2 = handle1.events().append("e2", strata_core::value::Value::Null).unwrap();
 
     // run1 can read the event
     let event_result = handle1.events().read(seq1).unwrap();
@@ -328,13 +328,13 @@ fn run_handle_concurrent_access() {
     // Spawn two threads using the same handle
     let t1 = thread::spawn(move || {
         for i in 0..10 {
-            handle1.kv().put(&format!("t1-key-{}", i), in_mem_core::value::Value::I64(i as i64)).unwrap();
+            handle1.kv().put(&format!("t1-key-{}", i), strata_core::value::Value::I64(i as i64)).unwrap();
         }
     });
 
     let t2 = thread::spawn(move || {
         for i in 0..10 {
-            handle2.kv().put(&format!("t2-key-{}", i), in_mem_core::value::Value::I64(i as i64)).unwrap();
+            handle2.kv().put(&format!("t2-key-{}", i), strata_core::value::Value::I64(i as i64)).unwrap();
         }
     });
 
@@ -403,9 +403,9 @@ fn run_handle_multiple_primitive_operations() {
     let (_, handle) = setup();
 
     // Use multiple primitives through the same handle
-    handle.kv().put("key", in_mem_core::value::Value::I64(1)).unwrap();
-    let event_seq = handle.events().append("event", in_mem_core::value::Value::Null).unwrap();
-    handle.state().set("cell", in_mem_core::value::Value::I64(0)).unwrap();
+    handle.kv().put("key", strata_core::value::Value::I64(1)).unwrap();
+    let event_seq = handle.events().append("event", strata_core::value::Value::Null).unwrap();
+    handle.state().set("cell", strata_core::value::Value::I64(0)).unwrap();
 
     // All should exist
     assert!(handle.kv().exists("key").unwrap());

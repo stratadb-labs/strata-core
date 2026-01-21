@@ -5,7 +5,7 @@
 //!
 //! Timestamps provide microsecond precision temporal tracking for all entities.
 
-use in_mem_core::Timestamp;
+use strata_core::Timestamp;
 use std::collections::HashSet;
 use std::time::Duration;
 

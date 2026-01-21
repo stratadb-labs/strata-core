@@ -5,7 +5,7 @@
 //! Every write produces a version. Versions are comparable within the same type
 //! and incrementable.
 
-use in_mem_core::Version;
+use strata_core::Version;
 use std::collections::HashSet;
 
 // ============================================================================

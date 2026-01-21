@@ -18,8 +18,8 @@
 //! - Target: <3µs for engine/put_direct
 
 use super::Durability;
-use in_mem_concurrency::TransactionContext;
-use in_mem_core::error::Result;
+use strata_concurrency::TransactionContext;
+use strata_core::error::Result;
 
 /// InMemory durability - no persistence
 ///
@@ -34,7 +34,7 @@ use in_mem_core::error::Result;
 /// # Example
 ///
 /// ```ignore
-/// use in_mem_engine::durability::{Durability, InMemoryDurability};
+/// use strata_engine::durability::{Durability, InMemoryDurability};
 ///
 /// let durability = InMemoryDurability::new();
 /// assert!(!durability.is_persistent());

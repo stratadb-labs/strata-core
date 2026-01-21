@@ -3,10 +3,10 @@
 //! Tests for boundary conditions, unusual scenarios, and edge cases.
 
 use super::test_utils::*;
-use in_mem_core::error::Error;
-use in_mem_core::types::{Key, Namespace, RunId, TypeTag};
-use in_mem_core::value::Value;
-use in_mem_engine::{Database, RetryConfig};
+use strata_core::error::Error;
+use strata_core::types::{Key, Namespace, RunId, TypeTag};
+use strata_core::value::Value;
+use strata_engine::{Database, RetryConfig};
 use std::time::Duration;
 use tempfile::TempDir;
 
@@ -556,7 +556,7 @@ mod transaction_edge_cases {
         let key = tdb.key("inner_error");
 
         fn inner_work(
-            txn: &mut in_mem_concurrency::transaction::TransactionContext,
+            txn: &mut strata_concurrency::transaction::TransactionContext,
             key: Key,
         ) -> Result<(), Error> {
             txn.put(key, values::int(42))?;

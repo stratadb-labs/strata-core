@@ -14,7 +14,7 @@
 //! # Example
 //!
 //! ```ignore
-//! use in_mem_storage::testing::{CrashConfig, CrashPoint, CrashType};
+//! use strata_storage::testing::{CrashConfig, CrashPoint, CrashType};
 //!
 //! let config = CrashConfig::default();
 //! // Use with storage layer components for crash testing

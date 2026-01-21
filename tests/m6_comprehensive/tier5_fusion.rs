@@ -2,9 +2,9 @@
 //!
 //! Tests for RRF and SimpleFuser correctness.
 
-use in_mem_core::search_types::{DocRef, PrimitiveType, SearchHit, SearchResponse, SearchStats};
-use in_mem_core::types::RunId;
-use in_mem_search::{Fuser, RRFFuser, SimpleFuser};
+use strata_core::search_types::{DocRef, PrimitiveType, SearchHit, SearchResponse, SearchStats};
+use strata_core::types::RunId;
+use strata_search::{Fuser, RRFFuser, SimpleFuser};
 
 // ============================================================================
 // Test Helpers

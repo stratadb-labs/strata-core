@@ -17,7 +17,7 @@
 //!    replaying from WAL). Normal operations use the VectorStore methods which write WAL.
 
 use crate::vector::{VectorConfig, VectorConfigSerde, VectorError, VectorId, VectorResult};
-use in_mem_core::RunId;
+use strata_core::RunId;
 use serde::{Deserialize, Serialize};
 
 // ============================================================================
@@ -225,7 +225,7 @@ pub fn create_wal_delete(
 // ============================================================================
 
 use crate::vector::{DistanceMetric, VectorStore};
-use in_mem_durability::WalEntryType;
+use strata_durability::WalEntryType;
 
 /// Replayer for Vector WAL entries
 ///

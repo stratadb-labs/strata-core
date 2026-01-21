@@ -27,12 +27,12 @@
 //!   Scan keys with optional prefix filtering.
 
 use crate::extensions::KVStoreExt;
-use in_mem_concurrency::TransactionContext;
-use in_mem_core::error::Result;
-use in_mem_core::types::{Key, Namespace, RunId};
-use in_mem_core::value::Value;
-use in_mem_core::{Version, Versioned};
-use in_mem_engine::Database;
+use strata_concurrency::TransactionContext;
+use strata_core::error::Result;
+use strata_core::types::{Key, Namespace, RunId};
+use strata_core::value::Value;
+use strata_core::{Version, Versioned};
+use strata_engine::Database;
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -44,10 +44,10 @@ use std::time::Duration;
 /// # Example
 ///
 /// ```ignore
-/// use in_mem_primitives::KVStore;
-/// use in_mem_engine::Database;
-/// use in_mem_core::types::RunId;
-/// use in_mem_core::value::Value;
+/// use strata_primitives::KVStore;
+/// use strata_engine::Database;
+/// use strata_core::types::RunId;
+/// use strata_core::value::Value;
 ///
 /// let db = Arc::new(Database::open("/path/to/data")?);
 /// let kv = KVStore::new(db);
@@ -115,7 +115,7 @@ impl KVStore {
     /// - Returns `Versioned<Value>` with version information
     /// - Version is `Version::TxnId(commit_version)` from storage
     pub fn get(&self, run_id: &RunId, key: &str) -> Result<Option<Versioned<Value>>> {
-        use in_mem_core::traits::SnapshotView;
+        use strata_core::traits::SnapshotView;
 
         // Fast path: direct snapshot read
         let snapshot = self.db.storage().create_snapshot();
@@ -227,7 +227,7 @@ impl KVStore {
     ///
     /// Uses direct snapshot read, bypassing transaction overhead.
     pub fn exists(&self, run_id: &RunId, key: &str) -> Result<bool> {
-        use in_mem_core::traits::SnapshotView;
+        use strata_core::traits::SnapshotView;
 
         let snapshot = self.db.storage().create_snapshot();
         let storage_key = self.key_for(run_id, key);
@@ -255,7 +255,7 @@ impl KVStore {
     /// # M9 Contract
     /// Returns `Versioned<Value>` with version information for each key.
     pub fn get_many(&self, run_id: &RunId, keys: &[&str]) -> Result<Vec<Option<Versioned<Value>>>> {
-        use in_mem_core::traits::SnapshotView;
+        use strata_core::traits::SnapshotView;
 
         // Single snapshot for consistency
         let snapshot = self.db.storage().create_snapshot();
@@ -286,7 +286,7 @@ impl KVStore {
         run_id: &RunId,
         keys: &[&str],
     ) -> Result<std::collections::HashMap<String, Versioned<Value>>> {
-        use in_mem_core::traits::SnapshotView;
+        use strata_core::traits::SnapshotView;
 
         let snapshot = self.db.storage().create_snapshot();
         let ns = self.namespace_for_run(run_id);
@@ -364,8 +364,8 @@ impl KVStore {
     /// # Example
     ///
     /// ```ignore
-    /// use in_mem_primitives::KVStore;
-    /// use in_mem_core::SearchRequest;
+    /// use strata_primitives::KVStore;
+    /// use strata_core::SearchRequest;
     ///
     /// let response = kv.search(&SearchRequest::new(run_id, "hello"))?;
     /// for hit in response.hits {
@@ -374,11 +374,11 @@ impl KVStore {
     /// ```
     pub fn search(
         &self,
-        req: &in_mem_core::SearchRequest,
-    ) -> in_mem_core::error::Result<in_mem_core::SearchResponse> {
+        req: &strata_core::SearchRequest,
+    ) -> strata_core::error::Result<strata_core::SearchResponse> {
         use crate::searchable::{build_search_response, SearchCandidate};
-        use in_mem_core::search_types::DocRef;
-        use in_mem_core::traits::SnapshotView;
+        use strata_core::search_types::DocRef;
+        use strata_core::traits::SnapshotView;
         use std::time::Instant;
 
         let start = Instant::now();
@@ -544,13 +544,13 @@ impl<'a> KVTransaction<'a> {
 impl crate::searchable::Searchable for KVStore {
     fn search(
         &self,
-        req: &in_mem_core::SearchRequest,
-    ) -> in_mem_core::error::Result<in_mem_core::SearchResponse> {
+        req: &strata_core::SearchRequest,
+    ) -> strata_core::error::Result<strata_core::SearchResponse> {
         self.search(req)
     }
 
-    fn primitive_kind(&self) -> in_mem_core::PrimitiveType {
-        in_mem_core::PrimitiveType::Kv
+    fn primitive_kind(&self) -> strata_core::PrimitiveType {
+        strata_core::PrimitiveType::Kv
     }
 }
 
@@ -577,7 +577,7 @@ impl KVStoreExt for TransactionContext {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use in_mem_core::types::TypeTag;
+    use strata_core::types::TypeTag;
     use tempfile::TempDir;
 
     fn setup() -> (TempDir, Arc<Database>, KVStore) {
@@ -1191,7 +1191,7 @@ mod tests {
 
     #[test]
     fn test_kv_search_basic() {
-        use in_mem_core::SearchRequest;
+        use strata_core::SearchRequest;
 
         let (_temp, _db, kv) = setup();
         let run_id = RunId::new();
@@ -1212,7 +1212,7 @@ mod tests {
 
     #[test]
     fn test_kv_search_by_key_name() {
-        use in_mem_core::SearchRequest;
+        use strata_core::SearchRequest;
 
         let (_temp, _db, kv) = setup();
         let run_id = RunId::new();
@@ -1235,7 +1235,7 @@ mod tests {
 
     #[test]
     fn test_kv_search_respects_k() {
-        use in_mem_core::SearchRequest;
+        use strata_core::SearchRequest;
 
         let (_temp, _db, kv) = setup();
         let run_id = RunId::new();
@@ -1258,7 +1258,7 @@ mod tests {
 
     #[test]
     fn test_kv_search_run_isolation() {
-        use in_mem_core::SearchRequest;
+        use strata_core::SearchRequest;
 
         let (_temp, _db, kv) = setup();
         let run1 = RunId::new();
@@ -1280,7 +1280,7 @@ mod tests {
 
     #[test]
     fn test_kv_search_empty_results() {
-        use in_mem_core::SearchRequest;
+        use strata_core::SearchRequest;
 
         let (_temp, _db, kv) = setup();
         let run_id = RunId::new();
@@ -1297,8 +1297,8 @@ mod tests {
     #[test]
     fn test_kv_searchable_trait() {
         use crate::searchable::Searchable;
-        use in_mem_core::search_types::PrimitiveKind;
-        use in_mem_core::SearchRequest;
+        use strata_core::search_types::PrimitiveKind;
+        use strata_core::SearchRequest;
 
         let (_temp, _db, kv) = setup();
         let run_id = RunId::new();

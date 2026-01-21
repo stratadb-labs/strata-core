@@ -3,7 +3,7 @@
 //! Invariant T1: Insert/delete atomic with other primitives.
 
 use crate::test_utils::*;
-use in_mem_core::value::Value;
+use strata_core::value::Value;
 
 /// Test that committed vector is visible
 #[test]

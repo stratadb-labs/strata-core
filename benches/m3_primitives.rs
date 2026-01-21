@@ -54,13 +54,13 @@ use bench_env::{
     PerfConfig,
 };
 use criterion::{black_box, BenchmarkId, Criterion, Throughput};
-use in_mem_core::traits::Storage;
-use in_mem_core::types::{Key, Namespace, RunId};
-use in_mem_core::value::Value;
-use in_mem_durability::wal::DurabilityMode;
-use in_mem_engine::Database;
-use in_mem_primitives::{EventLog, KVStore, RunIndex, RunStatus, StateCell, TraceStore, TraceType};
-use in_mem_storage::UnifiedStore;
+use strata_core::traits::Storage;
+use strata_core::types::{Key, Namespace, RunId};
+use strata_core::value::Value;
+use strata_durability::wal::DurabilityMode;
+use strata_engine::Database;
+use strata_primitives::{EventLog, KVStore, RunIndex, RunStatus, StateCell, TraceStore, TraceType};
+use strata_storage::UnifiedStore;
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Barrier};
@@ -1466,7 +1466,7 @@ fn memory_overhead_benchmarks(c: &mut Criterion) {
     eprintln!("Key size: {} bytes", size_of::<Key>());
     eprintln!(
         "VersionedValue size: {} bytes",
-        size_of::<in_mem_core::VersionedValue>()
+        size_of::<strata_core::VersionedValue>()
     );
     eprintln!("Value size: {} bytes", size_of::<Value>());
     eprintln!("RunId size: {} bytes", size_of::<RunId>());

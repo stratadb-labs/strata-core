@@ -1,4 +1,4 @@
-//! Error types for in-mem database
+//! Error types for Strata database
 //!
 //! This module defines all error types used throughout the system.
 //! We use `thiserror` for automatic `Display` and `Error` trait implementations.
@@ -41,10 +41,10 @@ use crate::types::{Key, RunId};
 use std::io;
 use thiserror::Error;
 
-/// Result type alias for in-mem operations
+/// Result type alias for Strata operations
 pub type Result<T> = std::result::Result<T, Error>;
 
-/// Error types for the in-mem database
+/// Error types for the Strata database
 #[derive(Debug, Error)]
 pub enum Error {
     /// I/O error (file operations, network, etc.)
@@ -314,7 +314,7 @@ mod tests {
 /// ## Usage
 ///
 /// ```ignore
-/// use in_mem_core::{StrataError, StrataResult, EntityRef, Version};
+/// use strata_core::{StrataError, StrataResult, EntityRef, Version};
 ///
 /// fn example_operation() -> StrataResult<String> {
 ///     // Use ? operator naturally

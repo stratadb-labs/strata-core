@@ -10,9 +10,9 @@
 //! - Write skew is ALLOWED (do not try to prevent it)
 
 use crate::transaction::{CASOperation, TransactionContext};
-use in_mem_core::traits::Storage;
-use in_mem_core::types::Key;
-use in_mem_core::value::Value;
+use strata_core::traits::Storage;
+use strata_core::types::Key;
+use strata_core::value::Value;
 use std::collections::HashMap;
 
 /// Types of conflicts that can occur during transaction validation
@@ -71,9 +71,9 @@ pub enum ConflictType {
         /// The key of the JSON document
         key: Key,
         /// The path that was read
-        read_path: in_mem_core::json::JsonPath,
+        read_path: strata_core::json::JsonPath,
         /// The path that was written (overlaps with read_path)
-        write_path: in_mem_core::json::JsonPath,
+        write_path: strata_core::json::JsonPath,
     },
 
     /// JSON path write-write conflict: two writes to overlapping paths
@@ -85,9 +85,9 @@ pub enum ConflictType {
         /// The key of the JSON document
         key: Key,
         /// The first write path
-        path1: in_mem_core::json::JsonPath,
+        path1: strata_core::json::JsonPath,
         /// The second write path (overlaps with path1)
-        path2: in_mem_core::json::JsonPath,
+        path2: strata_core::json::JsonPath,
     },
 }
 
@@ -405,7 +405,7 @@ pub fn validate_transaction<S: Storage>(txn: &TransactionContext, store: &S) -> 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use in_mem_core::types::{Namespace, RunId, TypeTag};
+    use strata_core::types::{Namespace, RunId, TypeTag};
 
     fn create_test_key(name: &[u8]) -> Key {
         let ns = Namespace::new("test".into(), "app".into(), "agent".into(), RunId::new());
@@ -568,8 +568,8 @@ mod tests {
 
     mod read_set_tests {
         use super::*;
-        use in_mem_core::value::Value;
-        use in_mem_storage::UnifiedStore;
+        use strata_core::value::Value;
+        use strata_storage::UnifiedStore;
 
         fn create_test_store() -> UnifiedStore {
             UnifiedStore::new()
@@ -806,8 +806,8 @@ mod tests {
 
     mod write_set_tests {
         use super::*;
-        use in_mem_core::value::Value;
-        use in_mem_storage::UnifiedStore;
+        use strata_core::value::Value;
+        use strata_storage::UnifiedStore;
 
         fn create_test_store() -> UnifiedStore {
             UnifiedStore::new()
@@ -950,8 +950,8 @@ mod tests {
     mod cas_tests {
         use super::*;
         use crate::CASOperation;
-        use in_mem_core::value::Value;
-        use in_mem_storage::UnifiedStore;
+        use strata_core::value::Value;
+        use strata_storage::UnifiedStore;
 
         fn create_test_store() -> UnifiedStore {
             UnifiedStore::new()
@@ -1186,9 +1186,9 @@ mod tests {
     // === JSON Validation Tests (M5 Story #285) ===
     mod json_validation_tests {
         use super::*;
-        use in_mem_core::types::TypeTag;
-        use in_mem_core::JsonDocId;
-        use in_mem_storage::UnifiedStore;
+        use strata_core::types::TypeTag;
+        use strata_core::JsonDocId;
+        use strata_storage::UnifiedStore;
 
         fn create_json_test_store() -> UnifiedStore {
             UnifiedStore::new()
@@ -1340,8 +1340,8 @@ mod tests {
     mod json_path_validation_tests {
         use super::*;
         use crate::transaction::{JsonPatchEntry, JsonPathRead};
-        use in_mem_core::json::{JsonPatch, JsonPath};
-        use in_mem_core::types::{JsonDocId, Namespace, RunId};
+        use strata_core::json::{JsonPatch, JsonPath};
+        use strata_core::types::{JsonDocId, Namespace, RunId};
 
         fn create_json_key() -> Key {
             let ns = Namespace::for_run(RunId::new());

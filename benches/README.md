@@ -1,6 +1,6 @@
-# in-mem Benchmarks
+# Strata Benchmarks
 
-This directory contains Criterion benchmark suites for measuring in-mem performance.
+This directory contains Criterion benchmark suites for measuring Strata performance.
 
 ## Benchmark Files
 

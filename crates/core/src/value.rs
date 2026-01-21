@@ -1,4 +1,4 @@
-//! Value types for in-mem
+//! Value types for Strata
 //!
 //! This module defines:
 //! - Value: Unified enum for all primitive data types
@@ -8,7 +8,7 @@
 //! - `Timestamp` is now in `contract::Timestamp` (microseconds, not seconds)
 //! - `VersionedValue` is now `contract::Versioned<Value>`
 //!
-//! Import from crate root: `use in_mem_core::{Timestamp, VersionedValue, Version};`
+//! Import from crate root: `use strata_core::{Timestamp, VersionedValue, Version};`
 
 use serde::{Deserialize, Serialize};
 

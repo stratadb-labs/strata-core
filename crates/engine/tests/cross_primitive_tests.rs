@@ -4,10 +4,10 @@
 //! Validates that transactions atomically operate across different
 //! Key types (KV and Event) in a single transaction.
 
-use in_mem_core::error::Error;
-use in_mem_core::types::{Key, Namespace, RunId};
-use in_mem_core::value::Value;
-use in_mem_engine::Database;
+use strata_core::error::Error;
+use strata_core::types::{Key, Namespace, RunId};
+use strata_core::value::Value;
+use strata_engine::Database;
 use tempfile::TempDir;
 
 fn create_ns(run_id: RunId) -> Namespace {

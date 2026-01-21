@@ -4,9 +4,9 @@
 //! These tests are marked with #[ignore] for opt-in execution.
 
 use crate::test_utils::*;
-use in_mem_core::types::RunId;
-use in_mem_core::value::Value;
-use in_mem_primitives::KVStore;
+use strata_core::types::RunId;
+use strata_core::value::Value;
+use strata_primitives::KVStore;
 use std::sync::Arc;
 use std::thread;
 use std::time::{Duration, Instant};

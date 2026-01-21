@@ -9,7 +9,7 @@
 //! before opening any Database:
 //!
 //! ```ignore
-//! use in_mem_primitives::vector::register_vector_recovery;
+//! use strata_primitives::vector::register_vector_recovery;
 //!
 //! // Call once at startup
 //! register_vector_recovery();
@@ -26,8 +26,8 @@
 //! 4. `recover()` replays WAL entries into `VectorBackendState` (stored in Database extensions)
 //! 5. The Database is ready with all vector embeddings restored
 
-use in_mem_core::error::{Error, Result};
-use in_mem_engine::{register_recovery_participant, Database, RecoveryParticipant};
+use strata_core::error::{Error, Result};
+use strata_engine::{register_recovery_participant, Database, RecoveryParticipant};
 use tracing::info;
 
 /// Recovery function for VectorStore
@@ -43,7 +43,7 @@ fn recover_from_db(db: &Database) -> Result<()> {
         CollectionId, DistanceMetric, IndexBackendFactory, VectorBackendState, VectorConfig,
         VectorId,
     };
-    use in_mem_durability::wal::WALEntry;
+    use strata_durability::wal::WALEntry;
     use std::collections::{HashMap, HashSet};
 
     // Skip if InMemory mode (no WAL)
@@ -69,7 +69,7 @@ fn recover_from_db(db: &Database) -> Result<()> {
         committed: bool,
     }
     let mut transactions: HashMap<u64, TxnState> = HashMap::new();
-    let mut active_txn: HashMap<in_mem_core::types::RunId, u64> = HashMap::new();
+    let mut active_txn: HashMap<strata_core::types::RunId, u64> = HashMap::new();
     let mut entries_in_txn: HashSet<usize> = HashSet::new();
 
     // First pass: group transactional entries
@@ -232,7 +232,7 @@ fn recover_from_db(db: &Database) -> Result<()> {
 /// # Example
 ///
 /// ```ignore
-/// use in_mem_primitives::vector::register_vector_recovery;
+/// use strata_primitives::vector::register_vector_recovery;
 ///
 /// fn main() {
 ///     // Register recovery participant before any Database operations

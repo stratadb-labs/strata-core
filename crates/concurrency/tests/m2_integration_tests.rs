@@ -21,15 +21,15 @@
 //! cargo test --test m2_integration_tests -- --nocapture  # with output
 //! ```
 
-use in_mem_concurrency::{
+use strata_concurrency::{
     validate_transaction, TransactionContext, TransactionManager, TransactionStatus,
     TransactionWALWriter,
 };
-use in_mem_core::traits::{SnapshotView, Storage};
-use in_mem_core::types::{Key, Namespace, RunId};
-use in_mem_core::value::Value;
-use in_mem_durability::wal::{DurabilityMode, WALEntry, WAL};
-use in_mem_storage::UnifiedStore;
+use strata_core::traits::{SnapshotView, Storage};
+use strata_core::types::{Key, Namespace, RunId};
+use strata_core::value::Value;
+use strata_durability::wal::{DurabilityMode, WALEntry, WAL};
+use strata_storage::UnifiedStore;
 use tempfile::TempDir;
 
 // ============================================================================
@@ -1170,10 +1170,10 @@ mod wal_writer_tests {
 
 mod m5_cross_primitive_tests {
     use super::*;
-    use in_mem_concurrency::JsonStoreExt;
-    use in_mem_core::json::{JsonPath, JsonValue};
-    use in_mem_core::types::TypeTag;
-    use in_mem_core::JsonDocId;
+    use strata_concurrency::JsonStoreExt;
+    use strata_core::json::{JsonPath, JsonValue};
+    use strata_core::types::TypeTag;
+    use strata_core::JsonDocId;
 
     fn create_json_key(ns: &Namespace, doc_id: &JsonDocId) -> Key {
         Key::new(ns.clone(), TypeTag::Json, doc_id.as_bytes().to_vec())

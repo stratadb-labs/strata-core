@@ -7,8 +7,8 @@
 //! - No implicit coupling between primitives
 
 use crate::test_utils::{values, PersistentTestPrimitives, TestPrimitives};
-use in_mem_core::contract::Version;
-use in_mem_primitives::{EventLog, KVStore, RunIndex, StateCell, TraceStore, TraceType};
+use strata_core::contract::Version;
+use strata_primitives::{EventLog, KVStore, RunIndex, StateCell, TraceStore, TraceType};
 
 // =============================================================================
 // M3.21: Primitives Are Projections Over KV (Canonical Source)
