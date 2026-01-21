@@ -41,6 +41,7 @@ pub mod unified;
 
 // Disk storage (M10)
 pub mod codec;
+pub mod disk_snapshot;
 pub mod format;
 pub mod wal;
 
@@ -60,10 +61,25 @@ pub use unified::UnifiedStore;
 // Disk storage re-exports (M10)
 pub use codec::{get_codec, CodecError, IdentityCodec, StorageCodec};
 pub use format::{
+    // Snapshot format
+    find_latest_snapshot, list_snapshots, parse_snapshot_id, primitive_tags, snapshot_path,
+    SectionHeader, SnapshotHeader, SnapshotHeaderError, SNAPSHOT_FORMAT_VERSION,
+    SNAPSHOT_HEADER_SIZE, SNAPSHOT_MAGIC,
+    // Primitive serialization
+    EventSnapshotEntry, JsonSnapshotEntry, KvSnapshotEntry, PrimitiveSerializeError,
+    RunSnapshotEntry, SnapshotSerializer, SpanSnapshotEntry, StateSnapshotEntry,
+    TraceSnapshotEntry, VectorCollectionSnapshotEntry, VectorSnapshotEntry,
+    // Watermark tracking
+    CheckpointInfo, SnapshotWatermark, WatermarkError,
+    // WAL format
     Mutation, SegmentHeader, WalRecord, WalRecordError, WalSegment, Writeset, WritesetError,
     SEGMENT_FORMAT_VERSION, SEGMENT_HEADER_SIZE, SEGMENT_MAGIC, WAL_RECORD_FORMAT_VERSION,
 };
 pub use wal::{
     DurabilityMode, TruncateInfo, WalConfig, WalConfigError, WalReadResult, WalReader,
     WalReaderError, WalWriter,
+};
+pub use disk_snapshot::{
+    CheckpointCoordinator, CheckpointData, CheckpointError, LoadedSection, LoadedSnapshot,
+    SnapshotInfo, SnapshotReadError, SnapshotReader, SnapshotSection, SnapshotWriter,
 };
