@@ -29,24 +29,36 @@
 //! ## Module Structure
 //!
 //! - `substrate`: Power-user API with explicit parameters
-//! - `facade`: Redis-like convenience API (coming soon)
+//! - `facade`: Redis-like convenience API
 //!
 //! ## Quick Start
+//!
+//! ### Using Facade (Simple)
+//!
+//! ```ignore
+//! use strata_api::facade::KVFacade;
+//!
+//! // Simple get/set
+//! facade.set("counter", Value::Int(0))?;
+//! let count = facade.incr("counter")?;
+//! ```
+//!
+//! ### Using Substrate (Advanced)
 //!
 //! ```ignore
 //! use strata_api::substrate::{KVStore, ApiRunId};
 //!
-//! // Get from default run
-//! let value = store.kv_get(&ApiRunId::default(), "my-key")?;
-//!
-//! // Put with version tracking
-//! let version = store.kv_put(&ApiRunId::default(), "my-key", Value::Int(42))?;
+//! // Explicit run and versioning
+//! let run = ApiRunId::new();
+//! let version = store.kv_put(&run, "key", Value::Int(42))?;
+//! let versioned = store.kv_get(&run, "key")?;
 //! ```
 
 #![warn(missing_docs)]
 #![warn(clippy::all)]
 
 pub mod substrate;
+pub mod facade;
 
 // Re-export substrate types at crate root for convenience
 pub use substrate::{
@@ -58,9 +70,17 @@ pub use substrate::{
     // Transaction control
     TransactionControl, TransactionSavepoint, TxnId, TxnInfo, TxnOptions, TxnStatus,
     // Vector types
-    DistanceMetric, SearchFilter, VectorMatch,
+    DistanceMetric, SearchFilter, VectorData, VectorMatch,
     // Trace types
     TraceEntry, TraceType,
+};
+
+// Re-export facade types at crate root for convenience
+pub use facade::{
+    // Configuration
+    FacadeConfig, GetOptions, SetOptions,
+    // Facade traits
+    KVFacade, KVFacadeBatch, JsonFacade, EventFacade, StateFacade, VectorFacade, TraceFacade,
 };
 
 #[cfg(test)]
