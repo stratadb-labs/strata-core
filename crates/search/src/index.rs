@@ -131,6 +131,10 @@ pub struct InvertedIndex {
 
     /// Sum of all document lengths (for average calculation)
     total_doc_len: AtomicUsize,
+
+    /// DocRef -> document length mapping for proper removal tracking
+    /// Fixes #608 (total_doc_len drift) and #609 (double-counting)
+    doc_lengths: DashMap<DocRef, u32>,
 }
 
 impl Default for InvertedIndex {
@@ -149,6 +153,7 @@ impl InvertedIndex {
             enabled: AtomicBool::new(false),
             version: AtomicU64::new(0),
             total_doc_len: AtomicUsize::new(0),
+            doc_lengths: DashMap::new(),
         }
     }
 
@@ -177,6 +182,7 @@ impl InvertedIndex {
     pub fn clear(&self) {
         self.postings.clear();
         self.doc_freqs.clear();
+        self.doc_lengths.clear();
         self.total_docs.store(0, Ordering::Relaxed);
         self.total_doc_len.store(0, Ordering::Relaxed);
         self.version.fetch_add(1, Ordering::Release);
@@ -252,9 +258,15 @@ impl InvertedIndex {
     /// Index a document
     ///
     /// NOOP if index is disabled.
+    /// If document is already indexed, removes old version first (fixes #609).
     pub fn index_document(&self, doc_ref: &DocRef, text: &str, ts_micros: Option<u64>) {
         if !self.is_enabled() {
             return; // Zero overhead when disabled
+        }
+
+        // Fix #609: Check if document already indexed, remove first to prevent double-counting
+        if self.doc_lengths.contains_key(doc_ref) {
+            self.remove_document(doc_ref);
         }
 
         let tokens = tokenize(text);
@@ -278,6 +290,9 @@ impl InvertedIndex {
                 .or_insert(1);
         }
 
+        // Track document length for proper removal (fixes #608)
+        self.doc_lengths.insert(doc_ref.clone(), doc_len);
+
         self.total_docs.fetch_add(1, Ordering::Relaxed);
         self.total_doc_len
             .fetch_add(doc_len as usize, Ordering::Relaxed);
@@ -287,10 +302,14 @@ impl InvertedIndex {
     /// Remove a document from the index
     ///
     /// NOOP if index is disabled.
+    /// Properly decrements total_doc_len using tracked document length (fixes #608).
     pub fn remove_document(&self, doc_ref: &DocRef) {
         if !self.is_enabled() {
             return;
         }
+
+        // Fix #608: Get document length before removal for proper total_doc_len update
+        let doc_len = self.doc_lengths.remove(doc_ref).map(|(_, len)| len);
 
         let mut removed = false;
 
@@ -305,10 +324,13 @@ impl InvertedIndex {
             }
         }
 
-        if removed {
-            // Note: We can't track exact doc_len for removed docs without storing it
-            // Decrement total_docs but leave total_doc_len as approximation
+        if removed || doc_len.is_some() {
             self.total_docs.fetch_sub(1, Ordering::Relaxed);
+            // Fix #608: Properly decrement total_doc_len using tracked length
+            if let Some(len) = doc_len {
+                self.total_doc_len
+                    .fetch_sub(len as usize, Ordering::Relaxed);
+            }
             self.version.fetch_add(1, Ordering::Release);
         }
     }
