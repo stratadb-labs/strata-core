@@ -558,7 +558,10 @@ pub fn replay_wal_with_options<S: Storage + ?Sized>(
     let total_txns = txn_ids.len();
 
     for txn_id in txn_ids {
-        let txn = transactions.get(&txn_id).unwrap();
+        // Safety: txn_id comes from transactions.keys(), so it must exist
+        let txn = transactions
+            .get(&txn_id)
+            .expect("txn_id from keys() must exist in map");
 
         // Determine if this transaction should be applied
         let mut was_applied = false;
