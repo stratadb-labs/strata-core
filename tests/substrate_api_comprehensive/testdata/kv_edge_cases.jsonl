@@ -1,0 +1,59 @@
+{"type": "header", "description": "Edge case test data for key validation, value limits, and error handling", "categories": ["key_validation", "value_limits", "batch_edge_cases", "error_cases"]}
+{"category": "key_validation", "test": "empty_key", "key": "", "value": {"type": "int", "value": 1}, "expected": "InvalidKey"}
+{"category": "key_validation", "test": "nul_byte_key", "key": "foo\u0000bar", "value": {"type": "int", "value": 1}, "expected": "InvalidKey"}
+{"category": "key_validation", "test": "reserved_prefix_strata", "key": "_strata/internal", "value": {"type": "int", "value": 1}, "expected": "InvalidKey"}
+{"category": "key_validation", "test": "reserved_prefix_strata_nested", "key": "_strata/system/config", "value": {"type": "int", "value": 1}, "expected": "InvalidKey"}
+{"category": "key_validation", "test": "unicode_key_chinese", "key": "键", "value": {"type": "string", "value": "chinese key"}, "expected": "Ok"}
+{"category": "key_validation", "test": "unicode_key_arabic", "key": "مفتاح", "value": {"type": "string", "value": "arabic key"}, "expected": "Ok"}
+{"category": "key_validation", "test": "unicode_key_emoji", "key": "🔑", "value": {"type": "string", "value": "emoji key"}, "expected": "Ok"}
+{"category": "key_validation", "test": "unicode_key_japanese", "key": "キー", "value": {"type": "string", "value": "japanese key"}, "expected": "Ok"}
+{"category": "key_validation", "test": "unicode_key_mixed", "key": "key_键_🔑_مفتاح", "value": {"type": "string", "value": "mixed unicode key"}, "expected": "Ok"}
+{"category": "key_validation", "test": "special_char_slash", "key": "path/to/key", "value": {"type": "int", "value": 1}, "expected": "Ok"}
+{"category": "key_validation", "test": "special_char_dot", "key": "config.setting", "value": {"type": "int", "value": 1}, "expected": "Ok"}
+{"category": "key_validation", "test": "special_char_dotdot", "key": "../parent", "value": {"type": "int", "value": 1}, "expected": "Ok"}
+{"category": "key_validation", "test": "special_char_tilde", "key": "~user/home", "value": {"type": "int", "value": 1}, "expected": "Ok"}
+{"category": "key_validation", "test": "special_char_colon", "key": "namespace:key", "value": {"type": "int", "value": 1}, "expected": "Ok"}
+{"category": "key_validation", "test": "special_char_at", "key": "user@domain", "value": {"type": "int", "value": 1}, "expected": "Ok"}
+{"category": "key_validation", "test": "special_char_hash", "key": "topic#channel", "value": {"type": "int", "value": 1}, "expected": "Ok"}
+{"category": "key_validation", "test": "special_char_percent", "key": "url%20encoded", "value": {"type": "int", "value": 1}, "expected": "Ok"}
+{"category": "key_validation", "test": "whitespace_only_space", "key": " ", "value": {"type": "int", "value": 1}, "expected": "Ok"}
+{"category": "key_validation", "test": "whitespace_only_tab", "key": "\t", "value": {"type": "int", "value": 1}, "expected": "Ok"}
+{"category": "key_validation", "test": "whitespace_leading", "key": " leading", "value": {"type": "int", "value": 1}, "expected": "Ok"}
+{"category": "key_validation", "test": "whitespace_trailing", "key": "trailing ", "value": {"type": "int", "value": 1}, "expected": "Ok"}
+{"category": "key_validation", "test": "key_single_char", "key": "a", "value": {"type": "int", "value": 1}, "expected": "Ok"}
+{"category": "key_validation", "test": "key_numeric", "key": "12345", "value": {"type": "int", "value": 1}, "expected": "Ok"}
+{"category": "key_validation", "test": "key_hyphen", "key": "my-key-name", "value": {"type": "int", "value": 1}, "expected": "Ok"}
+{"category": "key_validation", "test": "key_underscore", "key": "my_key_name", "value": {"type": "int", "value": 1}, "expected": "Ok"}
+{"category": "key_validation", "test": "key_256_bytes", "key": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "value": {"type": "int", "value": 1}, "expected": "Ok"}
+{"category": "key_validation", "test": "key_1024_bytes", "key": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "value": {"type": "int", "value": 1}, "expected": "Ok_or_InvalidKey"}
+{"category": "value_limits", "test": "large_string_1kb", "key": "large_string_1kb", "value": {"type": "string", "size_kb": 1}, "expected": "Ok"}
+{"category": "value_limits", "test": "large_string_10kb", "key": "large_string_10kb", "value": {"type": "string", "size_kb": 10}, "expected": "Ok"}
+{"category": "value_limits", "test": "large_string_100kb", "key": "large_string_100kb", "value": {"type": "string", "size_kb": 100}, "expected": "Ok"}
+{"category": "value_limits", "test": "large_string_1mb", "key": "large_string_1mb", "value": {"type": "string", "size_kb": 1024}, "expected": "Ok_or_ConstraintViolation"}
+{"category": "value_limits", "test": "large_bytes_1kb", "key": "large_bytes_1kb", "value": {"type": "bytes", "size_kb": 1}, "expected": "Ok"}
+{"category": "value_limits", "test": "large_bytes_10kb", "key": "large_bytes_10kb", "value": {"type": "bytes", "size_kb": 10}, "expected": "Ok"}
+{"category": "value_limits", "test": "large_bytes_100kb", "key": "large_bytes_100kb", "value": {"type": "bytes", "size_kb": 100}, "expected": "Ok"}
+{"category": "value_limits", "test": "large_bytes_1mb", "key": "large_bytes_1mb", "value": {"type": "bytes", "size_kb": 1024}, "expected": "Ok_or_ConstraintViolation"}
+{"category": "value_limits", "test": "large_array_100", "key": "large_array_100", "value": {"type": "array", "element_count": 100}, "expected": "Ok"}
+{"category": "value_limits", "test": "large_array_1000", "key": "large_array_1000", "value": {"type": "array", "element_count": 1000}, "expected": "Ok"}
+{"category": "value_limits", "test": "large_array_10000", "key": "large_array_10000", "value": {"type": "array", "element_count": 10000}, "expected": "Ok_or_ConstraintViolation"}
+{"category": "value_limits", "test": "large_object_100", "key": "large_object_100", "value": {"type": "object", "key_count": 100}, "expected": "Ok"}
+{"category": "value_limits", "test": "large_object_1000", "key": "large_object_1000", "value": {"type": "object", "key_count": 1000}, "expected": "Ok"}
+{"category": "value_limits", "test": "deeply_nested_array_10", "key": "nested_array_10", "value": {"type": "nested_array", "depth": 10}, "expected": "Ok"}
+{"category": "value_limits", "test": "deeply_nested_array_50", "key": "nested_array_50", "value": {"type": "nested_array", "depth": 50}, "expected": "Ok_or_ConstraintViolation"}
+{"category": "value_limits", "test": "deeply_nested_object_10", "key": "nested_object_10", "value": {"type": "nested_object", "depth": 10}, "expected": "Ok"}
+{"category": "value_limits", "test": "deeply_nested_object_50", "key": "nested_object_50", "value": {"type": "nested_object", "depth": 50}, "expected": "Ok_or_ConstraintViolation"}
+{"category": "batch_edge_cases", "test": "mput_empty", "entries": [], "expected": "Ok"}
+{"category": "batch_edge_cases", "test": "mput_duplicate_keys", "entries": [{"key": "dup", "value": {"type": "int", "value": 1}}, {"key": "dup", "value": {"type": "int", "value": 2}}], "expected": "last_wins_or_error"}
+{"category": "batch_edge_cases", "test": "mput_100_entries", "entry_count": 100, "expected": "Ok"}
+{"category": "batch_edge_cases", "test": "mput_1000_entries", "entry_count": 1000, "expected": "Ok"}
+{"category": "batch_edge_cases", "test": "mget_empty", "keys": [], "expected": "Ok_empty"}
+{"category": "batch_edge_cases", "test": "mget_duplicate_keys", "keys": ["key1", "key1", "key2"], "expected": "Ok_with_duplicates"}
+{"category": "batch_edge_cases", "test": "mget_100_keys", "key_count": 100, "expected": "Ok"}
+{"category": "batch_edge_cases", "test": "mdelete_empty", "keys": [], "expected": "Ok_zero"}
+{"category": "batch_edge_cases", "test": "mdelete_duplicate_keys", "keys": ["key1", "key1"], "expected": "Ok_count_1"}
+{"category": "timestamp_ordering", "test": "timestamps_monotonic", "operation_count": 100, "expected": "monotonic"}
+{"category": "timestamp_ordering", "test": "version_timestamp_correlation", "operation_count": 100, "expected": "correlated"}
+{"category": "delete_semantics", "test": "double_delete", "key": "double_del", "expected": "second_returns_false"}
+{"category": "delete_semantics", "test": "delete_then_recreate", "key": "recreate", "expected": "new_version"}
+{"category": "delete_semantics", "test": "delete_nonexistent", "key": "never_existed", "expected": "returns_false"}

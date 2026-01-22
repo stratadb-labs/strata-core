@@ -26,3 +26,4 @@ mcp = ["tokio"]  # M8: MCP integration
 
 [dev-dependencies]
 tempfile = { workspace = true }
+base64 = "0.22"
