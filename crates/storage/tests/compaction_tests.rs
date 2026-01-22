@@ -9,7 +9,8 @@
 use strata_storage::compaction::{CompactInfo, CompactMode, CompactionError, WalOnlyCompactor};
 use strata_storage::database::{DatabaseConfig, DatabaseHandle};
 use strata_storage::format::{ManifestManager, WalRecord, WalSegment};
-use std::sync::{Arc, Mutex};
+use parking_lot::Mutex;
+use std::sync::Arc;
 use tempfile::tempdir;
 
 /// Helper function to create a test UUID
@@ -119,7 +120,7 @@ fn test_compaction_removes_covered_segments() {
 
     // Set snapshot watermark at txn 6 and active segment at 5
     {
-        let mut m = manifest.lock().unwrap();
+        let mut m = manifest.lock();
         m.set_snapshot_watermark(1, 6).unwrap();
         m.manifest_mut().active_wal_segment = 5;
         m.persist().unwrap();
@@ -143,7 +144,7 @@ fn test_compaction_never_removes_active_segment() {
 
     // Set watermark high but segment 1 is active
     {
-        let mut m = manifest.lock().unwrap();
+        let mut m = manifest.lock();
         m.set_snapshot_watermark(1, 100).unwrap();
         m.manifest_mut().active_wal_segment = 1;
         m.persist().unwrap();
@@ -165,7 +166,7 @@ fn test_compaction_handles_empty_wal() {
 
     // Set snapshot watermark
     {
-        let mut m = manifest.lock().unwrap();
+        let mut m = manifest.lock();
         m.set_snapshot_watermark(1, 100).unwrap();
         m.persist().unwrap();
     }
@@ -189,7 +190,7 @@ fn test_compaction_handles_empty_segment() {
     create_segment_with_records(&wal_dir, 2, &[1, 2, 3]).unwrap();
 
     {
-        let mut m = manifest.lock().unwrap();
+        let mut m = manifest.lock();
         m.set_snapshot_watermark(1, 10).unwrap();
         m.manifest_mut().active_wal_segment = 10;
         m.persist().unwrap();
@@ -212,7 +213,7 @@ fn test_compaction_preserves_uncovered_segments() {
     create_segment_with_records(&wal_dir, 2, &[4, 5, 100]).unwrap(); // txn 100 > watermark
 
     {
-        let mut m = manifest.lock().unwrap();
+        let mut m = manifest.lock();
         m.set_snapshot_watermark(1, 50).unwrap();
         m.manifest_mut().active_wal_segment = 10;
         m.persist().unwrap();
@@ -234,7 +235,7 @@ fn test_compaction_reports_correct_watermark() {
 
     let watermark_value = 42u64;
     {
-        let mut m = manifest.lock().unwrap();
+        let mut m = manifest.lock();
         m.set_snapshot_watermark(1, watermark_value).unwrap();
         m.manifest_mut().active_wal_segment = 10;
         m.persist().unwrap();
@@ -251,7 +252,7 @@ fn test_compaction_records_timestamp() {
     let (_dir, wal_dir, manifest) = setup_test_env();
 
     {
-        let mut m = manifest.lock().unwrap();
+        let mut m = manifest.lock();
         m.set_snapshot_watermark(1, 100).unwrap();
         m.persist().unwrap();
     }
@@ -448,7 +449,7 @@ fn test_compaction_with_single_segment() {
     create_segment_with_records(&wal_dir, 1, &[1, 2, 3]).unwrap();
 
     {
-        let mut m = manifest.lock().unwrap();
+        let mut m = manifest.lock();
         m.set_snapshot_watermark(1, 10).unwrap();
         m.manifest_mut().active_wal_segment = 2; // Segment 1 is not active
         m.persist().unwrap();
@@ -470,7 +471,7 @@ fn test_compaction_with_boundary_watermark() {
 
     // Watermark exactly at max txn_id
     {
-        let mut m = manifest.lock().unwrap();
+        let mut m = manifest.lock();
         m.set_snapshot_watermark(1, 5).unwrap();
         m.manifest_mut().active_wal_segment = 2;
         m.persist().unwrap();
@@ -493,7 +494,7 @@ fn test_compaction_with_non_sequential_segments() {
     create_segment_with_records(&wal_dir, 10, &[3]).unwrap();
 
     {
-        let mut m = manifest.lock().unwrap();
+        let mut m = manifest.lock();
         m.set_snapshot_watermark(1, 2).unwrap();
         m.manifest_mut().active_wal_segment = 11;
         m.persist().unwrap();
@@ -515,7 +516,7 @@ fn test_compaction_idempotent() {
     create_segment_with_records(&wal_dir, 2, &[4, 5, 6]).unwrap();
 
     {
-        let mut m = manifest.lock().unwrap();
+        let mut m = manifest.lock();
         m.set_snapshot_watermark(1, 3).unwrap();
         m.manifest_mut().active_wal_segment = 3;
         m.persist().unwrap();
@@ -541,7 +542,7 @@ fn test_multiple_compactor_instances() {
     create_segment_with_records(&wal_dir, 1, &[1, 2, 3]).unwrap();
 
     {
-        let mut m = manifest.lock().unwrap();
+        let mut m = manifest.lock();
         m.set_snapshot_watermark(1, 10).unwrap();
         m.manifest_mut().active_wal_segment = 2;
         m.persist().unwrap();
@@ -574,7 +575,7 @@ fn test_compaction_many_segments() {
     assert_eq!(count_segments(&wal_dir), 50);
 
     {
-        let mut m = manifest.lock().unwrap();
+        let mut m = manifest.lock();
         m.set_snapshot_watermark(1, 25).unwrap();
         m.manifest_mut().active_wal_segment = 51;
         m.persist().unwrap();
@@ -597,7 +598,7 @@ fn test_compaction_large_segments() {
     create_segment_with_records(&wal_dir, 1, &txn_ids).unwrap();
 
     {
-        let mut m = manifest.lock().unwrap();
+        let mut m = manifest.lock();
         m.set_snapshot_watermark(1, 100).unwrap();
         m.manifest_mut().active_wal_segment = 2;
         m.persist().unwrap();
