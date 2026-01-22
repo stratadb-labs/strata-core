@@ -135,7 +135,7 @@ fn recover_from_db(db: &Database) -> Result<()> {
                 };
                 let collection_id = CollectionId::new(*run_id, collection);
                 let backend = factory.create(&config);
-                state.backends.write().unwrap().insert(collection_id, backend);
+                state.backends.write().insert(collection_id, backend);
                 stats.collections_created += 1;
             }
             WALEntry::VectorCollectionDelete {
@@ -144,7 +144,7 @@ fn recover_from_db(db: &Database) -> Result<()> {
                 ..
             } => {
                 let collection_id = CollectionId::new(*run_id, collection);
-                state.backends.write().unwrap().remove(&collection_id);
+                state.backends.write().remove(&collection_id);
                 stats.collections_deleted += 1;
             }
             WALEntry::VectorUpsert {
@@ -156,7 +156,7 @@ fn recover_from_db(db: &Database) -> Result<()> {
             } => {
                 let collection_id = CollectionId::new(*run_id, collection);
                 let vid = VectorId::new(*vector_id);
-                let mut backends = state.backends.write().unwrap();
+                let mut backends = state.backends.write();
                 if let Some(backend) = backends.get_mut(&collection_id) {
                     // Use insert_with_id to maintain VectorId monotonicity
                     let _ = backend.insert_with_id(vid, embedding);
@@ -171,7 +171,7 @@ fn recover_from_db(db: &Database) -> Result<()> {
             } => {
                 let collection_id = CollectionId::new(*run_id, collection);
                 let vid = VectorId::new(*vector_id);
-                let mut backends = state.backends.write().unwrap();
+                let mut backends = state.backends.write();
                 if let Some(backend) = backends.get_mut(&collection_id) {
                     let _ = backend.delete(vid);
                     stats.vectors_deleted += 1;

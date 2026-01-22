@@ -8,8 +8,9 @@
 //!
 //! This is a lower-level API used by the engine layer.
 
+use parking_lot::Mutex;
 use std::path::{Path, PathBuf};
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 
 use crate::codec::{get_codec, StorageCodec};
 use crate::disk_snapshot::{CheckpointCoordinator, CheckpointData};
@@ -204,14 +205,14 @@ impl DatabaseHandle {
 
     /// Append a WAL record
     pub fn append_wal(&self, record: &WalRecord) -> Result<(), DatabaseHandleError> {
-        let mut wal = self.wal_writer.lock().unwrap();
+        let mut wal = self.wal_writer.lock();
         wal.append(record)?;
         Ok(())
     }
 
     /// Flush WAL to disk
     pub fn flush_wal(&self) -> Result<(), DatabaseHandleError> {
-        let mut wal = self.wal_writer.lock().unwrap();
+        let mut wal = self.wal_writer.lock();
         wal.flush()?;
         Ok(())
     }
@@ -224,13 +225,13 @@ impl DatabaseHandle {
     ) -> Result<CheckpointInfo, DatabaseHandleError> {
         // Create checkpoint
         let info = {
-            let mut coordinator = self.checkpoint_coordinator.lock().unwrap();
+            let mut coordinator = self.checkpoint_coordinator.lock();
             coordinator.checkpoint(watermark_txn, data)?
         };
 
         // Update MANIFEST
         {
-            let mut manifest = self.manifest.lock().unwrap();
+            let mut manifest = self.manifest.lock();
             manifest.set_snapshot_watermark(info.snapshot_id, info.watermark_txn)?;
         }
 
@@ -243,13 +244,13 @@ impl DatabaseHandle {
     pub fn close(self) -> Result<(), DatabaseHandleError> {
         // Flush WAL
         {
-            let mut wal = self.wal_writer.lock().unwrap();
+            let mut wal = self.wal_writer.lock();
             wal.flush()?;
         }
 
         // Update MANIFEST with current segment
         {
-            let manifest = self.manifest.lock().unwrap();
+            let manifest = self.manifest.lock();
             // MANIFEST is already up to date from last operation
             drop(manifest);
         }
@@ -279,13 +280,13 @@ impl DatabaseHandle {
 
     /// Get the current manifest
     pub fn manifest(&self) -> Manifest {
-        let manifest = self.manifest.lock().unwrap();
+        let manifest = self.manifest.lock();
         manifest.manifest().clone()
     }
 
     /// Get the current watermark
     pub fn watermark(&self) -> Option<u64> {
-        let coordinator = self.checkpoint_coordinator.lock().unwrap();
+        let coordinator = self.checkpoint_coordinator.lock();
         coordinator.watermark().watermark_txn()
     }
 }
@@ -293,9 +294,8 @@ impl DatabaseHandle {
 impl Drop for DatabaseHandle {
     fn drop(&mut self) {
         // Best-effort cleanup on drop
-        if let Ok(mut wal) = self.wal_writer.lock() {
-            let _ = wal.flush();
-        }
+        let mut wal = self.wal_writer.lock();
+        let _ = wal.flush();
     }
 }
 

@@ -21,8 +21,9 @@
 //! - Requires a valid snapshot to exist
 
 use crate::format::{ManifestManager, SegmentHeader, WalRecord, WalRecordError, SEGMENT_HEADER_SIZE};
+use parking_lot::Mutex;
 use std::path::{Path, PathBuf};
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 
 use super::{CompactInfo, CompactMode, CompactionError};
 
@@ -55,9 +56,7 @@ impl WalOnlyCompactor {
 
         // Get snapshot watermark from MANIFEST
         let (watermark, active_segment) = {
-            let manifest = self.manifest.lock().map_err(|e| {
-                CompactionError::internal(format!("Failed to acquire manifest lock: {}", e))
-            })?;
+            let manifest = self.manifest.lock();
 
             let watermark = manifest
                 .manifest()
@@ -335,7 +334,7 @@ mod tests {
 
         // Set snapshot watermark at txn 6 and active segment at 4
         {
-            let mut m = manifest.lock().unwrap();
+            let mut m = manifest.lock();
             m.set_snapshot_watermark(1, 6).unwrap();
             m.manifest_mut().active_wal_segment = 4;
             m.persist().unwrap();
@@ -365,7 +364,7 @@ mod tests {
 
         // Set watermark high but active segment is 1
         {
-            let mut m = manifest.lock().unwrap();
+            let mut m = manifest.lock();
             m.set_snapshot_watermark(1, 100).unwrap();
             m.manifest_mut().active_wal_segment = 1; // Segment 1 is active
             m.persist().unwrap();
@@ -385,7 +384,7 @@ mod tests {
 
         // Set snapshot watermark but no segments
         {
-            let mut m = manifest.lock().unwrap();
+            let mut m = manifest.lock();
             m.set_snapshot_watermark(1, 100).unwrap();
             m.persist().unwrap();
         }
@@ -410,7 +409,7 @@ mod tests {
 
         // Set watermark and active segment
         {
-            let mut m = manifest.lock().unwrap();
+            let mut m = manifest.lock();
             m.set_snapshot_watermark(1, 5).unwrap();
             m.manifest_mut().active_wal_segment = 10;
             m.persist().unwrap();
@@ -449,7 +448,7 @@ mod tests {
         create_segment_with_records(&wal_dir, 2, &[4, 5, 6]).unwrap();
 
         {
-            let mut m = manifest.lock().unwrap();
+            let mut m = manifest.lock();
             m.set_snapshot_watermark(1, 10).unwrap();
             m.manifest_mut().active_wal_segment = 10;
             m.persist().unwrap();

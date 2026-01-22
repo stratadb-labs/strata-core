@@ -14,13 +14,14 @@ strata-engine = { path = "../engine" }
 strata-concurrency = { path = "../concurrency" }
 strata-durability = { path = "../durability" }
 strata-storage = { path = "../storage" }
+byteorder = { workspace = true }
+parking_lot = { workspace = true }
 rmp-serde = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 thiserror = { workspace = true }
 tracing = { workspace = true }
 uuid = { workspace = true }
-byteorder = { workspace = true }
 
 [dev-dependencies]
 tempfile = { workspace = true }

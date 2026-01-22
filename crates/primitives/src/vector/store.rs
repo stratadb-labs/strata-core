@@ -40,7 +40,8 @@ use strata_durability::wal::WALEntry;
 use strata_engine::Database;
 use serde_json::Value as JsonValue;
 use std::collections::BTreeMap;
-use std::sync::{Arc, RwLock};
+use parking_lot::RwLock;
+use std::sync::Arc;
 
 /// Statistics from vector recovery
 #[derive(Debug, Default, Clone)]
@@ -330,7 +331,7 @@ impl VectorStore {
                 // (the KV recovery may have restored the collection config)
                 let collection_id = CollectionId::new(*run_id, collection);
                 let state = self.state();
-                if !state.backends.read().unwrap().contains_key(&collection_id) {
+                if !state.backends.read().contains_key(&collection_id) {
                     // Try to load from KV - collection config should have been restored
                     if let Ok(Some(config)) = self.load_collection_config(*run_id, collection) {
                         self.init_backend(&collection_id, &config);
@@ -483,7 +484,7 @@ impl VectorStore {
         // Remove in-memory backend
         {
             let state = self.state();
-            state.backends.write().unwrap().remove(&collection_id);
+            state.backends.write().remove(&collection_id);
         }
 
         // Write WAL entry for durability (M8 Epic 55)
@@ -670,7 +671,7 @@ impl VectorStore {
         } else {
             // New vector: allocate VectorId from backend's per-collection counter
             let state = self.state();
-            let mut backends = state.backends.write().unwrap();
+            let mut backends = state.backends.write();
             let backend = backends.get_mut(&collection_id).ok_or_else(|| {
                 VectorError::CollectionNotFound {
                     name: collection.to_string(),
@@ -691,7 +692,7 @@ impl VectorStore {
         // For updates, update the backend
         if is_update {
             let state = self.state();
-            let mut backends = state.backends.write().unwrap();
+            let mut backends = state.backends.write();
             if let Some(backend) = backends.get_mut(&collection_id) {
                 backend.insert(vector_id, embedding)?;
             }
@@ -760,7 +761,7 @@ impl VectorStore {
 
         // Get embedding from backend
         let state = self.state();
-        let backends = state.backends.read().unwrap();
+        let backends = state.backends.read();
         let backend =
             backends
                 .get(&collection_id)
@@ -807,7 +808,7 @@ impl VectorStore {
         // Delete from backend
         {
             let state = self.state();
-            let mut backends = state.backends.write().unwrap();
+            let mut backends = state.backends.write();
             if let Some(backend) = backends.get_mut(&collection_id) {
                 backend.delete(vector_id)?;
             }
@@ -837,7 +838,7 @@ impl VectorStore {
 
         let collection_id = CollectionId::new(run_id, collection);
         let state = self.state();
-        let backends = state.backends.read().unwrap();
+        let backends = state.backends.read();
 
         backends
             .get(&collection_id)
@@ -898,7 +899,7 @@ impl VectorStore {
             // No filter - simple case, fetch exactly k
             let candidates = {
                 let state = self.state();
-                let backends = state.backends.read().unwrap();
+                let backends = state.backends.read();
                 let backend =
                     backends
                         .get(&collection_id)
@@ -917,7 +918,7 @@ impl VectorStore {
             let multipliers = [3, 6, 12];
             let collection_size = {
                 let state = self.state();
-                let backends = state.backends.read().unwrap();
+                let backends = state.backends.read();
                 backends
                     .get(&collection_id)
                     .map(|b| b.len())
@@ -932,7 +933,7 @@ impl VectorStore {
 
                 let candidates = {
                     let state = self.state();
-                    let backends = state.backends.read().unwrap();
+                    let backends = state.backends.read();
                     let backend =
                         backends
                             .get(&collection_id)
@@ -1080,7 +1081,7 @@ impl VectorStore {
         // Search backend
         let candidates = {
             let state = self.state();
-            let backends = state.backends.read().unwrap();
+            let backends = state.backends.read();
             let backend = backends
                 .get(&collection_id)
                 .ok_or_else(|| VectorError::CollectionNotFound {
@@ -1144,7 +1145,7 @@ impl VectorStore {
     fn init_backend(&self, id: &CollectionId, config: &VectorConfig) {
         let backend = self.backend_factory().create(config);
         let state = self.state();
-        state.backends.write().unwrap().insert(id.clone(), backend);
+        state.backends.write().insert(id.clone(), backend);
     }
 
     /// Get collection config (required version that errors if not found)
@@ -1245,7 +1246,7 @@ impl VectorStore {
     ) -> VectorResult<usize> {
         // Check in-memory backend first
         let state = self.state();
-        let backends = state.backends.read().unwrap();
+        let backends = state.backends.read();
         if let Some(backend) = backends.get(id) {
             return Ok(backend.len());
         }
@@ -1337,7 +1338,7 @@ impl VectorStore {
         // Already loaded?
         {
             let state = self.state();
-            if state.backends.read().unwrap().contains_key(&collection_id) {
+            if state.backends.read().contains_key(&collection_id) {
                 return Ok(());
             }
         }
@@ -1383,7 +1384,7 @@ impl VectorStore {
         // Check if collection already exists in backend
         {
             let state = self.state();
-            let backends = state.backends.read().unwrap();
+            let backends = state.backends.read();
             if let Some(existing_backend) = backends.get(&collection_id) {
                 // Validate config matches (Issue #452)
                 let existing_config = existing_backend.config();
@@ -1421,7 +1422,6 @@ impl VectorStore {
         let state = self.state();
         state.backends
             .write()
-            .unwrap()
             .insert(collection_id, backend);
 
         Ok(())
@@ -1436,7 +1436,7 @@ impl VectorStore {
 
         // Remove in-memory backend
         let state = self.state();
-        state.backends.write().unwrap().remove(&collection_id);
+        state.backends.write().remove(&collection_id);
 
         Ok(())
     }
@@ -1459,7 +1459,7 @@ impl VectorStore {
         let collection_id = CollectionId::new(run_id, collection);
 
         let state = self.state();
-        let mut backends = state.backends.write().unwrap();
+        let mut backends = state.backends.write();
         let backend =
             backends
                 .get_mut(&collection_id)
@@ -1487,7 +1487,7 @@ impl VectorStore {
         let collection_id = CollectionId::new(run_id, collection);
 
         let state = self.state();
-        let mut backends = state.backends.write().unwrap();
+        let mut backends = state.backends.write();
         if let Some(backend) = backends.get_mut(&collection_id) {
             backend.delete(vector_id)?;
         }
@@ -2313,7 +2313,7 @@ mod tests {
 
         // Backend should be created
         let collection_id = CollectionId::new(run_id, "test");
-        assert!(store.backends().backends.read().unwrap().contains_key(&collection_id));
+        assert!(store.backends().backends.read().contains_key(&collection_id));
     }
 
     #[test]
@@ -2327,12 +2327,12 @@ mod tests {
             .unwrap();
 
         let collection_id = CollectionId::new(run_id, "test");
-        assert!(store.backends().backends.read().unwrap().contains_key(&collection_id));
+        assert!(store.backends().backends.read().contains_key(&collection_id));
 
         // Replay deletion
         store.replay_delete_collection(run_id, "test").unwrap();
 
-        assert!(!store.backends().backends.read().unwrap().contains_key(&collection_id));
+        assert!(!store.backends().backends.read().contains_key(&collection_id));
     }
 
     #[test]
@@ -2354,7 +2354,7 @@ mod tests {
         // Verify vector exists in backend
         let collection_id = CollectionId::new(run_id, "test");
         let state = store.backends();
-        let backends = state.backends.read().unwrap();
+        let backends = state.backends.read();
         let backend = backends.get(&collection_id).unwrap();
         assert!(backend.contains(vector_id));
         assert_eq!(backend.len(), 1);
@@ -2379,7 +2379,7 @@ mod tests {
         // Verify the vector exists
         let collection_id = CollectionId::new(run_id, "test");
         let state = store.backends();
-        let backends = state.backends.read().unwrap();
+        let backends = state.backends.read();
         let backend = backends.get(&collection_id).unwrap();
         assert!(backend.contains(high_id));
     }
@@ -2403,7 +2403,7 @@ mod tests {
         let collection_id = CollectionId::new(run_id, "test");
         {
             let state = store.backends();
-            let backends = state.backends.read().unwrap();
+            let backends = state.backends.read();
             assert!(backends.get(&collection_id).unwrap().contains(vector_id));
         }
 
@@ -2414,7 +2414,7 @@ mod tests {
 
         {
             let state = store.backends();
-            let backends = state.backends.read().unwrap();
+            let backends = state.backends.read();
             assert!(!backends.get(&collection_id).unwrap().contains(vector_id));
         }
     }
@@ -2470,7 +2470,7 @@ mod tests {
         // Verify final state
         let collection_id = CollectionId::new(run_id, "col1");
         let state = store.backends();
-        let backends = state.backends.read().unwrap();
+        let backends = state.backends.read();
         let backend = backends.get(&collection_id).unwrap();
 
         assert!(!backend.contains(VectorId::new(1)));
@@ -2488,7 +2488,7 @@ mod tests {
 
         // Use backends accessor
         let state = store.backends();
-        let guard = state.backends.read().unwrap();
+        let guard = state.backends.read();
         assert_eq!(guard.len(), 1);
     }
 }

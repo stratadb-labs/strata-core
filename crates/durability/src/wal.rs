@@ -48,8 +48,9 @@ use std::fs::{File, OpenOptions};
 use tracing::error;
 use std::io::{BufReader, BufWriter, Read, Seek, SeekFrom, Write};
 use std::path::{Path, PathBuf};
+use parking_lot::Mutex;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 use std::thread::{self, JoinHandle};
 use std::time::{Duration, Instant};
 use uuid::Uuid;
@@ -586,7 +587,7 @@ impl WAL {
 
         // Spawn background fsync thread for async mode
         let fsync_thread = if let DurabilityMode::Async { interval_ms } = durability_mode {
-            let writer = Arc::clone(&writer);
+            let writer: Arc<Mutex<BufWriter<File>>> = Arc::clone(&writer);
             let shutdown = Arc::clone(&shutdown);
             let interval = Duration::from_millis(interval_ms);
 
@@ -598,13 +599,12 @@ impl WAL {
                         break;
                     }
 
-                    if let Ok(mut w) = writer.lock() {
-                        if let Err(e) = w.flush() {
-                            error!(error = %e, "WAL async flush failed - data may not be durable");
-                        }
-                        if let Err(e) = w.get_mut().sync_all() {
-                            error!(error = %e, "WAL async sync_all failed - data may not be durable");
-                        }
+                    let mut w = writer.lock();
+                    if let Err(e) = w.flush() {
+                        error!(error = %e, "WAL async flush failed - data may not be durable");
+                    }
+                    if let Err(e) = w.get_mut().sync_all() {
+                        error!(error = %e, "WAL async sync_all failed - data may not be durable");
                     }
                 }
             }))
@@ -648,7 +648,7 @@ impl WAL {
 
         // Write to file
         {
-            let mut writer = self.writer.lock().unwrap();
+            let mut writer = self.writer.lock();
             writer.write_all(&encoded).map_err(|e| {
                 Error::StorageError(format!("Failed to write entry at offset {}: {}", offset, e))
             })?;
@@ -664,7 +664,7 @@ impl WAL {
                 // M4: No fsync for InMemory mode
                 // Just flush buffer for consistency - in practice, engine should
                 // check requires_wal() and skip WAL entirely for InMemory mode
-                let mut writer = self.writer.lock().unwrap();
+                let mut writer = self.writer.lock();
                 writer
                     .flush()
                     .map_err(|e| Error::StorageError(format!("Failed to flush: {}", e)))?;
@@ -680,7 +680,7 @@ impl WAL {
                 self.writes_since_fsync.fetch_add(1, Ordering::SeqCst);
 
                 let should_fsync = {
-                    let last = self.last_fsync.lock().unwrap();
+                    let last = self.last_fsync.lock();
                     let elapsed = last.elapsed().as_millis() as u64;
                     let writes = self.writes_since_fsync.load(Ordering::SeqCst);
 
@@ -690,13 +690,13 @@ impl WAL {
                 if should_fsync {
                     self.fsync()?;
                     self.writes_since_fsync.store(0, Ordering::SeqCst);
-                    *self.last_fsync.lock().unwrap() = Instant::now();
+                    *self.last_fsync.lock() = Instant::now();
                 }
             }
             DurabilityMode::Async { .. } => {
                 // Background thread handles fsync
                 // Just flush buffer to ensure writes are visible to reader
-                let mut writer = self.writer.lock().unwrap();
+                let mut writer = self.writer.lock();
                 writer
                     .flush()
                     .map_err(|e| Error::StorageError(format!("Failed to flush: {}", e)))?;
@@ -711,7 +711,7 @@ impl WAL {
     /// Note: This flushes to OS buffers, not necessarily to disk.
     /// For true durability, use fsync().
     pub fn flush(&mut self) -> Result<()> {
-        let mut writer = self.writer.lock().unwrap();
+        let mut writer = self.writer.lock();
         writer
             .flush()
             .map_err(|e| Error::StorageError(format!("Failed to flush WAL: {}", e)))
@@ -722,7 +722,7 @@ impl WAL {
     /// Ensures all buffered data is written to disk.
     /// This is the most durable option but also the slowest.
     pub fn fsync(&self) -> Result<()> {
-        let mut writer = self.writer.lock().unwrap();
+        let mut writer = self.writer.lock();
 
         // Flush buffer
         writer
@@ -755,7 +755,7 @@ impl WAL {
     pub fn read_entries(&self, start_offset: u64) -> Result<Vec<WALEntry>> {
         // Flush any buffered writes before reading
         {
-            let mut writer = self.writer.lock().unwrap();
+            let mut writer = self.writer.lock();
             if let Err(e) = writer.flush() {
                 error!(error = %e, "WAL flush before read failed");
             }

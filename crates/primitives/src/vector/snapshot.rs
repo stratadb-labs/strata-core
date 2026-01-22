@@ -88,7 +88,7 @@ impl VectorStore {
             .map_err(|e| VectorError::Io(e.to_string()))?;
 
         let state = self.backends();
-        let backends = state.backends.read().unwrap();
+        let backends = state.backends.read();
         let collection_count = backends.len() as u32;
         writer
             .write_u32::<LittleEndian>(collection_count)
@@ -330,7 +330,6 @@ impl VectorStore {
             self.backends()
                 .backends
                 .write()
-                .unwrap()
                 .insert(collection_id, backend);
         }
 
