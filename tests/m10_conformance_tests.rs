@@ -895,7 +895,7 @@ mod retention_invariants {
 
 mod compaction_invariants {
     use super::*;
-    use std::sync::Mutex;
+    use parking_lot::Mutex;
 
     fn setup_compaction_env() -> (tempfile::TempDir, std::path::PathBuf, Arc<Mutex<ManifestManager>>)
     {
@@ -943,7 +943,7 @@ mod compaction_invariants {
 
         // Setup watermark and compact
         {
-            let mut m = manifest.lock().unwrap();
+            let mut m = manifest.lock();
             m.set_snapshot_watermark(1, 6).unwrap();
             m.manifest_mut().active_wal_segment = 4;
             m.persist().unwrap();
@@ -979,7 +979,7 @@ mod compaction_invariants {
 
         // Set watermark below all transactions (nothing to compact)
         {
-            let mut m = manifest.lock().unwrap();
+            let mut m = manifest.lock();
             m.set_snapshot_watermark(1, 0).unwrap();
             m.manifest_mut().active_wal_segment = 2;
             m.persist().unwrap();
@@ -1020,7 +1020,7 @@ mod compaction_invariants {
 
         // Compact first segment
         {
-            let mut m = manifest.lock().unwrap();
+            let mut m = manifest.lock();
             m.set_snapshot_watermark(1, 2).unwrap();
             m.manifest_mut().active_wal_segment = 4;
             m.persist().unwrap();
@@ -1056,7 +1056,7 @@ mod compaction_invariants {
 
         // Watermark at 10
         {
-            let mut m = manifest.lock().unwrap();
+            let mut m = manifest.lock();
             m.set_snapshot_watermark(1, 10).unwrap();
             m.manifest_mut().active_wal_segment = 3;
             m.persist().unwrap();
@@ -1091,7 +1091,7 @@ mod compaction_invariants {
 
         // Compact first segment
         {
-            let mut m = manifest.lock().unwrap();
+            let mut m = manifest.lock();
             m.set_snapshot_watermark(1, 100).unwrap();
             m.manifest_mut().active_wal_segment = 3;
             m.persist().unwrap();
@@ -1135,7 +1135,7 @@ mod compaction_invariants {
 
 mod architectural_rules {
     use super::*;
-    use std::sync::Mutex;
+    use parking_lot::Mutex;
 
     /// Rule 1: Storage Is Logically Invisible
     /// The storage layer must not change user-visible semantics
@@ -1394,7 +1394,7 @@ mod architectural_rules {
 
         // Compact with watermark at 5
         {
-            let mut m = manifest.lock().unwrap();
+            let mut m = manifest.lock();
             m.set_snapshot_watermark(1, 5).unwrap();
             m.manifest_mut().active_wal_segment = 3;
             m.persist().unwrap();
@@ -2392,7 +2392,7 @@ mod success_criteria_tests {
     /// Gate 4: Compaction
     mod gate4_compaction {
         use super::*;
-        use std::sync::Mutex;
+        use parking_lot::Mutex;
 
         #[test]
         fn wal_only_compaction_removes_old_segments() {
@@ -2418,7 +2418,7 @@ mod success_criteria_tests {
 
             // Set watermark
             {
-                let mut m = manifest.lock().unwrap();
+                let mut m = manifest.lock();
                 m.set_snapshot_watermark(1, 5).unwrap();
                 m.manifest_mut().active_wal_segment = 3;
                 m.persist().unwrap();
@@ -2457,7 +2457,7 @@ mod success_criteria_tests {
             }
 
             {
-                let mut m = manifest.lock().unwrap();
+                let mut m = manifest.lock();
                 m.set_snapshot_watermark(1, 100).unwrap();
                 m.manifest_mut().active_wal_segment = 2;
                 m.persist().unwrap();

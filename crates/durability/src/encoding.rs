@@ -387,14 +387,11 @@ mod tests {
         let result = decode_entry(truncated, 200);
         assert!(result.is_err());
 
-        if let Err(Error::Corruption(msg)) = result {
-            assert!(
-                msg.contains("Incomplete entry"),
-                "Expected incomplete entry error"
-            );
-            assert!(msg.contains("200"), "Error should include offset");
+        if let Err(Error::IncompleteEntry { offset, have, needed }) = result {
+            assert_eq!(offset, 200, "Error should include offset 200");
+            assert!(have < needed, "Should indicate insufficient bytes");
         } else {
-            panic!("Expected Corruption error for truncated entry");
+            panic!("Expected IncompleteEntry error for truncated entry, got {:?}", result);
         }
     }
 
@@ -429,10 +426,12 @@ mod tests {
         let result = decode_entry(&short_buf, 12345);
         assert!(result.is_err());
 
-        if let Err(Error::Corruption(msg)) = result {
-            assert!(msg.contains("12345"), "Error should include offset 12345");
+        if let Err(Error::IncompleteEntry { offset, have, needed }) = result {
+            assert_eq!(offset, 12345, "Error should include offset 12345");
+            assert_eq!(have, 2, "Should indicate buffer size");
+            assert_eq!(needed, 4, "Should indicate needed 4 bytes for length");
         } else {
-            panic!("Expected Corruption error");
+            panic!("Expected IncompleteEntry error, got {:?}", result);
         }
     }
 

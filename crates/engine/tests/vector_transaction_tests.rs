@@ -551,7 +551,7 @@ fn test_wal_replayer() {
     use strata_primitives::vector::CollectionId;
     let collection_id = CollectionId::new(run_id, "replayed");
     let state = store.backends();
-    let guard = state.backends.read().unwrap();
+    let guard = state.backends.read();
     let backend = guard.get(&collection_id).unwrap();
 
     // Should have 2 vectors (key1 and key3)
@@ -611,7 +611,7 @@ fn test_replay_maintains_id_ordering() {
     use strata_primitives::vector::CollectionId;
     let collection_id = CollectionId::new(run_id, "ordered");
     let state = store.backends();
-    let guard = state.backends.read().unwrap();
+    let guard = state.backends.read();
     let backend = guard.get(&collection_id).unwrap();
 
     // All IDs should be present
@@ -656,7 +656,6 @@ fn test_replay_delete_collection() {
         .backends()
         .backends
         .read()
-        .unwrap()
         .contains_key(&collection_id));
 
     // Replay deletion
@@ -667,7 +666,6 @@ fn test_replay_delete_collection() {
         .backends()
         .backends
         .read()
-        .unwrap()
         .contains_key(&collection_id));
 }
 

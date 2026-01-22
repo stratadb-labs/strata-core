@@ -41,7 +41,7 @@ fn test_crash_after_begin_txn_only() {
         let db = Database::open_with_mode(&db_path, DurabilityMode::Strict).unwrap();
 
         let wal = db.wal();
-        let mut wal_guard = wal.lock().unwrap();
+        let mut wal_guard = wal.lock();
 
         wal_guard
             .append(&WALEntry::BeginTxn {
@@ -85,7 +85,7 @@ fn test_crash_after_begin_and_write() {
         let db = Database::open_with_mode(&db_path, DurabilityMode::Strict).unwrap();
 
         let wal = db.wal();
-        let mut wal_guard = wal.lock().unwrap();
+        let mut wal_guard = wal.lock();
 
         wal_guard
             .append(&WALEntry::BeginTxn {
@@ -137,7 +137,7 @@ fn test_crash_after_commit_strict_mode() {
         let db = Database::open_with_mode(&db_path, DurabilityMode::Strict).unwrap();
 
         let wal = db.wal();
-        let mut wal_guard = wal.lock().unwrap();
+        let mut wal_guard = wal.lock();
 
         wal_guard
             .append(&WALEntry::BeginTxn {
@@ -207,7 +207,7 @@ fn test_crash_batched_mode_may_lose_recent() {
         .unwrap();
 
         let wal = db.wal();
-        let mut wal_guard = wal.lock().unwrap();
+        let mut wal_guard = wal.lock();
 
         wal_guard
             .append(&WALEntry::BeginTxn {
@@ -267,7 +267,7 @@ fn test_multiple_incomplete_transactions() {
         let db = Database::open_with_mode(&db_path, DurabilityMode::Strict).unwrap();
 
         let wal = db.wal();
-        let mut wal_guard = wal.lock().unwrap();
+        let mut wal_guard = wal.lock();
 
         for i in 0..5u64 {
             wal_guard
@@ -330,7 +330,7 @@ fn test_mixed_committed_and_incomplete() {
         let db = Database::open_with_mode(&db_path, DurabilityMode::Strict).unwrap();
 
         let wal = db.wal();
-        let mut wal_guard = wal.lock().unwrap();
+        let mut wal_guard = wal.lock();
 
         // Txn 1 - committed
         wal_guard
@@ -467,7 +467,7 @@ fn test_recovery_after_clean_shutdown() {
         let db = Database::open_with_mode(&db_path, DurabilityMode::Strict).unwrap();
 
         let wal = db.wal();
-        let mut wal_guard = wal.lock().unwrap();
+        let mut wal_guard = wal.lock();
 
         for i in 0..10u64 {
             wal_guard
@@ -539,7 +539,7 @@ fn test_recovery_with_large_wal() {
         let db = Database::open_with_mode(&db_path, DurabilityMode::Strict).unwrap();
 
         let wal = db.wal();
-        let mut wal_guard = wal.lock().unwrap();
+        let mut wal_guard = wal.lock();
 
         for i in 0..NUM_TRANSACTIONS {
             wal_guard
@@ -610,7 +610,7 @@ fn test_crash_with_aborted_transaction() {
         let db = Database::open_with_mode(&db_path, DurabilityMode::Strict).unwrap();
 
         let wal = db.wal();
-        let mut wal_guard = wal.lock().unwrap();
+        let mut wal_guard = wal.lock();
 
         wal_guard
             .append(&WALEntry::BeginTxn {
@@ -664,7 +664,7 @@ fn test_crash_multi_write_transaction() {
         let db = Database::open_with_mode(&db_path, DurabilityMode::Strict).unwrap();
 
         let wal = db.wal();
-        let mut wal_guard = wal.lock().unwrap();
+        let mut wal_guard = wal.lock();
 
         wal_guard
             .append(&WALEntry::BeginTxn {
@@ -724,7 +724,7 @@ fn test_crash_with_delete_operation() {
         let db = Database::open_with_mode(&db_path, DurabilityMode::Strict).unwrap();
 
         let wal = db.wal();
-        let mut wal_guard = wal.lock().unwrap();
+        let mut wal_guard = wal.lock();
 
         wal_guard
             .append(&WALEntry::BeginTxn {
@@ -756,7 +756,7 @@ fn test_crash_with_delete_operation() {
         let db = Database::open(&db_path).unwrap();
 
         let wal = db.wal();
-        let mut wal_guard = wal.lock().unwrap();
+        let mut wal_guard = wal.lock();
 
         wal_guard
             .append(&WALEntry::BeginTxn {
@@ -819,7 +819,7 @@ fn test_crash_interleaved_run_ids() {
         let db = Database::open_with_mode(&db_path, DurabilityMode::Strict).unwrap();
 
         let wal = db.wal();
-        let mut wal_guard = wal.lock().unwrap();
+        let mut wal_guard = wal.lock();
 
         // Run 1, Txn 1 - committed
         wal_guard
