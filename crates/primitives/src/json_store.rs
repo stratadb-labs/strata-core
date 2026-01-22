@@ -918,7 +918,7 @@ mod tests {
         let _store = JsonStore::new(db);
 
         // Try to deserialize a non-bytes value
-        let invalid = Value::Int(42);
+        let invalid = Value::I64(42);
         let result = JsonStore::deserialize_doc(&invalid);
 
         assert!(result.is_err());

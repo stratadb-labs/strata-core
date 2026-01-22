@@ -25,7 +25,7 @@ fn test_kv_event_state_trace_atomic() {
 
     // Initialize state cell first (needed for CAS)
     let state_cell = StateCell::new(db.clone());
-    state_cell.init(&run_id, "workflow", Value::Int(0)).unwrap();
+    state_cell.init(&run_id, "workflow", Value::I64(0)).unwrap();
 
     // Perform atomic transaction with all 4 primitives
     let result = db.transaction(run_id, |txn| {
@@ -75,19 +75,19 @@ fn test_cross_primitive_rollback() {
 
     // Initialize state cell with version 1
     let state_cell = StateCell::new(db.clone());
-    state_cell.init(&run_id, "cell", Value::Int(100)).unwrap();
+    state_cell.init(&run_id, "cell", Value::I64(100)).unwrap();
 
     // Attempt transaction with wrong CAS version - should fail and rollback
     let result = db.transaction(run_id, |txn| {
         // KV put (should succeed alone)
-        txn.kv_put("key_to_rollback", Value::Int(42))?;
+        txn.kv_put("key_to_rollback", Value::I64(42))?;
 
         // Event append (should succeed alone)
         txn.event_append("event_to_rollback", Value::Null)?;
 
         // StateCell CAS with WRONG version (should fail)
         // State is at version 1, but we try version 999
-        txn.state_cas("cell", 999, Value::Int(200))?;
+        txn.state_cas("cell", 999, Value::I64(200))?;
 
         Ok(())
     });
@@ -105,7 +105,7 @@ fn test_cross_primitive_rollback() {
 
     // Verify StateCell unchanged
     let state = state_cell.read(&run_id, "cell").unwrap().unwrap();
-    assert_eq!(state.value.value, Value::Int(100));
+    assert_eq!(state.value.value, Value::I64(100));
     assert_eq!(state.value.version, 1);
 }
 
@@ -116,7 +116,7 @@ fn test_all_extension_traits_compose() {
 
     // Pre-initialize state cell
     let state_cell = StateCell::new(db.clone());
-    state_cell.init(&run_id, "counter", Value::Int(0)).unwrap();
+    state_cell.init(&run_id, "counter", Value::I64(0)).unwrap();
 
     // Use all 4 extension traits in single transaction
     let result = db.transaction(run_id, |txn| {
@@ -128,7 +128,7 @@ fn test_all_extension_traits_compose() {
         assert_eq!(seq, 0);
 
         // StateCellExt::state_set() (unconditional) - version 2 after init
-        let version = txn.state_set("counter", Value::Int(1))?;
+        let version = txn.state_set("counter", Value::I64(1))?;
         assert_eq!(version, 2);
 
         // TraceStoreExt::trace_record()
@@ -158,12 +158,12 @@ fn test_partial_failure_full_rollback() {
 
     // Initialize state cell
     let state_cell = StateCell::new(db.clone());
-    state_cell.init(&run_id, "state", Value::Int(0)).unwrap();
+    state_cell.init(&run_id, "state", Value::I64(0)).unwrap();
 
     // Write successfully to 3 primitives, then fail on 4th
     let result = db.transaction(run_id, |txn| {
         // 1. KV - success
-        txn.kv_put("partial_key", Value::Int(1))?;
+        txn.kv_put("partial_key", Value::I64(1))?;
 
         // 2. Event - success
         txn.event_append("partial_event", Value::Null)?;
@@ -172,7 +172,7 @@ fn test_partial_failure_full_rollback() {
         txn.trace_record("Thought", Value::String("partial".into()))?;
 
         // 4. State CAS with wrong version - FAILURE
-        txn.state_cas("state", 999, Value::Int(100))?;
+        txn.state_cas("state", 999, Value::I64(100))?;
 
         Ok(())
     });
@@ -200,12 +200,12 @@ fn test_nested_primitive_operations() {
 
     // Pre-populate some KV data
     let kv = KVStore::new(db.clone());
-    kv.put(&run_id, "initial_value", Value::Int(42)).unwrap();
+    kv.put(&run_id, "initial_value", Value::I64(42)).unwrap();
 
     // Initialize state
     let state_cell = StateCell::new(db.clone());
     state_cell
-        .init(&run_id, "sequence_tracker", Value::Int(0))
+        .init(&run_id, "sequence_tracker", Value::I64(0))
         .unwrap();
 
     // Chain operations: read KV -> use in Event -> update State -> record Trace
@@ -218,7 +218,7 @@ fn test_nested_primitive_operations() {
         let seq = txn.event_append("chained_event", payload)?;
 
         // Update State with sequence number
-        let _version = txn.state_set("sequence_tracker", Value::Int(seq as i64))?;
+        let _version = txn.state_set("sequence_tracker", Value::I64(seq as i64))?;
 
         // Record trace documenting the chain
         txn.trace_record(
@@ -236,13 +236,13 @@ fn test_nested_primitive_operations() {
     // Verify causal chain worked
     let event_log = EventLog::new(db.clone());
     let event = event_log.read(&run_id, 0).unwrap().unwrap();
-    assert_eq!(event.value.payload, Value::Int(42)); // From KV
+    assert_eq!(event.value.payload, Value::I64(42)); // From KV
 
     let state = state_cell
         .read(&run_id, "sequence_tracker")
         .unwrap()
         .unwrap();
-    assert_eq!(state.value.value, Value::Int(0)); // Sequence number (starts at 0)
+    assert_eq!(state.value.value, Value::I64(0)); // Sequence number (starts at 0)
 
     let trace_store = TraceStore::new(db.clone());
     assert_eq!(trace_store.count(&run_id).unwrap(), 1);
@@ -255,14 +255,14 @@ fn test_multiple_transactions_consistency() {
 
     // Initialize state
     let state_cell = StateCell::new(db.clone());
-    state_cell.init(&run_id, "counter", Value::Int(0)).unwrap();
+    state_cell.init(&run_id, "counter", Value::I64(0)).unwrap();
 
     // Run 10 sequential transactions
     for i in 1..=10 {
         let result = db.transaction(run_id, |txn| {
-            txn.kv_put(&format!("key_{}", i), Value::Int(i))?;
-            txn.event_append("iteration", Value::Int(i))?;
-            txn.state_set("counter", Value::Int(i))?;
+            txn.kv_put(&format!("key_{}", i), Value::I64(i))?;
+            txn.event_append("iteration", Value::I64(i))?;
+            txn.state_set("counter", Value::I64(i))?;
             txn.trace_record("Thought", Value::String(format!("Iteration {}", i)))?;
             Ok(())
         });
@@ -278,7 +278,7 @@ fn test_multiple_transactions_consistency() {
     for i in 1..=10 {
         assert_eq!(
             kv.get(&run_id, &format!("key_{}", i)).unwrap().map(|v| v.value),
-            Some(Value::Int(i))
+            Some(Value::I64(i))
         );
     }
 
@@ -287,7 +287,7 @@ fn test_multiple_transactions_consistency() {
 
     // Counter at 10
     let state = state_cell.read(&run_id, "counter").unwrap().unwrap();
-    assert_eq!(state.value.value, Value::Int(10));
+    assert_eq!(state.value.value, Value::I64(10));
 
     // 10 traces
     assert_eq!(trace_store.count(&run_id).unwrap(), 10);
@@ -327,15 +327,15 @@ fn test_read_only_transaction() {
 
     // Pre-populate data
     let kv = KVStore::new(db.clone());
-    kv.put(&run_id, "existing", Value::Int(100)).unwrap();
+    kv.put(&run_id, "existing", Value::I64(100)).unwrap();
 
     let state_cell = StateCell::new(db.clone());
-    state_cell.init(&run_id, "cell", Value::Int(50)).unwrap();
+    state_cell.init(&run_id, "cell", Value::I64(50)).unwrap();
 
     // Read-only transaction
     let result = db.transaction(run_id, |txn| {
         let kv_val = txn.kv_get("existing")?;
-        assert_eq!(kv_val, Some(Value::Int(100)));
+        assert_eq!(kv_val, Some(Value::I64(100)));
 
         let state_val = txn.state_read("cell")?;
         assert!(state_val.is_some());
@@ -346,7 +346,7 @@ fn test_read_only_transaction() {
     assert!(result.is_ok());
 
     // Data unchanged
-    assert_eq!(kv.get(&run_id, "existing").unwrap().map(|v| v.value), Some(Value::Int(100)));
+    assert_eq!(kv.get(&run_id, "existing").unwrap().map(|v| v.value), Some(Value::I64(100)));
     let state = state_cell.read(&run_id, "cell").unwrap().unwrap();
     assert_eq!(state.value.version, 1);
 }

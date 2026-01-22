@@ -982,14 +982,14 @@ mod tests {
             let key = create_key(&ns, b"counter");
 
             // Put key
-            store.put(key.clone(), Value::Int(100), None).unwrap();
+            store.put(key.clone(), Value::I64(100), None).unwrap();
             let current_version = store.get(&key).unwrap().unwrap().version.as_u64();
 
             // CAS with matching version
             let cas_set = vec![CASOperation {
                 key: key.clone(),
                 expected_version: current_version,
-                new_value: Value::Int(101),
+                new_value: Value::I64(101),
             }];
 
             let result = validate_cas_set(&cas_set, &store);
@@ -1004,17 +1004,17 @@ mod tests {
             let key = create_key(&ns, b"counter");
 
             // Put key
-            store.put(key.clone(), Value::Int(100), None).unwrap();
+            store.put(key.clone(), Value::I64(100), None).unwrap();
             let v1 = store.get(&key).unwrap().unwrap().version.as_u64();
 
             // Concurrent transaction modifies it
-            store.put(key.clone(), Value::Int(200), None).unwrap();
+            store.put(key.clone(), Value::I64(200), None).unwrap();
 
             // CAS with old version
             let cas_set = vec![CASOperation {
                 key: key.clone(),
                 expected_version: v1,
-                new_value: Value::Int(101),
+                new_value: Value::I64(101),
             }];
 
             let result = validate_cas_set(&cas_set, &store);
@@ -1099,7 +1099,7 @@ mod tests {
             let cas_set = vec![CASOperation {
                 key: key.clone(),
                 expected_version: 5,
-                new_value: Value::Int(10),
+                new_value: Value::I64(10),
             }];
 
             let result = validate_cas_set(&cas_set, &store);
@@ -1125,8 +1125,8 @@ mod tests {
             let key1 = create_key(&ns, b"key1");
             let key2 = create_key(&ns, b"key2");
 
-            store.put(key1.clone(), Value::Int(1), None).unwrap();
-            store.put(key2.clone(), Value::Int(2), None).unwrap();
+            store.put(key1.clone(), Value::I64(1), None).unwrap();
+            store.put(key2.clone(), Value::I64(2), None).unwrap();
             let v1 = store.get(&key1).unwrap().unwrap().version.as_u64();
             let v2 = store.get(&key2).unwrap().unwrap().version.as_u64();
 
@@ -1134,12 +1134,12 @@ mod tests {
                 CASOperation {
                     key: key1.clone(),
                     expected_version: v1,
-                    new_value: Value::Int(10),
+                    new_value: Value::I64(10),
                 },
                 CASOperation {
                     key: key2.clone(),
                     expected_version: v2,
-                    new_value: Value::Int(20),
+                    new_value: Value::I64(20),
                 },
             ];
 
@@ -1155,24 +1155,24 @@ mod tests {
             let key1 = create_key(&ns, b"key1");
             let key2 = create_key(&ns, b"key2");
 
-            store.put(key1.clone(), Value::Int(1), None).unwrap();
-            store.put(key2.clone(), Value::Int(2), None).unwrap();
+            store.put(key1.clone(), Value::I64(1), None).unwrap();
+            store.put(key2.clone(), Value::I64(2), None).unwrap();
             let v1 = store.get(&key1).unwrap().unwrap().version.as_u64();
             let v2 = store.get(&key2).unwrap().unwrap().version.as_u64();
 
             // Modify only key1
-            store.put(key1.clone(), Value::Int(10), None).unwrap();
+            store.put(key1.clone(), Value::I64(10), None).unwrap();
 
             let cas_set = vec![
                 CASOperation {
                     key: key1.clone(),
                     expected_version: v1, // Old version - will conflict
-                    new_value: Value::Int(100),
+                    new_value: Value::I64(100),
                 },
                 CASOperation {
                     key: key2.clone(),
                     expected_version: v2, // Current version - OK
-                    new_value: Value::Int(200),
+                    new_value: Value::I64(200),
                 },
             ];
 

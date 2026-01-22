@@ -386,22 +386,8 @@ mod tests {
             format!("{}", RunNameError::Empty),
             "run name cannot be empty"
         );
-        assert!(format!(
-            "{}",
-            RunNameError::TooLong {
-                length: 300,
-                max: 256
-            }
-        )
-        .contains("too long"));
-        assert!(format!(
-            "{}",
-            RunNameError::InvalidChar {
-                char: '@',
-                position: 5
-            }
-        )
-        .contains("@"));
+        assert!(format!("{}", RunNameError::TooLong { length: 300, max: 256 }).contains("too long"));
+        assert!(format!("{}", RunNameError::InvalidChar { char: '@', position: 5 }).contains("@"));
         assert!(format!("{}", RunNameError::InvalidStart { char: '-' }).contains("start"));
     }
 

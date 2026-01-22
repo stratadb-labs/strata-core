@@ -66,7 +66,7 @@ fn test_recovery_deterministic_r1() {
             wal.append(&WALEntry::Write {
                 run_id,
                 key: Key::new_kv(ns.clone(), format!("key{}", i)),
-                value: Value::Int(i as i64 * 100),
+                value: Value::I64(i as i64 * 100),
                 version: i + 1,
             })
             .unwrap();
@@ -155,7 +155,7 @@ fn test_recovery_deterministic_ordering_r1() {
             wal.append(&WALEntry::Write {
                 run_id,
                 key: Key::new_kv(ns.clone(), "counter"),
-                value: Value::Int(i as i64),
+                value: Value::I64(i as i64),
                 version: i + 1,
             })
             .unwrap();
@@ -179,7 +179,7 @@ fn test_recovery_deterministic_ordering_r1() {
         // Last write wins - value should be 4
         assert_eq!(
             result.value,
-            Value::Int(4),
+            Value::I64(4),
             "Iteration {}: Final value should be 4",
             iteration
         );
@@ -293,7 +293,7 @@ fn test_recovery_idempotent_after_partial_r2() {
             wal.append(&WALEntry::Write {
                 run_id,
                 key: Key::new_kv(ns.clone(), format!("committed{}", i)),
-                value: Value::Int(i as i64),
+                value: Value::I64(i as i64),
                 version: i + 1,
             })
             .unwrap();
@@ -529,7 +529,7 @@ fn test_recovery_multi_operation_atomic_r3() {
         wal.append(&WALEntry::Write {
             run_id,
             key: Key::new_kv(ns.clone(), "kv_key2"),
-            value: Value::Int(42),
+            value: Value::I64(42),
             version: 2,
         })
         .unwrap();
@@ -556,7 +556,7 @@ fn test_recovery_multi_operation_atomic_r3() {
         wal.append(&WALEntry::Write {
             run_id,
             key: Key::new_kv(ns.clone(), "incomplete_key2"),
-            value: Value::Int(100),
+            value: Value::I64(100),
             version: 4,
         })
         .unwrap();
@@ -634,7 +634,7 @@ fn test_recovery_never_invents_data_r4() {
             wal.append(&WALEntry::Write {
                 run_id,
                 key: Key::new_kv(ns.clone(), key_name),
-                value: Value::Int(i as i64),
+                value: Value::I64(i as i64),
                 version: i + 1,
             })
             .unwrap();
@@ -667,7 +667,7 @@ fn test_recovery_never_invents_data_r4() {
         let vv = result.unwrap();
         assert_eq!(
             vv.value,
-            Value::Int(i as i64),
+            Value::I64(i as i64),
             "Key '{}' has wrong value",
             key_name
         );
@@ -823,7 +823,7 @@ fn test_recovery_never_drops_committed_r5() {
             wal.append(&WALEntry::Write {
                 run_id,
                 key: Key::new_kv(ns.clone(), key_name),
-                value: Value::Int(i as i64 * 1000),
+                value: Value::I64(i as i64 * 1000),
                 version: i + 1,
             })
             .unwrap();
@@ -855,7 +855,7 @@ fn test_recovery_never_drops_committed_r5() {
         let vv = result.unwrap();
         assert_eq!(
             vv.value,
-            Value::Int(i as i64 * 1000),
+            Value::I64(i as i64 * 1000),
             "Key '{}' has wrong value after recovery",
             key_name
         );
@@ -1113,7 +1113,7 @@ fn test_all_recovery_invariants_combined() {
             wal.append(&WALEntry::Write {
                 run_id,
                 key: Key::new_kv(ns.clone(), key_name),
-                value: Value::Int(i as i64),
+                value: Value::I64(i as i64),
                 version: i + 1,
             })
             .unwrap();
@@ -1137,7 +1137,7 @@ fn test_all_recovery_invariants_combined() {
             wal.append(&WALEntry::Write {
                 run_id,
                 key: Key::new_kv(ns.clone(), key_name),
-                value: Value::Int(i as i64),
+                value: Value::I64(i as i64),
                 version: i,
             })
             .unwrap();
@@ -1163,7 +1163,7 @@ fn test_all_recovery_invariants_combined() {
                 wal.append(&WALEntry::Write {
                     run_id,
                     key: Key::new_kv(ns.clone(), format!("{}_{}", key_name, j)),
-                    value: Value::Int((i * 10 + j) as i64),
+                    value: Value::I64((i * 10 + j) as i64),
                     version: i * 10 + j,
                 })
                 .unwrap();

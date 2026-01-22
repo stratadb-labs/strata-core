@@ -151,7 +151,7 @@ fn test_mixed_committed_and_incomplete() {
         wal.append(&WALEntry::Write {
             run_id,
             key: Key::new_kv(ns.clone(), "committed_key"),
-            value: Value::Int(100),
+            value: Value::I64(100),
             version: 1,
         })
         .unwrap();
@@ -168,7 +168,7 @@ fn test_mixed_committed_and_incomplete() {
         wal.append(&WALEntry::Write {
             run_id,
             key: Key::new_kv(ns.clone(), "incomplete_key"),
-            value: Value::Int(200),
+            value: Value::I64(200),
             version: 2,
         })
         .unwrap();
@@ -190,7 +190,7 @@ fn test_mixed_committed_and_incomplete() {
         .get(&Key::new_kv(ns.clone(), "committed_key"))
         .unwrap();
     assert!(committed.is_some());
-    assert_eq!(committed.unwrap().value, Value::Int(100));
+    assert_eq!(committed.unwrap().value, Value::I64(100));
 
     // Verify: Txn 2 key does NOT exist
     let incomplete = store.get(&Key::new_kv(ns, "incomplete_key")).unwrap();
@@ -272,7 +272,7 @@ fn test_multiple_incomplete_transactions() {
         wal.append(&WALEntry::Write {
             run_id,
             key: Key::new_kv(ns.clone(), "k1"),
-            value: Value::Int(1),
+            value: Value::I64(1),
             version: 1,
         })
         .unwrap();
@@ -287,7 +287,7 @@ fn test_multiple_incomplete_transactions() {
         wal.append(&WALEntry::Write {
             run_id,
             key: Key::new_kv(ns.clone(), "k2"),
-            value: Value::Int(2),
+            value: Value::I64(2),
             version: 2,
         })
         .unwrap();
@@ -312,7 +312,7 @@ fn test_multiple_incomplete_transactions() {
         wal.append(&WALEntry::Write {
             run_id,
             key: Key::new_kv(ns.clone(), "k4"),
-            value: Value::Int(4),
+            value: Value::I64(4),
             version: 4,
         })
         .unwrap();
@@ -329,7 +329,7 @@ fn test_multiple_incomplete_transactions() {
         wal.append(&WALEntry::Write {
             run_id,
             key: Key::new_kv(ns.clone(), "k5"),
-            value: Value::Int(5),
+            value: Value::I64(5),
             version: 5,
         })
         .unwrap();
@@ -346,7 +346,7 @@ fn test_multiple_incomplete_transactions() {
         wal.append(&WALEntry::Write {
             run_id,
             key: Key::new_kv(ns.clone(), "k6"),
-            value: Value::Int(6),
+            value: Value::I64(6),
             version: 6,
         })
         .unwrap();
@@ -387,7 +387,7 @@ fn test_orphaned_entries_with_valid_transactions() {
         wal.append(&WALEntry::Write {
             run_id,
             key: Key::new_kv(ns.clone(), "orphan1"),
-            value: Value::Int(1),
+            value: Value::I64(1),
             version: 1,
         })
         .unwrap();
@@ -408,7 +408,7 @@ fn test_orphaned_entries_with_valid_transactions() {
         wal.append(&WALEntry::Write {
             run_id,
             key: Key::new_kv(ns.clone(), "valid"),
-            value: Value::Int(100),
+            value: Value::I64(100),
             version: 3,
         })
         .unwrap();
@@ -469,7 +469,7 @@ fn test_interleaved_transactions_different_run_ids() {
         wal.append(&WALEntry::Write {
             run_id: run_id2,
             key: Key::new_kv(ns2.clone(), "run2_key"),
-            value: Value::Int(2),
+            value: Value::I64(2),
             version: 1,
         })
         .unwrap();
@@ -483,7 +483,7 @@ fn test_interleaved_transactions_different_run_ids() {
         wal.append(&WALEntry::Write {
             run_id: run_id1,
             key: Key::new_kv(ns1.clone(), "run1_key"),
-            value: Value::Int(1),
+            value: Value::I64(1),
             version: 2,
         })
         .unwrap();
@@ -558,7 +558,7 @@ fn test_crash_during_large_transaction() {
             wal.append(&WALEntry::Write {
                 run_id,
                 key: Key::new_kv(ns.clone(), format!("key_{}", i)),
-                value: Value::Int(i as i64),
+                value: Value::I64(i as i64),
                 version: i as u64 + 1,
             })
             .unwrap();

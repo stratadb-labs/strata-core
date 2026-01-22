@@ -258,7 +258,7 @@ mod tests {
             wal.append(&WALEntry::Write {
                 run_id,
                 key: key.clone(),
-                value: Value::Int(42),
+                value: Value::I64(42),
                 version: 100,
             })
             .unwrap();
@@ -279,7 +279,7 @@ mod tests {
 
         // Storage should have the key with preserved version
         let stored = result.storage.get(&key).unwrap().unwrap();
-        assert_eq!(stored.value, Value::Int(42));
+        assert_eq!(stored.value, Value::I64(42));
         assert_eq!(stored.version.as_u64(), 100); // Version preserved exactly
     }
 
@@ -348,14 +348,14 @@ mod tests {
             wal.append(&WALEntry::Write {
                 run_id,
                 key: Key::new_kv(ns.clone(), "key1"),
-                value: Value::Int(1),
+                value: Value::I64(1),
                 version: 100,
             })
             .unwrap();
             wal.append(&WALEntry::Write {
                 run_id,
                 key: Key::new_kv(ns.clone(), "key2"),
-                value: Value::Int(2),
+                value: Value::I64(2),
                 version: 100, // Same version in one txn
             })
             .unwrap();
@@ -372,7 +372,7 @@ mod tests {
             wal.append(&WALEntry::Write {
                 run_id,
                 key: Key::new_kv(ns.clone(), "key3"),
-                value: Value::Int(3),
+                value: Value::I64(3),
                 version: 200,
             })
             .unwrap();
@@ -421,7 +421,7 @@ mod tests {
                 wal.append(&WALEntry::Write {
                     run_id,
                     key: Key::new_kv(ns.clone(), format!("key{}", i)),
-                    value: Value::Int(i as i64 * 10),
+                    value: Value::I64(i as i64 * 10),
                     version: i * 100,
                 })
                 .unwrap();
@@ -728,14 +728,14 @@ mod tests {
             wal.append(&WALEntry::Write {
                 run_id,
                 key: Key::new_kv(ns.clone(), "key1"),
-                value: Value::Int(1),
+                value: Value::I64(1),
                 version: 10,
             })
             .unwrap();
             wal.append(&WALEntry::Write {
                 run_id,
                 key: Key::new_kv(ns.clone(), "key2"),
-                value: Value::Int(2),
+                value: Value::I64(2),
                 version: 10,
             })
             .unwrap();
@@ -786,7 +786,7 @@ mod tests {
             wal.append(&WALEntry::Write {
                 run_id,
                 key: Key::new_kv(ns.clone(), "key1"),
-                value: Value::Int(1),
+                value: Value::I64(1),
                 version: 10,
             })
             .unwrap();
@@ -886,7 +886,7 @@ mod tests {
             wal.append(&WALEntry::Write {
                 run_id,
                 key: Key::new_kv(ns.clone(), "committed"),
-                value: Value::Int(1),
+                value: Value::I64(1),
                 version: 10,
             })
             .unwrap();
@@ -903,7 +903,7 @@ mod tests {
             wal.append(&WALEntry::Write {
                 run_id,
                 key: Key::new_kv(ns.clone(), "uncommitted"),
-                value: Value::Int(2),
+                value: Value::I64(2),
                 version: 20,
             })
             .unwrap();
@@ -955,7 +955,7 @@ mod tests {
             wal.append(&WALEntry::Write {
                 run_id: run_a,
                 key: Key::new_kv(ns_a.clone(), "key_a"),
-                value: Value::Int(1),
+                value: Value::I64(1),
                 version: 10,
             })
             .unwrap();
@@ -970,7 +970,7 @@ mod tests {
             wal.append(&WALEntry::Write {
                 run_id: run_b,
                 key: Key::new_kv(ns_b.clone(), "key_b"),
-                value: Value::Int(2),
+                value: Value::I64(2),
                 version: 20,
             })
             .unwrap();
@@ -985,7 +985,7 @@ mod tests {
             wal.append(&WALEntry::Write {
                 run_id: run_c,
                 key: Key::new_kv(ns_c.clone(), "key_c"),
-                value: Value::Int(3),
+                value: Value::I64(3),
                 version: 30,
             })
             .unwrap();
@@ -1040,7 +1040,7 @@ mod tests {
             wal.append(&WALEntry::Write {
                 run_id,
                 key: Key::new_kv(ns.clone(), "key"),
-                value: Value::Int(42),
+                value: Value::I64(42),
                 version: 100,
             })
             .unwrap();
@@ -1098,7 +1098,7 @@ mod tests {
             wal.append(&WALEntry::Write {
                 run_id,
                 key: Key::new_kv(ns.clone(), "to_delete"),
-                value: Value::Int(1),
+                value: Value::I64(1),
                 version: 10,
             })
             .unwrap();
@@ -1121,7 +1121,7 @@ mod tests {
             wal.append(&WALEntry::Write {
                 run_id,
                 key: Key::new_kv(ns.clone(), "should_exist"),
-                value: Value::Int(2),
+                value: Value::I64(2),
                 version: 20,
             })
             .unwrap();
@@ -1182,14 +1182,14 @@ mod tests {
             wal.append(&WALEntry::Write {
                 run_id: run_ok,
                 key: Key::new_kv(ns_ok.clone(), "ok_key"),
-                value: Value::Int(1),
+                value: Value::I64(1),
                 version: 10,
             })
             .unwrap();
             wal.append(&WALEntry::Write {
                 run_id: run_crash,
                 key: Key::new_kv(ns_crash.clone(), "crash_key"),
-                value: Value::Int(2),
+                value: Value::I64(2),
                 version: 20,
             })
             .unwrap();
@@ -1245,7 +1245,7 @@ mod tests {
             wal.append(&WALEntry::Write {
                 run_id,
                 key: Key::new_kv(ns.clone(), "key"),
-                value: Value::Int(1),
+                value: Value::I64(1),
                 version: 999,
             })
             .unwrap();
@@ -1298,7 +1298,7 @@ mod tests {
                 wal.append(&WALEntry::Write {
                     run_id,
                     key: Key::new_kv(ns.clone(), format!("key{}", i)),
-                    value: Value::Int(i as i64 * 10),
+                    value: Value::I64(i as i64 * 10),
                     version: commit_version,
                 })
                 .unwrap();
@@ -1308,7 +1308,7 @@ mod tests {
                 storage
                     .put_with_version(
                         Key::new_kv(ns.clone(), format!("key{}", i)),
-                        Value::Int(i as i64 * 10),
+                        Value::I64(i as i64 * 10),
                         commit_version,
                         None,
                     )
@@ -1333,7 +1333,7 @@ mod tests {
         for i in 1..=10u64 {
             let key = Key::new_kv(ns.clone(), format!("key{}", i));
             let stored = result.storage.get(&key).unwrap().unwrap();
-            assert_eq!(stored.value, Value::Int(i as i64 * 10));
+            assert_eq!(stored.value, Value::I64(i as i64 * 10));
             assert_eq!(stored.version.as_u64(), i);
         }
     }
@@ -1418,7 +1418,7 @@ mod tests {
             wal.append(&WALEntry::Write {
                 run_id,
                 key: Key::new_kv(ns.clone(), "key3"),
-                value: Value::Int(42),
+                value: Value::I64(42),
                 version: 5,
             })
             .unwrap();
@@ -1457,7 +1457,7 @@ mod tests {
             .get(&Key::new_kv(ns.clone(), "key3"))
             .unwrap()
             .unwrap();
-        assert_eq!(key3.value, Value::Int(42));
+        assert_eq!(key3.value, Value::I64(42));
         assert_eq!(key3.version.as_u64(), 5);
     }
 
@@ -1484,7 +1484,7 @@ mod tests {
                 wal.append(&WALEntry::Write {
                     run_id,
                     key: Key::new_kv(ns.clone(), "counter"),
-                    value: Value::Int(v as i64),
+                    value: Value::I64(v as i64),
                     version: v,
                 })
                 .unwrap();
@@ -1503,7 +1503,7 @@ mod tests {
             .get(&Key::new_kv(ns.clone(), "counter"))
             .unwrap()
             .unwrap();
-        assert_eq!(counter.value, Value::Int(300));
+        assert_eq!(counter.value, Value::I64(300));
         assert_eq!(counter.version.as_u64(), 300);
     }
 
@@ -1529,7 +1529,7 @@ mod tests {
             wal.append(&WALEntry::Write {
                 run_id,
                 key: Key::new_kv(ns.clone(), "existing"),
-                value: Value::Int(100),
+                value: Value::I64(100),
                 version: 100,
             })
             .unwrap();
@@ -1576,7 +1576,7 @@ mod tests {
                 wal.append(&WALEntry::Write {
                     run_id,
                     key: Key::new_kv(ns.clone(), format!("key_{}", i)),
-                    value: Value::Int(i as i64),
+                    value: Value::I64(i as i64),
                     version: i,
                 })
                 .unwrap();
@@ -1596,7 +1596,7 @@ mod tests {
         for i in [1, 50, 100] {
             let key = Key::new_kv(ns.clone(), format!("key_{}", i));
             let stored = result.storage.get(&key).unwrap().unwrap();
-            assert_eq!(stored.value, Value::Int(i as i64));
+            assert_eq!(stored.value, Value::I64(i as i64));
         }
     }
 
@@ -1624,7 +1624,7 @@ mod tests {
             wal.append(&WALEntry::Write {
                 run_id,
                 key: Key::new_kv(ns.clone(), "committed"),
-                value: Value::Int(1),
+                value: Value::I64(1),
                 version: 100,
             })
             .unwrap();
@@ -1641,7 +1641,7 @@ mod tests {
             wal.append(&WALEntry::Write {
                 run_id,
                 key: Key::new_kv(ns.clone(), "incomplete"),
-                value: Value::Int(2),
+                value: Value::I64(2),
                 version: 200,
             })
             .unwrap();

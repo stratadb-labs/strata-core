@@ -518,9 +518,9 @@ mod tests {
         let key2 = test_key(&ns, "key2");
         let key3 = test_key(&ns, "key3");
 
-        let v1 = store.put(key1, Value::Int(1), None).unwrap();
-        let v2 = store.put(key2, Value::Int(2), None).unwrap();
-        let v3 = store.put(key3, Value::Int(3), None).unwrap();
+        let v1 = store.put(key1, Value::I64(1), None).unwrap();
+        let v2 = store.put(key2, Value::I64(2), None).unwrap();
+        let v3 = store.put(key3, Value::I64(3), None).unwrap();
 
         assert_eq!(v1, 1);
         assert_eq!(v2, 2);
@@ -637,16 +637,16 @@ mod tests {
 
         // Insert keys with different prefixes
         store
-            .put(test_key(&ns, "user:alice"), Value::Int(1), None)
+            .put(test_key(&ns, "user:alice"), Value::I64(1), None)
             .unwrap();
         store
-            .put(test_key(&ns, "user:bob"), Value::Int(2), None)
+            .put(test_key(&ns, "user:bob"), Value::I64(2), None)
             .unwrap();
         store
-            .put(test_key(&ns, "user:charlie"), Value::Int(3), None)
+            .put(test_key(&ns, "user:charlie"), Value::I64(3), None)
             .unwrap();
         store
-            .put(test_key(&ns, "config:db"), Value::Int(100), None)
+            .put(test_key(&ns, "config:db"), Value::I64(100), None)
             .unwrap();
 
         // Scan for "user:" prefix
@@ -690,13 +690,13 @@ mod tests {
 
         // Insert keys for both runs
         store
-            .put(Key::new_kv(ns1.clone(), "key1"), Value::Int(1), None)
+            .put(Key::new_kv(ns1.clone(), "key1"), Value::I64(1), None)
             .unwrap();
         store
-            .put(Key::new_kv(ns1.clone(), "key2"), Value::Int(2), None)
+            .put(Key::new_kv(ns1.clone(), "key2"), Value::I64(2), None)
             .unwrap();
         store
-            .put(Key::new_kv(ns2.clone(), "key3"), Value::Int(3), None)
+            .put(Key::new_kv(ns2.clone(), "key3"), Value::I64(3), None)
             .unwrap();
 
         // Scan for run1
@@ -733,7 +733,7 @@ mod tests {
 
                 for i in 0..writes_per_thread {
                     let key = Key::new_kv(ns.clone(), format!("t{}:k{}", thread_id, i));
-                    let value = Value::Int((thread_id * writes_per_thread + i) as i64);
+                    let value = Value::I64((thread_id * writes_per_thread + i) as i64);
                     store.put(key, value, None).unwrap();
                 }
             });
@@ -761,8 +761,8 @@ mod tests {
         let ns = test_namespace();
         let key = test_key(&ns, "overwrite_test");
 
-        let v1 = store.put(key.clone(), Value::Int(1), None).unwrap();
-        let v2 = store.put(key.clone(), Value::Int(2), None).unwrap();
+        let v1 = store.put(key.clone(), Value::I64(1), None).unwrap();
+        let v2 = store.put(key.clone(), Value::I64(2), None).unwrap();
 
         assert_eq!(v1, 1);
         assert_eq!(v2, 2);
@@ -770,7 +770,7 @@ mod tests {
         // The stored value should have version 2
         let result = store.get(&key).unwrap().unwrap();
         assert_eq!(result.version, Version::txn(2));
-        assert_eq!(result.value, Value::Int(2));
+        assert_eq!(result.value, Value::I64(2));
     }
 
     #[test]
@@ -780,12 +780,12 @@ mod tests {
 
         // Insert at version 1
         store
-            .put(test_key(&ns, "key1"), Value::Int(1), None)
+            .put(test_key(&ns, "key1"), Value::I64(1), None)
             .unwrap();
 
         // Insert at version 2
         store
-            .put(test_key(&ns, "key2"), Value::Int(2), None)
+            .put(test_key(&ns, "key2"), Value::I64(2), None)
             .unwrap();
 
         // Scan with max_version=1 should only return key1
@@ -808,12 +808,12 @@ mod tests {
 
         // Insert at version 1
         store
-            .put(Key::new_kv(ns.clone(), "key1"), Value::Int(1), None)
+            .put(Key::new_kv(ns.clone(), "key1"), Value::I64(1), None)
             .unwrap();
 
         // Insert at version 2
         store
-            .put(Key::new_kv(ns.clone(), "key2"), Value::Int(2), None)
+            .put(Key::new_kv(ns.clone(), "key2"), Value::I64(2), None)
             .unwrap();
 
         // Scan with max_version=1 should only return key1
@@ -828,11 +828,11 @@ mod tests {
 
         // Insert KV key
         let kv_key = Key::new_kv(ns.clone(), "data");
-        store.put(kv_key.clone(), Value::Int(1), None).unwrap();
+        store.put(kv_key.clone(), Value::I64(1), None).unwrap();
 
         // Insert Event key (different TypeTag)
         let event_key = Key::new_event(ns.clone(), 1);
-        store.put(event_key, Value::Int(2), None).unwrap();
+        store.put(event_key, Value::I64(2), None).unwrap();
 
         // Scan with KV prefix should only return KV key
         let prefix = Key::new_kv(ns.clone(), "");
@@ -892,22 +892,22 @@ mod tests {
 
         // Insert keys for all three runs
         store
-            .put(Key::new_kv(ns1.clone(), "key1"), Value::Int(1), None)
+            .put(Key::new_kv(ns1.clone(), "key1"), Value::I64(1), None)
             .unwrap();
         store
-            .put(Key::new_kv(ns1.clone(), "key2"), Value::Int(2), None)
+            .put(Key::new_kv(ns1.clone(), "key2"), Value::I64(2), None)
             .unwrap();
         store
-            .put(Key::new_kv(ns2.clone(), "key3"), Value::Int(3), None)
+            .put(Key::new_kv(ns2.clone(), "key3"), Value::I64(3), None)
             .unwrap();
         store
-            .put(Key::new_kv(ns3.clone(), "key4"), Value::Int(4), None)
+            .put(Key::new_kv(ns3.clone(), "key4"), Value::I64(4), None)
             .unwrap();
         store
-            .put(Key::new_kv(ns3.clone(), "key5"), Value::Int(5), None)
+            .put(Key::new_kv(ns3.clone(), "key5"), Value::I64(5), None)
             .unwrap();
         store
-            .put(Key::new_kv(ns3.clone(), "key6"), Value::Int(6), None)
+            .put(Key::new_kv(ns3.clone(), "key6"), Value::I64(6), None)
             .unwrap();
 
         // Scan for run1 - should get exactly 2 keys
@@ -940,22 +940,22 @@ mod tests {
 
         // Insert different types of keys
         store
-            .put(Key::new_kv(ns.clone(), "kv1"), Value::Int(1), None)
+            .put(Key::new_kv(ns.clone(), "kv1"), Value::I64(1), None)
             .unwrap();
         store
-            .put(Key::new_kv(ns.clone(), "kv2"), Value::Int(2), None)
+            .put(Key::new_kv(ns.clone(), "kv2"), Value::I64(2), None)
             .unwrap();
         store
-            .put(Key::new_event(ns.clone(), 1), Value::Int(100), None)
+            .put(Key::new_event(ns.clone(), 1), Value::I64(100), None)
             .unwrap();
         store
-            .put(Key::new_event(ns.clone(), 2), Value::Int(101), None)
+            .put(Key::new_event(ns.clone(), 2), Value::I64(101), None)
             .unwrap();
         store
-            .put(Key::new_event(ns.clone(), 3), Value::Int(102), None)
+            .put(Key::new_event(ns.clone(), 3), Value::I64(102), None)
             .unwrap();
         store
-            .put(Key::new_trace(ns.clone(), 1), Value::Int(200), None)
+            .put(Key::new_trace(ns.clone(), 1), Value::I64(200), None)
             .unwrap();
 
         // Scan by KV type - should get 2 keys
@@ -997,17 +997,17 @@ mod tests {
 
         // Insert at version 1
         store
-            .put(Key::new_kv(ns.clone(), "kv1"), Value::Int(1), None)
+            .put(Key::new_kv(ns.clone(), "kv1"), Value::I64(1), None)
             .unwrap();
 
         // Insert at version 2
         store
-            .put(Key::new_kv(ns.clone(), "kv2"), Value::Int(2), None)
+            .put(Key::new_kv(ns.clone(), "kv2"), Value::I64(2), None)
             .unwrap();
 
         // Insert at version 3
         store
-            .put(Key::new_kv(ns.clone(), "kv3"), Value::Int(3), None)
+            .put(Key::new_kv(ns.clone(), "kv3"), Value::I64(3), None)
             .unwrap();
 
         // Scan with max_version=1 - should only return kv1
@@ -1047,8 +1047,8 @@ mod tests {
         );
 
         // Insert keys
-        store.put(key1.clone(), Value::Int(1), None).unwrap();
-        store.put(key2.clone(), Value::Int(2), None).unwrap();
+        store.put(key1.clone(), Value::I64(1), None).unwrap();
+        store.put(key2.clone(), Value::I64(2), None).unwrap();
 
         // Indices should reflect the inserts
         assert_eq!(store.scan_by_run(run_id, u64::MAX).unwrap().len(), 2);
@@ -1095,14 +1095,14 @@ mod tests {
         let key = Key::new_kv(ns.clone(), "key1");
 
         // Insert the key multiple times (overwrite)
-        store.put(key.clone(), Value::Int(1), None).unwrap();
-        store.put(key.clone(), Value::Int(2), None).unwrap();
-        store.put(key.clone(), Value::Int(3), None).unwrap();
+        store.put(key.clone(), Value::I64(1), None).unwrap();
+        store.put(key.clone(), Value::I64(2), None).unwrap();
+        store.put(key.clone(), Value::I64(3), None).unwrap();
 
         // run_index should have only 1 entry for this key
         let run_results = store.scan_by_run(run_id, u64::MAX).unwrap();
         assert_eq!(run_results.len(), 1);
-        assert_eq!(run_results[0].1.value, Value::Int(3)); // Latest value
+        assert_eq!(run_results[0].1.value, Value::I64(3)); // Latest value
 
         // type_index should have only 1 entry for this key
         let type_results = store.scan_by_type(TypeTag::KV, u64::MAX).unwrap();
@@ -1186,12 +1186,12 @@ mod tests {
 
         // Put with TTL
         store
-            .put(key.clone(), Value::Int(1), Some(Duration::from_secs(60)))
+            .put(key.clone(), Value::I64(1), Some(Duration::from_secs(60)))
             .unwrap();
 
         // Overwrite with different TTL
         store
-            .put(key.clone(), Value::Int(2), Some(Duration::from_secs(120)))
+            .put(key.clone(), Value::I64(2), Some(Duration::from_secs(120)))
             .unwrap();
 
         // TTL index should have only 1 entry (old entry should be removed)
@@ -1212,7 +1212,7 @@ mod tests {
 
         // Put key without TTL
         let key = Key::new_kv(ns.clone(), "persistent");
-        store.put(key.clone(), Value::Int(1), None).unwrap();
+        store.put(key.clone(), Value::I64(1), None).unwrap();
 
         // TTL index should be empty
         let ttl_idx = store.ttl_index.read();
@@ -1234,7 +1234,7 @@ mod tests {
 
         // Put with TTL
         store
-            .put(key.clone(), Value::Int(1), Some(Duration::from_secs(60)))
+            .put(key.clone(), Value::I64(1), Some(Duration::from_secs(60)))
             .unwrap();
 
         // TTL index should have entry
@@ -1244,7 +1244,7 @@ mod tests {
         }
 
         // Overwrite without TTL
-        store.put(key.clone(), Value::Int(2), None).unwrap();
+        store.put(key.clone(), Value::I64(2), None).unwrap();
 
         // TTL index should be empty (old entry removed, no new entry added)
         let ttl_idx = store.ttl_index.read();
@@ -1269,7 +1269,7 @@ mod tests {
         store
             .put(
                 short_key.clone(),
-                Value::Int(1),
+                Value::I64(1),
                 Some(Duration::from_secs(1)),
             )
             .unwrap();
@@ -1279,14 +1279,14 @@ mod tests {
         store
             .put(
                 long_key.clone(),
-                Value::Int(2),
+                Value::I64(2),
                 Some(Duration::from_secs(60)),
             )
             .unwrap();
 
         // Add key with no TTL
         let no_ttl_key = Key::new_kv(ns.clone(), "no_ttl");
-        store.put(no_ttl_key.clone(), Value::Int(3), None).unwrap();
+        store.put(no_ttl_key.clone(), Value::I64(3), None).unwrap();
 
         // Wait for short TTL to expire
         thread::sleep(Duration::from_millis(1100));

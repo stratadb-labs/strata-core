@@ -41,7 +41,7 @@ mod invariant_1_addressable {
         let (db, run_id) = setup();
         let kv = KVStore::new(db);
 
-        kv.put(&run_id, "my-key", Value::Int(42)).unwrap();
+        kv.put(&run_id, "my-key", Value::I64(42)).unwrap();
 
         // Build EntityRef for KV entry
         let entity_ref = EntityRef::kv(run_id, "my-key");
@@ -81,7 +81,7 @@ mod invariant_1_addressable {
         let (db, run_id) = setup();
         let state = StateCell::new(db);
 
-        state.init(&run_id, "my-cell", Value::Int(0)).unwrap();
+        state.init(&run_id, "my-cell", Value::I64(0)).unwrap();
 
         let entity_ref = EntityRef::state(run_id, "my-cell");
 
@@ -184,11 +184,11 @@ mod invariant_2_versioned {
         let (db, run_id) = setup();
         let kv = KVStore::new(db);
 
-        kv.put(&run_id, "key", Value::Int(42)).unwrap();
+        kv.put(&run_id, "key", Value::I64(42)).unwrap();
 
         let versioned = kv.get(&run_id, "key").unwrap().unwrap();
         // Has value
-        assert!(matches!(versioned.value, Value::Int(42)));
+        assert!(matches!(versioned.value, Value::I64(42)));
         // Has version info via the Versioned wrapper
         assert!(versioned.timestamp.as_micros() > 0);
     }
@@ -198,7 +198,7 @@ mod invariant_2_versioned {
         let (db, run_id) = setup();
         let kv = KVStore::new(db);
 
-        let version = kv.put(&run_id, "key", Value::Int(42)).unwrap();
+        let version = kv.put(&run_id, "key", Value::I64(42)).unwrap();
 
         // put() returns Version
         assert!(matches!(version, Version::TxnId(_)));
@@ -241,10 +241,10 @@ mod invariant_2_versioned {
         let (db, run_id) = setup();
         let state = StateCell::new(db);
 
-        state.init(&run_id, "cell", Value::Int(42)).unwrap();
+        state.init(&run_id, "cell", Value::I64(42)).unwrap();
 
         let versioned = state.read(&run_id, "cell").unwrap().unwrap();
-        assert!(matches!(versioned.value.value, Value::Int(42)));
+        assert!(matches!(versioned.value.value, Value::I64(42)));
     }
 
     #[test]
@@ -252,7 +252,7 @@ mod invariant_2_versioned {
         let (db, run_id) = setup();
         let state = StateCell::new(db);
 
-        let versioned = state.init(&run_id, "cell", Value::Int(0)).unwrap();
+        let versioned = state.init(&run_id, "cell", Value::I64(0)).unwrap();
         // init returns Versioned<u64> with initial version
         assert_eq!(versioned.value, 1);
     }
@@ -262,10 +262,10 @@ mod invariant_2_versioned {
         let (db, run_id) = setup();
         let state = StateCell::new(db);
 
-        state.init(&run_id, "cell", Value::Int(0)).unwrap();
+        state.init(&run_id, "cell", Value::I64(0)).unwrap();
 
-        let v1 = state.set(&run_id, "cell", Value::Int(1)).unwrap();
-        let v2 = state.set(&run_id, "cell", Value::Int(2)).unwrap();
+        let v1 = state.set(&run_id, "cell", Value::I64(1)).unwrap();
+        let v2 = state.set(&run_id, "cell", Value::I64(2)).unwrap();
 
         // Versions are monotonic
         assert!(v2.value > v1.value);
@@ -446,7 +446,7 @@ mod invariant_3_transactional {
         let (db, run_id) = setup();
 
         db.transaction(run_id, |txn| {
-            txn.kv_put("key", Value::Int(42))?;
+            txn.kv_put("key", Value::I64(42))?;
             Ok(())
         })
         .unwrap();
@@ -474,7 +474,7 @@ mod invariant_3_transactional {
         let (db, run_id) = setup();
 
         db.transaction(run_id, |txn| {
-            txn.state_set("cell", Value::Int(42))?;
+            txn.state_set("cell", Value::I64(42))?;
             Ok(())
         })
         .unwrap();
@@ -516,9 +516,9 @@ mod invariant_3_transactional {
         let (db, run_id) = setup();
 
         db.transaction(run_id, |txn| {
-            txn.kv_put("key", Value::Int(42))?;
+            txn.kv_put("key", Value::I64(42))?;
             txn.event_append("test-event", Value::String("payload".into()))?;
-            txn.state_set("cell", Value::Int(100))?;
+            txn.state_set("cell", Value::I64(100))?;
             Ok(())
         })
         .unwrap();
@@ -539,7 +539,7 @@ mod invariant_3_transactional {
         let (db, run_id) = setup();
 
         let result: Result<(), strata_core::error::Error> = db.transaction(run_id, |txn| {
-            txn.kv_put("key", Value::Int(1))?;
+            txn.kv_put("key", Value::I64(1))?;
             txn.event_append("event", Value::String("payload".into()))?;
 
             // Force rollback
@@ -599,7 +599,7 @@ mod invariant_4_lifecycle {
 
         // Create (append)
         events
-            .append(&run_id, "e1", Value::Int(1))
+            .append(&run_id, "e1", Value::I64(1))
             .unwrap();
 
         // Exist (read)
@@ -609,7 +609,7 @@ mod invariant_4_lifecycle {
         // Events are immutable - no evolve, no destroy
         // Can only append more
         events
-            .append(&run_id, "e2", Value::Int(2))
+            .append(&run_id, "e2", Value::I64(2))
             .unwrap();
 
         // Both events exist
@@ -623,15 +623,15 @@ mod invariant_4_lifecycle {
         let state = StateCell::new(db);
 
         // Create (init)
-        state.init(&run_id, "cell", Value::Int(1)).unwrap();
+        state.init(&run_id, "cell", Value::I64(1)).unwrap();
 
         // Exist
         assert!(state.exists(&run_id, "cell").unwrap());
 
         // Evolve (set)
-        state.set(&run_id, "cell", Value::Int(2)).unwrap();
+        state.set(&run_id, "cell", Value::I64(2)).unwrap();
         let s = state.read(&run_id, "cell").unwrap().unwrap();
-        assert!(matches!(s.value.value, Value::Int(2)));
+        assert!(matches!(s.value.value, Value::I64(2)));
 
         // Destroy
         state.delete(&run_id, "cell").unwrap();
@@ -781,10 +781,10 @@ mod invariant_5_run_scoped {
         let events = EventLog::new(db);
 
         events
-            .append(&run1, "event-run1", Value::Int(1))
+            .append(&run1, "event-run1", Value::I64(1))
             .unwrap();
         events
-            .append(&run2, "event-run2", Value::Int(2))
+            .append(&run2, "event-run2", Value::I64(2))
             .unwrap();
 
         let e1 = events.read(&run1, 0).unwrap().unwrap();
@@ -800,14 +800,14 @@ mod invariant_5_run_scoped {
         let run2 = RunId::new();
         let state = StateCell::new(db);
 
-        state.init(&run1, "cell", Value::Int(1)).unwrap();
-        state.init(&run2, "cell", Value::Int(2)).unwrap();
+        state.init(&run1, "cell", Value::I64(1)).unwrap();
+        state.init(&run2, "cell", Value::I64(2)).unwrap();
 
         let s1 = state.read(&run1, "cell").unwrap().unwrap();
         let s2 = state.read(&run2, "cell").unwrap().unwrap();
 
-        assert!(matches!(s1.value.value, Value::Int(1)));
-        assert!(matches!(s2.value.value, Value::Int(2)));
+        assert!(matches!(s1.value.value, Value::I64(1)));
+        assert!(matches!(s2.value.value, Value::I64(2)));
     }
 
     #[test]
@@ -905,7 +905,7 @@ mod invariant_5_run_scoped {
         // This test verifies the API shape - no ambient run context
 
         let kv = KVStore::new(db.clone());
-        kv.put(&run_id, "k", Value::Int(1)).unwrap();
+        kv.put(&run_id, "k", Value::I64(1)).unwrap();
         kv.get(&run_id, "k").unwrap();
 
         let events = EventLog::new(db.clone());
@@ -913,7 +913,7 @@ mod invariant_5_run_scoped {
         events.read(&run_id, 0).unwrap();
 
         let state = StateCell::new(db.clone());
-        state.init(&run_id, "s", Value::Int(1)).unwrap();
+        state.init(&run_id, "s", Value::I64(1)).unwrap();
         state.read(&run_id, "s").unwrap();
 
         // There is NO global/ambient run context - run_id is always explicit
@@ -935,7 +935,7 @@ mod invariant_6_introspectable {
 
         assert!(!kv.exists(&run_id, "key").unwrap());
 
-        kv.put(&run_id, "key", Value::Int(1)).unwrap();
+        kv.put(&run_id, "key", Value::I64(1)).unwrap();
 
         assert!(kv.exists(&run_id, "key").unwrap());
     }
@@ -961,7 +961,7 @@ mod invariant_6_introspectable {
 
         assert!(!state.exists(&run_id, "cell").unwrap());
 
-        state.init(&run_id, "cell", Value::Int(1)).unwrap();
+        state.init(&run_id, "cell", Value::I64(1)).unwrap();
 
         assert!(state.exists(&run_id, "cell").unwrap());
     }
@@ -1046,7 +1046,7 @@ mod invariant_7_read_write {
         let (db, run_id) = setup();
         let kv = KVStore::new(db);
 
-        kv.put(&run_id, "key", Value::Int(42)).unwrap();
+        kv.put(&run_id, "key", Value::I64(42)).unwrap();
 
         // Read multiple times
         let v1 = kv.get(&run_id, "key").unwrap().unwrap();
@@ -1054,9 +1054,9 @@ mod invariant_7_read_write {
         let v3 = kv.get(&run_id, "key").unwrap().unwrap();
 
         // All reads return same value (no modification)
-        assert!(matches!(v1.value, Value::Int(42)));
-        assert!(matches!(v2.value, Value::Int(42)));
-        assert!(matches!(v3.value, Value::Int(42)));
+        assert!(matches!(v1.value, Value::I64(42)));
+        assert!(matches!(v2.value, Value::I64(42)));
+        assert!(matches!(v3.value, Value::I64(42)));
     }
 
     #[test]
@@ -1064,8 +1064,8 @@ mod invariant_7_read_write {
         let (db, run_id) = setup();
         let kv = KVStore::new(db);
 
-        let v1 = kv.put(&run_id, "key", Value::Int(1)).unwrap();
-        let v2 = kv.put(&run_id, "key", Value::Int(2)).unwrap();
+        let v1 = kv.put(&run_id, "key", Value::I64(1)).unwrap();
+        let v2 = kv.put(&run_id, "key", Value::I64(2)).unwrap();
 
         // Each write produces a version (TxnId)
         assert!(matches!(v1, Version::TxnId(_)));
@@ -1078,8 +1078,8 @@ mod invariant_7_read_write {
         let events = EventLog::new(db);
 
         // append is write (returns version)
-        let v1 = events.append(&run_id, "e1", Value::Int(1)).unwrap();
-        let v2 = events.append(&run_id, "e2", Value::Int(2)).unwrap();
+        let v1 = events.append(&run_id, "e1", Value::I64(1)).unwrap();
+        let v2 = events.append(&run_id, "e2", Value::I64(2)).unwrap();
 
         assert!(v2 > v1); // Versions increase
 
@@ -1095,11 +1095,11 @@ mod invariant_7_read_write {
         let (db, run_id) = setup();
         let state = StateCell::new(db);
 
-        state.init(&run_id, "cell", Value::Int(0)).unwrap();
+        state.init(&run_id, "cell", Value::I64(0)).unwrap();
 
         // set is write
-        let v1 = state.set(&run_id, "cell", Value::Int(1)).unwrap();
-        let v2 = state.set(&run_id, "cell", Value::Int(2)).unwrap();
+        let v1 = state.set(&run_id, "cell", Value::I64(1)).unwrap();
+        let v2 = state.set(&run_id, "cell", Value::I64(2)).unwrap();
 
         assert!(v2.value > v1.value); // Versions increase
 
@@ -1108,8 +1108,8 @@ mod invariant_7_read_write {
         let s2 = state.read(&run_id, "cell").unwrap().unwrap();
 
         // Same value, same version
-        assert!(matches!(s1.value.value, Value::Int(2)));
-        assert!(matches!(s2.value.value, Value::Int(2)));
+        assert!(matches!(s1.value.value, Value::I64(2)));
+        assert!(matches!(s2.value.value, Value::I64(2)));
     }
 
     #[test]
@@ -1117,11 +1117,11 @@ mod invariant_7_read_write {
         let (db, run_id) = setup();
 
         db.transaction(run_id, |txn| {
-            txn.kv_put("key", Value::Int(42))?;
+            txn.kv_put("key", Value::I64(42))?;
 
             let value = txn.kv_get("key")?;
             assert!(value.is_some());
-            assert!(matches!(value.unwrap(), Value::Int(42)));
+            assert!(matches!(value.unwrap(), Value::I64(42)));
 
             Ok(())
         })
@@ -1136,7 +1136,7 @@ mod invariant_7_read_write {
 
         // KV
         let kv = KVStore::new(db.clone());
-        let _ = kv.put(&run_id, "k", Value::Int(1)).unwrap(); // write
+        let _ = kv.put(&run_id, "k", Value::I64(1)).unwrap(); // write
         let _ = kv.get(&run_id, "k").unwrap(); // read
 
         // Event
@@ -1146,7 +1146,7 @@ mod invariant_7_read_write {
 
         // State
         let state = StateCell::new(db.clone());
-        let _ = state.init(&run_id, "s", Value::Int(1)).unwrap(); // write
+        let _ = state.init(&run_id, "s", Value::I64(1)).unwrap(); // write
         let _ = state.read(&run_id, "s").unwrap(); // read
 
         // Trace
@@ -1204,7 +1204,7 @@ mod version_monotonicity {
         let mut last_seq = None;
         for i in 0..10 {
             let version = events
-                .append(&run_id, &format!("event-{}", i), Value::Int(i as i64))
+                .append(&run_id, &format!("event-{}", i), Value::I64(i as i64))
                 .unwrap();
 
             let current_seq = match version {
@@ -1224,12 +1224,12 @@ mod version_monotonicity {
         let (db, run_id) = setup();
         let state = StateCell::new(db);
 
-        state.init(&run_id, "cell", Value::Int(0)).unwrap();
+        state.init(&run_id, "cell", Value::I64(0)).unwrap();
 
         let mut last_version = 1u64;
         for i in 1..10 {
             let versioned = state
-                .set(&run_id, "cell", Value::Int(i as i64))
+                .set(&run_id, "cell", Value::I64(i as i64))
                 .unwrap();
             assert!(versioned.value > last_version);
             last_version = versioned.value;

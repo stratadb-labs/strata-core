@@ -36,7 +36,7 @@ fn kv_fast_path_equals_transaction_read() {
     // Write some data
     kv.put(&run_id, "key1", Value::String("value1".into()))
         .unwrap();
-    kv.put(&run_id, "key2", Value::Int(42)).unwrap();
+    kv.put(&run_id, "key2", Value::I64(42)).unwrap();
 
     // Fast path reads
     let fast1 = kv.get(&run_id, "key1").unwrap();
@@ -61,16 +61,16 @@ fn kv_fast_path_observes_latest_committed() {
     let run_id = RunId::new();
 
     // Initial value
-    kv.put(&run_id, "key", Value::Int(1)).unwrap();
-    assert_eq!(kv.get(&run_id, "key").unwrap().map(|v| v.value), Some(Value::Int(1)));
+    kv.put(&run_id, "key", Value::I64(1)).unwrap();
+    assert_eq!(kv.get(&run_id, "key").unwrap().map(|v| v.value), Some(Value::I64(1)));
 
     // Update value
-    kv.put(&run_id, "key", Value::Int(2)).unwrap();
-    assert_eq!(kv.get(&run_id, "key").unwrap().map(|v| v.value), Some(Value::Int(2)));
+    kv.put(&run_id, "key", Value::I64(2)).unwrap();
+    assert_eq!(kv.get(&run_id, "key").unwrap().map(|v| v.value), Some(Value::I64(2)));
 
     // Update again
-    kv.put(&run_id, "key", Value::Int(3)).unwrap();
-    assert_eq!(kv.get(&run_id, "key").unwrap().map(|v| v.value), Some(Value::Int(3)));
+    kv.put(&run_id, "key", Value::I64(3)).unwrap();
+    assert_eq!(kv.get(&run_id, "key").unwrap().map(|v| v.value), Some(Value::I64(3)));
 
     // Fast path and transaction should agree on value
     assert_eq!(
@@ -92,11 +92,11 @@ fn kv_batch_get_snapshot_consistency() {
 
         txn.put(
             Key::new(ns.clone(), TypeTag::KV, b"a".to_vec()),
-            Value::Int(100),
+            Value::I64(100),
         )?;
         txn.put(
             Key::new(ns.clone(), TypeTag::KV, b"b".to_vec()),
-            Value::Int(200),
+            Value::I64(200),
         )?;
         Ok(())
     })
@@ -106,8 +106,8 @@ fn kv_batch_get_snapshot_consistency() {
     let results = kv.get_many(&run_id, &["a", "b"]).unwrap();
 
     // Both values should be from the same snapshot
-    assert_eq!(results[0].as_ref().map(|v| v.value.clone()), Some(Value::Int(100)));
-    assert_eq!(results[1].as_ref().map(|v| v.value.clone()), Some(Value::Int(200)));
+    assert_eq!(results[0].as_ref().map(|v| v.value.clone()), Some(Value::I64(100)));
+    assert_eq!(results[1].as_ref().map(|v| v.value.clone()), Some(Value::I64(200)));
 }
 
 // ============================================================================
@@ -121,8 +121,8 @@ fn eventlog_fast_path_equals_transaction_read() {
     let run_id = RunId::new();
 
     // Append events
-    log.append(&run_id, "event1", Value::Int(1)).unwrap();
-    log.append(&run_id, "event2", Value::Int(2)).unwrap();
+    log.append(&run_id, "event1", Value::I64(1)).unwrap();
+    log.append(&run_id, "event2", Value::I64(2)).unwrap();
 
     // Fast path reads
     let fast0 = log.read(&run_id, 0).unwrap();
@@ -172,7 +172,7 @@ fn statecell_fast_path_equals_transaction_read() {
     let run_id = RunId::new();
 
     // Initialize cells
-    sc.init(&run_id, "cell1", Value::Int(100)).unwrap();
+    sc.init(&run_id, "cell1", Value::I64(100)).unwrap();
     sc.init(&run_id, "cell2", Value::String("hello".into()))
         .unwrap();
 
@@ -198,15 +198,15 @@ fn statecell_version_monotonicity() {
     let sc = StateCell::new(db.clone());
     let run_id = RunId::new();
 
-    sc.init(&run_id, "counter", Value::Int(0)).unwrap();
+    sc.init(&run_id, "counter", Value::I64(0)).unwrap();
 
     // Each set increments version
     for i in 1..=5 {
-        sc.set(&run_id, "counter", Value::Int(i)).unwrap();
+        sc.set(&run_id, "counter", Value::I64(i)).unwrap();
 
         let state = sc.read(&run_id, "counter").unwrap().unwrap();
         assert_eq!(state.value.version, (i + 1) as u64, "version should increment");
-        assert_eq!(state.value.value, Value::Int(i), "value should update");
+        assert_eq!(state.value.value, Value::I64(i), "value should update");
     }
 }
 
@@ -330,9 +330,9 @@ fn all_primitives_run_isolation() {
     let ts = TraceStore::new(db.clone());
 
     // Write to run1
-    kv.put(&run1, "key", Value::Int(1)).unwrap();
-    log.append(&run1, "event", Value::Int(1)).unwrap();
-    sc.init(&run1, "cell", Value::Int(1)).unwrap();
+    kv.put(&run1, "key", Value::I64(1)).unwrap();
+    log.append(&run1, "event", Value::I64(1)).unwrap();
+    sc.init(&run1, "cell", Value::I64(1)).unwrap();
     let trace1_id = ts
         .record(
             &run1,
@@ -347,9 +347,9 @@ fn all_primitives_run_isolation() {
         .value; // Extract trace_id from Versioned
 
     // Write to run2
-    kv.put(&run2, "key", Value::Int(2)).unwrap();
-    log.append(&run2, "event", Value::Int(2)).unwrap();
-    sc.init(&run2, "cell", Value::Int(2)).unwrap();
+    kv.put(&run2, "key", Value::I64(2)).unwrap();
+    log.append(&run2, "event", Value::I64(2)).unwrap();
+    sc.init(&run2, "cell", Value::I64(2)).unwrap();
     let trace2_id = ts
         .record(
             &run2,
@@ -364,18 +364,18 @@ fn all_primitives_run_isolation() {
         .value; // Extract trace_id from Versioned
 
     // Fast path reads should maintain run isolation
-    assert_eq!(kv.get(&run1, "key").unwrap().map(|v| v.value), Some(Value::Int(1)));
-    assert_eq!(kv.get(&run2, "key").unwrap().map(|v| v.value), Some(Value::Int(2)));
+    assert_eq!(kv.get(&run1, "key").unwrap().map(|v| v.value), Some(Value::I64(1)));
+    assert_eq!(kv.get(&run2, "key").unwrap().map(|v| v.value), Some(Value::I64(2)));
 
     let event1 = log.read(&run1, 0).unwrap().unwrap();
     let event2 = log.read(&run2, 0).unwrap().unwrap();
-    assert_eq!(event1.value.payload, Value::Int(1));
-    assert_eq!(event2.value.payload, Value::Int(2));
+    assert_eq!(event1.value.payload, Value::I64(1));
+    assert_eq!(event2.value.payload, Value::I64(2));
 
     let state1 = sc.read(&run1, "cell").unwrap().unwrap();
     let state2 = sc.read(&run2, "cell").unwrap().unwrap();
-    assert_eq!(state1.value.value, Value::Int(1));
-    assert_eq!(state2.value.value, Value::Int(2));
+    assert_eq!(state1.value.value, Value::I64(1));
+    assert_eq!(state2.value.value, Value::I64(2));
 
     let t1 = ts.get(&run1, &trace1_id).unwrap().unwrap();
     let t2 = ts.get(&run2, &trace2_id).unwrap().unwrap();
@@ -394,20 +394,20 @@ fn fast_path_observes_committed_data_only() {
     let run_id = RunId::new();
 
     // Write initial value
-    kv.put(&run_id, "key", Value::Int(1)).unwrap();
+    kv.put(&run_id, "key", Value::I64(1)).unwrap();
 
     // Fast path should see the committed value
-    assert_eq!(kv.get(&run_id, "key").unwrap().map(|v| v.value), Some(Value::Int(1)));
+    assert_eq!(kv.get(&run_id, "key").unwrap().map(|v| v.value), Some(Value::I64(1)));
 
     // Update in a new transaction
-    kv.put(&run_id, "key", Value::Int(2)).unwrap();
+    kv.put(&run_id, "key", Value::I64(2)).unwrap();
 
     // Fast path should see the new committed value
-    assert_eq!(kv.get(&run_id, "key").unwrap().map(|v| v.value), Some(Value::Int(2)));
+    assert_eq!(kv.get(&run_id, "key").unwrap().map(|v| v.value), Some(Value::I64(2)));
 
     // Transaction read should match
     assert_eq!(
         kv.get_in_transaction(&run_id, "key").unwrap().map(|v| v.value),
-        Some(Value::Int(2))
+        Some(Value::I64(2))
     );
 }

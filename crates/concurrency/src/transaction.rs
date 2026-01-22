@@ -1993,7 +1993,7 @@ mod tests {
         let run_id = RunId::new();
         let namespace = Namespace::new("t".into(), "a".into(), "g".into(), run_id);
         let key = Key::new(namespace, TypeTag::KV, b"test".to_vec());
-        let value = Value::Int(42);
+        let value = Value::I64(42);
 
         let cas_op = CASOperation {
             key: key.clone(),
@@ -2505,7 +2505,7 @@ mod tests {
             let key = create_test_key(&ns, b"key");
 
             store
-                .put(key.clone(), Value::Int(100), None)
+                .put(key.clone(), Value::I64(100), None)
                 .expect("put failed");
 
             let mut txn = create_txn_with_store(&store);
@@ -2524,7 +2524,7 @@ mod tests {
             let key = create_test_key(&ns, b"key");
 
             store
-                .put(key.clone(), Value::Int(100), None)
+                .put(key.clone(), Value::I64(100), None)
                 .expect("put failed");
 
             let mut txn = create_txn_with_store(&store);
@@ -2532,7 +2532,7 @@ mod tests {
 
             // Concurrent modification
             store
-                .put(key.clone(), Value::Int(200), None)
+                .put(key.clone(), Value::I64(200), None)
                 .expect("put failed");
 
             // Per spec Section 3.2 Scenario 3: Read-only transactions ALWAYS commit.
@@ -2549,16 +2549,16 @@ mod tests {
             let key = create_test_key(&ns, b"key");
 
             store
-                .put(key.clone(), Value::Int(100), None)
+                .put(key.clone(), Value::I64(100), None)
                 .expect("put failed");
 
             let mut txn = create_txn_with_store(&store);
             // Blind write - no read first
-            txn.put(key.clone(), Value::Int(200)).expect("put failed");
+            txn.put(key.clone(), Value::I64(200)).expect("put failed");
 
             // Concurrent modification
             store
-                .put(key.clone(), Value::Int(300), None)
+                .put(key.clone(), Value::I64(300), None)
                 .expect("put failed");
 
             // Per spec Section 3.2 Scenario 1: Blind writes do NOT conflict
@@ -2574,16 +2574,16 @@ mod tests {
             let key = create_test_key(&ns, b"key");
 
             store
-                .put(key.clone(), Value::Int(100), None)
+                .put(key.clone(), Value::I64(100), None)
                 .expect("put failed");
 
             let mut txn = create_txn_with_store(&store);
             let _ = txn.get(&key).expect("get failed"); // Read adds to read_set
-            txn.put(key.clone(), Value::Int(200)).expect("put failed");
+            txn.put(key.clone(), Value::I64(200)).expect("put failed");
 
             // Concurrent modification
             store
-                .put(key.clone(), Value::Int(300), None)
+                .put(key.clone(), Value::I64(300), None)
                 .expect("put failed");
 
             // Per spec Section 3.1 Condition 1: Read-write conflict
@@ -2606,16 +2606,16 @@ mod tests {
             let key = create_test_key(&ns, b"counter");
 
             store
-                .put(key.clone(), Value::Int(0), None)
+                .put(key.clone(), Value::I64(0), None)
                 .expect("put failed");
             let v1 = store.get(&key).expect("get failed").unwrap().version.as_u64();
 
             let mut txn = create_txn_with_store(&store);
-            txn.cas(key.clone(), v1, Value::Int(1)).expect("cas failed");
+            txn.cas(key.clone(), v1, Value::I64(1)).expect("cas failed");
 
             // Concurrent modification
             store
-                .put(key.clone(), Value::Int(100), None)
+                .put(key.clone(), Value::I64(100), None)
                 .expect("put failed");
 
             // Per spec Section 3.1 Condition 3: CAS conflict
@@ -2718,12 +2718,12 @@ mod tests {
             let key = create_test_key(&ns, b"counter");
 
             store
-                .put(key.clone(), Value::Int(0), None)
+                .put(key.clone(), Value::I64(0), None)
                 .expect("put failed");
             let v1 = store.get(&key).expect("get failed").unwrap().version.as_u64();
 
             let mut txn = create_txn_with_store(&store);
-            txn.cas(key.clone(), v1, Value::Int(1)).expect("cas failed");
+            txn.cas(key.clone(), v1, Value::I64(1)).expect("cas failed");
 
             // No concurrent modification - CAS should succeed
             let result = txn.commit(&store);
@@ -2741,18 +2741,18 @@ mod tests {
 
             // Setup
             store
-                .put(key1.clone(), Value::Int(1), None)
+                .put(key1.clone(), Value::I64(1), None)
                 .expect("put failed");
             store
-                .put(key2.clone(), Value::Int(2), None)
+                .put(key2.clone(), Value::I64(2), None)
                 .expect("put failed");
 
             let mut txn = create_txn_with_store(&store);
 
             // Mix of operations
             let _ = txn.get(&key1).expect("get failed"); // Read
-            txn.put(key1.clone(), Value::Int(10)).expect("put failed"); // Write after read
-            txn.put(key3.clone(), Value::Int(30)).expect("put failed"); // Blind write (new key)
+            txn.put(key1.clone(), Value::I64(10)).expect("put failed"); // Write after read
+            txn.put(key3.clone(), Value::I64(30)).expect("put failed"); // Blind write (new key)
             txn.delete(key2.clone()).expect("delete failed"); // Delete
 
             // No concurrent modifications - should commit
@@ -2768,17 +2768,17 @@ mod tests {
             let key = create_test_key(&ns, b"key");
 
             store
-                .put(key.clone(), Value::Int(100), None)
+                .put(key.clone(), Value::I64(100), None)
                 .expect("put failed");
 
             let mut txn = create_txn_with_store(&store);
             let _ = txn.get(&key).expect("get failed");
             // Add a write to make this NOT a read-only transaction
-            txn.put(key.clone(), Value::Int(150)).expect("put failed");
+            txn.put(key.clone(), Value::I64(150)).expect("put failed");
 
             // Concurrent modification
             store
-                .put(key.clone(), Value::Int(200), None)
+                .put(key.clone(), Value::I64(200), None)
                 .expect("put failed");
 
             let result = txn.commit(&store);
@@ -2837,7 +2837,7 @@ mod tests {
             let key = create_test_key(&ns, b"key");
 
             let mut txn = create_txn_with_store(&store);
-            txn.put(key.clone(), Value::Int(42)).expect("put failed");
+            txn.put(key.clone(), Value::I64(42)).expect("put failed");
             txn.commit(&store).expect("commit failed");
 
             let result = txn.apply_writes(&store, 100).expect("apply_writes failed");
@@ -2848,7 +2848,7 @@ mod tests {
             // Verify key was written with correct version
             let stored = store.get(&key).expect("get failed").unwrap();
             assert_eq!(stored.version.as_u64(), 100);
-            assert_eq!(stored.value, Value::Int(42));
+            assert_eq!(stored.value, Value::I64(42));
         }
 
         #[test]
@@ -2860,9 +2860,9 @@ mod tests {
             let key3 = create_test_key(&ns, b"key3");
 
             let mut txn = create_txn_with_store(&store);
-            txn.put(key1.clone(), Value::Int(1)).expect("put failed");
-            txn.put(key2.clone(), Value::Int(2)).expect("put failed");
-            txn.put(key3.clone(), Value::Int(3)).expect("put failed");
+            txn.put(key1.clone(), Value::I64(1)).expect("put failed");
+            txn.put(key2.clone(), Value::I64(2)).expect("put failed");
+            txn.put(key3.clone(), Value::I64(3)).expect("put failed");
             txn.commit(&store).expect("commit failed");
 
             let result = txn.apply_writes(&store, 50).expect("apply_writes failed");
@@ -2883,7 +2883,7 @@ mod tests {
 
             // Pre-existing key
             store
-                .put(key.clone(), Value::Int(100), None)
+                .put(key.clone(), Value::I64(100), None)
                 .expect("put failed");
 
             let mut txn = create_txn_with_store(&store);
@@ -2903,12 +2903,12 @@ mod tests {
             let key = create_test_key(&ns, b"counter");
 
             store
-                .put(key.clone(), Value::Int(0), None)
+                .put(key.clone(), Value::I64(0), None)
                 .expect("put failed");
             let v1 = store.get(&key).expect("get failed").unwrap().version.as_u64();
 
             let mut txn = create_txn_with_store(&store);
-            txn.cas(key.clone(), v1, Value::Int(1)).expect("cas failed");
+            txn.cas(key.clone(), v1, Value::I64(1)).expect("cas failed");
             txn.commit(&store).expect("commit failed");
 
             let result = txn.apply_writes(&store, 50).expect("apply_writes failed");
@@ -2917,7 +2917,7 @@ mod tests {
 
             let stored = store.get(&key).expect("get failed").unwrap();
             assert_eq!(stored.version.as_u64(), 50);
-            assert_eq!(stored.value, Value::Int(1));
+            assert_eq!(stored.value, Value::I64(1));
         }
 
         #[test]
@@ -2953,7 +2953,7 @@ mod tests {
             let initial_version = store.current_version();
 
             let mut txn = create_txn_with_store(&store);
-            txn.put(key.clone(), Value::Int(42)).expect("put failed");
+            txn.put(key.clone(), Value::I64(42)).expect("put failed");
             txn.commit(&store).expect("commit failed");
 
             txn.apply_writes(&store, 100).expect("apply_writes failed");
@@ -2972,17 +2972,17 @@ mod tests {
 
             // Setup: pre-existing keys
             store
-                .put(key2.clone(), Value::Int(200), None)
+                .put(key2.clone(), Value::I64(200), None)
                 .expect("put failed");
             store
-                .put(key3.clone(), Value::Int(300), None)
+                .put(key3.clone(), Value::I64(300), None)
                 .expect("put failed");
             let v3 = store.get(&key3).expect("get failed").unwrap().version.as_u64();
 
             let mut txn = create_txn_with_store(&store);
-            txn.put(key1.clone(), Value::Int(1)).expect("put failed");
+            txn.put(key1.clone(), Value::I64(1)).expect("put failed");
             txn.delete(key2.clone()).expect("delete failed");
-            txn.cas(key3.clone(), v3, Value::Int(301))
+            txn.cas(key3.clone(), v3, Value::I64(301))
                 .expect("cas failed");
             txn.commit(&store).expect("commit failed");
 
@@ -2994,9 +2994,9 @@ mod tests {
             assert_eq!(result.total_operations(), 3);
 
             // Verify results
-            assert_eq!(store.get(&key1).unwrap().unwrap().value, Value::Int(1));
+            assert_eq!(store.get(&key1).unwrap().unwrap().value, Value::I64(1));
             assert!(store.get(&key2).unwrap().is_none());
-            assert_eq!(store.get(&key3).unwrap().unwrap().value, Value::Int(301));
+            assert_eq!(store.get(&key3).unwrap().unwrap().value, Value::I64(301));
         }
 
         #[test]
@@ -3047,7 +3047,7 @@ mod tests {
             let key = create_key(&ns, "key");
 
             let mut txn = create_txn_with_snapshot(&store);
-            txn.put(key.clone(), Value::Int(42)).unwrap();
+            txn.put(key.clone(), Value::I64(42)).unwrap();
 
             assert_eq!(txn.write_count(), 1);
 
@@ -3063,7 +3063,7 @@ mod tests {
             let ns = create_test_namespace();
             let key = create_key(&ns, "key");
 
-            store.put(key.clone(), Value::Int(100), None).unwrap();
+            store.put(key.clone(), Value::I64(100), None).unwrap();
 
             let mut txn = create_txn_with_snapshot(&store);
             txn.delete(key.clone()).unwrap();
@@ -3081,11 +3081,11 @@ mod tests {
             let ns = create_test_namespace();
             let key = create_key(&ns, "counter");
 
-            store.put(key.clone(), Value::Int(0), None).unwrap();
+            store.put(key.clone(), Value::I64(0), None).unwrap();
             let version = store.get(&key).unwrap().unwrap().version.as_u64();
 
             let mut txn = create_txn_with_snapshot(&store);
-            txn.cas(key.clone(), version, Value::Int(1)).unwrap();
+            txn.cas(key.clone(), version, Value::I64(1)).unwrap();
 
             assert_eq!(txn.cas_count(), 1);
 
@@ -3100,7 +3100,7 @@ mod tests {
             let ns = create_test_namespace();
             let key = create_key(&ns, "key");
 
-            store.put(key.clone(), Value::Int(100), None).unwrap();
+            store.put(key.clone(), Value::I64(100), None).unwrap();
 
             let mut txn = create_txn_with_snapshot(&store);
             let _ = txn.get(&key).unwrap();
@@ -3168,7 +3168,7 @@ mod tests {
             let key = create_key(&ns, "key");
 
             let mut txn = create_txn_with_snapshot(&store);
-            txn.put(key.clone(), Value::Int(1)).unwrap();
+            txn.put(key.clone(), Value::I64(1)).unwrap();
 
             let pending = txn.pending_operations();
             assert_eq!(pending.puts, 1);
@@ -3186,14 +3186,14 @@ mod tests {
             let key2 = create_key(&ns, "key2");
             let key3 = create_key(&ns, "key3");
 
-            store.put(key2.clone(), Value::Int(100), None).unwrap();
-            store.put(key3.clone(), Value::Int(0), None).unwrap();
+            store.put(key2.clone(), Value::I64(100), None).unwrap();
+            store.put(key3.clone(), Value::I64(0), None).unwrap();
             let v3 = store.get(&key3).unwrap().unwrap().version.as_u64();
 
             let mut txn = create_txn_with_snapshot(&store);
-            txn.put(key1.clone(), Value::Int(1)).unwrap();
+            txn.put(key1.clone(), Value::I64(1)).unwrap();
             txn.delete(key2.clone()).unwrap();
-            txn.cas(key3.clone(), v3, Value::Int(1)).unwrap();
+            txn.cas(key3.clone(), v3, Value::I64(1)).unwrap();
 
             let pending = txn.pending_operations();
             assert_eq!(pending.puts, 1);
@@ -3210,7 +3210,7 @@ mod tests {
             let key = create_key(&ns, "key");
 
             let mut txn = create_txn_with_snapshot(&store);
-            txn.put(key.clone(), Value::Int(1)).unwrap();
+            txn.put(key.clone(), Value::I64(1)).unwrap();
 
             assert_eq!(txn.pending_operations().total(), 1);
 
@@ -3322,8 +3322,8 @@ mod tests {
             let (mut wal, _temp) = create_test_wal();
 
             let mut txn = create_txn_with_store(&store);
-            txn.put(key1.clone(), Value::Int(1)).expect("put failed");
-            txn.put(key2.clone(), Value::Int(2)).expect("put failed");
+            txn.put(key1.clone(), Value::I64(1)).expect("put failed");
+            txn.put(key2.clone(), Value::I64(2)).expect("put failed");
             txn.commit(&store).expect("commit failed");
 
             let mut writer = TransactionWALWriter::new(&mut wal, 1, txn.run_id);
@@ -3350,7 +3350,7 @@ mod tests {
             let (mut wal, _temp) = create_test_wal();
 
             store
-                .put(key.clone(), Value::Int(100), None)
+                .put(key.clone(), Value::I64(100), None)
                 .expect("put failed");
 
             let mut txn = create_txn_with_store(&store);
@@ -3383,12 +3383,12 @@ mod tests {
             let (mut wal, _temp) = create_test_wal();
 
             store
-                .put(key.clone(), Value::Int(0), None)
+                .put(key.clone(), Value::I64(0), None)
                 .expect("put failed");
             let v1 = store.get(&key).expect("get failed").unwrap().version.as_u64();
 
             let mut txn = create_txn_with_store(&store);
-            txn.cas(key.clone(), v1, Value::Int(1)).expect("cas failed");
+            txn.cas(key.clone(), v1, Value::I64(1)).expect("cas failed");
             txn.commit(&store).expect("commit failed");
 
             let mut writer = TransactionWALWriter::new(&mut wal, 1, txn.run_id);
@@ -3423,7 +3423,7 @@ mod tests {
 
             let mut txn = create_txn_with_store(&store);
             let run_id = txn.run_id;
-            txn.put(key.clone(), Value::Int(42)).expect("put failed");
+            txn.put(key.clone(), Value::I64(42)).expect("put failed");
             txn.commit(&store).expect("commit failed");
 
             let mut writer = TransactionWALWriter::new(&mut wal, 1, run_id);
@@ -3450,17 +3450,17 @@ mod tests {
 
             // Setup: pre-existing keys
             store
-                .put(key2.clone(), Value::Int(200), None)
+                .put(key2.clone(), Value::I64(200), None)
                 .expect("put failed");
             store
-                .put(key3.clone(), Value::Int(300), None)
+                .put(key3.clone(), Value::I64(300), None)
                 .expect("put failed");
             let v3 = store.get(&key3).expect("get failed").unwrap().version.as_u64();
 
             let mut txn = create_txn_with_store(&store);
-            txn.put(key1.clone(), Value::Int(1)).expect("put failed");
+            txn.put(key1.clone(), Value::I64(1)).expect("put failed");
             txn.delete(key2.clone()).expect("delete failed");
-            txn.cas(key3.clone(), v3, Value::Int(301))
+            txn.cas(key3.clone(), v3, Value::I64(301))
                 .expect("cas failed");
             txn.commit(&store).expect("commit failed");
 

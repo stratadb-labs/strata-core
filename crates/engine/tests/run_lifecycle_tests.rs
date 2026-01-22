@@ -287,19 +287,19 @@ fn test_read_only_view_kv_state() {
     let key1 = Key::new_kv(ns.clone(), "key1");
     let key2 = Key::new_kv(ns.clone(), "key2");
 
-    view.apply_kv_put(key1.clone(), Value::Int(100));
+    view.apply_kv_put(key1.clone(), Value::I64(100));
     view.apply_kv_put(key2.clone(), Value::String("hello".into()));
 
     // Verify state
     assert_eq!(view.kv_count(), 2);
-    assert_eq!(view.get_kv(&key1), Some(&Value::Int(100)));
+    assert_eq!(view.get_kv(&key1), Some(&Value::I64(100)));
     assert_eq!(view.get_kv(&key2), Some(&Value::String("hello".into())));
     assert!(view.contains_kv(&key1));
     assert!(view.contains_kv(&key2));
 
     // Update key1
-    view.apply_kv_put(key1.clone(), Value::Int(200));
-    assert_eq!(view.get_kv(&key1), Some(&Value::Int(200)));
+    view.apply_kv_put(key1.clone(), Value::I64(200));
+    assert_eq!(view.get_kv(&key1), Some(&Value::I64(200)));
 
     // Delete key2
     view.apply_kv_delete(&key2);
@@ -314,7 +314,7 @@ fn test_read_only_view_events() {
 
     view.append_event("UserCreated".into(), Value::String("alice".into()));
     view.append_event("UserLogin".into(), Value::String("alice".into()));
-    view.append_event("ItemPurchased".into(), Value::Int(42));
+    view.append_event("ItemPurchased".into(), Value::I64(42));
 
     assert_eq!(view.event_count(), 3);
 
@@ -332,10 +332,10 @@ fn test_read_only_view_operation_count() {
 
     let key = Key::new_kv(ns.clone(), "key");
 
-    view.apply_kv_put(key.clone(), Value::Int(1));
+    view.apply_kv_put(key.clone(), Value::I64(1));
     assert_eq!(view.operation_count(), 1);
 
-    view.apply_kv_put(key.clone(), Value::Int(2));
+    view.apply_kv_put(key.clone(), Value::I64(2));
     assert_eq!(view.operation_count(), 2);
 
     view.apply_kv_delete(&key);
@@ -359,8 +359,8 @@ fn test_diff_views_identical() {
     let mut view_b = ReadOnlyView::new(run_b);
 
     // Same content
-    view_a.apply_kv_put(Key::new_kv(ns.clone(), "key1"), Value::Int(1));
-    view_b.apply_kv_put(Key::new_kv(ns.clone(), "key1"), Value::Int(1));
+    view_a.apply_kv_put(Key::new_kv(ns.clone(), "key1"), Value::I64(1));
+    view_b.apply_kv_put(Key::new_kv(ns.clone(), "key1"), Value::I64(1));
 
     let diff = diff_views(&view_a, &view_b);
 
@@ -378,9 +378,9 @@ fn test_diff_views_additions() {
     let mut view_b = ReadOnlyView::new(run_b);
 
     // B has more keys than A
-    view_a.apply_kv_put(Key::new_kv(ns.clone(), "common"), Value::Int(1));
-    view_b.apply_kv_put(Key::new_kv(ns.clone(), "common"), Value::Int(1));
-    view_b.apply_kv_put(Key::new_kv(ns.clone(), "new_key"), Value::Int(2));
+    view_a.apply_kv_put(Key::new_kv(ns.clone(), "common"), Value::I64(1));
+    view_b.apply_kv_put(Key::new_kv(ns.clone(), "common"), Value::I64(1));
+    view_b.apply_kv_put(Key::new_kv(ns.clone(), "new_key"), Value::I64(2));
 
     let diff = diff_views(&view_a, &view_b);
 
@@ -400,9 +400,9 @@ fn test_diff_views_removals() {
     let mut view_b = ReadOnlyView::new(run_b);
 
     // A has more keys than B
-    view_a.apply_kv_put(Key::new_kv(ns.clone(), "common"), Value::Int(1));
-    view_a.apply_kv_put(Key::new_kv(ns.clone(), "old_key"), Value::Int(2));
-    view_b.apply_kv_put(Key::new_kv(ns.clone(), "common"), Value::Int(1));
+    view_a.apply_kv_put(Key::new_kv(ns.clone(), "common"), Value::I64(1));
+    view_a.apply_kv_put(Key::new_kv(ns.clone(), "old_key"), Value::I64(2));
+    view_b.apply_kv_put(Key::new_kv(ns.clone(), "common"), Value::I64(1));
 
     let diff = diff_views(&view_a, &view_b);
 
@@ -423,8 +423,8 @@ fn test_diff_views_modifications() {
     let mut view_a = ReadOnlyView::new(run_a);
     let mut view_b = ReadOnlyView::new(run_b);
 
-    view_a.apply_kv_put(key.clone(), Value::Int(1));
-    view_b.apply_kv_put(key.clone(), Value::Int(2));
+    view_a.apply_kv_put(key.clone(), Value::I64(1));
+    view_b.apply_kv_put(key.clone(), Value::I64(2));
 
     let diff = diff_views(&view_a, &view_b);
 
@@ -444,14 +444,14 @@ fn test_diff_views_mixed_changes() {
     let mut view_b = ReadOnlyView::new(run_b);
 
     // A's keys
-    view_a.apply_kv_put(Key::new_kv(ns.clone(), "only_a"), Value::Int(1));
-    view_a.apply_kv_put(Key::new_kv(ns.clone(), "common"), Value::Int(2));
-    view_a.apply_kv_put(Key::new_kv(ns.clone(), "modified"), Value::Int(3));
+    view_a.apply_kv_put(Key::new_kv(ns.clone(), "only_a"), Value::I64(1));
+    view_a.apply_kv_put(Key::new_kv(ns.clone(), "common"), Value::I64(2));
+    view_a.apply_kv_put(Key::new_kv(ns.clone(), "modified"), Value::I64(3));
 
     // B's keys
-    view_b.apply_kv_put(Key::new_kv(ns.clone(), "only_b"), Value::Int(10));
-    view_b.apply_kv_put(Key::new_kv(ns.clone(), "common"), Value::Int(2));
-    view_b.apply_kv_put(Key::new_kv(ns.clone(), "modified"), Value::Int(30));
+    view_b.apply_kv_put(Key::new_kv(ns.clone(), "only_b"), Value::I64(10));
+    view_b.apply_kv_put(Key::new_kv(ns.clone(), "common"), Value::I64(2));
+    view_b.apply_kv_put(Key::new_kv(ns.clone(), "modified"), Value::I64(30));
 
     let diff = diff_views(&view_a, &view_b);
 
@@ -591,11 +591,11 @@ fn test_replay_invariant_p5_deterministic() {
     let key2 = Key::new_kv(ns.clone(), "key2");
 
     // Apply same operations to both
-    view1.apply_kv_put(key1.clone(), Value::Int(42));
+    view1.apply_kv_put(key1.clone(), Value::I64(42));
     view1.apply_kv_put(key2.clone(), Value::String("hello".into()));
     view1.append_event("TestEvent".into(), Value::Null);
 
-    view2.apply_kv_put(key1.clone(), Value::Int(42));
+    view2.apply_kv_put(key1.clone(), Value::I64(42));
     view2.apply_kv_put(key2.clone(), Value::String("hello".into()));
     view2.append_event("TestEvent".into(), Value::Null);
 
@@ -619,12 +619,12 @@ fn test_replay_invariant_p6_idempotent() {
     // Simulate replay by building the same view multiple times
     fn build_view(run_id: RunId, ns: Namespace) -> ReadOnlyView {
         let mut view = ReadOnlyView::new(run_id);
-        view.apply_kv_put(Key::new_kv(ns.clone(), "counter"), Value::Int(1));
-        view.apply_kv_put(Key::new_kv(ns.clone(), "counter"), Value::Int(2));
-        view.apply_kv_put(Key::new_kv(ns.clone(), "counter"), Value::Int(3));
-        view.append_event("Increment".into(), Value::Int(1));
-        view.append_event("Increment".into(), Value::Int(2));
-        view.append_event("Increment".into(), Value::Int(3));
+        view.apply_kv_put(Key::new_kv(ns.clone(), "counter"), Value::I64(1));
+        view.apply_kv_put(Key::new_kv(ns.clone(), "counter"), Value::I64(2));
+        view.apply_kv_put(Key::new_kv(ns.clone(), "counter"), Value::I64(3));
+        view.append_event("Increment".into(), Value::I64(1));
+        view.append_event("Increment".into(), Value::I64(2));
+        view.append_event("Increment".into(), Value::I64(3));
         view
     }
 

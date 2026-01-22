@@ -679,7 +679,7 @@ fn test_crash_multi_write_transaction() {
                 .append(&WALEntry::Write {
                     run_id,
                     key: Key::new_kv(ns.clone(), format!("multi_key_{}", i)),
-                    value: Value::Int(i),
+                    value: Value::I64(i),
                     version: (i + 1) as u64,
                 })
                 .unwrap();

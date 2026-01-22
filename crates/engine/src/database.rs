@@ -714,7 +714,7 @@ impl Database {
     /// let config = RetryConfig::default();
     /// let result = db.transaction_with_retry(run_id, config, |txn| {
     ///     let val = txn.get(&key)?;
-    ///     txn.put(key.clone(), Value::Int(val.value + 1))?;
+    ///     txn.put(key.clone(), Value::I64(val.value + 1))?;
     ///     Ok(())
     /// })?;
     /// ```
@@ -1263,7 +1263,7 @@ impl Database {
     ///
     /// # Example
     /// ```ignore
-    /// db.put(run_id, key, Value::Int(42))?;
+    /// db.put(run_id, key, Value::I64(42))?;
     /// ```
     pub fn put(&self, run_id: RunId, key: Key, value: Value) -> Result<()> {
         self.transaction(run_id, |txn| {
@@ -1344,7 +1344,7 @@ impl Database {
     /// // Get current version
     /// let vv = db.get(&key)?.unwrap();
     /// // Atomic update only if version matches
-    /// db.cas(run_id, key, vv.version, Value::Int(new_val))?;
+    /// db.cas(run_id, key, vv.version, Value::I64(new_val))?;
     /// ```
     pub fn cas(
         &self,
@@ -1810,7 +1810,7 @@ mod tests {
 
         // Execute transaction
         let result = db.transaction(run_id, |txn| {
-            txn.put(key.clone(), Value::Int(42))?;
+            txn.put(key.clone(), Value::I64(42))?;
             Ok(())
         });
 
@@ -1818,7 +1818,7 @@ mod tests {
 
         // Verify data was committed
         let stored = db.storage().get(&key).unwrap().unwrap();
-        assert_eq!(stored.value, Value::Int(42));
+        assert_eq!(stored.value, Value::I64(42));
     }
 
     #[test]
@@ -1832,7 +1832,7 @@ mod tests {
 
         // Pre-populate using transaction
         db.transaction(run_id, |txn| {
-            txn.put(key.clone(), Value::Int(100))?;
+            txn.put(key.clone(), Value::I64(100))?;
             Ok(())
         })
         .unwrap();
@@ -1840,7 +1840,7 @@ mod tests {
         // Transaction returns a value
         let result: Result<i64> = db.transaction(run_id, |txn| {
             let val = txn.get(&key)?.unwrap();
-            if let Value::Int(n) = val {
+            if let Value::I64(n) = val {
                 Ok(n)
             } else {
                 Err(Error::InvalidState("wrong type".to_string()))
@@ -1882,7 +1882,7 @@ mod tests {
 
         // Transaction that errors
         let result: Result<()> = db.transaction(run_id, |txn| {
-            txn.put(key.clone(), Value::Int(999))?;
+            txn.put(key.clone(), Value::I64(999))?;
             Err(Error::InvalidState("intentional error".to_string()))
         });
 
@@ -1903,14 +1903,14 @@ mod tests {
 
         // Manual transaction control
         let mut txn = db.begin_transaction(run_id);
-        txn.put(key.clone(), Value::Int(123)).unwrap();
+        txn.put(key.clone(), Value::I64(123)).unwrap();
 
         // Commit manually
         db.commit_transaction(&mut txn).unwrap();
 
         // Verify committed
         let stored = db.storage().get(&key).unwrap().unwrap();
-        assert_eq!(stored.value, Value::Int(123));
+        assert_eq!(stored.value, Value::I64(123));
     }
 
     #[test]
@@ -1925,7 +1925,7 @@ mod tests {
         {
             let db = Database::open(&db_path).unwrap();
             db.transaction(run_id, |txn| {
-                txn.put(key.clone(), Value::Int(42))?;
+                txn.put(key.clone(), Value::I64(42))?;
                 Ok(())
             })
             .unwrap();
@@ -1935,7 +1935,7 @@ mod tests {
         {
             let db = Database::open(&db_path).unwrap();
             let stored = db.storage().get(&key).unwrap().unwrap();
-            assert_eq!(stored.value, Value::Int(42));
+            assert_eq!(stored.value, Value::I64(42));
         }
     }
 
@@ -1949,7 +1949,7 @@ mod tests {
 
         // First transaction
         db.transaction(run_id, |txn| {
-            txn.put(Key::new_kv(ns.clone(), "key1"), Value::Int(1))?;
+            txn.put(Key::new_kv(ns.clone(), "key1"), Value::I64(1))?;
             Ok(())
         })
         .unwrap();
@@ -1959,7 +1959,7 @@ mod tests {
 
         // Second transaction
         db.transaction(run_id, |txn| {
-            txn.put(Key::new_kv(ns.clone(), "key2"), Value::Int(2))?;
+            txn.put(Key::new_kv(ns.clone(), "key2"), Value::I64(2))?;
             Ok(())
         })
         .unwrap();
@@ -1995,7 +1995,7 @@ mod tests {
 
         // Commit a transaction
         db.transaction(run_id, |txn| {
-            txn.put(Key::new_kv(ns.clone(), "key1"), Value::Int(1))?;
+            txn.put(Key::new_kv(ns.clone(), "key1"), Value::I64(1))?;
             Ok(())
         })
         .unwrap();
@@ -2008,7 +2008,7 @@ mod tests {
 
         // Abort a transaction
         let _: Result<()> = db.transaction(run_id, |txn| {
-            txn.put(Key::new_kv(ns.clone(), "key2"), Value::Int(2))?;
+            txn.put(Key::new_kv(ns.clone(), "key2"), Value::I64(2))?;
             Err(Error::InvalidState("intentional abort".to_string()))
         });
 
@@ -2029,9 +2029,9 @@ mod tests {
 
         // Transaction with multiple keys
         db.transaction(run_id, |txn| {
-            txn.put(Key::new_kv(ns.clone(), "a"), Value::Int(1))?;
-            txn.put(Key::new_kv(ns.clone(), "b"), Value::Int(2))?;
-            txn.put(Key::new_kv(ns.clone(), "c"), Value::Int(3))?;
+            txn.put(Key::new_kv(ns.clone(), "a"), Value::I64(1))?;
+            txn.put(Key::new_kv(ns.clone(), "b"), Value::I64(2))?;
+            txn.put(Key::new_kv(ns.clone(), "c"), Value::I64(3))?;
             Ok(())
         })
         .unwrap();
@@ -2071,7 +2071,7 @@ mod tests {
 
         // Create key
         db.transaction(run_id, |txn| {
-            txn.put(key.clone(), Value::Int(100))?;
+            txn.put(key.clone(), Value::I64(100))?;
             Ok(())
         })
         .unwrap();
@@ -2103,11 +2103,11 @@ mod tests {
         let key = Key::new_kv(ns, "implicit_put");
 
         // M1-style put
-        db.put(run_id, key.clone(), Value::Int(42)).unwrap();
+        db.put(run_id, key.clone(), Value::I64(42)).unwrap();
 
         // Verify stored
         let stored = db.storage().get(&key).unwrap().unwrap();
-        assert_eq!(stored.value, Value::Int(42));
+        assert_eq!(stored.value, Value::I64(42));
     }
 
     #[test]
@@ -2120,12 +2120,12 @@ mod tests {
         let key = Key::new_kv(ns, "implicit_get");
 
         // Pre-populate using put
-        db.put(run_id, key.clone(), Value::Int(100)).unwrap();
+        db.put(run_id, key.clone(), Value::I64(100)).unwrap();
 
         // M1-style get
         let result = db.get(&key).unwrap();
         assert!(result.is_some());
-        assert_eq!(result.unwrap().value, Value::Int(100));
+        assert_eq!(result.unwrap().value, Value::I64(100));
     }
 
     #[test]
@@ -2152,7 +2152,7 @@ mod tests {
         let key = Key::new_kv(ns, "to_delete_implicit");
 
         // Pre-populate
-        db.put(run_id, key.clone(), Value::Int(1)).unwrap();
+        db.put(run_id, key.clone(), Value::I64(1)).unwrap();
         assert!(db.get(&key).unwrap().is_some());
 
         // M1-style delete
@@ -2172,16 +2172,16 @@ mod tests {
         let key = Key::new_kv(ns, "cas_key");
 
         // Initial put
-        db.put(run_id, key.clone(), Value::Int(1)).unwrap();
+        db.put(run_id, key.clone(), Value::I64(1)).unwrap();
         let current = db.get(&key).unwrap().unwrap();
 
         // CAS with correct version
-        db.cas(run_id, key.clone(), current.version.as_u64(), Value::Int(2))
+        db.cas(run_id, key.clone(), current.version.as_u64(), Value::I64(2))
             .unwrap();
 
         // Verify updated
         let updated = db.get(&key).unwrap().unwrap();
-        assert_eq!(updated.value, Value::Int(2));
+        assert_eq!(updated.value, Value::I64(2));
     }
 
     #[test]
@@ -2194,15 +2194,15 @@ mod tests {
         let key = Key::new_kv(ns, "cas_fail");
 
         // Initial put
-        db.put(run_id, key.clone(), Value::Int(1)).unwrap();
+        db.put(run_id, key.clone(), Value::I64(1)).unwrap();
 
         // CAS with wrong version
-        let result = db.cas(run_id, key.clone(), 999, Value::Int(2));
+        let result = db.cas(run_id, key.clone(), 999, Value::I64(2));
         assert!(result.is_err());
 
         // Value should be unchanged
         let stored = db.get(&key).unwrap().unwrap();
-        assert_eq!(stored.value, Value::Int(1));
+        assert_eq!(stored.value, Value::I64(1));
     }
 
     #[test]
@@ -2219,7 +2219,7 @@ mod tests {
         // Write and close
         {
             let db = Database::open(&db_path).unwrap();
-            db.put(run_id, key1.clone(), Value::Int(100)).unwrap();
+            db.put(run_id, key1.clone(), Value::I64(100)).unwrap();
             db.put(run_id, key2.clone(), Value::String("test".to_string()))
                 .unwrap();
         }
@@ -2230,7 +2230,7 @@ mod tests {
             let v1 = db.get(&key1).unwrap().unwrap();
             let v2 = db.get(&key2).unwrap().unwrap();
 
-            assert_eq!(v1.value, Value::Int(100));
+            assert_eq!(v1.value, Value::I64(100));
             assert_eq!(v2.value, Value::String("test".to_string()));
         }
     }
@@ -2245,11 +2245,11 @@ mod tests {
         let key = Key::new_kv(ns, "new_cas_key");
 
         // CAS with version 0 should create new key (key doesn't exist)
-        db.cas(run_id, key.clone(), 0, Value::Int(42)).unwrap();
+        db.cas(run_id, key.clone(), 0, Value::I64(42)).unwrap();
 
         // Verify created
         let stored = db.get(&key).unwrap().unwrap();
-        assert_eq!(stored.value, Value::Int(42));
+        assert_eq!(stored.value, Value::I64(42));
     }
 
     #[test]
@@ -2264,15 +2264,15 @@ mod tests {
         let key = Key::new_kv(ns, "mixed_ops");
 
         // Put
-        db.put(run_id, key.clone(), Value::Int(1)).unwrap();
+        db.put(run_id, key.clone(), Value::I64(1)).unwrap();
         let v1 = db.get(&key).unwrap().unwrap();
-        assert_eq!(v1.value, Value::Int(1));
+        assert_eq!(v1.value, Value::I64(1));
 
         // CAS to increment
-        db.cas(run_id, key.clone(), v1.version.as_u64(), Value::Int(2))
+        db.cas(run_id, key.clone(), v1.version.as_u64(), Value::I64(2))
             .unwrap();
         let v2 = db.get(&key).unwrap().unwrap();
-        assert_eq!(v2.value, Value::Int(2));
+        assert_eq!(v2.value, Value::I64(2));
 
         // Delete
         db.delete(run_id, key.clone()).unwrap();
@@ -2337,7 +2337,7 @@ mod tests {
 
         // Transaction with retry that succeeds on first try
         let result = db.transaction_with_retry(run_id, RetryConfig::default(), |txn| {
-            txn.put(key.clone(), Value::Int(42))?;
+            txn.put(key.clone(), Value::I64(42))?;
             Ok(42)
         });
 
@@ -2345,7 +2345,7 @@ mod tests {
 
         // Verify stored
         let stored = db.get(&key).unwrap().unwrap();
-        assert_eq!(stored.value, Value::Int(42));
+        assert_eq!(stored.value, Value::I64(42));
     }
 
     #[test]
@@ -2393,7 +2393,7 @@ mod tests {
             if count < 2 {
                 Err(Error::TransactionConflict("simulated conflict".to_string()))
             } else {
-                txn.put(key.clone(), Value::Int(count as i64))?;
+                txn.put(key.clone(), Value::I64(count as i64))?;
                 Ok(())
             }
         });
@@ -2462,14 +2462,14 @@ mod tests {
         let key = Key::new_kv(ns, "return_value");
 
         // Pre-populate
-        db.put(run_id, key.clone(), Value::Int(100)).unwrap();
+        db.put(run_id, key.clone(), Value::I64(100)).unwrap();
 
         // Transaction returns a value
         // Note: txn.get() returns Option<Value>, not Option<VersionedValue>
         let result: Result<i64> =
             db.transaction_with_retry(run_id, RetryConfig::default(), |txn| {
                 let val = txn.get(&key)?.unwrap();
-                if let Value::Int(n) = val {
+                if let Value::I64(n) = val {
                     Ok(n)
                 } else {
                     Err(Error::InvalidState("wrong type".to_string()))
@@ -2492,7 +2492,7 @@ mod tests {
         let attempts = AtomicU64::new(0);
 
         // Initialize counter
-        db.put(run_id, key.clone(), Value::Int(0)).unwrap();
+        db.put(run_id, key.clone(), Value::I64(0)).unwrap();
 
         let config = RetryConfig {
             max_retries: 5,
@@ -2508,7 +2508,7 @@ mod tests {
             // Read
             let val = txn.get(&key)?.unwrap();
             let n = match val {
-                Value::Int(n) => n,
+                Value::I64(n) => n,
                 _ => return Err(Error::InvalidState("wrong type".to_string())),
             };
 
@@ -2518,7 +2518,7 @@ mod tests {
             }
 
             // Write incremented value
-            txn.put(key.clone(), Value::Int(n + 1))?;
+            txn.put(key.clone(), Value::I64(n + 1))?;
             Ok(n + 1)
         });
 
@@ -2527,7 +2527,7 @@ mod tests {
 
         // Verify final value
         let stored = db.get(&key).unwrap().unwrap();
-        assert_eq!(stored.value, Value::Int(1));
+        assert_eq!(stored.value, Value::I64(1));
     }
 
     // ========================================================================
@@ -2568,7 +2568,7 @@ mod tests {
 
         // Transaction completes within timeout
         let result = db.transaction_with_timeout(run_id, Duration::from_secs(5), |txn| {
-            txn.put(key.clone(), Value::Int(42))?;
+            txn.put(key.clone(), Value::I64(42))?;
             Ok(42)
         });
 
@@ -2577,7 +2577,7 @@ mod tests {
 
         // Verify stored
         let stored = db.get(&key).unwrap().unwrap();
-        assert_eq!(stored.value, Value::Int(42));
+        assert_eq!(stored.value, Value::I64(42));
     }
 
     #[test]
@@ -2596,7 +2596,7 @@ mod tests {
             run_id,
             Duration::from_millis(10), // Very short timeout
             |txn| {
-                txn.put(key.clone(), Value::Int(999))?;
+                txn.put(key.clone(), Value::I64(999))?;
                 // Sleep to exceed timeout
                 thread::sleep(Duration::from_millis(50));
                 Ok(())
@@ -2623,7 +2623,7 @@ mod tests {
         for i in 0..100 {
             let key = Key::new_kv(ns.clone(), &format!("key_{}", i));
             let result = db.transaction_with_timeout(run_id, Duration::from_secs(5), |txn| {
-                txn.put(key.clone(), Value::Int(i as i64))?;
+                txn.put(key.clone(), Value::I64(i as i64))?;
                 Ok(())
             });
             assert!(result.is_ok());
@@ -2633,7 +2633,7 @@ mod tests {
         for i in 0..100 {
             let key = Key::new_kv(ns.clone(), &format!("key_{}", i));
             let val = db.get(&key).unwrap().unwrap();
-            assert_eq!(val.value, Value::Int(i as i64));
+            assert_eq!(val.value, Value::I64(i as i64));
         }
     }
 
@@ -2785,7 +2785,7 @@ mod tests {
 
         // Override to InMemory mode for this transaction
         let result = db.transaction_with_durability(run_id, DurabilityMode::InMemory, |txn| {
-            txn.put(key.clone(), Value::Int(42))?;
+            txn.put(key.clone(), Value::I64(42))?;
             Ok(42)
         });
 
@@ -2794,7 +2794,7 @@ mod tests {
 
         // Data should be in storage (even with InMemory mode)
         let stored = db.storage().get(&key).unwrap().unwrap();
-        assert_eq!(stored.value, Value::Int(42));
+        assert_eq!(stored.value, Value::I64(42));
     }
 
     #[test]
@@ -2834,13 +2834,13 @@ mod tests {
         let key = Key::new_kv(ns, "return_test");
 
         // Pre-populate
-        db.put(run_id, key.clone(), Value::Int(100)).unwrap();
+        db.put(run_id, key.clone(), Value::I64(100)).unwrap();
 
         // Read value with durability override
         let result: Result<i64> =
             db.transaction_with_durability(run_id, DurabilityMode::InMemory, |txn| {
                 let val = txn.get(&key)?.unwrap();
-                if let Value::Int(n) = val {
+                if let Value::I64(n) = val {
                     Ok(n)
                 } else {
                     Err(Error::InvalidState("wrong type".to_string()))
@@ -2891,7 +2891,7 @@ mod tests {
 
         // New transactions should be rejected
         let result = db.transaction(run_id, |txn| {
-            txn.put(key.clone(), Value::Int(42))?;
+            txn.put(key.clone(), Value::I64(42))?;
             Ok(())
         });
 
@@ -2914,7 +2914,7 @@ mod tests {
 
         // Durability override transactions should also be rejected
         let result = db.transaction_with_durability(run_id, DurabilityMode::InMemory, |txn| {
-            txn.put(key.clone(), Value::Int(42))?;
+            txn.put(key.clone(), Value::I64(42))?;
             Ok(())
         });
 
@@ -2948,7 +2948,7 @@ mod tests {
         // Write data and shutdown
         {
             let db = Database::open(&db_path).unwrap();
-            db.put(run_id, key.clone(), Value::Int(42)).unwrap();
+            db.put(run_id, key.clone(), Value::I64(42)).unwrap();
             db.shutdown().unwrap();
         }
 
@@ -2956,7 +2956,7 @@ mod tests {
         {
             let db = Database::open(&db_path).unwrap();
             let val = db.get(&key).unwrap().unwrap();
-            assert_eq!(val.value, Value::Int(42));
+            assert_eq!(val.value, Value::I64(42));
         }
     }
 

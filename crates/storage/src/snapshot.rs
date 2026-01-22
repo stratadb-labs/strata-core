@@ -126,13 +126,13 @@ mod tests {
 
         // Write some data
         store
-            .put(test_key(&ns, "key1"), Value::Int(1), None)
+            .put(test_key(&ns, "key1"), Value::I64(1), None)
             .unwrap();
         store
-            .put(test_key(&ns, "key2"), Value::Int(2), None)
+            .put(test_key(&ns, "key2"), Value::I64(2), None)
             .unwrap();
         store
-            .put(test_key(&ns, "key3"), Value::Int(3), None)
+            .put(test_key(&ns, "key3"), Value::I64(3), None)
             .unwrap();
 
         // Create snapshot
@@ -185,17 +185,17 @@ mod tests {
         let key2 = test_key(&ns, "after_snapshot");
 
         // Write data before snapshot
-        store.put(key1.clone(), Value::Int(1), None).unwrap();
+        store.put(key1.clone(), Value::I64(1), None).unwrap();
 
         // Create snapshot at version 1
         let snapshot = store.create_snapshot();
         assert_eq!(snapshot.version(), 1);
 
         // Write data after snapshot
-        store.put(key2.clone(), Value::Int(2), None).unwrap();
+        store.put(key2.clone(), Value::I64(2), None).unwrap();
 
         // Also update existing key with new value
-        store.put(key1.clone(), Value::Int(100), None).unwrap();
+        store.put(key1.clone(), Value::I64(100), None).unwrap();
 
         // Verify store sees new data
         assert_eq!(store.current_version(), 3);
@@ -213,7 +213,7 @@ mod tests {
         // Note: In MVP, we clone the data at snapshot time, so we see version 1's data
         let snap_key1 = snapshot.get(&key1).unwrap();
         assert!(snap_key1.is_some());
-        assert_eq!(snap_key1.unwrap().value, Value::Int(1)); // Original value, not 100
+        assert_eq!(snap_key1.unwrap().value, Value::I64(1)); // Original value, not 100
     }
 
     // ========================================
@@ -227,13 +227,13 @@ mod tests {
 
         // Write data with "user:" prefix
         store
-            .put(test_key(&ns, "user:alice"), Value::Int(1), None)
+            .put(test_key(&ns, "user:alice"), Value::I64(1), None)
             .unwrap();
         store
-            .put(test_key(&ns, "user:bob"), Value::Int(2), None)
+            .put(test_key(&ns, "user:bob"), Value::I64(2), None)
             .unwrap();
         store
-            .put(test_key(&ns, "config:db"), Value::Int(100), None)
+            .put(test_key(&ns, "config:db"), Value::I64(100), None)
             .unwrap();
 
         // Create snapshot
@@ -241,7 +241,7 @@ mod tests {
 
         // Add more user keys after snapshot
         store
-            .put(test_key(&ns, "user:charlie"), Value::Int(3), None)
+            .put(test_key(&ns, "user:charlie"), Value::I64(3), None)
             .unwrap();
 
         // Scan prefix in snapshot
@@ -274,7 +274,7 @@ mod tests {
 
         // Write initial data
         store
-            .put(test_key(&ns, "stable_key"), Value::Int(42), None)
+            .put(test_key(&ns, "stable_key"), Value::I64(42), None)
             .unwrap();
 
         // Create snapshot
@@ -290,7 +290,7 @@ mod tests {
                 let key = test_key(&ns, "stable_key");
                 let result = snapshot.get(&key).unwrap();
                 assert!(result.is_some());
-                assert_eq!(result.unwrap().value, Value::Int(42));
+                assert_eq!(result.unwrap().value, Value::I64(42));
                 snapshot.version()
             });
 
@@ -305,7 +305,7 @@ mod tests {
                 store_writer
                     .put(
                         test_key(&ns_writer, &format!("new_key_{}", i)),
-                        Value::Int(i),
+                        Value::I64(i),
                         None,
                     )
                     .unwrap();
@@ -354,7 +354,7 @@ mod tests {
         let ns = test_namespace();
 
         store
-            .put(test_key(&ns, "key1"), Value::Int(1), None)
+            .put(test_key(&ns, "key1"), Value::I64(1), None)
             .unwrap();
 
         let snapshot1 = store.create_snapshot();
@@ -377,8 +377,8 @@ mod tests {
         let kv_key = Key::new_kv(ns.clone(), "data");
         let event_key = Key::new_event(ns.clone(), 1);
 
-        store.put(kv_key.clone(), Value::Int(1), None).unwrap();
-        store.put(event_key.clone(), Value::Int(2), None).unwrap();
+        store.put(kv_key.clone(), Value::I64(1), None).unwrap();
+        store.put(event_key.clone(), Value::I64(2), None).unwrap();
 
         let snapshot = store.create_snapshot();
 
@@ -401,15 +401,15 @@ mod tests {
         let key = test_key(&ns, "evolving_key");
 
         // Version 1
-        store.put(key.clone(), Value::Int(1), None).unwrap();
+        store.put(key.clone(), Value::I64(1), None).unwrap();
         let snapshot_v1 = store.create_snapshot();
 
         // Version 2
-        store.put(key.clone(), Value::Int(2), None).unwrap();
+        store.put(key.clone(), Value::I64(2), None).unwrap();
         let snapshot_v2 = store.create_snapshot();
 
         // Version 3
-        store.put(key.clone(), Value::Int(3), None).unwrap();
+        store.put(key.clone(), Value::I64(3), None).unwrap();
         let snapshot_v3 = store.create_snapshot();
 
         // Each snapshot has different version
@@ -419,9 +419,9 @@ mod tests {
 
         // Each snapshot sees its own version's value
         // Note: MVP clones data, so each snapshot has the value at clone time
-        assert_eq!(snapshot_v1.get(&key).unwrap().unwrap().value, Value::Int(1));
-        assert_eq!(snapshot_v2.get(&key).unwrap().unwrap().value, Value::Int(2));
-        assert_eq!(snapshot_v3.get(&key).unwrap().unwrap().value, Value::Int(3));
+        assert_eq!(snapshot_v1.get(&key).unwrap().unwrap().value, Value::I64(1));
+        assert_eq!(snapshot_v2.get(&key).unwrap().unwrap().value, Value::I64(2));
+        assert_eq!(snapshot_v3.get(&key).unwrap().unwrap().value, Value::I64(3));
     }
 
     #[test]
@@ -439,7 +439,7 @@ mod tests {
         let ns = test_namespace();
 
         store
-            .put(test_key(&ns, "key1"), Value::Int(1), None)
+            .put(test_key(&ns, "key1"), Value::I64(1), None)
             .unwrap();
 
         let snapshot = store.create_snapshot();

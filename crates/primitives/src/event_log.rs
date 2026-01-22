@@ -768,7 +768,7 @@ mod tests {
         let (_temp, _db, log) = setup();
         let run_id = RunId::new();
 
-        let payload = Value::Object(std::collections::HashMap::from([
+        let payload = Value::Map(std::collections::HashMap::from([
             ("tool".to_string(), Value::String("search".into())),
             ("query".to_string(), Value::String("rust async".into())),
         ]));
@@ -787,9 +787,9 @@ mod tests {
         let run1 = RunId::new();
         let run2 = RunId::new();
 
-        log.append(&run1, "run1_event", Value::Int(1)).unwrap();
-        log.append(&run1, "run1_event", Value::Int(2)).unwrap();
-        log.append(&run2, "run2_event", Value::Int(100)).unwrap();
+        log.append(&run1, "run1_event", Value::I64(1)).unwrap();
+        log.append(&run1, "run1_event", Value::I64(2)).unwrap();
+        log.append(&run2, "run2_event", Value::I64(100)).unwrap();
 
         assert_eq!(log.len(&run1).unwrap(), 2);
         assert_eq!(log.len(&run2).unwrap(), 1);
@@ -834,7 +834,7 @@ mod tests {
         let run_id = RunId::new();
 
         for i in 0..5 {
-            log.append(&run_id, "test", Value::Int(i)).unwrap();
+            log.append(&run_id, "test", Value::I64(i)).unwrap();
         }
 
         let events = log.read_range(&run_id, 1, 4).unwrap();
@@ -857,9 +857,9 @@ mod tests {
         assert!(log.head(&run_id).unwrap().is_none());
 
         // After appends
-        log.append(&run_id, "first", Value::Int(1)).unwrap();
-        log.append(&run_id, "second", Value::Int(2)).unwrap();
-        log.append(&run_id, "third", Value::Int(3)).unwrap();
+        log.append(&run_id, "first", Value::I64(1)).unwrap();
+        log.append(&run_id, "second", Value::I64(2)).unwrap();
+        log.append(&run_id, "third", Value::I64(3)).unwrap();
 
         let head = log.head(&run_id).unwrap().unwrap();
         assert_eq!(head.value.sequence, 2);
@@ -902,7 +902,7 @@ mod tests {
         let run_id = RunId::new();
 
         for i in 0..10 {
-            log.append(&run_id, "test", Value::Int(i)).unwrap();
+            log.append(&run_id, "test", Value::I64(i)).unwrap();
         }
 
         let verification = log.verify_chain(&run_id).unwrap();
@@ -919,7 +919,7 @@ mod tests {
 
         log.append(&run_id, "type_a", Value::String("data".into()))
             .unwrap();
-        log.append(&run_id, "type_b", Value::Int(42)).unwrap();
+        log.append(&run_id, "type_b", Value::I64(42)).unwrap();
         log.append(&run_id, "type_a", Value::Bool(true)).unwrap();
 
         let verification = log.verify_chain(&run_id).unwrap();
@@ -934,17 +934,17 @@ mod tests {
         let (_temp, _db, log) = setup();
         let run_id = RunId::new();
 
-        log.append(&run_id, "tool_call", Value::Int(1)).unwrap();
-        log.append(&run_id, "tool_result", Value::Int(2)).unwrap();
-        log.append(&run_id, "tool_call", Value::Int(3)).unwrap();
-        log.append(&run_id, "thought", Value::Int(4)).unwrap();
-        log.append(&run_id, "tool_call", Value::Int(5)).unwrap();
+        log.append(&run_id, "tool_call", Value::I64(1)).unwrap();
+        log.append(&run_id, "tool_result", Value::I64(2)).unwrap();
+        log.append(&run_id, "tool_call", Value::I64(3)).unwrap();
+        log.append(&run_id, "thought", Value::I64(4)).unwrap();
+        log.append(&run_id, "tool_call", Value::I64(5)).unwrap();
 
         let tool_calls = log.read_by_type(&run_id, "tool_call").unwrap();
         assert_eq!(tool_calls.len(), 3);
-        assert_eq!(tool_calls[0].value.payload, Value::Int(1));
-        assert_eq!(tool_calls[1].value.payload, Value::Int(3));
-        assert_eq!(tool_calls[2].value.payload, Value::Int(5));
+        assert_eq!(tool_calls[0].value.payload, Value::I64(1));
+        assert_eq!(tool_calls[1].value.payload, Value::I64(3));
+        assert_eq!(tool_calls[2].value.payload, Value::I64(5));
 
         let thoughts = log.read_by_type(&run_id, "thought").unwrap();
         assert_eq!(thoughts.len(), 1);
@@ -1000,7 +1000,7 @@ mod tests {
         let run_id = RunId::new();
 
         // Append via EventLog
-        log.append(&run_id, "test", Value::Int(42)).unwrap();
+        log.append(&run_id, "test", Value::I64(42)).unwrap();
 
         // Read via extension trait
         db.transaction(run_id, |txn| {
@@ -1067,7 +1067,7 @@ mod tests {
         let (_temp, _db, log) = setup();
         let run_id = RunId::new();
 
-        log.append(&run_id, "test", Value::Int(42)).unwrap();
+        log.append(&run_id, "test", Value::I64(42)).unwrap();
 
         let fast = log.read(&run_id, 0).unwrap();
         let txn = log.read_in_transaction(&run_id, 0).unwrap();
@@ -1097,8 +1097,8 @@ mod tests {
         let run1 = RunId::new();
         let run2 = RunId::new();
 
-        log.append(&run1, "run1", Value::Int(1)).unwrap();
-        log.append(&run2, "run2", Value::Int(2)).unwrap();
+        log.append(&run1, "run1", Value::I64(1)).unwrap();
+        log.append(&run2, "run2", Value::I64(2)).unwrap();
 
         // Each run sees only its own events
         let event1 = log.read(&run1, 0).unwrap().unwrap();

@@ -50,7 +50,7 @@ fn test_insert_one_million_keys() {
 
     for i in 0..1_000_000 {
         let key = Key::new_kv(ns.clone(), format!("key_{:07}", i));
-        store.put(key, Value::Int(i), None).unwrap();
+        store.put(key, Value::I64(i), None).unwrap();
 
         // Progress indicator every 100K
         if i > 0 && i % 100_000 == 0 {
@@ -73,7 +73,7 @@ fn test_insert_one_million_keys() {
         let key = Key::new_kv(ns.clone(), format!("key_{:07}", i));
         let value = store.get(&key).unwrap();
         assert!(value.is_some(), "Key {} not found", i);
-        assert_eq!(value.unwrap().value, Value::Int(i));
+        assert_eq!(value.unwrap().value, Value::I64(i));
     }
 
     // Performance should be reasonable (at least 10K keys/sec)
@@ -99,7 +99,7 @@ fn test_scan_100k_results() {
 
     for i in 0..100_000 {
         let key = Key::new_kv(ns.clone(), format!("scantest:{:06}", i));
-        store.put(key, Value::Int(i), None).unwrap();
+        store.put(key, Value::I64(i), None).unwrap();
     }
 
     println!("Insert completed in {:?}", start.elapsed());
@@ -153,7 +153,7 @@ fn test_scan_by_run_large_dataset() {
 
         for i in 0..10_000 {
             let key = Key::new_kv(ns.clone(), format!("key_{:05}", i));
-            store.put(key, Value::Int(i), None).unwrap();
+            store.put(key, Value::I64(i), None).unwrap();
         }
 
         println!("Run {} completed", run_idx);
@@ -191,7 +191,7 @@ fn test_concurrent_snapshots_under_load() {
     println!("Pre-populating with 10,000 keys...");
     for i in 0..10_000 {
         let key = Key::new_kv(ns.clone(), format!("key_{:05}", i));
-        store.put(key, Value::Int(i), None).unwrap();
+        store.put(key, Value::I64(i), None).unwrap();
     }
 
     let start = Instant::now();
@@ -205,7 +205,7 @@ fn test_concurrent_snapshots_under_load() {
         let handle = thread::spawn(move || {
             for i in 0..1000 {
                 let key = Key::new_kv(ns.clone(), format!("new_{}_{:04}", thread_id, i));
-                store.put(key, Value::Int(i), None).unwrap();
+                store.put(key, Value::I64(i), None).unwrap();
             }
         });
 
@@ -262,7 +262,7 @@ fn test_many_small_values() {
 
     for i in 0..500_000 {
         let key = Key::new_kv(ns.clone(), format!("small_{:06}", i));
-        store.put(key, Value::Int(i), None).unwrap();
+        store.put(key, Value::I64(i), None).unwrap();
     }
 
     let duration = start.elapsed();
@@ -330,7 +330,7 @@ fn test_concurrent_deletes_under_load() {
     println!("Pre-populating with 10,000 keys...");
     for i in 0..10_000 {
         let key = Key::new_kv(ns.clone(), format!("key_{:05}", i));
-        store.put(key, Value::Int(i), None).unwrap();
+        store.put(key, Value::I64(i), None).unwrap();
     }
 
     let start = Instant::now();
@@ -377,7 +377,7 @@ fn test_concurrent_deletes_under_load() {
         let handle = thread::spawn(move || {
             for i in 0..500 {
                 let key = Key::new_kv(ns.clone(), format!("newkey_{}_{:04}", thread_id, i));
-                store.put(key, Value::Int(i), None).unwrap();
+                store.put(key, Value::I64(i), None).unwrap();
             }
         });
 
@@ -421,7 +421,7 @@ fn test_ttl_large_scale() {
 
     for i in 0..10_000 {
         let key = Key::new_kv(ns.clone(), format!("ttl_{:05}", i));
-        store.put(key, Value::Int(i), Some(ttl)).unwrap();
+        store.put(key, Value::I64(i), Some(ttl)).unwrap();
     }
 
     let insert_duration = start.elapsed();

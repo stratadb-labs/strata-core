@@ -33,7 +33,7 @@ fn build_view_with_kv(run_id: RunId, entries: &[(&str, i64)]) -> ReadOnlyView {
     let mut view = ReadOnlyView::new(run_id);
 
     for (key, value) in entries {
-        view.apply_kv_put(Key::new_kv(ns.clone(), *key), Value::Int(*value));
+        view.apply_kv_put(Key::new_kv(ns.clone(), *key), Value::I64(*value));
     }
 
     view
@@ -71,7 +71,7 @@ fn test_replay_pure_function_p1_basic() {
 
     let build_view = || {
         let mut view = ReadOnlyView::new(run_id);
-        view.apply_kv_put(Key::new_kv(ns.clone(), "key1"), Value::Int(100));
+        view.apply_kv_put(Key::new_kv(ns.clone(), "key1"), Value::I64(100));
         view.apply_kv_put(
             Key::new_kv(ns.clone(), "key2"),
             Value::String("hello".into()),
@@ -110,14 +110,14 @@ fn test_replay_pure_function_p1_complex_sequence() {
         let key = Key::new_kv(ns.clone(), "counter");
 
         // Create
-        view.apply_kv_put(key.clone(), Value::Int(1));
+        view.apply_kv_put(key.clone(), Value::I64(1));
         // Update multiple times
-        view.apply_kv_put(key.clone(), Value::Int(2));
-        view.apply_kv_put(key.clone(), Value::Int(3));
+        view.apply_kv_put(key.clone(), Value::I64(2));
+        view.apply_kv_put(key.clone(), Value::I64(3));
         // Delete
         view.apply_kv_delete(&key);
         // Recreate with different value
-        view.apply_kv_put(key.clone(), Value::Int(100));
+        view.apply_kv_put(key.clone(), Value::I64(100));
 
         view
     };
@@ -138,7 +138,7 @@ fn test_replay_pure_function_p1_complex_sequence() {
 
     // Final state should be key=100
     let key = Key::new_kv(ns.clone(), "counter");
-    assert_eq!(views[0].get_kv(&key), Some(&Value::Int(100)));
+    assert_eq!(views[0].get_kv(&key), Some(&Value::I64(100)));
 }
 
 // ============================================================================
@@ -154,20 +154,20 @@ fn test_replay_side_effect_free_p2_basic() {
 
     // External "canonical" state (simulated)
     let mut canonical_state: HashMap<String, Value> = HashMap::new();
-    canonical_state.insert("existing_key".into(), Value::Int(999));
+    canonical_state.insert("existing_key".into(), Value::I64(999));
 
     // Build a view that "conflicts" with canonical state
     let mut view = ReadOnlyView::new(run_id);
-    view.apply_kv_put(Key::new_kv(ns.clone(), "existing_key"), Value::Int(1)); // Different value
-    view.apply_kv_put(Key::new_kv(ns.clone(), "new_key"), Value::Int(2));
+    view.apply_kv_put(Key::new_kv(ns.clone(), "existing_key"), Value::I64(1)); // Different value
+    view.apply_kv_put(Key::new_kv(ns.clone(), "new_key"), Value::I64(2));
 
     // Canonical state must be unchanged
-    assert_eq!(canonical_state.get("existing_key"), Some(&Value::Int(999)));
+    assert_eq!(canonical_state.get("existing_key"), Some(&Value::I64(999)));
     assert!(!canonical_state.contains_key("new_key"));
 
     // View has its own independent state
     let key = Key::new_kv(ns.clone(), "existing_key");
-    assert_eq!(view.get_kv(&key), Some(&Value::Int(1)));
+    assert_eq!(view.get_kv(&key), Some(&Value::I64(1)));
 }
 
 /// P2: Multiple replays don't accumulate side effects
@@ -179,13 +179,13 @@ fn test_replay_side_effect_free_p2_no_accumulation() {
     // Replay multiple times
     for iteration in 0..10 {
         let mut view = ReadOnlyView::new(run_id);
-        view.apply_kv_put(Key::new_kv(ns.clone(), "key"), Value::Int(iteration));
+        view.apply_kv_put(Key::new_kv(ns.clone(), "key"), Value::I64(iteration));
 
         // Each view is independent - check it has exactly what we put
         let key = Key::new_kv(ns.clone(), "key");
         assert_eq!(
             view.get_kv(&key),
-            Some(&Value::Int(iteration)),
+            Some(&Value::I64(iteration)),
             "Iteration {} should have value {}",
             iteration,
             iteration
@@ -206,7 +206,7 @@ fn test_replay_derived_view_p3_read_only() {
     let ns = test_namespace(run_id);
 
     let mut view = ReadOnlyView::new(run_id);
-    view.apply_kv_put(Key::new_kv(ns.clone(), "key"), Value::Int(42));
+    view.apply_kv_put(Key::new_kv(ns.clone(), "key"), Value::I64(42));
 
     // View can only be read, not mutated through public read interface
     // The apply_* methods are for building the view during replay
@@ -214,7 +214,7 @@ fn test_replay_derived_view_p3_read_only() {
 
     let key = Key::new_kv(ns.clone(), "key");
     let value = view.get_kv(&key);
-    assert_eq!(value, Some(&Value::Int(42)));
+    assert_eq!(value, Some(&Value::I64(42)));
 
     // Cannot add keys through get_kv (it's read-only)
     let nonexistent = Key::new_kv(ns.clone(), "nonexistent");
@@ -237,10 +237,10 @@ fn test_replay_derived_view_p3_input_specific() {
     let ns_b = test_namespace(run_b);
 
     let mut view_a = ReadOnlyView::new(run_a);
-    view_a.apply_kv_put(Key::new_kv(ns_a.clone(), "unique_a"), Value::Int(1));
+    view_a.apply_kv_put(Key::new_kv(ns_a.clone(), "unique_a"), Value::I64(1));
 
     let mut view_b = ReadOnlyView::new(run_b);
-    view_b.apply_kv_put(Key::new_kv(ns_b.clone(), "unique_b"), Value::Int(2));
+    view_b.apply_kv_put(Key::new_kv(ns_b.clone(), "unique_b"), Value::I64(2));
 
     // Views are independent
     assert!(!view_a.contains_kv(&Key::new_kv(ns_b.clone(), "unique_b")));
@@ -265,7 +265,7 @@ fn test_replay_no_persist_p4_transient() {
     // Build and drop a view
     {
         let mut view = ReadOnlyView::new(run_id);
-        view.apply_kv_put(Key::new_kv(ns.clone(), "temporary"), Value::Int(999));
+        view.apply_kv_put(Key::new_kv(ns.clone(), "temporary"), Value::I64(999));
         assert_eq!(view.kv_count(), 1);
         // View dropped here
     }
@@ -285,7 +285,7 @@ fn test_replay_no_persist_p4_no_auto_persist() {
     // Simulate many views being created and destroyed
     for _ in 0..100 {
         let mut view = ReadOnlyView::new(run_id);
-        view.apply_kv_put(Key::new_kv(ns.clone(), "key"), Value::Int(42));
+        view.apply_kv_put(Key::new_kv(ns.clone(), "key"), Value::I64(42));
 
         // These operations don't touch any persistent storage
         // View goes out of scope with no persistence
@@ -321,7 +321,7 @@ fn test_replay_deterministic_p5_multiple_runs() {
     let build_view = || {
         let mut view = ReadOnlyView::new(run_id);
         for (key, value) in &operations {
-            view.apply_kv_put(Key::new_kv(ns.clone(), *key), Value::Int(*value));
+            view.apply_kv_put(Key::new_kv(ns.clone(), *key), Value::I64(*value));
         }
         view
     };
@@ -341,7 +341,7 @@ fn test_replay_deterministic_p5_multiple_runs() {
 
     // Verify expected final state
     let key1 = Key::new_kv(ns.clone(), "key1");
-    assert_eq!(views[0].get_kv(&key1), Some(&Value::Int(101))); // Last update wins
+    assert_eq!(views[0].get_kv(&key1), Some(&Value::I64(101))); // Last update wins
     assert_eq!(views[0].kv_count(), 4); // 4 unique keys
 }
 
@@ -355,15 +355,15 @@ fn test_replay_deterministic_p5_order_matters() {
 
     let build_order_a = || {
         let mut view = ReadOnlyView::new(run_id);
-        view.apply_kv_put(Key::new_kv(ns.clone(), "x"), Value::Int(1));
-        view.apply_kv_put(Key::new_kv(ns.clone(), "x"), Value::Int(2));
+        view.apply_kv_put(Key::new_kv(ns.clone(), "x"), Value::I64(1));
+        view.apply_kv_put(Key::new_kv(ns.clone(), "x"), Value::I64(2));
         view
     };
 
     let build_order_b = || {
         let mut view = ReadOnlyView::new(run_id);
-        view.apply_kv_put(Key::new_kv(ns.clone(), "x"), Value::Int(2));
-        view.apply_kv_put(Key::new_kv(ns.clone(), "x"), Value::Int(1));
+        view.apply_kv_put(Key::new_kv(ns.clone(), "x"), Value::I64(2));
+        view.apply_kv_put(Key::new_kv(ns.clone(), "x"), Value::I64(1));
         view
     };
 
@@ -433,16 +433,16 @@ fn test_replay_idempotent_p6_basic() {
     // Single replay
     let view_once = {
         let mut view = ReadOnlyView::new(run_id);
-        view.apply_kv_put(Key::new_kv(ns.clone(), "key"), Value::Int(42));
+        view.apply_kv_put(Key::new_kv(ns.clone(), "key"), Value::I64(42));
         view
     };
 
     // "Double replay" - simulating replaying the same run twice
     let view_twice = {
         let mut view = ReadOnlyView::new(run_id);
-        view.apply_kv_put(Key::new_kv(ns.clone(), "key"), Value::Int(42));
+        view.apply_kv_put(Key::new_kv(ns.clone(), "key"), Value::I64(42));
         // Apply same operation again (idempotent put)
-        view.apply_kv_put(Key::new_kv(ns.clone(), "key"), Value::Int(42));
+        view.apply_kv_put(Key::new_kv(ns.clone(), "key"), Value::I64(42));
         view
     };
 
@@ -546,15 +546,15 @@ fn test_all_replay_invariants_combined() {
             Key::new_kv(ns.clone(), "user:2:name"),
             Value::String("Bob".into()),
         );
-        view.apply_kv_put(Key::new_kv(ns.clone(), "counter"), Value::Int(0));
+        view.apply_kv_put(Key::new_kv(ns.clone(), "counter"), Value::I64(0));
 
         // Events
         view.append_event("UserCreated".into(), Value::String("user:1".into()));
         view.append_event("UserCreated".into(), Value::String("user:2".into()));
 
         // Updates
-        view.apply_kv_put(Key::new_kv(ns.clone(), "counter"), Value::Int(1));
-        view.apply_kv_put(Key::new_kv(ns.clone(), "counter"), Value::Int(2));
+        view.apply_kv_put(Key::new_kv(ns.clone(), "counter"), Value::I64(1));
+        view.apply_kv_put(Key::new_kv(ns.clone(), "counter"), Value::I64(2));
         view.apply_kv_put(
             Key::new_kv(ns.clone(), "user:1:name"),
             Value::String("Alicia".into()),
@@ -594,7 +594,7 @@ fn test_all_replay_invariants_combined() {
     assert_eq!(view.get_kv(&key), Some(&Value::String("Alicia".into())));
 
     let counter = Key::new_kv(ns.clone(), "counter");
-    assert_eq!(view.get_kv(&counter), Some(&Value::Int(2)));
+    assert_eq!(view.get_kv(&counter), Some(&Value::I64(2)));
 
     let deleted = Key::new_kv(ns.clone(), "user:2:name");
     assert_eq!(view.get_kv(&deleted), None); // Was deleted
@@ -607,7 +607,7 @@ fn test_diff_runs_self_comparison() {
     let ns = test_namespace(run_id);
 
     let mut view = ReadOnlyView::new(run_id);
-    view.apply_kv_put(Key::new_kv(ns.clone(), "key1"), Value::Int(100));
+    view.apply_kv_put(Key::new_kv(ns.clone(), "key1"), Value::I64(100));
     view.apply_kv_put(
         Key::new_kv(ns.clone(), "key2"),
         Value::String("hello".into()),
@@ -630,13 +630,13 @@ fn test_diff_views_different() {
 
     // View A: has key1, key2
     let mut view_a = ReadOnlyView::new(run_a);
-    view_a.apply_kv_put(Key::new_kv(ns_a.clone(), "shared"), Value::Int(1));
-    view_a.apply_kv_put(Key::new_kv(ns_a.clone(), "only_a"), Value::Int(2));
+    view_a.apply_kv_put(Key::new_kv(ns_a.clone(), "shared"), Value::I64(1));
+    view_a.apply_kv_put(Key::new_kv(ns_a.clone(), "only_a"), Value::I64(2));
 
     // View B: has shared (different value), key3
     let mut view_b = ReadOnlyView::new(run_b);
-    view_b.apply_kv_put(Key::new_kv(ns_b.clone(), "shared"), Value::Int(100)); // Different value
-    view_b.apply_kv_put(Key::new_kv(ns_b.clone(), "only_b"), Value::Int(3));
+    view_b.apply_kv_put(Key::new_kv(ns_b.clone(), "shared"), Value::I64(100)); // Different value
+    view_b.apply_kv_put(Key::new_kv(ns_b.clone(), "only_b"), Value::I64(3));
 
     let diff = diff_views(&view_a, &view_b);
 
@@ -655,14 +655,14 @@ fn test_diff_events() {
 
     // View A: 2 events
     let mut view_a = ReadOnlyView::new(run_a);
-    view_a.append_event("E1".into(), Value::Int(1));
-    view_a.append_event("E2".into(), Value::Int(2));
+    view_a.append_event("E1".into(), Value::I64(1));
+    view_a.append_event("E2".into(), Value::I64(2));
 
     // View B: 3 events
     let mut view_b = ReadOnlyView::new(run_b);
-    view_b.append_event("E1".into(), Value::Int(1));
-    view_b.append_event("E2".into(), Value::Int(2));
-    view_b.append_event("E3".into(), Value::Int(3)); // Extra event
+    view_b.append_event("E1".into(), Value::I64(1));
+    view_b.append_event("E2".into(), Value::I64(2));
+    view_b.append_event("E3".into(), Value::I64(3)); // Extra event
 
     let diff = diff_views(&view_a, &view_b);
 

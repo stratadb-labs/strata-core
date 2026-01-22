@@ -51,7 +51,7 @@ fn test_read_set_memory_growth() {
     // Pre-populate with data
     for i in 0..1000 {
         let key = Key::new_kv(ns.clone(), format!("key_{}", i));
-        db.put(run_id, key, Value::Int(i as i64)).unwrap();
+        db.put(run_id, key, Value::I64(i as i64)).unwrap();
     }
 
     // Read increasing numbers of keys
@@ -83,7 +83,7 @@ fn test_write_set_memory_growth() {
         let result = db.transaction(run_id, |txn| {
             for i in 0..write_count {
                 let key = Key::new_kv(ns.clone(), format!("batch_{}_key_{}", write_count, i));
-                txn.put(key, Value::Int(i as i64))?;
+                txn.put(key, Value::I64(i as i64))?;
             }
             Ok(write_count)
         });
@@ -108,7 +108,7 @@ fn test_concurrent_transactions_memory() {
     let data_size = 1000;
     for i in 0..data_size {
         let key = Key::new_kv(ns.clone(), format!("key_{}", i));
-        db.put(run_id, key, Value::Int(i as i64)).unwrap();
+        db.put(run_id, key, Value::I64(i as i64)).unwrap();
     }
 
     // Create N concurrent transactions (each holds a snapshot)
@@ -134,7 +134,7 @@ fn test_concurrent_transactions_memory() {
 
                 // Write and commit
                 let key = Key::new_kv(ns.clone(), format!("thread_{}", thread_id));
-                txn.put(key, Value::Int(thread_id as i64)).unwrap();
+                txn.put(key, Value::I64(thread_id as i64)).unwrap();
 
                 db.commit_transaction(&mut txn)
             })
@@ -173,7 +173,7 @@ fn test_no_memory_leaks() {
         let result = db.transaction(run_id, |txn| {
             for i in 0..100 {
                 let key = Key::new_kv(ns.clone(), format!("round_{}_key_{}", round, i));
-                txn.put(key, Value::Int(i as i64))?;
+                txn.put(key, Value::I64(i as i64))?;
             }
             Ok(())
         });
@@ -197,7 +197,7 @@ fn test_aborted_transaction_cleanup() {
         let result: Result<(), strata_core::error::Error> = db.transaction(run_id, |txn| {
             for i in 0..100 {
                 let key = Key::new_kv(ns.clone(), format!("abort_{}_key_{}", round, i));
-                txn.put(key, Value::Int(i as i64))?;
+                txn.put(key, Value::I64(i as i64))?;
             }
             // Force abort
             Err(strata_core::error::Error::InvalidState(

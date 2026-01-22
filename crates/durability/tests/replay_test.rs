@@ -159,7 +159,7 @@ fn test_replay_multiple_committed_transactions() {
             wal.append(&WALEntry::Write {
                 run_id,
                 key: Key::new_kv(ns.clone(), format!("key{}", i)),
-                value: Value::Int(i as i64 * 100),
+                value: Value::I64(i as i64 * 100),
                 version: i,
             })
             .unwrap();
@@ -183,7 +183,7 @@ fn test_replay_multiple_committed_transactions() {
     for i in 1..=3u64 {
         let key = Key::new_kv(ns.clone(), format!("key{}", i));
         let result = store.get(&key).unwrap().unwrap();
-        assert_eq!(result.value, Value::Int(i as i64 * 100));
+        assert_eq!(result.value, Value::I64(i as i64 * 100));
         assert_eq!(result.version, Version::TxnId(i));
     }
 }
@@ -345,7 +345,7 @@ fn test_replay_preserves_exact_versions() {
         wal.append(&WALEntry::Write {
             run_id,
             key: Key::new_kv(ns.clone(), "alpha"),
-            value: Value::Int(111),
+            value: Value::I64(111),
             version: 1000, // High version number
         })
         .unwrap();
@@ -353,7 +353,7 @@ fn test_replay_preserves_exact_versions() {
         wal.append(&WALEntry::Write {
             run_id,
             key: Key::new_kv(ns.clone(), "beta"),
-            value: Value::Int(222),
+            value: Value::I64(222),
             version: 2000,
         })
         .unwrap();
@@ -361,7 +361,7 @@ fn test_replay_preserves_exact_versions() {
         wal.append(&WALEntry::Write {
             run_id,
             key: Key::new_kv(ns.clone(), "gamma"),
-            value: Value::Int(333),
+            value: Value::I64(333),
             version: 3000,
         })
         .unwrap();
@@ -385,21 +385,21 @@ fn test_replay_preserves_exact_versions() {
         .unwrap()
         .unwrap();
     assert_eq!(alpha.version, Version::TxnId(1000)); // Not 1, but 1000!
-    assert_eq!(alpha.value, Value::Int(111));
+    assert_eq!(alpha.value, Value::I64(111));
 
     let beta = store
         .get(&Key::new_kv(ns.clone(), "beta"))
         .unwrap()
         .unwrap();
     assert_eq!(beta.version, Version::TxnId(2000)); // Not 2, but 2000!
-    assert_eq!(beta.value, Value::Int(222));
+    assert_eq!(beta.value, Value::I64(222));
 
     let gamma = store
         .get(&Key::new_kv(ns.clone(), "gamma"))
         .unwrap()
         .unwrap();
     assert_eq!(gamma.version, Version::TxnId(3000)); // Not 3, but 3000!
-    assert_eq!(gamma.value, Value::Int(333));
+    assert_eq!(gamma.value, Value::I64(333));
 }
 
 #[test]
@@ -610,7 +610,7 @@ fn test_replay_multiple_writes_same_key() {
         wal.append(&WALEntry::Write {
             run_id,
             key: Key::new_kv(ns.clone(), "counter"),
-            value: Value::Int(1),
+            value: Value::I64(1),
             version: 1,
         })
         .unwrap();
@@ -618,7 +618,7 @@ fn test_replay_multiple_writes_same_key() {
         wal.append(&WALEntry::Write {
             run_id,
             key: Key::new_kv(ns.clone(), "counter"),
-            value: Value::Int(2),
+            value: Value::I64(2),
             version: 2,
         })
         .unwrap();
@@ -626,7 +626,7 @@ fn test_replay_multiple_writes_same_key() {
         wal.append(&WALEntry::Write {
             run_id,
             key: Key::new_kv(ns.clone(), "counter"),
-            value: Value::Int(3),
+            value: Value::I64(3),
             version: 3,
         })
         .unwrap();
@@ -645,7 +645,7 @@ fn test_replay_multiple_writes_same_key() {
 
     // Final value is the last one
     let result = store.get(&Key::new_kv(ns, "counter")).unwrap().unwrap();
-    assert_eq!(result.value, Value::Int(3));
+    assert_eq!(result.value, Value::I64(3));
     assert_eq!(result.version, Version::TxnId(3));
 }
 
@@ -716,7 +716,7 @@ fn test_replay_different_value_types() {
         wal.append(&WALEntry::Write {
             run_id,
             key: Key::new_kv(ns.clone(), "i64"),
-            value: Value::Int(-42),
+            value: Value::I64(-42),
             version: 2,
         })
         .unwrap();
@@ -763,7 +763,7 @@ fn test_replay_different_value_types() {
             .unwrap()
             .unwrap()
             .value,
-        Value::Int(-42)
+        Value::I64(-42)
     );
     assert_eq!(
         store
@@ -806,7 +806,7 @@ fn test_replay_deterministic_order() {
             wal.append(&WALEntry::Write {
                 run_id,
                 key: Key::new_kv(ns.clone(), format!("k{}", i)),
-                value: Value::Int(i as i64),
+                value: Value::I64(i as i64),
                 version: i,
             })
             .unwrap();
@@ -827,7 +827,7 @@ fn test_replay_deterministic_order() {
         for i in 1..=5u64 {
             let key = Key::new_kv(ns.clone(), format!("k{}", i));
             let vv = store.get(&key).unwrap().unwrap();
-            assert_eq!(vv.value, Value::Int(i as i64));
+            assert_eq!(vv.value, Value::I64(i as i64));
             assert_eq!(vv.version, Version::TxnId(i));
         }
     }
@@ -863,7 +863,7 @@ fn test_replay_twenty_sequential_transactions() {
             wal.append(&WALEntry::Write {
                 run_id,
                 key: Key::new_kv(ns.clone(), format!("key{}", i)),
-                value: Value::Int(i as i64),
+                value: Value::I64(i as i64),
                 version: i,
             })
             .unwrap();
@@ -917,7 +917,7 @@ fn test_replay_twenty_sequential_transactions() {
         let vv = result.unwrap();
         assert_eq!(
             vv.value,
-            Value::Int(i as i64),
+            Value::I64(i as i64),
             "key{} should have value {}",
             i,
             i
@@ -1008,7 +1008,7 @@ fn test_replay_appended_wal_multiple_sessions() {
             wal.append(&WALEntry::Write {
                 run_id,
                 key: Key::new_kv(ns.clone(), format!("session1_key{}", i)),
-                value: Value::Int(i as i64),
+                value: Value::I64(i as i64),
                 version: i,
             })
             .unwrap();
@@ -1038,7 +1038,7 @@ fn test_replay_appended_wal_multiple_sessions() {
             wal.append(&WALEntry::Write {
                 run_id,
                 key: Key::new_kv(ns.clone(), format!("session2_key{}", i)),
-                value: Value::Int(i as i64),
+                value: Value::I64(i as i64),
                 version: i,
             })
             .unwrap();

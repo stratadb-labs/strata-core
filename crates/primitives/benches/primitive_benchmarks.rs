@@ -40,7 +40,7 @@ fn bench_kv_put(c: &mut Criterion) {
     group.bench_function("put", |b| {
         b.iter(|| {
             let i = counter.fetch_add(1, Ordering::SeqCst);
-            kv.put(&run_id, &format!("key{}", i), Value::Int(i as i64))
+            kv.put(&run_id, &format!("key{}", i), Value::I64(i as i64))
                 .unwrap()
         })
     });
@@ -55,7 +55,7 @@ fn bench_kv_get(c: &mut Criterion) {
 
     // Pre-populate 1000 keys
     for i in 0..1000 {
-        kv.put(&run_id, &format!("key{}", i), Value::Int(i as i64))
+        kv.put(&run_id, &format!("key{}", i), Value::I64(i as i64))
             .unwrap();
     }
 
@@ -84,7 +84,7 @@ fn bench_event_append(c: &mut Criterion) {
     group.bench_function("append", |b| {
         b.iter(|| {
             event_log
-                .append(&run_id, "benchmark_event", Value::Int(42))
+                .append(&run_id, "benchmark_event", Value::I64(42))
                 .unwrap()
         })
     });
@@ -99,7 +99,7 @@ fn bench_state_cas(c: &mut Criterion) {
 
     // Initialize the cell
     state_cell
-        .init(&run_id, "bench_cell", Value::Int(0))
+        .init(&run_id, "bench_cell", Value::I64(0))
         .unwrap();
 
     let mut group = c.benchmark_group("state_cell");
@@ -111,10 +111,10 @@ fn bench_state_cas(c: &mut Criterion) {
             state_cell
                 .transition(&run_id, "bench_cell", |state| {
                     let val = match &state.value {
-                        Value::Int(n) => *n,
+                        Value::I64(n) => *n,
                         _ => 0,
                     };
-                    Ok((Value::Int(val + 1), val + 1))
+                    Ok((Value::I64(val + 1), val + 1))
                 })
                 .unwrap()
         })
@@ -156,7 +156,7 @@ fn bench_cross_primitive_transaction(c: &mut Criterion) {
 
     // Initialize state cell for the transaction
     let state_cell = StateCell::new(db.clone());
-    state_cell.init(&run_id, "txn_cell", Value::Int(0)).unwrap();
+    state_cell.init(&run_id, "txn_cell", Value::I64(0)).unwrap();
 
     let mut group = c.benchmark_group("cross_primitive");
     group.throughput(Throughput::Elements(1));
@@ -166,9 +166,9 @@ fn bench_cross_primitive_transaction(c: &mut Criterion) {
         b.iter(|| {
             let n = counter.fetch_add(1, Ordering::SeqCst);
             db.transaction(run_id, |txn| {
-                txn.kv_put(&format!("txn_key{}", n), Value::Int(n as i64))?;
-                txn.event_append("txn_event", Value::Int(n as i64))?;
-                txn.state_set("txn_cell", Value::Int(n as i64))?;
+                txn.kv_put(&format!("txn_key{}", n), Value::I64(n as i64))?;
+                txn.event_append("txn_event", Value::I64(n as i64))?;
+                txn.state_set("txn_cell", Value::I64(n as i64))?;
                 txn.trace_record("Thought", Value::String(format!("txn {}", n)))?;
                 Ok(())
             })
@@ -186,7 +186,7 @@ fn bench_event_read(c: &mut Criterion) {
     // Pre-populate 1000 events
     for i in 0..1000 {
         event_log
-            .append(&run_id, "numbered", Value::Int(i as i64))
+            .append(&run_id, "numbered", Value::I64(i as i64))
             .unwrap();
     }
 
@@ -210,7 +210,7 @@ fn bench_state_read(c: &mut Criterion) {
 
     // Initialize the cell
     state_cell
-        .init(&run_id, "read_cell", Value::Int(42))
+        .init(&run_id, "read_cell", Value::I64(42))
         .unwrap();
 
     let mut group = c.benchmark_group("state_cell");
@@ -271,11 +271,11 @@ fn bench_kv_list(c: &mut Criterion) {
 
     // Pre-populate keys with prefix
     for i in 0..100 {
-        kv.put(&run_id, &format!("prefix/key{}", i), Value::Int(i as i64))
+        kv.put(&run_id, &format!("prefix/key{}", i), Value::I64(i as i64))
             .unwrap();
     }
     for i in 0..100 {
-        kv.put(&run_id, &format!("other/key{}", i), Value::Int(i as i64))
+        kv.put(&run_id, &format!("other/key{}", i), Value::I64(i as i64))
             .unwrap();
     }
 

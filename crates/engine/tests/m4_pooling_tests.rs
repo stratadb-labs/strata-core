@@ -45,7 +45,7 @@ fn test_pool_reuses_contexts() {
     for i in 0..MAX_POOL_SIZE {
         let key = create_key(&ns, &format!("warmup_key_{}", i));
         db.transaction(run_id, |txn| {
-            txn.put(key.clone(), Value::Int(i as i64))?;
+            txn.put(key.clone(), Value::I64(i as i64))?;
             Ok(())
         })
         .unwrap();
@@ -61,7 +61,7 @@ fn test_pool_reuses_contexts() {
     for i in 0..100 {
         let key = create_key(&ns, &format!("key_{}", i));
         db.transaction(run_id, |txn| {
-            txn.put(key.clone(), Value::Int(i as i64))?;
+            txn.put(key.clone(), Value::I64(i as i64))?;
             Ok(())
         })
         .unwrap();
@@ -94,7 +94,7 @@ fn test_pool_warmup_reduces_allocations() {
     for i in 0..50 {
         let key = create_key(&ns, &format!("key_{}", i));
         db.transaction(run_id, |txn| {
-            txn.put(key.clone(), Value::Int(i as i64))?;
+            txn.put(key.clone(), Value::I64(i as i64))?;
             Ok(())
         })
         .unwrap();
@@ -124,7 +124,7 @@ fn test_capacity_grows_with_usage() {
         // Add many read/write entries to grow internal capacity
         for i in 0..50 {
             let k = create_key(&ns, &format!("inner_key_{}", i));
-            txn.put(k.clone(), Value::Int(i as i64))?;
+            txn.put(k.clone(), Value::I64(i as i64))?;
             let _ = txn.get(&k)?;
         }
         Ok(())
@@ -139,7 +139,7 @@ fn test_capacity_grows_with_usage() {
     // This tests that capacity is preserved
     let key2 = create_key(&ns, "key2");
     db.transaction(run_id, |txn| {
-        txn.put(key2.clone(), Value::Int(42))?;
+        txn.put(key2.clone(), Value::I64(42))?;
         Ok(())
     })
     .unwrap();
@@ -167,7 +167,7 @@ fn test_aborted_transactions_return_to_pool() {
     // Run a transaction that succeeds
     let key = create_key(&ns, "key");
     db.transaction(run_id, |txn| {
-        txn.put(key.clone(), Value::Int(1))?;
+        txn.put(key.clone(), Value::I64(1))?;
         Ok(())
     })
     .unwrap();
@@ -213,7 +213,7 @@ fn test_concurrent_transactions_use_pool() {
                 for _ in 0..4 {
                     let key = create_key(&ns, "warmup");
                     let _ = db.transaction(run_id, |txn| {
-                        txn.put(key.clone(), Value::Int(0))?;
+                        txn.put(key.clone(), Value::I64(0))?;
                         Ok(())
                     });
                 }
@@ -224,7 +224,7 @@ fn test_concurrent_transactions_use_pool() {
                 for i in 0..20 {
                     let key = create_key(&ns, &format!("key_{}_{}", thread_id, i));
                     let _ = db.transaction(run_id, |txn| {
-                        txn.put(key.clone(), Value::Int(i as i64))?;
+                        txn.put(key.clone(), Value::I64(i as i64))?;
                         Ok(())
                     });
                 }
@@ -259,7 +259,7 @@ fn test_begin_end_transaction_uses_pool() {
     // Manual transaction with explicit end_transaction
     let mut txn = db.begin_transaction(run_id);
     let key = create_key(&ns, "manual_key");
-    txn.put(key, Value::Int(42)).unwrap();
+    txn.put(key, Value::I64(42)).unwrap();
     db.commit_transaction(&mut txn).unwrap();
     db.end_transaction(txn);
 
@@ -273,7 +273,7 @@ fn test_begin_end_transaction_uses_pool() {
     // Next transaction should reuse the pooled context
     let mut txn2 = db.begin_transaction(run_id);
     let key2 = create_key(&ns, "manual_key_2");
-    txn2.put(key2, Value::Int(43)).unwrap();
+    txn2.put(key2, Value::I64(43)).unwrap();
     db.commit_transaction(&mut txn2).unwrap();
     db.end_transaction(txn2);
 
@@ -307,7 +307,7 @@ fn test_pool_caps_at_max_size() {
     // End all transactions
     for mut txn in transactions {
         let key = create_key(&ns, &format!("key_{}", txn.txn_id));
-        txn.put(key, Value::Int(1)).unwrap();
+        txn.put(key, Value::I64(1)).unwrap();
         db.commit_transaction(&mut txn).unwrap();
         db.end_transaction(txn);
     }

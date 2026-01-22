@@ -127,11 +127,11 @@ mod edge_cases {
 
         for (i, key_str) in unicode_keys.iter().enumerate() {
             let key = Key::new_kv(ns.clone(), *key_str);
-            store.put(key.clone(), Value::Int(i as i64), None).unwrap();
+            store.put(key.clone(), Value::I64(i as i64), None).unwrap();
 
             let result = store.get(&key).unwrap();
             assert!(result.is_some(), "Failed to retrieve key: {}", key_str);
-            assert_eq!(result.unwrap().value, Value::Int(i as i64));
+            assert_eq!(result.unwrap().value, Value::I64(i as i64));
         }
     }
 
@@ -151,7 +151,7 @@ mod edge_cases {
 
         for (i, binary_key) in binary_keys.iter().enumerate() {
             let key = Key::new(ns.clone(), TypeTag::KV, binary_key.clone());
-            store.put(key.clone(), Value::Int(i as i64), None).unwrap();
+            store.put(key.clone(), Value::I64(i as i64), None).unwrap();
 
             let result = store.get(&key).unwrap();
             assert!(
@@ -159,7 +159,7 @@ mod edge_cases {
                 "Failed to retrieve binary key {:?}",
                 binary_key
             );
-            assert_eq!(result.unwrap().value, Value::Int(i as i64));
+            assert_eq!(result.unwrap().value, Value::I64(i as i64));
         }
     }
 
@@ -190,15 +190,15 @@ mod edge_cases {
         let key = Key::new_kv(ns.clone(), "overwrite_key");
 
         // First write
-        let v1 = store.put(key.clone(), Value::Int(1), None).unwrap();
+        let v1 = store.put(key.clone(), Value::I64(1), None).unwrap();
 
         // Second write (overwrite)
-        let v2 = store.put(key.clone(), Value::Int(2), None).unwrap();
+        let v2 = store.put(key.clone(), Value::I64(2), None).unwrap();
 
         assert!(v2 > v1);
 
         let result = store.get(&key).unwrap().unwrap();
-        assert_eq!(result.value, Value::Int(2));
+        assert_eq!(result.value, Value::I64(2));
         assert_eq!(result.version, strata_core::Version::txn(v2));
     }
 
@@ -251,7 +251,7 @@ mod concurrent_access {
 
                 for i in 0..writes_per_thread {
                     let key = Key::new_kv(ns.clone(), format!("t{}:k{}", thread_id, i));
-                    let value = Value::Int((thread_id * writes_per_thread + i) as i64);
+                    let value = Value::I64((thread_id * writes_per_thread + i) as i64);
                     store.put(key, value, None).unwrap();
                 }
             });
@@ -277,7 +277,7 @@ mod concurrent_access {
         // Pre-populate with data
         for i in 0..50 {
             let key = Key::new_kv(ns.clone(), format!("key_{}", i));
-            store.put(key, Value::Int(i), None).unwrap();
+            store.put(key, Value::I64(i), None).unwrap();
         }
 
         let mut handles = vec![];
@@ -305,7 +305,7 @@ mod concurrent_access {
             let handle = thread::spawn(move || {
                 for i in 0..50 {
                     let key = Key::new_kv(ns.clone(), format!("new_key_{}_{}", thread_id, i));
-                    store.put(key, Value::Int(i), None).unwrap();
+                    store.put(key, Value::I64(i), None).unwrap();
                 }
             });
 
@@ -339,7 +339,7 @@ mod concurrent_access {
 
                 for i in 0..50 {
                     let key = Key::new_kv(ns.clone(), format!("key_{}_{}", thread_id, i));
-                    store.put(key, Value::Int(i), None).unwrap();
+                    store.put(key, Value::I64(i), None).unwrap();
                 }
             });
 
@@ -385,7 +385,7 @@ mod concurrent_access {
         // Pre-populate with keys
         for i in 0..20 {
             let key = Key::new_kv(ns.clone(), format!("key_{}", i));
-            store.put(key, Value::Int(i), None).unwrap();
+            store.put(key, Value::I64(i), None).unwrap();
         }
 
         let mut handles = vec![];
@@ -398,7 +398,7 @@ mod concurrent_access {
             let handle = thread::spawn(move || {
                 for i in 0..10 {
                     let key = Key::new_kv(ns.clone(), format!("new_{}_{}", thread_id, i));
-                    store.put(key, Value::Int(i), None).unwrap();
+                    store.put(key, Value::I64(i), None).unwrap();
                 }
             });
 
@@ -496,12 +496,12 @@ mod ttl_expiration {
         // Put with short TTL (1 second to avoid timing issues)
         let key1 = Key::new_kv(ns.clone(), "short_lived");
         store
-            .put(key1.clone(), Value::Int(1), Some(Duration::from_secs(1)))
+            .put(key1.clone(), Value::I64(1), Some(Duration::from_secs(1)))
             .unwrap();
 
         // Put without TTL
         let key2 = Key::new_kv(ns.clone(), "permanent");
-        store.put(key2.clone(), Value::Int(2), None).unwrap();
+        store.put(key2.clone(), Value::I64(2), None).unwrap();
 
         // Both should appear initially
         let results = store.scan_by_run(run_id, u64::MAX).unwrap();
@@ -525,14 +525,14 @@ mod ttl_expiration {
         for i in 0..10 {
             let key = Key::new_kv(ns.clone(), format!("short_{}", i));
             store
-                .put(key, Value::Int(i), Some(Duration::from_millis(50)))
+                .put(key, Value::I64(i), Some(Duration::from_millis(50)))
                 .unwrap();
         }
 
         // Add keys without TTL
         for i in 0..10 {
             let key = Key::new_kv(ns.clone(), format!("permanent_{}", i));
-            store.put(key, Value::Int(i), None).unwrap();
+            store.put(key, Value::I64(i), None).unwrap();
         }
 
         // Wait for expiration
@@ -566,7 +566,7 @@ mod ttl_expiration {
                 for i in 0..20 {
                     let key = Key::new_kv(ns.clone(), format!("temp_{}_{}", thread_id, i));
                     store
-                        .put(key, Value::Int(i), Some(Duration::from_millis(30)))
+                        .put(key, Value::I64(i), Some(Duration::from_millis(30)))
                         .unwrap();
                     thread::sleep(Duration::from_millis(5));
                 }
@@ -610,14 +610,14 @@ mod snapshot_isolation {
 
         // Write initial data
         let key1 = Key::new_kv(ns.clone(), "key1");
-        store.put(key1.clone(), Value::Int(1), None).unwrap();
+        store.put(key1.clone(), Value::I64(1), None).unwrap();
 
         // Create snapshot
         let snapshot = store.create_snapshot();
 
         // Write more data after snapshot
         let key2 = Key::new_kv(ns.clone(), "key2");
-        store.put(key2.clone(), Value::Int(2), None).unwrap();
+        store.put(key2.clone(), Value::I64(2), None).unwrap();
 
         // Snapshot should see key1 but not key2
         assert!(snapshot.get(&key1).unwrap().is_some());
@@ -630,21 +630,21 @@ mod snapshot_isolation {
         let ns = test_namespace();
 
         let key = Key::new_kv(ns.clone(), "key");
-        store.put(key.clone(), Value::Int(1), None).unwrap();
+        store.put(key.clone(), Value::I64(1), None).unwrap();
 
         // Create snapshot
         let snapshot = store.create_snapshot();
 
         // Update after snapshot
-        store.put(key.clone(), Value::Int(2), None).unwrap();
+        store.put(key.clone(), Value::I64(2), None).unwrap();
 
         // Snapshot sees old value
         let snap_val = snapshot.get(&key).unwrap().unwrap();
-        assert_eq!(snap_val.value, Value::Int(1));
+        assert_eq!(snap_val.value, Value::I64(1));
 
         // Store sees new value
         let store_val = store.get(&key).unwrap().unwrap();
-        assert_eq!(store_val.value, Value::Int(2));
+        assert_eq!(store_val.value, Value::I64(2));
     }
 
     #[test]
@@ -655,7 +655,7 @@ mod snapshot_isolation {
         // Write initial data
         for i in 0..10 {
             let key = Key::new_kv(ns.clone(), format!("key_{}", i));
-            store.put(key, Value::Int(i), None).unwrap();
+            store.put(key, Value::I64(i), None).unwrap();
         }
 
         let initial_version = store.current_version();
@@ -689,7 +689,7 @@ mod snapshot_isolation {
         let write_handle = thread::spawn(move || {
             for i in 10..20 {
                 let key = Key::new_kv(ns_writer.clone(), format!("key_{}", i));
-                store_writer.put(key, Value::Int(i), None).unwrap();
+                store_writer.put(key, Value::I64(i), None).unwrap();
             }
         });
 
@@ -717,7 +717,7 @@ mod snapshot_isolation {
         // Write data with prefix
         for i in 0..5 {
             let key = Key::new_kv(ns.clone(), format!("user:{}", i));
-            store.put(key, Value::Int(i), None).unwrap();
+            store.put(key, Value::I64(i), None).unwrap();
         }
 
         // Create snapshot
@@ -726,7 +726,7 @@ mod snapshot_isolation {
         // Add more users after snapshot
         for i in 5..10 {
             let key = Key::new_kv(ns.clone(), format!("user:{}", i));
-            store.put(key, Value::Int(i), None).unwrap();
+            store.put(key, Value::I64(i), None).unwrap();
         }
 
         // Snapshot scan should only see 5 users
@@ -743,7 +743,7 @@ mod snapshot_isolation {
         // Write a lot of data
         for i in 0..10000 {
             let key = Key::new_kv(ns.clone(), format!("key_{:05}", i));
-            store.put(key, Value::Int(i), None).unwrap();
+            store.put(key, Value::I64(i), None).unwrap();
         }
 
         // Create snapshot (should not crash even with large data)
@@ -755,7 +755,7 @@ mod snapshot_isolation {
             let key = Key::new_kv(ns.clone(), format!("key_{:05}", i));
             let value = snapshot.get(&key).unwrap();
             assert!(value.is_some());
-            assert_eq!(value.unwrap().value, Value::Int(i));
+            assert_eq!(value.unwrap().value, Value::I64(i));
         }
     }
 }
@@ -789,7 +789,7 @@ mod index_consistency {
                     // Put
                     let key_name = format!("key_{}", rng.gen::<u32>() % 100);
                     let key = Key::new_kv(ns.clone(), &key_name);
-                    store.put(key, Value::Int(rng.gen()), None).unwrap();
+                    store.put(key, Value::I64(rng.gen()), None).unwrap();
                     keys_by_run[run_idx].insert(key_name);
                 }
                 1 => {
@@ -834,10 +834,10 @@ mod index_consistency {
         // Insert different types
         for i in 0..50 {
             let kv_key = Key::new_kv(ns.clone(), format!("kv_{}", i));
-            store.put(kv_key, Value::Int(i), None).unwrap();
+            store.put(kv_key, Value::I64(i), None).unwrap();
 
             let event_key = Key::new_event(ns.clone(), i as u64);
-            store.put(event_key, Value::Int(i + 100), None).unwrap();
+            store.put(event_key, Value::I64(i + 100), None).unwrap();
         }
 
         // Scan by type index
@@ -865,7 +865,7 @@ mod index_consistency {
         let ns = namespace_with_run(run_id);
 
         let key = Key::new_kv(ns.clone(), "to_delete");
-        store.put(key.clone(), Value::Int(42), None).unwrap();
+        store.put(key.clone(), Value::I64(42), None).unwrap();
 
         // Key should appear in run index and type index
         let by_run = store.scan_by_run(run_id, u64::MAX).unwrap();
@@ -911,7 +911,7 @@ mod version_ordering {
 
                 for i in 0..50 {
                     let key = Key::new_kv(ns.clone(), format!("key_{}", i));
-                    let version = store.put(key, Value::Int(i), None).unwrap();
+                    let version = store.put(key, Value::I64(i), None).unwrap();
                     local_versions.push(version);
                 }
 
@@ -956,7 +956,7 @@ mod version_ordering {
 
                 for i in 0..100 {
                     let key = Key::new_kv(ns.clone(), format!("key_{}", i));
-                    let version = store.put(key, Value::Int(i), None).unwrap();
+                    let version = store.put(key, Value::I64(i), None).unwrap();
 
                     let mut v = versions.lock().unwrap();
                     if v.contains(&version) {
@@ -994,7 +994,7 @@ mod version_ordering {
 
                 for i in 0..50 {
                     let key = Key::new_kv(ns.clone(), format!("key_{}", i));
-                    let version = store.put(key, Value::Int(i), None).unwrap();
+                    let version = store.put(key, Value::I64(i), None).unwrap();
 
                     // current_version should always be >= version we just got
                     let current = store.current_version();
@@ -1025,7 +1025,7 @@ mod version_ordering {
 
         for i in 0..100 {
             let key = Key::new_kv(ns.clone(), format!("key_{}", i));
-            let version = store.put(key.clone(), Value::Int(i), None).unwrap();
+            let version = store.put(key.clone(), Value::I64(i), None).unwrap();
 
             // The version in the stored value should match
             let stored = store.get(&key).unwrap().unwrap();

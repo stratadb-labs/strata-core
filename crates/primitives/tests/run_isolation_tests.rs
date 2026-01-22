@@ -26,12 +26,12 @@ fn test_kv_isolation() {
     let run2 = RunId::new();
 
     // Same key, different runs
-    kv.put(&run1, "key", Value::Int(1)).unwrap();
-    kv.put(&run2, "key", Value::Int(2)).unwrap();
+    kv.put(&run1, "key", Value::I64(1)).unwrap();
+    kv.put(&run2, "key", Value::I64(2)).unwrap();
 
     // Each run sees ONLY its own data
-    assert_eq!(kv.get(&run1, "key").unwrap().map(|v| v.value), Some(Value::Int(1)));
-    assert_eq!(kv.get(&run2, "key").unwrap().map(|v| v.value), Some(Value::Int(2)));
+    assert_eq!(kv.get(&run1, "key").unwrap().map(|v| v.value), Some(Value::I64(1)));
+    assert_eq!(kv.get(&run2, "key").unwrap().map(|v| v.value), Some(Value::I64(2)));
 
     // List shows only own keys
     let run1_keys = kv.list(&run1, None).unwrap();
@@ -96,29 +96,29 @@ fn test_state_cell_isolation() {
     let run2 = RunId::new();
 
     // Same cell name, different runs
-    state_cell.init(&run1, "counter", Value::Int(0)).unwrap();
-    state_cell.init(&run2, "counter", Value::Int(100)).unwrap();
+    state_cell.init(&run1, "counter", Value::I64(0)).unwrap();
+    state_cell.init(&run2, "counter", Value::I64(100)).unwrap();
 
     // Each run sees its own value
     let state1 = state_cell.read(&run1, "counter").unwrap().unwrap();
     let state2 = state_cell.read(&run2, "counter").unwrap().unwrap();
 
-    assert_eq!(state1.value.value, Value::Int(0));
-    assert_eq!(state2.value.value, Value::Int(100));
+    assert_eq!(state1.value.value, Value::I64(0));
+    assert_eq!(state2.value.value, Value::I64(100));
 
     // Both start at version 1
     assert_eq!(state1.value.version, 1);
     assert_eq!(state2.value.version, 1);
 
     // CAS on run1 doesn't affect run2
-    state_cell.cas(&run1, "counter", 1, Value::Int(10)).unwrap();
+    state_cell.cas(&run1, "counter", 1, Value::I64(10)).unwrap();
 
     let state1 = state_cell.read(&run1, "counter").unwrap().unwrap();
     let state2 = state_cell.read(&run2, "counter").unwrap().unwrap();
 
-    assert_eq!(state1.value.value, Value::Int(10));
+    assert_eq!(state1.value.value, Value::I64(10));
     assert_eq!(state1.value.version, 2);
-    assert_eq!(state2.value.value, Value::Int(100)); // Unchanged
+    assert_eq!(state2.value.value, Value::I64(100)); // Unchanged
     assert_eq!(state2.value.version, 1); // Unchanged
 }
 
@@ -198,8 +198,8 @@ fn test_cross_run_query_isolation() {
 
     // Run1 data
     for i in 0..10 {
-        kv.put(&run1, &format!("key{}", i), Value::Int(i)).unwrap();
-        event_log.append(&run1, "event", Value::Int(i)).unwrap();
+        kv.put(&run1, &format!("key{}", i), Value::I64(i)).unwrap();
+        event_log.append(&run1, "event", Value::I64(i)).unwrap();
         trace_store
             .record(
                 &run1,
@@ -218,10 +218,10 @@ fn test_cross_run_query_isolation() {
 
     // Run2 data
     for i in 0..5 {
-        kv.put(&run2, &format!("key{}", i), Value::Int(i + 100))
+        kv.put(&run2, &format!("key{}", i), Value::I64(i + 100))
             .unwrap();
         event_log
-            .append(&run2, "event", Value::Int(i + 100))
+            .append(&run2, "event", Value::I64(i + 100))
             .unwrap();
         trace_store
             .record(
@@ -250,8 +250,8 @@ fn test_cross_run_query_isolation() {
     assert_eq!(trace_store.count(&run2).unwrap(), 5);
 
     // Verify values are isolated
-    assert_eq!(kv.get(&run1, "key0").unwrap().map(|v| v.value), Some(Value::Int(0)));
-    assert_eq!(kv.get(&run2, "key0").unwrap().map(|v| v.value), Some(Value::Int(100)));
+    assert_eq!(kv.get(&run1, "key0").unwrap().map(|v| v.value), Some(Value::I64(0)));
+    assert_eq!(kv.get(&run2, "key0").unwrap().map(|v| v.value), Some(Value::I64(100)));
 
     // Run1 cannot see run2's keys that don't exist in run1
     // (run2 only has key0-key4, run1 has key0-key9)
@@ -285,14 +285,14 @@ fn test_run_delete_isolation() {
     let run2 = RunId::from_string(&meta2.value.run_id).unwrap();
 
     // Write data to both runs
-    kv.put(&run1, "key", Value::Int(1)).unwrap();
-    kv.put(&run2, "key", Value::Int(2)).unwrap();
+    kv.put(&run1, "key", Value::I64(1)).unwrap();
+    kv.put(&run2, "key", Value::I64(2)).unwrap();
 
     event_log.append(&run1, "event", Value::Null).unwrap();
     event_log.append(&run2, "event", Value::Null).unwrap();
 
-    state_cell.init(&run1, "cell", Value::Int(10)).unwrap();
-    state_cell.init(&run2, "cell", Value::Int(20)).unwrap();
+    state_cell.init(&run1, "cell", Value::I64(10)).unwrap();
+    state_cell.init(&run2, "cell", Value::I64(20)).unwrap();
 
     trace_store
         .record(
@@ -331,7 +331,7 @@ fn test_run_delete_isolation() {
     assert_eq!(trace_store.count(&run1).unwrap(), 0);
 
     // run2 data is UNTOUCHED
-    assert_eq!(kv.get(&run2, "key").unwrap().map(|v| v.value), Some(Value::Int(2)));
+    assert_eq!(kv.get(&run2, "key").unwrap().map(|v| v.value), Some(Value::I64(2)));
     assert_eq!(event_log.len(&run2).unwrap(), 1);
     assert!(state_cell.exists(&run2, "cell").unwrap());
     assert_eq!(trace_store.count(&run2).unwrap(), 1);
@@ -348,14 +348,14 @@ fn test_many_runs_isolation() {
 
     // Each run writes its own data
     for (i, run_id) in runs.iter().enumerate() {
-        kv.put(run_id, "value", Value::Int(i as i64)).unwrap();
-        kv.put(run_id, "run_index", Value::Int(i as i64)).unwrap();
+        kv.put(run_id, "value", Value::I64(i as i64)).unwrap();
+        kv.put(run_id, "run_index", Value::I64(i as i64)).unwrap();
     }
 
     // Verify each run sees only its data
     for (i, run_id) in runs.iter().enumerate() {
         let versioned = kv.get(run_id, "value").unwrap().unwrap();
-        assert_eq!(versioned.value, Value::Int(i as i64));
+        assert_eq!(versioned.value, Value::I64(i as i64));
 
         let keys = kv.list(run_id, None).unwrap();
         assert_eq!(keys.len(), 2);
@@ -372,23 +372,23 @@ fn test_state_cell_cas_isolation() {
     let run2 = RunId::new();
 
     // Both init same cell name
-    state_cell.init(&run1, "cell", Value::Int(0)).unwrap();
-    state_cell.init(&run2, "cell", Value::Int(0)).unwrap();
+    state_cell.init(&run1, "cell", Value::I64(0)).unwrap();
+    state_cell.init(&run2, "cell", Value::I64(0)).unwrap();
 
     // CAS on run1 with version 1
-    state_cell.cas(&run1, "cell", 1, Value::Int(10)).unwrap();
+    state_cell.cas(&run1, "cell", 1, Value::I64(10)).unwrap();
 
     // CAS on run2 with version 1 should ALSO succeed (independent versions)
-    let result = state_cell.cas(&run2, "cell", 1, Value::Int(20));
+    let result = state_cell.cas(&run2, "cell", 1, Value::I64(20));
     assert!(result.is_ok());
 
     // Both have been updated
     let s1 = state_cell.read(&run1, "cell").unwrap().unwrap();
     let s2 = state_cell.read(&run2, "cell").unwrap().unwrap();
 
-    assert_eq!(s1.value.value, Value::Int(10));
+    assert_eq!(s1.value.value, Value::I64(10));
     assert_eq!(s1.value.version, 2);
-    assert_eq!(s2.value.value, Value::Int(20));
+    assert_eq!(s2.value.value, Value::I64(20));
     assert_eq!(s2.value.version, 2);
 }
 
@@ -402,13 +402,13 @@ fn test_event_log_chain_isolation() {
     let run2 = RunId::new();
 
     // Build chain in run1
-    event_log.append(&run1, "e1", Value::Int(0)).unwrap();
-    event_log.append(&run1, "e2", Value::Int(1)).unwrap();
-    event_log.append(&run1, "e3", Value::Int(2)).unwrap();
+    event_log.append(&run1, "e1", Value::I64(0)).unwrap();
+    event_log.append(&run1, "e2", Value::I64(1)).unwrap();
+    event_log.append(&run1, "e3", Value::I64(2)).unwrap();
 
     // Build different chain in run2
-    event_log.append(&run2, "x1", Value::Int(100)).unwrap();
-    event_log.append(&run2, "x2", Value::Int(101)).unwrap();
+    event_log.append(&run2, "x1", Value::I64(100)).unwrap();
+    event_log.append(&run2, "x2", Value::I64(101)).unwrap();
 
     // Read events to get hashes
     let event1_0 = event_log.read(&run1, 0).unwrap().unwrap();

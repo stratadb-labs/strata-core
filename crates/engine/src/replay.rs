@@ -707,7 +707,7 @@ mod tests {
         let view_a = ReadOnlyView::new(run_a);
 
         let mut view_b = ReadOnlyView::new(run_b);
-        view_b.apply_kv_put(Key::new_kv(ns.clone(), "new-key"), Value::Int(42));
+        view_b.apply_kv_put(Key::new_kv(ns.clone(), "new-key"), Value::I64(42));
 
         let diff = diff_views(&view_a, &view_b);
         assert_eq!(diff.added.len(), 1);
@@ -723,7 +723,7 @@ mod tests {
         let ns = test_namespace();
 
         let mut view_a = ReadOnlyView::new(run_a);
-        view_a.apply_kv_put(Key::new_kv(ns.clone(), "old-key"), Value::Int(42));
+        view_a.apply_kv_put(Key::new_kv(ns.clone(), "old-key"), Value::I64(42));
 
         let view_b = ReadOnlyView::new(run_b);
 
@@ -743,10 +743,10 @@ mod tests {
         let key = Key::new_kv(ns.clone(), "shared-key");
 
         let mut view_a = ReadOnlyView::new(run_a);
-        view_a.apply_kv_put(key.clone(), Value::Int(1));
+        view_a.apply_kv_put(key.clone(), Value::I64(1));
 
         let mut view_b = ReadOnlyView::new(run_b);
-        view_b.apply_kv_put(key.clone(), Value::Int(2));
+        view_b.apply_kv_put(key.clone(), Value::I64(2));
 
         let diff = diff_views(&view_a, &view_b);
         assert_eq!(diff.added.len(), 0);

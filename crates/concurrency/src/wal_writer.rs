@@ -303,7 +303,7 @@ mod tests {
         let key = create_test_key(&ns, "test_key");
 
         let mut writer = TransactionWALWriter::new(&mut wal, 1, run_id);
-        writer.write_put(key.clone(), Value::Int(42), 100).unwrap();
+        writer.write_put(key.clone(), Value::I64(42), 100).unwrap();
 
         let entries = wal.read_all().unwrap();
         assert_eq!(entries.len(), 1);
@@ -317,7 +317,7 @@ mod tests {
         {
             assert_eq!(*entry_run_id, run_id);
             assert_eq!(*entry_key, key);
-            assert_eq!(*value, Value::Int(42));
+            assert_eq!(*value, Value::I64(42));
             assert_eq!(*version, 100);
         } else {
             panic!("Expected Write entry");
@@ -409,8 +409,8 @@ mod tests {
 
         // Write transaction sequence
         writer.write_begin().unwrap();
-        writer.write_put(key1.clone(), Value::Int(1), 100).unwrap();
-        writer.write_put(key2.clone(), Value::Int(2), 100).unwrap();
+        writer.write_put(key1.clone(), Value::I64(1), 100).unwrap();
+        writer.write_put(key2.clone(), Value::I64(2), 100).unwrap();
         writer.write_delete(key1.clone(), 100).unwrap();
         writer.write_commit().unwrap();
 
@@ -456,7 +456,7 @@ mod tests {
         {
             let mut writer = TransactionWALWriter::new(&mut wal, 1, run_id);
             writer.write_begin().unwrap();
-            writer.write_put(key.clone(), Value::Int(10), 100).unwrap();
+            writer.write_put(key.clone(), Value::I64(10), 100).unwrap();
             writer.write_commit().unwrap();
         }
 
@@ -464,7 +464,7 @@ mod tests {
         {
             let mut writer = TransactionWALWriter::new(&mut wal, 2, run_id);
             writer.write_begin().unwrap();
-            writer.write_put(key.clone(), Value::Int(20), 101).unwrap();
+            writer.write_put(key.clone(), Value::I64(20), 101).unwrap();
             writer.write_commit().unwrap();
         }
 

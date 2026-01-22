@@ -72,7 +72,7 @@ mod isolation_guarantees {
         let key = create_key(&ns, "snapshot_test");
 
         // Setup: Write initial value at version 1
-        store.put(key.clone(), Value::Int(100), None).unwrap();
+        store.put(key.clone(), Value::I64(100), None).unwrap();
         assert_eq!(store.current_version(), 1);
 
         // T1 begins - captures snapshot at version 1
@@ -80,17 +80,17 @@ mod isolation_guarantees {
         assert_eq!(snapshot_t1.version(), 1);
 
         // Concurrent write happens - version becomes 2
-        store.put(key.clone(), Value::Int(200), None).unwrap();
+        store.put(key.clone(), Value::I64(200), None).unwrap();
         assert_eq!(store.current_version(), 2);
 
         // T1's snapshot should still see version 1 value
         let value_in_snapshot = snapshot_t1.get(&key).unwrap().unwrap();
-        assert_eq!(value_in_snapshot.value, Value::Int(100));
+        assert_eq!(value_in_snapshot.value, Value::I64(100));
         assert_eq!(value_in_snapshot.version.as_u64(), 1);
 
         // Current storage should see version 2
         let current_value = store.get(&key).unwrap().unwrap();
-        assert_eq!(current_value.value, Value::Int(200));
+        assert_eq!(current_value.value, Value::I64(200));
         assert_eq!(current_value.version.as_u64(), 2);
     }
 
@@ -162,11 +162,11 @@ mod isolation_guarantees {
         assert!(txn.get(&key).unwrap().is_none());
 
         // Write to the key
-        txn.put(key.clone(), Value::Int(42)).unwrap();
+        txn.put(key.clone(), Value::I64(42)).unwrap();
 
         // Should now see our own write
         let read_after_write = txn.get(&key).unwrap().unwrap();
-        assert_eq!(read_after_write, Value::Int(42));
+        assert_eq!(read_after_write, Value::I64(42));
     }
 
     /// Per spec Section 2.1: "Read-your-deletes - Key returns None from delete_set"
@@ -178,13 +178,13 @@ mod isolation_guarantees {
         let key = create_key(&ns, "read_your_deletes_test");
 
         // Setup: key exists
-        store.put(key.clone(), Value::Int(100), None).unwrap();
+        store.put(key.clone(), Value::I64(100), None).unwrap();
 
         let mut txn = begin_transaction(&store, 1, run_id);
 
         // Can read the key
         let before_delete = txn.get(&key).unwrap().unwrap();
-        assert_eq!(before_delete, Value::Int(100));
+        assert_eq!(before_delete, Value::I64(100));
 
         // Delete the key
         txn.delete(key.clone()).unwrap();
@@ -234,7 +234,7 @@ mod visibility_rules {
         assert_eq!(snapshot_t1.version(), 0);
 
         // Commit happens, store now at version 1
-        store.put(key.clone(), Value::Int(999), None).unwrap();
+        store.put(key.clone(), Value::I64(999), None).unwrap();
         assert_eq!(store.current_version(), 1);
 
         // T1's snapshot should NOT see this
@@ -256,16 +256,16 @@ mod visibility_rules {
         let mut txn = begin_transaction(&store, 1, run_id);
 
         // Write value 1
-        txn.put(key.clone(), Value::Int(1)).unwrap();
-        assert_eq!(txn.get(&key).unwrap().unwrap(), Value::Int(1));
+        txn.put(key.clone(), Value::I64(1)).unwrap();
+        assert_eq!(txn.get(&key).unwrap().unwrap(), Value::I64(1));
 
         // Overwrite with value 2
-        txn.put(key.clone(), Value::Int(2)).unwrap();
-        assert_eq!(txn.get(&key).unwrap().unwrap(), Value::Int(2));
+        txn.put(key.clone(), Value::I64(2)).unwrap();
+        assert_eq!(txn.get(&key).unwrap().unwrap(), Value::I64(2));
 
         // Overwrite with value 3
-        txn.put(key.clone(), Value::Int(3)).unwrap();
-        assert_eq!(txn.get(&key).unwrap().unwrap(), Value::Int(3));
+        txn.put(key.clone(), Value::I64(3)).unwrap();
+        assert_eq!(txn.get(&key).unwrap().unwrap(), Value::I64(3));
     }
 
     /// Test: Write then delete then write again
@@ -279,7 +279,7 @@ mod visibility_rules {
         let mut txn = begin_transaction(&store, 1, run_id);
 
         // Write
-        txn.put(key.clone(), Value::Int(1)).unwrap();
+        txn.put(key.clone(), Value::I64(1)).unwrap();
         assert!(txn.get(&key).unwrap().is_some());
 
         // Delete
@@ -287,9 +287,9 @@ mod visibility_rules {
         assert!(txn.get(&key).unwrap().is_none());
 
         // Write again
-        txn.put(key.clone(), Value::Int(2)).unwrap();
+        txn.put(key.clone(), Value::I64(2)).unwrap();
         let final_value = txn.get(&key).unwrap().unwrap();
-        assert_eq!(final_value, Value::Int(2));
+        assert_eq!(final_value, Value::I64(2));
     }
 }
 
@@ -314,16 +314,16 @@ mod conflict_detection {
         let key = create_key(&ns, "rw_conflict_test");
 
         // Setup: key exists at version 1
-        store.put(key.clone(), Value::Int(100), None).unwrap();
+        store.put(key.clone(), Value::I64(100), None).unwrap();
 
         // T1 begins and reads the key
         let mut txn1 = begin_transaction(&store, 1, run_id);
         let _ = txn1.get(&key).unwrap(); // Records version 1 in read_set
                                          // Add a write to make this NOT a read-only transaction
-        txn1.put(key.clone(), Value::Int(150)).unwrap();
+        txn1.put(key.clone(), Value::I64(150)).unwrap();
 
         // T2 commits, changing the version to 2
-        store.put(key.clone(), Value::Int(200), None).unwrap();
+        store.put(key.clone(), Value::I64(200), None).unwrap();
 
         // T1 tries to validate - should FAIL
         let validation = validate_transaction(&txn1, &store);
@@ -366,14 +366,14 @@ mod conflict_detection {
         let key = create_key(&ns, "read_only_test");
 
         // Setup
-        store.put(key.clone(), Value::Int(100), None).unwrap();
+        store.put(key.clone(), Value::I64(100), None).unwrap();
 
         // T1 only reads
         let mut txn1 = begin_transaction(&store, 1, run_id);
         let _ = txn1.get(&key).unwrap();
 
         // Concurrent modification
-        store.put(key.clone(), Value::Int(200), None).unwrap();
+        store.put(key.clone(), Value::I64(200), None).unwrap();
 
         // Read-only with no pending writes - validation behavior depends on implementation
         // Per spec: "read-only transactions always succeed" because they have no writes
@@ -397,16 +397,16 @@ mod conflict_detection {
         let key = create_key(&ns, "fcw_test");
 
         // Setup
-        store.put(key.clone(), Value::Int(100), None).unwrap();
+        store.put(key.clone(), Value::I64(100), None).unwrap();
 
         // T1 and T2 both read and write the same key
         let mut txn1 = begin_transaction(&store, 1, run_id);
         let _ = txn1.get(&key).unwrap();
-        txn1.put(key.clone(), Value::Int(111)).unwrap();
+        txn1.put(key.clone(), Value::I64(111)).unwrap();
 
         let mut txn2 = begin_transaction(&store, 2, run_id);
         let _ = txn2.get(&key).unwrap();
-        txn2.put(key.clone(), Value::Int(222)).unwrap();
+        txn2.put(key.clone(), Value::I64(222)).unwrap();
 
         // T1 validates first - should succeed
         let validation1 = validate_transaction(&txn1, &store);
@@ -414,7 +414,7 @@ mod conflict_detection {
 
         // Simulate T1 committing
         store
-            .put_with_version(key.clone(), Value::Int(111), 2, None)
+            .put_with_version(key.clone(), Value::I64(111), 2, None)
             .unwrap();
 
         // T2 validates after T1 committed - should FAIL
@@ -434,11 +434,11 @@ mod conflict_detection {
         let key = create_key(&ns, "cas_read_set_test");
 
         // Setup: key at version 1
-        store.put(key.clone(), Value::Int(100), None).unwrap();
+        store.put(key.clone(), Value::I64(100), None).unwrap();
 
         // T1 does CAS without reading
         let mut txn1 = begin_transaction(&store, 1, run_id);
-        txn1.cas(key.clone(), 1, Value::Int(200)).unwrap();
+        txn1.cas(key.clone(), 1, Value::I64(200)).unwrap();
 
         // Verify read_set does NOT contain the key
         assert!(
@@ -459,7 +459,7 @@ mod conflict_detection {
         let key = create_key(&ns, "cas_with_read_test");
 
         // Setup
-        store.put(key.clone(), Value::Int(100), None).unwrap();
+        store.put(key.clone(), Value::I64(100), None).unwrap();
 
         // T1 reads THEN does CAS
         let mut txn1 = begin_transaction(&store, 1, run_id);
@@ -468,7 +468,7 @@ mod conflict_detection {
         // Get the version from snapshot for CAS
         let snapshot = store.create_snapshot();
         let current = snapshot.get(&key).unwrap().unwrap();
-        txn1.cas(key.clone(), current.version.as_u64(), Value::Int(200))
+        txn1.cas(key.clone(), current.version.as_u64(), Value::I64(200))
             .unwrap();
 
         // Both read_set and cas_set should contain the key
@@ -488,14 +488,14 @@ mod conflict_detection {
         let key = create_key(&ns, "cas_conflict_test");
 
         // Setup: key at version 1
-        store.put(key.clone(), Value::Int(100), None).unwrap();
+        store.put(key.clone(), Value::I64(100), None).unwrap();
 
         // T1 does CAS expecting version 1
         let mut txn1 = begin_transaction(&store, 1, run_id);
-        txn1.cas(key.clone(), 1, Value::Int(200)).unwrap();
+        txn1.cas(key.clone(), 1, Value::I64(200)).unwrap();
 
         // Concurrent commit changes version to 2
-        store.put(key.clone(), Value::Int(150), None).unwrap();
+        store.put(key.clone(), Value::I64(150), None).unwrap();
 
         // T1's CAS should fail validation (expected 1, current is 2)
         let validation = validate_transaction(&txn1, &store);
@@ -525,18 +525,18 @@ mod anomaly_acceptance {
         let key_b = create_key(&ns, "balance_b");
 
         // Setup: both balances at 100
-        store.put(key_a.clone(), Value::Int(100), None).unwrap();
-        store.put(key_b.clone(), Value::Int(100), None).unwrap();
+        store.put(key_a.clone(), Value::I64(100), None).unwrap();
+        store.put(key_b.clone(), Value::I64(100), None).unwrap();
 
         // T1: reads A, writes B (sets B to 0)
         let mut txn1 = begin_transaction(&store, 1, run_id);
         let _ = txn1.get(&key_a).unwrap(); // Read A
-        txn1.put(key_b.clone(), Value::Int(0)).unwrap(); // Write B
+        txn1.put(key_b.clone(), Value::I64(0)).unwrap(); // Write B
 
         // T2: reads B, writes A (sets A to 0)
         let mut txn2 = begin_transaction(&store, 2, run_id);
         let _ = txn2.get(&key_b).unwrap(); // Read B
-        txn2.put(key_a.clone(), Value::Int(0)).unwrap(); // Write A
+        txn2.put(key_a.clone(), Value::I64(0)).unwrap(); // Write A
 
         // BOTH should validate successfully - this is write skew
         let validation1 = validate_transaction(&txn1, &store);
@@ -565,10 +565,10 @@ mod anomaly_acceptance {
 
         // Setup: two users exist
         store
-            .put(create_key(&ns, "user:1"), Value::Int(1), None)
+            .put(create_key(&ns, "user:1"), Value::I64(1), None)
             .unwrap();
         store
-            .put(create_key(&ns, "user:2"), Value::Int(2), None)
+            .put(create_key(&ns, "user:2"), Value::I64(2), None)
             .unwrap();
 
         // T1 begins - would see user:1 and user:2 in a range scan
@@ -577,7 +577,7 @@ mod anomaly_acceptance {
 
         // Concurrent transaction adds user:3
         store
-            .put(create_key(&ns, "user:3"), Value::Int(3), None)
+            .put(create_key(&ns, "user:3"), Value::I64(3), None)
             .unwrap();
 
         // T1's snapshot doesn't see user:3 (correct behavior)
@@ -612,7 +612,7 @@ mod version_semantics {
 
         for i in 0..10 {
             store
-                .put(create_key(&ns, &format!("key{}", i)), Value::Int(i), None)
+                .put(create_key(&ns, &format!("key{}", i)), Value::I64(i), None)
                 .unwrap();
             versions.push(store.current_version());
         }
@@ -660,7 +660,7 @@ mod version_semantics {
         let key = create_key(&ns, "tombstone_test");
 
         // Create key at version 1
-        store.put(key.clone(), Value::Int(100), None).unwrap();
+        store.put(key.clone(), Value::I64(100), None).unwrap();
         let version_after_put = store.current_version();
 
         // Delete key - creates tombstone at version 2
@@ -749,7 +749,7 @@ mod edge_cases {
         let key = create_key(&ns, "delete_only_test");
 
         // Setup
-        store.put(key.clone(), Value::Int(100), None).unwrap();
+        store.put(key.clone(), Value::I64(100), None).unwrap();
 
         let mut txn = begin_transaction(&store, 1, run_id);
         txn.delete(key.clone()).unwrap();
@@ -771,15 +771,15 @@ mod edge_cases {
         let ns = create_namespace(run_id);
         let key = create_key(&ns, "multi_cas_test");
 
-        store.put(key.clone(), Value::Int(1), None).unwrap();
+        store.put(key.clone(), Value::I64(1), None).unwrap();
 
         let mut txn = begin_transaction(&store, 1, run_id);
 
         // First CAS: version 1 -> value 2
-        txn.cas(key.clone(), 1, Value::Int(2)).unwrap();
+        txn.cas(key.clone(), 1, Value::I64(2)).unwrap();
 
         // Second CAS on same key - this overwrites the first CAS in cas_set
-        txn.cas(key.clone(), 1, Value::Int(3)).unwrap();
+        txn.cas(key.clone(), 1, Value::I64(3)).unwrap();
 
         // CAS operations accumulate (may have duplicates depending on impl)
         assert!(!txn.cas_set.is_empty(), "Should have CAS operations");
@@ -807,7 +807,7 @@ mod edge_cases {
 
         // Cannot do anything after committed
         let ns = create_namespace(run_id);
-        assert!(txn.put(create_key(&ns, "test"), Value::Int(1)).is_err());
+        assert!(txn.put(create_key(&ns, "test"), Value::I64(1)).is_err());
     }
 
     /// Abort from various states
@@ -839,7 +839,7 @@ mod edge_cases {
 
         // Write 1000 keys
         for i in 0..1000 {
-            txn.put(create_key(&ns, &format!("large_key_{}", i)), Value::Int(i))
+            txn.put(create_key(&ns, &format!("large_key_{}", i)), Value::I64(i))
                 .unwrap();
         }
 
@@ -868,7 +868,7 @@ mod stress_tests {
         let key = create_key(&ns, "contested_key");
 
         // Setup
-        store.put(key.clone(), Value::Int(0), None).unwrap();
+        store.put(key.clone(), Value::I64(0), None).unwrap();
 
         // Create multiple transactions that all read and write the same key
         let mut transactions = Vec::new();
@@ -880,7 +880,7 @@ mod stress_tests {
 
             // Read and write
             let _ = txn.get(&key).unwrap();
-            txn.put(key.clone(), Value::Int(thread_id as i64)).unwrap();
+            txn.put(key.clone(), Value::I64(thread_id as i64)).unwrap();
 
             transactions.push(txn);
         }
@@ -899,7 +899,7 @@ mod stress_tests {
         assert_eq!(success_count, 10);
 
         // Now simulate first committer wins - commit one transaction
-        store.put(key.clone(), Value::Int(999), None).unwrap();
+        store.put(key.clone(), Value::I64(999), None).unwrap();
 
         // Now validate again - should all fail (read-set conflict)
         let mut conflict_count = 0;
@@ -930,7 +930,7 @@ mod stress_tests {
 
             let mut txn =
                 TransactionContext::new(thread_id as u64, run_id, store.current_version());
-            txn.put(key.clone(), Value::Int(thread_id as i64)).unwrap();
+            txn.put(key.clone(), Value::I64(thread_id as i64)).unwrap();
 
             transactions.push(txn);
         }
@@ -981,10 +981,10 @@ mod regression_tests {
         assert_eq!(*txn.read_set.get(&key).unwrap(), 0);
 
         // Add a write to make this NOT a read-only transaction
-        txn.put(key.clone(), Value::Int(999)).unwrap();
+        txn.put(key.clone(), Value::I64(999)).unwrap();
 
         // If someone creates the key, we should conflict
-        store.put(key.clone(), Value::Int(1), None).unwrap();
+        store.put(key.clone(), Value::I64(1), None).unwrap();
 
         let validation = validate_transaction(&txn, &store);
         assert!(
@@ -1001,7 +1001,7 @@ mod regression_tests {
         let ns = create_namespace(run_id);
         let key = create_key(&ns, "multi_read_test");
 
-        store.put(key.clone(), Value::Int(100), None).unwrap();
+        store.put(key.clone(), Value::I64(100), None).unwrap();
 
         let mut txn = begin_transaction(&store, 1, run_id);
 
@@ -1026,20 +1026,20 @@ mod regression_tests {
         let ns = create_namespace(run_id);
         let key = create_key(&ns, "rwr_test");
 
-        store.put(key.clone(), Value::Int(1), None).unwrap();
+        store.put(key.clone(), Value::I64(1), None).unwrap();
 
         let mut txn = begin_transaction(&store, 1, run_id);
 
         // Read -> should see storage value
         let r1 = txn.get(&key).unwrap().unwrap();
-        assert_eq!(r1, Value::Int(1));
+        assert_eq!(r1, Value::I64(1));
 
         // Write
-        txn.put(key.clone(), Value::Int(2)).unwrap();
+        txn.put(key.clone(), Value::I64(2)).unwrap();
 
         // Read -> should see our write (read-your-writes)
         let r2 = txn.get(&key).unwrap().unwrap();
-        assert_eq!(r2, Value::Int(2));
+        assert_eq!(r2, Value::I64(2));
 
         // read_set should still have the original version from first read
         assert_eq!(*txn.read_set.get(&key).unwrap(), 1);
@@ -1110,10 +1110,10 @@ mod wal_writer_tests {
 
             writer.write_begin().unwrap();
             writer
-                .write_put(create_key(&ns, "k1"), Value::Int(1), 100)
+                .write_put(create_key(&ns, "k1"), Value::I64(1), 100)
                 .unwrap();
             writer
-                .write_put(create_key(&ns, "k2"), Value::Int(2), 100)
+                .write_put(create_key(&ns, "k2"), Value::I64(2), 100)
                 .unwrap();
             writer.write_delete(create_key(&ns, "k3"), 100).unwrap();
             writer.write_commit().unwrap();
@@ -1146,7 +1146,7 @@ mod wal_writer_tests {
 
             writer.write_begin().unwrap();
             writer
-                .write_put(create_key(&ns, "key"), Value::Int(42), 999)
+                .write_put(create_key(&ns, "key"), Value::I64(42), 999)
                 .unwrap();
             writer.write_commit().unwrap();
         }
@@ -1218,7 +1218,7 @@ mod m5_cross_primitive_tests {
 
         // Setup: Add KV data
         let kv_key = create_key(&ns, "data");
-        store.put(kv_key.clone(), Value::Int(42), None).unwrap();
+        store.put(kv_key.clone(), Value::I64(42), None).unwrap();
 
         // Begin transaction and read both
         let mut txn = begin_transaction(&store, 1, run_id);
@@ -1322,7 +1322,7 @@ mod m5_cross_primitive_tests {
 
         // Add KV and JSON operations
         let kv_key = create_key(&ns, "key");
-        txn.put(kv_key, Value::Int(1)).unwrap();
+        txn.put(kv_key, Value::I64(1)).unwrap();
 
         let doc_id = JsonDocId::new();
         let json_key = create_json_key(&ns, &doc_id);

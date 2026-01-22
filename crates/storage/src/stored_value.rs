@@ -125,8 +125,8 @@ mod tests {
 
     #[test]
     fn test_stored_value_new() {
-        let sv = StoredValue::new(Value::Int(42), Version::txn(1), None);
-        assert_eq!(*sv.value(), Value::Int(42));
+        let sv = StoredValue::new(Value::I64(42), Version::txn(1), None);
+        assert_eq!(*sv.value(), Value::I64(42));
         assert_eq!(sv.version(), Version::TxnId(1));
         assert!(sv.ttl().is_none());
         assert!(!sv.is_expired());
@@ -181,9 +181,9 @@ mod tests {
 
     #[test]
     fn test_stored_value_into_versioned() {
-        let sv = StoredValue::new(Value::Int(42), Version::txn(5), Some(Duration::from_secs(10)));
+        let sv = StoredValue::new(Value::I64(42), Version::txn(5), Some(Duration::from_secs(10)));
         let vv = sv.into_versioned();
-        assert_eq!(vv.value, Value::Int(42));
+        assert_eq!(vv.value, Value::I64(42));
         assert_eq!(vv.version, Version::TxnId(5));
     }
 

@@ -307,8 +307,8 @@ mod tests {
     #[test]
     fn test_versioned_value_alias() {
         // VersionedValue should work as Versioned<Value>
-        let v: VersionedValue = Versioned::new(Value::Int(42), Version::txn(1));
-        assert!(matches!(v.value, Value::Int(42)));
+        let v: VersionedValue = Versioned::new(Value::I64(42), Version::txn(1));
+        assert!(matches!(v.value, Value::I64(42)));
     }
 
     #[test]

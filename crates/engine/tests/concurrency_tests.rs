@@ -36,18 +36,18 @@ fn test_concurrent_read_write_conflict() {
     let key = Key::new_kv(ns.clone(), "contested_key");
 
     // Pre-populate
-    db.put(run_id, key.clone(), Value::Int(100)).unwrap();
+    db.put(run_id, key.clone(), Value::I64(100)).unwrap();
 
     // Phase 1: T1 begins and reads (but doesn't commit yet)
     let mut txn1 = db.begin_transaction(run_id);
     let _read_value = txn1.get(&key).unwrap(); // Adds to read_set
 
     // Phase 2: T2 modifies the same key and commits
-    db.put(run_id, key.clone(), Value::Int(200)).unwrap();
+    db.put(run_id, key.clone(), Value::I64(200)).unwrap();
 
     // Phase 3: T1 tries to write something and commit
     let other_key = Key::new_kv(ns, "other");
-    txn1.put(other_key, Value::Int(999)).unwrap();
+    txn1.put(other_key, Value::I64(999)).unwrap();
 
     // T1's commit should fail due to read-write conflict
     let result = db.commit_transaction(&mut txn1);
@@ -59,7 +59,7 @@ fn test_concurrent_read_write_conflict() {
 
     // Final value should be T2's write
     let final_val = db.get(&key).unwrap().unwrap();
-    assert_eq!(final_val.value, Value::Int(200));
+    assert_eq!(final_val.value, Value::I64(200));
 }
 
 // ============================================================================
@@ -77,17 +77,17 @@ fn test_concurrent_write_write_conflict_with_read() {
     let key = Key::new_kv(ns, "ww_key");
 
     // Pre-populate
-    db.put(run_id, key.clone(), Value::Int(0)).unwrap();
+    db.put(run_id, key.clone(), Value::I64(0)).unwrap();
 
     // T1: Begin and read (but don't commit yet)
     let mut txn1 = db.begin_transaction(run_id);
     let _val1 = txn1.get(&key).unwrap();
-    txn1.put(key.clone(), Value::Int(1)).unwrap();
+    txn1.put(key.clone(), Value::I64(1)).unwrap();
 
     // T2: Begin, read, write, and commit FIRST
     let mut txn2 = db.begin_transaction(run_id);
     let _val2 = txn2.get(&key).unwrap();
-    txn2.put(key.clone(), Value::Int(2)).unwrap();
+    txn2.put(key.clone(), Value::I64(2)).unwrap();
 
     // T2 commits first
     let result2 = db.commit_transaction(&mut txn2);
@@ -102,7 +102,7 @@ fn test_concurrent_write_write_conflict_with_read() {
 
     // Verify T2's value persisted
     let final_val = db.get(&key).unwrap().unwrap();
-    assert_eq!(final_val.value, Value::Int(2));
+    assert_eq!(final_val.value, Value::I64(2));
 }
 
 /// Test: Blind writes (no read) - both can commit, last write wins
@@ -128,7 +128,7 @@ fn test_blind_writes_no_conflict() {
     let h1 = thread::spawn(move || {
         db1.transaction(run_id, |txn| {
             barrier1.wait();
-            txn.put(key1.clone(), Value::Int(1))?;
+            txn.put(key1.clone(), Value::I64(1))?;
             Ok(())
         })
     });
@@ -137,7 +137,7 @@ fn test_blind_writes_no_conflict() {
     let h2 = thread::spawn(move || {
         db2.transaction(run_id, |txn| {
             barrier2.wait();
-            txn.put(key2.clone(), Value::Int(2))?;
+            txn.put(key2.clone(), Value::I64(2))?;
             Ok(())
         })
     });
@@ -165,17 +165,17 @@ fn test_concurrent_cas_conflict() {
     let key = Key::new_kv(ns, "cas_key");
 
     // Pre-populate with known version
-    db.put(run_id, key.clone(), Value::Int(0)).unwrap();
+    db.put(run_id, key.clone(), Value::I64(0)).unwrap();
     let initial_version = db.get(&key).unwrap().unwrap().version.as_u64();
 
     // T1: Begin and CAS
     let mut txn1 = db.begin_transaction(run_id);
-    txn1.cas(key.clone(), initial_version, Value::Int(1))
+    txn1.cas(key.clone(), initial_version, Value::I64(1))
         .unwrap();
 
     // T2: Begin and CAS with same version
     let mut txn2 = db.begin_transaction(run_id);
-    txn2.cas(key.clone(), initial_version, Value::Int(2))
+    txn2.cas(key.clone(), initial_version, Value::I64(2))
         .unwrap();
 
     // T1 commits first
@@ -188,7 +188,7 @@ fn test_concurrent_cas_conflict() {
 
     // Verify T1's value persisted
     let final_val = db.get(&key).unwrap().unwrap();
-    assert_eq!(final_val.value, Value::Int(1));
+    assert_eq!(final_val.value, Value::I64(1));
 }
 
 // ============================================================================
@@ -217,7 +217,7 @@ fn test_no_conflict_different_keys() {
     let h1 = thread::spawn(move || {
         db1.transaction(run_id, |txn| {
             barrier1.wait();
-            txn.put(key_a.clone(), Value::Int(1))?;
+            txn.put(key_a.clone(), Value::I64(1))?;
             Ok(())
         })
     });
@@ -226,7 +226,7 @@ fn test_no_conflict_different_keys() {
     let h2 = thread::spawn(move || {
         db2.transaction(run_id, |txn| {
             barrier2.wait();
-            txn.put(key_b.clone(), Value::Int(2))?;
+            txn.put(key_b.clone(), Value::I64(2))?;
             Ok(())
         })
     });
@@ -254,7 +254,7 @@ fn test_first_committer_wins() {
     let key = Key::new_kv(ns, "fcw_key");
 
     // Pre-populate
-    db.put(run_id, key.clone(), Value::Int(0)).unwrap();
+    db.put(run_id, key.clone(), Value::I64(0)).unwrap();
 
     // Run 10 rounds, each round has two transactions competing
     for round in 0..10 {
@@ -265,8 +265,8 @@ fn test_first_committer_wins() {
         let _val1 = txn1.get(&key).unwrap();
         let _val2 = txn2.get(&key).unwrap();
 
-        txn1.put(key.clone(), Value::Int(round * 2)).unwrap();
-        txn2.put(key.clone(), Value::Int(round * 2 + 1)).unwrap();
+        txn1.put(key.clone(), Value::I64(round * 2)).unwrap();
+        txn2.put(key.clone(), Value::I64(round * 2 + 1)).unwrap();
 
         // T1 commits first, T2 commits second
         let r1 = db.commit_transaction(&mut txn1);
@@ -310,7 +310,7 @@ fn test_multi_threaded_contention() {
                 for op in 0..ops_per_thread {
                     let key = Key::new_kv(ns.clone(), format!("t{}_op{}", thread_id, op));
                     let result = db.transaction(run_id, |txn| {
-                        txn.put(key.clone(), Value::Int((thread_id * 100 + op) as i64))?;
+                        txn.put(key.clone(), Value::I64((thread_id * 100 + op) as i64))?;
                         Ok(())
                     });
 
@@ -338,7 +338,7 @@ fn test_multi_threaded_contention() {
     // Verify some values are readable
     let key = Key::new_kv(ns.clone(), "t0_op0");
     let val = db.get(&key).unwrap().unwrap();
-    assert_eq!(val.value, Value::Int(0));
+    assert_eq!(val.value, Value::I64(0));
 }
 
 /// Test: Read-only transactions never conflict
@@ -353,7 +353,7 @@ fn test_read_only_transactions_no_conflict() {
     // Pre-populate with data
     for i in 0..10 {
         let key = Key::new_kv(ns.clone(), format!("key_{}", i));
-        db.put(run_id, key, Value::Int(i)).unwrap();
+        db.put(run_id, key, Value::I64(i)).unwrap();
     }
 
     // Run multiple read-only transactions concurrently
@@ -418,7 +418,7 @@ fn test_concurrent_disjoint_transactions() {
                 let result = db.transaction(run_id, |txn| {
                     for i in 0..5 {
                         let key = Key::new_kv(ns.clone(), format!("t{}_{}", thread_id, i));
-                        txn.put(key, Value::Int((thread_id * 10 + i) as i64))?;
+                        txn.put(key, Value::I64((thread_id * 10 + i) as i64))?;
                     }
                     Ok(())
                 });

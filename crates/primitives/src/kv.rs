@@ -198,9 +198,9 @@ impl KVStore {
                 + ttl.as_millis() as i64;
 
             // Store value with expiration metadata
-            let value_with_ttl = Value::Object(std::collections::HashMap::from([
+            let value_with_ttl = Value::Map(std::collections::HashMap::from([
                 ("value".to_string(), value),
-                ("expires_at".to_string(), Value::Int(expires_at)),
+                ("expires_at".to_string(), Value::I64(expires_at)),
             ]));
 
             txn.put(storage_key, value_with_ttl)
@@ -448,10 +448,10 @@ impl KVStore {
                     parts.push(s.to_string());
                 }
             }
-            Value::Int(n) => parts.push(n.to_string()),
-            Value::Float(n) => parts.push(n.to_string()),
+            Value::I64(n) => parts.push(n.to_string()),
+            Value::F64(n) => parts.push(n.to_string()),
             Value::Bool(b) => parts.push(b.to_string()),
-            Value::Array(_) | Value::Object(_) => {
+            Value::Array(_) | Value::Map(_) => {
                 if let Ok(s) = serde_json::to_string(value) {
                     parts.push(s);
                 }
@@ -473,8 +473,8 @@ impl KVStore {
     ///
     /// ```ignore
     /// kv.transaction(&run_id, |txn| {
-    ///     txn.put("key1", Value::Int(1))?;
-    ///     txn.put("key2", Value::Int(2))?;
+    ///     txn.put("key1", Value::I64(1))?;
+    ///     txn.put("key2", Value::I64(2))?;
     ///     let val = txn.get("key1")?;
     ///     Ok(val)
     /// })?;
@@ -682,7 +682,7 @@ mod tests {
         let run_id = RunId::new();
 
         assert!(!kv.exists(&run_id, "key1").unwrap());
-        kv.put(&run_id, "key1", Value::Int(42)).unwrap();
+        kv.put(&run_id, "key1", Value::I64(42)).unwrap();
         assert!(kv.exists(&run_id, "key1").unwrap());
     }
 
@@ -727,11 +727,11 @@ mod tests {
 
         // Verify the value is wrapped with TTL metadata
         if let Some(versioned) = result {
-            if let Value::Object(map) = versioned.value {
+            if let Value::Map(map) = versioned.value {
                 assert!(map.contains_key("value"));
                 assert!(map.contains_key("expires_at"));
             } else {
-                panic!("Expected Value::Object with TTL metadata");
+                panic!("Expected Value::Map with TTL metadata");
             }
         }
     }
@@ -771,9 +771,9 @@ mod tests {
         let run_id = RunId::new();
 
         kv.transaction(&run_id, |txn| {
-            txn.put("key", Value::Int(1))?;
+            txn.put("key", Value::I64(1))?;
             let val = txn.get("key")?;
-            assert_eq!(val, Some(Value::Int(1)));
+            assert_eq!(val, Some(Value::I64(1)));
             Ok(())
         })
         .unwrap();
@@ -785,7 +785,7 @@ mod tests {
         let run_id = RunId::new();
 
         // Setup: create a key
-        kv.put(&run_id, "key", Value::Int(1)).unwrap();
+        kv.put(&run_id, "key", Value::I64(1)).unwrap();
 
         // Delete in transaction
         kv.transaction(&run_id, |txn| {
@@ -809,9 +809,9 @@ mod tests {
         let (_temp, _db, kv) = setup();
         let run_id = RunId::new();
 
-        kv.put(&run_id, "a", Value::Int(1)).unwrap();
-        kv.put(&run_id, "b", Value::Int(2)).unwrap();
-        kv.put(&run_id, "c", Value::Int(3)).unwrap();
+        kv.put(&run_id, "a", Value::I64(1)).unwrap();
+        kv.put(&run_id, "b", Value::I64(2)).unwrap();
+        kv.put(&run_id, "c", Value::I64(3)).unwrap();
 
         let keys = kv.list(&run_id, None).unwrap();
         assert_eq!(keys.len(), 3);
@@ -825,9 +825,9 @@ mod tests {
         let (_temp, _db, kv) = setup();
         let run_id = RunId::new();
 
-        kv.put(&run_id, "user:1", Value::Int(1)).unwrap();
-        kv.put(&run_id, "user:2", Value::Int(2)).unwrap();
-        kv.put(&run_id, "task:1", Value::Int(3)).unwrap();
+        kv.put(&run_id, "user:1", Value::I64(1)).unwrap();
+        kv.put(&run_id, "user:2", Value::I64(2)).unwrap();
+        kv.put(&run_id, "task:1", Value::I64(3)).unwrap();
 
         let user_keys = kv.list(&run_id, Some("user:")).unwrap();
         assert_eq!(user_keys.len(), 2);
@@ -844,8 +844,8 @@ mod tests {
         let (_temp, _db, kv) = setup();
         let run_id = RunId::new();
 
-        kv.put(&run_id, "key1", Value::Int(1)).unwrap();
-        kv.put(&run_id, "key2", Value::Int(2)).unwrap();
+        kv.put(&run_id, "key1", Value::I64(1)).unwrap();
+        kv.put(&run_id, "key2", Value::I64(2)).unwrap();
 
         let keys = kv.list(&run_id, Some("nonexistent:")).unwrap();
         assert!(keys.is_empty());
@@ -875,8 +875,8 @@ mod tests {
         let run1 = RunId::new();
         let run2 = RunId::new();
 
-        kv.put(&run1, "run1-key", Value::Int(1)).unwrap();
-        kv.put(&run2, "run2-key", Value::Int(2)).unwrap();
+        kv.put(&run1, "run1-key", Value::I64(1)).unwrap();
+        kv.put(&run2, "run2-key", Value::I64(2)).unwrap();
 
         // Each run only sees its own keys
         let run1_keys = kv.list(&run1, None).unwrap();
@@ -914,7 +914,7 @@ mod tests {
         let run_id = RunId::new();
 
         // Setup
-        kv.put(&run_id, "key", Value::Int(42)).unwrap();
+        kv.put(&run_id, "key", Value::I64(42)).unwrap();
 
         // Delete via extension trait
         db.transaction(run_id, |txn| {
@@ -942,12 +942,12 @@ mod tests {
         );
 
         // Integer
-        kv.put(&run_id, "int", Value::Int(42)).unwrap();
-        assert_eq!(kv.get(&run_id, "int").unwrap().map(|v| v.value), Some(Value::Int(42)));
+        kv.put(&run_id, "int", Value::I64(42)).unwrap();
+        assert_eq!(kv.get(&run_id, "int").unwrap().map(|v| v.value), Some(Value::I64(42)));
 
         // Float
-        kv.put(&run_id, "float", Value::Float(3.14)).unwrap();
-        assert_eq!(kv.get(&run_id, "float").unwrap().map(|v| v.value), Some(Value::Float(3.14)));
+        kv.put(&run_id, "float", Value::F64(3.14)).unwrap();
+        assert_eq!(kv.get(&run_id, "float").unwrap().map(|v| v.value), Some(Value::F64(3.14)));
 
         // Boolean
         kv.put(&run_id, "bool", Value::Bool(true)).unwrap();
@@ -969,13 +969,13 @@ mod tests {
         kv.put(
             &run_id,
             "array",
-            Value::Array(vec![Value::Int(1), Value::Int(2)]),
+            Value::Array(vec![Value::I64(1), Value::I64(2)]),
         )
         .unwrap();
         // M9: Extract value from Versioned wrapper
         assert_eq!(
             kv.get(&run_id, "array").unwrap().map(|v| v.value),
-            Some(Value::Array(vec![Value::Int(1), Value::Int(2)]))
+            Some(Value::Array(vec![Value::I64(1), Value::I64(2)]))
         );
     }
 
@@ -986,11 +986,11 @@ mod tests {
         let (_temp, _db, kv) = setup();
         let run_id = RunId::new();
 
-        kv.put(&run_id, "key", Value::Int(42)).unwrap();
+        kv.put(&run_id, "key", Value::I64(42)).unwrap();
 
         let result = kv.get(&run_id, "key").unwrap();
         // M9: get() now returns Versioned<Value>
-        assert_eq!(result.map(|v| v.value), Some(Value::Int(42)));
+        assert_eq!(result.map(|v| v.value), Some(Value::I64(42)));
     }
 
     #[test]
@@ -1007,7 +1007,7 @@ mod tests {
         let (_temp, _db, kv) = setup();
         let run_id = RunId::new();
 
-        kv.put(&run_id, "key", Value::Int(42)).unwrap();
+        kv.put(&run_id, "key", Value::I64(42)).unwrap();
 
         let fast = kv.get(&run_id, "key").unwrap();
         let txn = kv.get_in_transaction(&run_id, "key").unwrap();
@@ -1028,7 +1028,7 @@ mod tests {
         // Write some data
         kv.put(&run_id, "key1", Value::String("value1".into()))
             .unwrap();
-        kv.put(&run_id, "key2", Value::Int(42)).unwrap();
+        kv.put(&run_id, "key2", Value::I64(42)).unwrap();
 
         // Fast path reads
         let fast1 = kv.get(&run_id, "key1").unwrap();
@@ -1053,7 +1053,7 @@ mod tests {
 
         assert!(!kv.exists(&run_id, "key").unwrap());
 
-        kv.put(&run_id, "key", Value::Int(42)).unwrap();
+        kv.put(&run_id, "key", Value::I64(42)).unwrap();
 
         assert!(kv.exists(&run_id, "key").unwrap());
     }
@@ -1088,16 +1088,16 @@ mod tests {
         let (_temp, _db, kv) = setup();
         let run_id = RunId::new();
 
-        kv.put(&run_id, "a", Value::Int(1)).unwrap();
-        kv.put(&run_id, "b", Value::Int(2)).unwrap();
-        kv.put(&run_id, "c", Value::Int(3)).unwrap();
+        kv.put(&run_id, "a", Value::I64(1)).unwrap();
+        kv.put(&run_id, "b", Value::I64(2)).unwrap();
+        kv.put(&run_id, "c", Value::I64(3)).unwrap();
 
         let results = kv.get_many(&run_id, &["a", "b", "c", "missing"]).unwrap();
 
         // M9: get_many returns Versioned<Value>
-        assert_eq!(results[0].as_ref().map(|v| &v.value), Some(&Value::Int(1)));
-        assert_eq!(results[1].as_ref().map(|v| &v.value), Some(&Value::Int(2)));
-        assert_eq!(results[2].as_ref().map(|v| &v.value), Some(&Value::Int(3)));
+        assert_eq!(results[0].as_ref().map(|v| &v.value), Some(&Value::I64(1)));
+        assert_eq!(results[1].as_ref().map(|v| &v.value), Some(&Value::I64(2)));
+        assert_eq!(results[2].as_ref().map(|v| &v.value), Some(&Value::I64(3)));
         assert_eq!(results[3], None);
     }
 
@@ -1106,17 +1106,17 @@ mod tests {
         let (_temp, _db, kv) = setup();
         let run_id = RunId::new();
 
-        kv.put(&run_id, "z", Value::Int(26)).unwrap();
-        kv.put(&run_id, "a", Value::Int(1)).unwrap();
-        kv.put(&run_id, "m", Value::Int(13)).unwrap();
+        kv.put(&run_id, "z", Value::I64(26)).unwrap();
+        kv.put(&run_id, "a", Value::I64(1)).unwrap();
+        kv.put(&run_id, "m", Value::I64(13)).unwrap();
 
         // Order of results matches order of input keys
         let results = kv.get_many(&run_id, &["m", "z", "a"]).unwrap();
 
         // M9: get_many returns Versioned<Value>
-        assert_eq!(results[0].as_ref().map(|v| &v.value), Some(&Value::Int(13))); // m
-        assert_eq!(results[1].as_ref().map(|v| &v.value), Some(&Value::Int(26))); // z
-        assert_eq!(results[2].as_ref().map(|v| &v.value), Some(&Value::Int(1))); // a
+        assert_eq!(results[0].as_ref().map(|v| &v.value), Some(&Value::I64(13))); // m
+        assert_eq!(results[1].as_ref().map(|v| &v.value), Some(&Value::I64(26))); // z
+        assert_eq!(results[2].as_ref().map(|v| &v.value), Some(&Value::I64(1))); // a
     }
 
     #[test]
@@ -1165,7 +1165,7 @@ mod tests {
 
         assert!(!kv.contains(&run_id, "key").unwrap());
 
-        kv.put(&run_id, "key", Value::Int(42)).unwrap();
+        kv.put(&run_id, "key", Value::I64(42)).unwrap();
 
         assert!(kv.contains(&run_id, "key").unwrap());
     }
@@ -1176,15 +1176,15 @@ mod tests {
         let run1 = RunId::new();
         let run2 = RunId::new();
 
-        kv.put(&run1, "key", Value::Int(1)).unwrap();
-        kv.put(&run2, "key", Value::Int(2)).unwrap();
+        kv.put(&run1, "key", Value::I64(1)).unwrap();
+        kv.put(&run2, "key", Value::I64(2)).unwrap();
 
         let results1 = kv.get_many(&run1, &["key"]).unwrap();
         let results2 = kv.get_many(&run2, &["key"]).unwrap();
 
         // M9: get_many returns Versioned<Value>
-        assert_eq!(results1[0].as_ref().map(|v| &v.value), Some(&Value::Int(1)));
-        assert_eq!(results2[0].as_ref().map(|v| &v.value), Some(&Value::Int(2)));
+        assert_eq!(results1[0].as_ref().map(|v| &v.value), Some(&Value::I64(1)));
+        assert_eq!(results2[0].as_ref().map(|v| &v.value), Some(&Value::I64(2)));
     }
 
     // ========== Search API Tests (M6) ==========

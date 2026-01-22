@@ -75,7 +75,7 @@ fn test_atomic_kv_and_event_with_multiple_events() {
 
     // Write KV state + 3 events atomically
     db.transaction(run_id, |txn| {
-        txn.put(kv_key.clone(), Value::Int(100))?;
+        txn.put(kv_key.clone(), Value::I64(100))?;
         txn.put(event1.clone(), Value::String("event_1".to_string()))?;
         txn.put(event2.clone(), Value::String("event_2".to_string()))?;
         txn.put(event3.clone(), Value::String("event_3".to_string()))?;
@@ -110,11 +110,11 @@ fn test_cross_primitive_rollback_on_error() {
     let event_key = Key::new_event(ns.clone(), 1);
 
     // Pre-populate KV key
-    db.put(run_id, kv_key.clone(), Value::Int(0)).unwrap();
+    db.put(run_id, kv_key.clone(), Value::I64(0)).unwrap();
 
     // Transaction that writes to both but then fails
     let result: Result<(), Error> = db.transaction(run_id, |txn| {
-        txn.put(kv_key.clone(), Value::Int(999))?;
+        txn.put(kv_key.clone(), Value::I64(999))?;
         txn.put(
             event_key.clone(),
             Value::String("should_rollback".to_string()),
@@ -129,7 +129,7 @@ fn test_cross_primitive_rollback_on_error() {
     // BOTH writes should be rolled back
     // KV should still have original value
     let kv = db.get(&kv_key).unwrap().unwrap();
-    assert_eq!(kv.value, Value::Int(0)); // Original value preserved
+    assert_eq!(kv.value, Value::I64(0)); // Original value preserved
 
     // Event should NOT exist
     assert!(db.get(&event_key).unwrap().is_none());
@@ -150,7 +150,7 @@ fn test_cross_primitive_conflict_rollback() {
     let event_key = Key::new_event(ns.clone(), 1);
 
     // Pre-populate with initial value
-    db.put(run_id, kv_key.clone(), Value::Int(0)).unwrap();
+    db.put(run_id, kv_key.clone(), Value::I64(0)).unwrap();
 
     let db1 = Arc::clone(&db);
     let db2 = Arc::clone(&db);
@@ -173,7 +173,7 @@ fn test_cross_primitive_conflict_rollback() {
             barrier1.wait();
 
             // Write to both primitives
-            txn.put(kv_key1.clone(), Value::Int(1))?;
+            txn.put(kv_key1.clone(), Value::I64(1))?;
             txn.put(event_key1.clone(), Value::String("from_t1".to_string()))?;
 
             // Small delay to let T2 commit first (usually)
@@ -190,7 +190,7 @@ fn test_cross_primitive_conflict_rollback() {
             barrier2.wait();
 
             // Blind write to KV (should commit quickly)
-            txn.put(kv_key.clone(), Value::Int(2))?;
+            txn.put(kv_key.clone(), Value::I64(2))?;
             Ok(())
         })
     });
@@ -227,7 +227,7 @@ fn test_cross_primitive_read_consistency() {
 
     // Commit 1: Write initial state
     db.transaction(run_id, |txn| {
-        txn.put(kv_key.clone(), Value::Int(1))?;
+        txn.put(kv_key.clone(), Value::I64(1))?;
         txn.put(event1.clone(), Value::String("initial".to_string()))?;
         Ok(())
     })
@@ -235,7 +235,7 @@ fn test_cross_primitive_read_consistency() {
 
     // Commit 2: Update state and add event
     db.transaction(run_id, |txn| {
-        txn.put(kv_key.clone(), Value::Int(2))?;
+        txn.put(kv_key.clone(), Value::I64(2))?;
         txn.put(event2.clone(), Value::String("updated".to_string()))?;
         Ok(())
     })
@@ -252,7 +252,7 @@ fn test_cross_primitive_read_consistency() {
         assert!(e2.is_some());
 
         // KV should be the latest value
-        assert_eq!(kv, Value::Int(2));
+        assert_eq!(kv, Value::I64(2));
 
         Ok(())
     })
@@ -272,7 +272,7 @@ fn test_cross_primitive_delete_atomicity() {
 
     // Create both
     db.transaction(run_id, |txn| {
-        txn.put(kv_key.clone(), Value::Int(100))?;
+        txn.put(kv_key.clone(), Value::I64(100))?;
         txn.put(event_key.clone(), Value::String("event".to_string()))?;
         Ok(())
     })

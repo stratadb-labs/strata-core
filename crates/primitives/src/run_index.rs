@@ -1479,7 +1479,7 @@ mod tests {
             let run_id = RunId::from_string(&meta.value.run_id).unwrap();
 
             // Use all primitives with this run
-            kv.put(&run_id, "key", Value::Int(42)).unwrap();
+            kv.put(&run_id, "key", Value::I64(42)).unwrap();
             event_log
                 .append(&run_id, "test-event", Value::Null)
                 .unwrap();
@@ -1579,7 +1579,7 @@ mod tests {
             // KV: store multiple entries
             kv.put(&run_id, "config", Value::String("{}".into()))
                 .unwrap();
-            kv.put(&run_id, "state", Value::Int(0)).unwrap();
+            kv.put(&run_id, "state", Value::I64(0)).unwrap();
 
             // EventLog: append multiple events
             event_log.append(&run_id, "start", Value::Null).unwrap();
@@ -1589,7 +1589,7 @@ mod tests {
             event_log.append(&run_id, "end", Value::Null).unwrap();
 
             // StateCell: create multiple cells
-            state_cell.init(&run_id, "counter", Value::Int(0)).unwrap();
+            state_cell.init(&run_id, "counter", Value::I64(0)).unwrap();
             state_cell
                 .init(&run_id, "flag", Value::Bool(false))
                 .unwrap();

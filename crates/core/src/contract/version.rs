@@ -359,11 +359,7 @@ mod tests {
 
         // Expected order: TxnId(5), TxnId(10), Sequence(1), Sequence(10), Counter(1), Counter(5)
         assert_eq!(versions[0], Version::TxnId(5), "First should be TxnId(5)");
-        assert_eq!(
-            versions[1],
-            Version::TxnId(10),
-            "Second should be TxnId(10)"
-        );
+        assert_eq!(versions[1], Version::TxnId(10), "Second should be TxnId(10)");
         assert_eq!(
             versions[2],
             Version::Sequence(1),

@@ -41,8 +41,8 @@ use sha2::{Sha256, Digest};
 ///     txn.event_append("event_type", json!({}))?;
 ///
 ///     // State operations
-///     txn.state_init("counter", Value::Int(0))?;
-///     txn.state_cas("counter", 1, Value::Int(1))?;
+///     txn.state_init("counter", Value::I64(0))?;
+///     txn.state_cas("counter", 1, Value::I64(1))?;
 ///
 ///     // Trace operations
 ///     txn.trace_record(TraceType::Thought { content: "...".into(), confidence: None }, vec![], json!({}))?;
@@ -835,9 +835,9 @@ mod tests {
         let mut txn = Transaction::new(&mut ctx, ns.clone());
 
         // Append multiple events
-        let v1 = txn.event_append("event1", Value::Int(1)).unwrap();
-        let v2 = txn.event_append("event2", Value::Int(2)).unwrap();
-        let v3 = txn.event_append("event3", Value::Int(3)).unwrap();
+        let v1 = txn.event_append("event1", Value::I64(1)).unwrap();
+        let v2 = txn.event_append("event2", Value::I64(2)).unwrap();
+        let v3 = txn.event_append("event3", Value::I64(3)).unwrap();
 
         assert_eq!(v1, Version::seq(0));
         assert_eq!(v2, Version::seq(1));
@@ -871,16 +871,16 @@ mod tests {
         let mut txn = Transaction::new(&mut ctx, ns.clone());
 
         // Append events and read them back immediately
-        txn.event_append("first", Value::Int(100)).unwrap();
-        txn.event_append("second", Value::Int(200)).unwrap();
+        txn.event_append("first", Value::I64(100)).unwrap();
+        txn.event_append("second", Value::I64(200)).unwrap();
 
         let first = txn.event_read(0).unwrap().unwrap();
         let second = txn.event_read(1).unwrap().unwrap();
 
         assert_eq!(first.value.event_type, "first");
-        assert_eq!(first.value.payload, Value::Int(100));
+        assert_eq!(first.value.payload, Value::I64(100));
         assert_eq!(second.value.event_type, "second");
-        assert_eq!(second.value.payload, Value::Int(200));
+        assert_eq!(second.value.payload, Value::I64(200));
     }
 
     #[test]
@@ -902,7 +902,7 @@ mod tests {
 
         // Append several events
         for i in 0..5 {
-            txn.event_append(&format!("event_{}", i), Value::Int(i)).unwrap();
+            txn.event_append(&format!("event_{}", i), Value::I64(i)).unwrap();
         }
 
         // Read a range
@@ -920,8 +920,8 @@ mod tests {
         let mut txn = Transaction::new(&mut ctx, ns.clone());
 
         // Append events
-        txn.event_append("first", Value::Int(1)).unwrap();
-        txn.event_append("second", Value::Int(2)).unwrap();
+        txn.event_append("first", Value::I64(1)).unwrap();
+        txn.event_append("second", Value::I64(2)).unwrap();
 
         let first = txn.event_read(0).unwrap().unwrap();
         let second = txn.event_read(1).unwrap().unwrap();
@@ -947,7 +947,7 @@ mod tests {
         let mut txn = Transaction::with_base_sequence(&mut ctx, ns.clone(), 100, last_hash);
 
         // New events should continue from base
-        let v1 = txn.event_append("new_event", Value::Int(1)).unwrap();
+        let v1 = txn.event_append("new_event", Value::I64(1)).unwrap();
         assert_eq!(v1, Version::seq(100));
         assert_eq!(txn.event_len().unwrap(), 101);
 
@@ -962,8 +962,8 @@ mod tests {
         let mut ctx = create_test_context(&ns);
         let mut txn = Transaction::new(&mut ctx, ns.clone());
 
-        txn.event_append("e1", Value::Int(1)).unwrap();
-        txn.event_append("e2", Value::Int(2)).unwrap();
+        txn.event_append("e1", Value::I64(1)).unwrap();
+        txn.event_append("e2", Value::I64(2)).unwrap();
 
         let pending = txn.pending_events();
         assert_eq!(pending.len(), 2);
@@ -982,14 +982,14 @@ mod tests {
         let mut txn = Transaction::new(&mut ctx, ns.clone());
 
         // Initialize a state cell
-        let version = txn.state_init("counter", Value::Int(0)).unwrap();
+        let version = txn.state_init("counter", Value::I64(0)).unwrap();
         assert_eq!(version, Version::counter(1)); // Version 1 for new state
 
         // Read it back (read-your-writes)
         let result = txn.state_read("counter").unwrap();
         assert!(result.is_some());
         let versioned = result.unwrap();
-        assert_eq!(versioned.value.value, Value::Int(0));
+        assert_eq!(versioned.value.value, Value::I64(0));
         assert_eq!(versioned.value.version, 1);
     }
 
@@ -1000,13 +1000,13 @@ mod tests {
         let mut txn = Transaction::new(&mut ctx, ns.clone());
 
         // Initialize then CAS
-        txn.state_init("counter", Value::Int(0)).unwrap();
-        let new_version = txn.state_cas("counter", 1, Value::Int(1)).unwrap();
+        txn.state_init("counter", Value::I64(0)).unwrap();
+        let new_version = txn.state_cas("counter", 1, Value::I64(1)).unwrap();
         assert_eq!(new_version, Version::counter(2)); // Version incremented
 
         // Verify the value changed
         let result = txn.state_read("counter").unwrap().unwrap();
-        assert_eq!(result.value.value, Value::Int(1));
+        assert_eq!(result.value.value, Value::I64(1));
         assert_eq!(result.value.version, 2);
     }
 
@@ -1017,8 +1017,8 @@ mod tests {
         let mut txn = Transaction::new(&mut ctx, ns.clone());
 
         // Initialize then CAS with wrong version
-        txn.state_init("counter", Value::Int(0)).unwrap();
-        let result = txn.state_cas("counter", 99, Value::Int(1)); // Wrong version
+        txn.state_init("counter", Value::I64(0)).unwrap();
+        let result = txn.state_cas("counter", 99, Value::I64(1)); // Wrong version
 
         assert!(result.is_err());
         match result.unwrap_err() {
@@ -1037,7 +1037,7 @@ mod tests {
         let mut txn = Transaction::new(&mut ctx, ns.clone());
 
         // Initialize then delete
-        txn.state_init("counter", Value::Int(0)).unwrap();
+        txn.state_init("counter", Value::I64(0)).unwrap();
         let existed = txn.state_delete("counter").unwrap();
         assert!(existed);
 
@@ -1056,7 +1056,7 @@ mod tests {
         assert!(!txn.state_exists("counter").unwrap());
 
         // Initialize and check
-        txn.state_init("counter", Value::Int(0)).unwrap();
+        txn.state_init("counter", Value::I64(0)).unwrap();
         assert!(txn.state_exists("counter").unwrap());
     }
 
@@ -1067,8 +1067,8 @@ mod tests {
         let mut txn = Transaction::new(&mut ctx, ns.clone());
 
         // Initialize twice should fail
-        txn.state_init("counter", Value::Int(0)).unwrap();
-        let result = txn.state_init("counter", Value::Int(1));
+        txn.state_init("counter", Value::I64(0)).unwrap();
+        let result = txn.state_init("counter", Value::I64(1));
 
         assert!(result.is_err());
         match result.unwrap_err() {
@@ -1149,7 +1149,7 @@ mod tests {
         let trace_type = TraceType::ToolCall {
             tool_name: "calculator".to_string(),
             arguments: Value::String("2+2".to_string()),
-            result: Some(Value::Int(4)),
+            result: Some(Value::I64(4)),
             duration_ms: Some(10),
         };
         txn.trace_record(trace_type.clone(), vec!["math".to_string()], Value::Null).unwrap();

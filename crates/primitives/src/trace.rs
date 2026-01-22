@@ -762,7 +762,7 @@ mod tests {
         let tt = TraceType::ToolCall {
             tool_name: "search".into(),
             arguments: Value::String("query".into()),
-            result: Some(Value::Int(42)),
+            result: Some(Value::I64(42)),
             duration_ms: Some(100),
         };
         assert_eq!(tt.type_name(), "ToolCall");

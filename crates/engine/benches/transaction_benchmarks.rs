@@ -38,7 +38,7 @@ fn bench_single_threaded_transactions(c: &mut Criterion) {
         b.iter(|| {
             let key = Key::new_kv(ns.clone(), format!("key_{}", i));
             let result = db.transaction(run_id, |txn| {
-                txn.put(key.clone(), Value::Int(i as i64))?;
+                txn.put(key.clone(), Value::I64(i as i64))?;
                 Ok(())
             });
             black_box(result.unwrap());
@@ -48,16 +48,16 @@ fn bench_single_threaded_transactions(c: &mut Criterion) {
 
     group.bench_function("transaction_get_put", |b| {
         let key = Key::new_kv(ns.clone(), "get_put_key");
-        db.put(run_id, key.clone(), Value::Int(0)).unwrap();
+        db.put(run_id, key.clone(), Value::I64(0)).unwrap();
 
         b.iter(|| {
             let result = db.transaction(run_id, |txn| {
                 let val = txn.get(&key)?;
                 let new_val = match val {
-                    Some(Value::Int(n)) => n + 1,
+                    Some(Value::I64(n)) => n + 1,
                     _ => 1,
                 };
-                txn.put(key.clone(), Value::Int(new_val))?;
+                txn.put(key.clone(), Value::I64(new_val))?;
                 Ok(())
             });
             black_box(result.unwrap());
@@ -96,7 +96,7 @@ fn bench_multi_threaded_no_conflict(c: &mut Criterion) {
                                     let key =
                                         Key::new_kv(ns.clone(), format!("t{}_{}", thread_id, i));
                                     db.transaction(run_id, |txn| {
-                                        txn.put(key.clone(), Value::Int(i as i64))?;
+                                        txn.put(key.clone(), Value::I64(i as i64))?;
                                         Ok(())
                                     })
                                     .unwrap();
@@ -137,7 +137,7 @@ fn bench_multi_threaded_with_conflict(c: &mut Criterion) {
                     let key = Key::new_kv(ns, "contested_key");
 
                     // Pre-populate
-                    db.put(run_id, key.clone(), Value::Int(0)).unwrap();
+                    db.put(run_id, key.clone(), Value::I64(0)).unwrap();
 
                     let start = std::time::Instant::now();
 
@@ -152,10 +152,10 @@ fn bench_multi_threaded_with_conflict(c: &mut Criterion) {
                                     let _ = db.transaction(run_id, |txn| {
                                         let val = txn.get(&key)?;
                                         let new_val = match val {
-                                            Some(Value::Int(n)) => n + 1,
+                                            Some(Value::I64(n)) => n + 1,
                                             _ => 1,
                                         };
-                                        txn.put(key.clone(), Value::Int(new_val))?;
+                                        txn.put(key.clone(), Value::I64(new_val))?;
                                         Ok(())
                                     });
                                 }
@@ -189,7 +189,7 @@ fn bench_snapshot_creation(c: &mut Criterion) {
         // Pre-populate with data
         for i in 0..data_size {
             let key = Key::new_kv(ns.clone(), format!("key_{}", i));
-            db.put(run_id, key, Value::Int(i as i64)).unwrap();
+            db.put(run_id, key, Value::I64(i as i64)).unwrap();
         }
 
         group.throughput(Throughput::Elements(1));
@@ -216,7 +216,7 @@ fn bench_read_only_transactions(c: &mut Criterion) {
     // Pre-populate
     for i in 0..1000 {
         let key = Key::new_kv(ns.clone(), format!("key_{}", i));
-        db.put(run_id, key, Value::Int(i as i64)).unwrap();
+        db.put(run_id, key, Value::I64(i as i64)).unwrap();
     }
 
     let mut group = c.benchmark_group("read_only");
@@ -263,7 +263,7 @@ fn bench_direct_operations(c: &mut Criterion) {
         let mut i = 0u64;
         b.iter(|| {
             let key = Key::new_kv(ns.clone(), format!("direct_key_{}", i));
-            let result = db.put(run_id, key, Value::Int(i as i64));
+            let result = db.put(run_id, key, Value::I64(i as i64));
             black_box(result.unwrap());
             i += 1;
         });
@@ -271,7 +271,7 @@ fn bench_direct_operations(c: &mut Criterion) {
 
     // Pre-populate for get benchmark
     let get_key = Key::new_kv(ns.clone(), "get_key");
-    db.put(run_id, get_key.clone(), Value::Int(42)).unwrap();
+    db.put(run_id, get_key.clone(), Value::I64(42)).unwrap();
 
     group.bench_function("direct_get", |b| {
         b.iter(|| {

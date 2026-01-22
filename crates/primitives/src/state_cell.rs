@@ -75,19 +75,19 @@ fn from_stored_value<T: for<'de> Deserialize<'de>>(
 /// let run_id = RunId::new();
 ///
 /// // Initialize a counter
-/// sc.init(&run_id, "counter", Value::Int(0))?;
+/// sc.init(&run_id, "counter", Value::I64(0))?;
 ///
 /// // Read current state
 /// let state = sc.read(&run_id, "counter")?.unwrap();
 /// assert_eq!(state.version, 1);
 ///
 /// // CAS update
-/// sc.cas(&run_id, "counter", 1, Value::Int(1))?;
+/// sc.cas(&run_id, "counter", 1, Value::I64(1))?;
 ///
 /// // Transition with automatic retry
 /// sc.transition(&run_id, "counter", |state| {
 ///     let current = state.value.as_i64().unwrap_or(0);
-///     Ok((Value::Int(current + 1), current + 1))
+///     Ok((Value::I64(current + 1), current + 1))
 /// })?;
 /// ```
 #[derive(Clone)]
@@ -337,7 +337,7 @@ impl StateCell {
     /// ```rust,ignore
     /// let (incremented, versioned) = sc.transition(run_id, "counter", |state| {
     ///     let current = state.value.as_i64().unwrap_or(0);
-    ///     Ok((Value::Int(current + 1), current + 1))
+    ///     Ok((Value::I64(current + 1), current + 1))
     /// })?;
     /// ```
     ///
@@ -607,10 +607,10 @@ mod tests {
 
     #[test]
     fn test_state_creation() {
-        let state = State::new(Value::Int(42));
+        let state = State::new(Value::I64(42));
         assert_eq!(state.version, 1);
         assert!(state.updated_at > 0);
-        assert_eq!(state.value, Value::Int(42));
+        assert_eq!(state.value, Value::I64(42));
     }
 
     #[test]
@@ -648,12 +648,12 @@ mod tests {
         let (_temp, _db, sc) = setup();
         let run_id = RunId::new();
 
-        let versioned = sc.init(&run_id, "counter", Value::Int(0)).unwrap();
+        let versioned = sc.init(&run_id, "counter", Value::I64(0)).unwrap();
         assert_eq!(versioned.value, 1);
         assert!(versioned.version.is_counter());
 
         let state = sc.read(&run_id, "counter").unwrap().unwrap();
-        assert_eq!(state.value.value, Value::Int(0));
+        assert_eq!(state.value.value, Value::I64(0));
         assert_eq!(state.value.version, 1);
         assert!(state.version.is_counter());
     }
@@ -731,14 +731,14 @@ mod tests {
         let run1 = RunId::new();
         let run2 = RunId::new();
 
-        sc.init(&run1, "shared", Value::Int(1)).unwrap();
-        sc.init(&run2, "shared", Value::Int(2)).unwrap();
+        sc.init(&run1, "shared", Value::I64(1)).unwrap();
+        sc.init(&run2, "shared", Value::I64(2)).unwrap();
 
         let state1 = sc.read(&run1, "shared").unwrap().unwrap();
         let state2 = sc.read(&run2, "shared").unwrap().unwrap();
 
-        assert_eq!(state1.value.value, Value::Int(1));
-        assert_eq!(state2.value.value, Value::Int(2));
+        assert_eq!(state1.value.value, Value::I64(1));
+        assert_eq!(state2.value.value, Value::I64(2));
     }
 
     // ========== Story #182, #468: CAS & Set Tests ==========
@@ -748,15 +748,15 @@ mod tests {
         let (_temp, _db, sc) = setup();
         let run_id = RunId::new();
 
-        sc.init(&run_id, "counter", Value::Int(0)).unwrap();
+        sc.init(&run_id, "counter", Value::I64(0)).unwrap();
 
         // CAS with correct version
-        let new_versioned = sc.cas(&run_id, "counter", 1, Value::Int(1)).unwrap();
+        let new_versioned = sc.cas(&run_id, "counter", 1, Value::I64(1)).unwrap();
         assert_eq!(new_versioned.value, 2);
         assert!(new_versioned.version.is_counter());
 
         let state = sc.read(&run_id, "counter").unwrap().unwrap();
-        assert_eq!(state.value.value, Value::Int(1));
+        assert_eq!(state.value.value, Value::I64(1));
         assert_eq!(state.value.version, 2);
     }
 
@@ -765,10 +765,10 @@ mod tests {
         let (_temp, _db, sc) = setup();
         let run_id = RunId::new();
 
-        sc.init(&run_id, "counter", Value::Int(0)).unwrap();
+        sc.init(&run_id, "counter", Value::I64(0)).unwrap();
 
         // CAS with wrong version
-        let result = sc.cas(&run_id, "counter", 999, Value::Int(1));
+        let result = sc.cas(&run_id, "counter", 999, Value::I64(1));
         assert!(matches!(
             result,
             Err(strata_core::error::Error::VersionMismatch { .. })
@@ -780,7 +780,7 @@ mod tests {
         let (_temp, _db, sc) = setup();
         let run_id = RunId::new();
 
-        let result = sc.cas(&run_id, "nonexistent", 1, Value::Int(1));
+        let result = sc.cas(&run_id, "nonexistent", 1, Value::I64(1));
         assert!(result.is_err());
     }
 
@@ -789,11 +789,11 @@ mod tests {
         let (_temp, _db, sc) = setup();
         let run_id = RunId::new();
 
-        let versioned = sc.set(&run_id, "new-cell", Value::Int(42)).unwrap();
+        let versioned = sc.set(&run_id, "new-cell", Value::I64(42)).unwrap();
         assert_eq!(versioned.value, 1);
 
         let state = sc.read(&run_id, "new-cell").unwrap().unwrap();
-        assert_eq!(state.value.value, Value::Int(42));
+        assert_eq!(state.value.value, Value::I64(42));
     }
 
     #[test]
@@ -801,12 +801,12 @@ mod tests {
         let (_temp, _db, sc) = setup();
         let run_id = RunId::new();
 
-        sc.init(&run_id, "cell", Value::Int(1)).unwrap();
-        let versioned = sc.set(&run_id, "cell", Value::Int(100)).unwrap();
+        sc.init(&run_id, "cell", Value::I64(1)).unwrap();
+        let versioned = sc.set(&run_id, "cell", Value::I64(100)).unwrap();
         assert_eq!(versioned.value, 2);
 
         let state = sc.read(&run_id, "cell").unwrap().unwrap();
-        assert_eq!(state.value.value, Value::Int(100));
+        assert_eq!(state.value.value, Value::I64(100));
     }
 
     #[test]
@@ -814,10 +814,10 @@ mod tests {
         let (_temp, _db, sc) = setup();
         let run_id = RunId::new();
 
-        sc.init(&run_id, "cell", Value::Int(0)).unwrap();
+        sc.init(&run_id, "cell", Value::I64(0)).unwrap();
 
         for i in 1..=10 {
-            let v = sc.set(&run_id, "cell", Value::Int(i)).unwrap();
+            let v = sc.set(&run_id, "cell", Value::I64(i)).unwrap();
             assert_eq!(v.value, (i + 1) as u64);
         }
 
@@ -832,15 +832,15 @@ mod tests {
         let (_temp, _db, sc) = setup();
         let run_id = RunId::new();
 
-        sc.init(&run_id, "counter", Value::Int(0)).unwrap();
+        sc.init(&run_id, "counter", Value::I64(0)).unwrap();
 
         let (result, new_versioned) = sc
             .transition(&run_id, "counter", |state| {
                 let current = match &state.value {
-                    Value::Int(n) => *n,
+                    Value::I64(n) => *n,
                     _ => 0,
                 };
-                Ok((Value::Int(current + 1), current + 1))
+                Ok((Value::I64(current + 1), current + 1))
             })
             .unwrap();
 
@@ -849,7 +849,7 @@ mod tests {
         assert!(new_versioned.version.is_counter());
 
         let state = sc.read(&run_id, "counter").unwrap().unwrap();
-        assert_eq!(state.value.value, Value::Int(1));
+        assert_eq!(state.value.value, Value::I64(1));
         assert_eq!(state.value.version, 2);
     }
 
@@ -869,19 +869,19 @@ mod tests {
 
         // Cell doesn't exist, should init then transition
         let (result, _versioned) = sc
-            .transition_or_init(&run_id, "new-counter", Value::Int(0), |state| {
+            .transition_or_init(&run_id, "new-counter", Value::I64(0), |state| {
                 let current = match &state.value {
-                    Value::Int(n) => *n,
+                    Value::I64(n) => *n,
                     _ => 0,
                 };
-                Ok((Value::Int(current + 10), current + 10))
+                Ok((Value::I64(current + 10), current + 10))
             })
             .unwrap();
 
         assert_eq!(result, 10);
 
         let state = sc.read(&run_id, "new-counter").unwrap().unwrap();
-        assert_eq!(state.value.value, Value::Int(10));
+        assert_eq!(state.value.value, Value::I64(10));
     }
 
     #[test]
@@ -890,16 +890,16 @@ mod tests {
         let run_id = RunId::new();
 
         // Init first
-        sc.init(&run_id, "counter", Value::Int(5)).unwrap();
+        sc.init(&run_id, "counter", Value::I64(5)).unwrap();
 
         // transition_or_init should use existing value
         let (result, _versioned) = sc
-            .transition_or_init(&run_id, "counter", Value::Int(0), |state| {
+            .transition_or_init(&run_id, "counter", Value::I64(0), |state| {
                 let current = match &state.value {
-                    Value::Int(n) => *n,
+                    Value::I64(n) => *n,
                     _ => 0,
                 };
-                Ok((Value::Int(current + 1), current + 1))
+                Ok((Value::I64(current + 1), current + 1))
             })
             .unwrap();
 
@@ -911,23 +911,23 @@ mod tests {
         let (_temp, _db, sc) = setup();
         let run_id = RunId::new();
 
-        sc.init(&run_id, "counter", Value::Int(0)).unwrap();
+        sc.init(&run_id, "counter", Value::I64(0)).unwrap();
 
         for expected in 1..=5 {
             let (result, _versioned) = sc
                 .transition(&run_id, "counter", |state| {
                     let current = match &state.value {
-                        Value::Int(n) => *n,
+                        Value::I64(n) => *n,
                         _ => 0,
                     };
-                    Ok((Value::Int(current + 1), current + 1))
+                    Ok((Value::I64(current + 1), current + 1))
                 })
                 .unwrap();
             assert_eq!(result, expected);
         }
 
         let state = sc.read(&run_id, "counter").unwrap().unwrap();
-        assert_eq!(state.value.value, Value::Int(5));
+        assert_eq!(state.value.value, Value::I64(5));
         assert_eq!(state.value.version, 6);
     }
 
@@ -971,16 +971,16 @@ mod tests {
         let (_temp, db, sc) = setup();
         let run_id = RunId::new();
 
-        sc.init(&run_id, "cell", Value::Int(1)).unwrap();
+        sc.init(&run_id, "cell", Value::I64(1)).unwrap();
 
         let new_version = db
-            .transaction(run_id, |txn| txn.state_cas("cell", 1, Value::Int(2)))
+            .transaction(run_id, |txn| txn.state_cas("cell", 1, Value::I64(2)))
             .unwrap();
 
         assert_eq!(new_version, 2);
 
         let state = sc.read(&run_id, "cell").unwrap().unwrap();
-        assert_eq!(state.value.value, Value::Int(2));
+        assert_eq!(state.value.value, Value::I64(2));
     }
 
     #[test]
@@ -989,13 +989,13 @@ mod tests {
         let run_id = RunId::new();
 
         let version = db
-            .transaction(run_id, |txn| txn.state_set("new-cell", Value::Int(42)))
+            .transaction(run_id, |txn| txn.state_set("new-cell", Value::I64(42)))
             .unwrap();
 
         assert_eq!(version, 1);
 
         let state = sc.read(&run_id, "new-cell").unwrap().unwrap();
-        assert_eq!(state.value.value, Value::Int(42));
+        assert_eq!(state.value.value, Value::I64(42));
     }
 
     #[test]
@@ -1005,19 +1005,19 @@ mod tests {
         let (_temp, db, sc) = setup();
         let run_id = RunId::new();
 
-        sc.init(&run_id, "counter", Value::Int(0)).unwrap();
+        sc.init(&run_id, "counter", Value::I64(0)).unwrap();
 
         // Combine KV and StateCell in single transaction
         db.transaction(run_id, |txn| {
             txn.kv_put("key", Value::String("value".into()))?;
-            txn.state_set("counter", Value::Int(1))?;
+            txn.state_set("counter", Value::I64(1))?;
             Ok(())
         })
         .unwrap();
 
         // Verify both were written
         let state = sc.read(&run_id, "counter").unwrap().unwrap();
-        assert_eq!(state.value.value, Value::Int(1));
+        assert_eq!(state.value.value, Value::I64(1));
     }
 
     // ========== Fast Path Tests (Story #238, #468) ==========
@@ -1027,10 +1027,10 @@ mod tests {
         let (_temp, _db, sc) = setup();
         let run_id = RunId::new();
 
-        sc.init(&run_id, "cell", Value::Int(42)).unwrap();
+        sc.init(&run_id, "cell", Value::I64(42)).unwrap();
 
         let state = sc.read(&run_id, "cell").unwrap().unwrap();
-        assert_eq!(state.value.value, Value::Int(42));
+        assert_eq!(state.value.value, Value::I64(42));
         assert_eq!(state.value.version, 1);
         assert!(state.version.is_counter());
     }
@@ -1078,14 +1078,14 @@ mod tests {
         let run1 = RunId::new();
         let run2 = RunId::new();
 
-        sc.init(&run1, "shared", Value::Int(1)).unwrap();
-        sc.init(&run2, "shared", Value::Int(2)).unwrap();
+        sc.init(&run1, "shared", Value::I64(1)).unwrap();
+        sc.init(&run2, "shared", Value::I64(2)).unwrap();
 
         let state1 = sc.read(&run1, "shared").unwrap().unwrap();
         let state2 = sc.read(&run2, "shared").unwrap().unwrap();
 
-        assert_eq!(state1.value.value, Value::Int(1));
-        assert_eq!(state2.value.value, Value::Int(2));
+        assert_eq!(state1.value.value, Value::I64(1));
+        assert_eq!(state2.value.value, Value::I64(2));
     }
 
     // ========== Story #468: Versioned Returns Tests ==========
@@ -1095,7 +1095,7 @@ mod tests {
         let (_temp, _db, sc) = setup();
         let run_id = RunId::new();
 
-        let versioned = sc.init(&run_id, "cell", Value::Int(0)).unwrap();
+        let versioned = sc.init(&run_id, "cell", Value::I64(0)).unwrap();
         assert_eq!(versioned.value, 1);
         assert!(versioned.version.is_counter());
         assert_eq!(versioned.version, Version::counter(1));
@@ -1106,7 +1106,7 @@ mod tests {
         let (_temp, _db, sc) = setup();
         let run_id = RunId::new();
 
-        sc.init(&run_id, "cell", Value::Int(42)).unwrap();
+        sc.init(&run_id, "cell", Value::I64(42)).unwrap();
         let versioned = sc.read(&run_id, "cell").unwrap().unwrap();
 
         assert!(versioned.version.is_counter());
@@ -1119,8 +1119,8 @@ mod tests {
         let (_temp, _db, sc) = setup();
         let run_id = RunId::new();
 
-        sc.init(&run_id, "cell", Value::Int(0)).unwrap();
-        let versioned = sc.cas(&run_id, "cell", 1, Value::Int(1)).unwrap();
+        sc.init(&run_id, "cell", Value::I64(0)).unwrap();
+        let versioned = sc.cas(&run_id, "cell", 1, Value::I64(1)).unwrap();
 
         assert!(versioned.version.is_counter());
         assert_eq!(versioned.version, Version::counter(2));

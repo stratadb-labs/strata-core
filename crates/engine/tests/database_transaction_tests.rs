@@ -41,13 +41,13 @@ fn test_e2e_read_modify_write() {
     let key = Key::new_kv(ns, "counter");
 
     // Initialize counter
-    db.put(run_id, key.clone(), Value::Int(0)).unwrap();
+    db.put(run_id, key.clone(), Value::I64(0)).unwrap();
 
     // Read-modify-write in transaction
     db.transaction(run_id, |txn| {
         let val = txn.get(&key)?.unwrap();
-        if let Value::Int(n) = val {
-            txn.put(key.clone(), Value::Int(n + 1))?;
+        if let Value::I64(n) = val {
+            txn.put(key.clone(), Value::I64(n + 1))?;
         }
         Ok(())
     })
@@ -55,7 +55,7 @@ fn test_e2e_read_modify_write() {
 
     // Verify incremented
     let result = db.get(&key).unwrap().unwrap();
-    assert_eq!(result.value, Value::Int(1));
+    assert_eq!(result.value, Value::I64(1));
 }
 
 #[test]
@@ -68,9 +68,9 @@ fn test_e2e_multi_key_transaction() {
 
     // Transaction with multiple keys
     db.transaction(run_id, |txn| {
-        txn.put(Key::new_kv(ns.clone(), "a"), Value::Int(1))?;
-        txn.put(Key::new_kv(ns.clone(), "b"), Value::Int(2))?;
-        txn.put(Key::new_kv(ns.clone(), "c"), Value::Int(3))?;
+        txn.put(Key::new_kv(ns.clone(), "a"), Value::I64(1))?;
+        txn.put(Key::new_kv(ns.clone(), "b"), Value::I64(2))?;
+        txn.put(Key::new_kv(ns.clone(), "c"), Value::I64(3))?;
         Ok(())
     })
     .unwrap();
@@ -81,21 +81,21 @@ fn test_e2e_multi_key_transaction() {
             .unwrap()
             .unwrap()
             .value,
-        Value::Int(1)
+        Value::I64(1)
     );
     assert_eq!(
         db.get(&Key::new_kv(ns.clone(), "b"))
             .unwrap()
             .unwrap()
             .value,
-        Value::Int(2)
+        Value::I64(2)
     );
     assert_eq!(
         db.get(&Key::new_kv(ns.clone(), "c"))
             .unwrap()
             .unwrap()
             .value,
-        Value::Int(3)
+        Value::I64(3)
     );
 }
 
@@ -109,11 +109,11 @@ fn test_e2e_transaction_abort_rollback() {
     let key = Key::new_kv(ns, "rollback_key");
 
     // Pre-populate
-    db.put(run_id, key.clone(), Value::Int(100)).unwrap();
+    db.put(run_id, key.clone(), Value::I64(100)).unwrap();
 
     // Failing transaction
     let result: Result<(), Error> = db.transaction(run_id, |txn| {
-        txn.put(key.clone(), Value::Int(999))?;
+        txn.put(key.clone(), Value::I64(999))?;
         Err(Error::InvalidState("rollback".to_string()))
     });
 
@@ -121,7 +121,7 @@ fn test_e2e_transaction_abort_rollback() {
 
     // Original value should be preserved
     let val = db.get(&key).unwrap().unwrap();
-    assert_eq!(val.value, Value::Int(100));
+    assert_eq!(val.value, Value::I64(100));
 }
 
 #[test]
@@ -135,20 +135,20 @@ fn test_e2e_transaction_with_delete() {
     let key2 = Key::new_kv(ns.clone(), "key2");
 
     // Pre-populate
-    db.put(run_id, key1.clone(), Value::Int(1)).unwrap();
-    db.put(run_id, key2.clone(), Value::Int(2)).unwrap();
+    db.put(run_id, key1.clone(), Value::I64(1)).unwrap();
+    db.put(run_id, key2.clone(), Value::I64(2)).unwrap();
 
     // Transaction that deletes one key and updates another
     db.transaction(run_id, |txn| {
         txn.delete(key1.clone())?;
-        txn.put(key2.clone(), Value::Int(20))?;
+        txn.put(key2.clone(), Value::I64(20))?;
         Ok(())
     })
     .unwrap();
 
     // Verify changes
     assert!(db.get(&key1).unwrap().is_none());
-    assert_eq!(db.get(&key2).unwrap().unwrap().value, Value::Int(20));
+    assert_eq!(db.get(&key2).unwrap().unwrap().value, Value::I64(20));
 }
 
 #[test]
@@ -164,8 +164,8 @@ fn test_e2e_nested_value_types() {
             Key::new_kv(ns.clone(), "string"),
             Value::String("hello".to_string()),
         )?;
-        txn.put(Key::new_kv(ns.clone(), "int"), Value::Int(42))?;
-        txn.put(Key::new_kv(ns.clone(), "float"), Value::Float(3.14))?;
+        txn.put(Key::new_kv(ns.clone(), "int"), Value::I64(42))?;
+        txn.put(Key::new_kv(ns.clone(), "float"), Value::F64(3.14))?;
         txn.put(Key::new_kv(ns.clone(), "bool"), Value::Bool(true))?;
         txn.put(
             Key::new_kv(ns.clone(), "bytes"),
@@ -188,14 +188,14 @@ fn test_e2e_nested_value_types() {
             .unwrap()
             .unwrap()
             .value,
-        Value::Int(42)
+        Value::I64(42)
     );
     assert_eq!(
         db.get(&Key::new_kv(ns.clone(), "float"))
             .unwrap()
             .unwrap()
             .value,
-        Value::Float(3.14)
+        Value::F64(3.14)
     );
     assert_eq!(
         db.get(&Key::new_kv(ns.clone(), "bool"))
@@ -234,7 +234,7 @@ fn test_concurrent_transactions_different_keys() {
 
         handles.push(thread::spawn(move || {
             let key = Key::new_kv(ns, &format!("thread_{}", i));
-            db.put(run_id, key, Value::Int(i as i64)).unwrap();
+            db.put(run_id, key, Value::I64(i as i64)).unwrap();
         }));
     }
 
@@ -246,7 +246,7 @@ fn test_concurrent_transactions_different_keys() {
     for i in 0..10 {
         let key = Key::new_kv(ns.clone(), &format!("thread_{}", i));
         let val = db.get(&key).unwrap().unwrap();
-        assert_eq!(val.value, Value::Int(i as i64));
+        assert_eq!(val.value, Value::I64(i as i64));
     }
 }
 
@@ -268,7 +268,7 @@ fn test_concurrent_transactions_same_key_blind_write() {
         let key = key.clone();
 
         handles.push(thread::spawn(move || {
-            db.put(run_id, key, Value::Int(i as i64)).unwrap();
+            db.put(run_id, key, Value::I64(i as i64)).unwrap();
         }));
     }
 
@@ -300,14 +300,14 @@ fn test_concurrent_writes_different_keys_no_conflicts() {
             let key = Key::new_kv(ns, &format!("thread_{}_key", thread_id));
 
             // Initialize
-            db.put(run_id, key.clone(), Value::Int(0)).unwrap();
+            db.put(run_id, key.clone(), Value::I64(0)).unwrap();
 
             // Increment 10 times
             for _ in 0..10 {
                 db.transaction(run_id, |txn| {
                     let val = txn.get(&key)?.unwrap();
-                    if let Value::Int(n) = val {
-                        txn.put(key.clone(), Value::Int(n + 1))?;
+                    if let Value::I64(n) = val {
+                        txn.put(key.clone(), Value::I64(n + 1))?;
                         Ok(())
                     } else {
                         Err(Error::InvalidState("wrong type".to_string()))
@@ -326,7 +326,7 @@ fn test_concurrent_writes_different_keys_no_conflicts() {
     for thread_id in 0..5 {
         let key = Key::new_kv(ns.clone(), &format!("thread_{}_key", thread_id));
         let val = db.get(&key).unwrap().unwrap();
-        assert_eq!(val.value, Value::Int(10));
+        assert_eq!(val.value, Value::I64(10));
     }
 }
 
@@ -343,7 +343,7 @@ fn test_retry_simulated_conflict() {
     let key = Key::new_kv(ns, "retry_key");
 
     // Pre-populate
-    db.put(run_id, key.clone(), Value::Int(0)).unwrap();
+    db.put(run_id, key.clone(), Value::I64(0)).unwrap();
 
     let attempts = AtomicU64::new(0);
 
@@ -360,14 +360,14 @@ fn test_retry_simulated_conflict() {
         if count < 2 {
             Err(Error::TransactionConflict("simulated".to_string()))
         } else {
-            txn.put(key.clone(), Value::Int(42))?;
+            txn.put(key.clone(), Value::I64(42))?;
             Ok(())
         }
     });
 
     assert!(result.is_ok());
     assert_eq!(attempts.load(Ordering::Relaxed), 3); // Tried 3 times
-    assert_eq!(db.get(&key).unwrap().unwrap().value, Value::Int(42));
+    assert_eq!(db.get(&key).unwrap().unwrap().value, Value::I64(42));
 }
 
 // ============================================================================
@@ -387,14 +387,14 @@ fn test_recovery_preserves_transactions() {
         let db = Database::open(&db_path).unwrap();
 
         db.transaction(run_id, |txn| {
-            txn.put(Key::new_kv(ns.clone(), "key1"), Value::Int(1))?;
-            txn.put(Key::new_kv(ns.clone(), "key2"), Value::Int(2))?;
+            txn.put(Key::new_kv(ns.clone(), "key1"), Value::I64(1))?;
+            txn.put(Key::new_kv(ns.clone(), "key2"), Value::I64(2))?;
             Ok(())
         })
         .unwrap();
 
         db.transaction(run_id, |txn| {
-            txn.put(Key::new_kv(ns.clone(), "key3"), Value::Int(3))?;
+            txn.put(Key::new_kv(ns.clone(), "key3"), Value::I64(3))?;
             Ok(())
         })
         .unwrap();
@@ -409,21 +409,21 @@ fn test_recovery_preserves_transactions() {
                 .unwrap()
                 .unwrap()
                 .value,
-            Value::Int(1)
+            Value::I64(1)
         );
         assert_eq!(
             db.get(&Key::new_kv(ns.clone(), "key2"))
                 .unwrap()
                 .unwrap()
                 .value,
-            Value::Int(2)
+            Value::I64(2)
         );
         assert_eq!(
             db.get(&Key::new_kv(ns.clone(), "key3"))
                 .unwrap()
                 .unwrap()
                 .value,
-            Value::Int(3)
+            Value::I64(3)
         );
     }
 }
@@ -441,7 +441,7 @@ fn test_recovery_version_continuity() {
     // Write data and capture version
     {
         let db = Database::open(&db_path).unwrap();
-        db.put(run_id, Key::new_kv(ns.clone(), "key"), Value::Int(1))
+        db.put(run_id, Key::new_kv(ns.clone(), "key"), Value::I64(1))
             .unwrap();
         version_before = db.storage().current_version();
     }
@@ -455,7 +455,7 @@ fn test_recovery_version_continuity() {
         assert_eq!(version_before, version_after);
 
         // New writes should get higher versions
-        db.put(run_id, Key::new_kv(ns.clone(), "key2"), Value::Int(2))
+        db.put(run_id, Key::new_kv(ns.clone(), "key2"), Value::I64(2))
             .unwrap();
         assert!(db.storage().current_version() > version_before);
     }
@@ -475,7 +475,7 @@ fn test_recovery_aborted_transaction_not_visible() {
 
         // This will abort
         let _result: Result<(), Error> = db.transaction(run_id, |txn| {
-            txn.put(Key::new_kv(ns.clone(), "aborted_key"), Value::Int(999))?;
+            txn.put(Key::new_kv(ns.clone(), "aborted_key"), Value::I64(999))?;
             Err(Error::InvalidState("abort".to_string()))
         });
     }
@@ -502,9 +502,9 @@ fn test_recovery_with_deletes() {
     {
         let db = Database::open(&db_path).unwrap();
 
-        db.put(run_id, Key::new_kv(ns.clone(), "to_delete"), Value::Int(1))
+        db.put(run_id, Key::new_kv(ns.clone(), "to_delete"), Value::I64(1))
             .unwrap();
-        db.put(run_id, Key::new_kv(ns.clone(), "to_keep"), Value::Int(2))
+        db.put(run_id, Key::new_kv(ns.clone(), "to_keep"), Value::I64(2))
             .unwrap();
         db.delete(run_id, Key::new_kv(ns.clone(), "to_delete"))
             .unwrap();
@@ -522,7 +522,7 @@ fn test_recovery_with_deletes() {
                 .unwrap()
                 .unwrap()
                 .value,
-            Value::Int(2)
+            Value::I64(2)
         );
     }
 }
@@ -560,21 +560,21 @@ fn test_m1_cas_operations() {
     let key = Key::new_kv(ns, "cas_key");
 
     // Create new key (version 0 = must not exist)
-    db.cas(run_id, key.clone(), 0, Value::Int(1)).unwrap();
+    db.cas(run_id, key.clone(), 0, Value::I64(1)).unwrap();
 
     // Get version
     let val = db.get(&key).unwrap().unwrap();
-    assert_eq!(val.value, Value::Int(1));
+    assert_eq!(val.value, Value::I64(1));
     let version = val.version.as_u64();
 
     // Update with correct version
-    db.cas(run_id, key.clone(), version, Value::Int(2)).unwrap();
+    db.cas(run_id, key.clone(), version, Value::I64(2)).unwrap();
 
     // Verify
-    assert_eq!(db.get(&key).unwrap().unwrap().value, Value::Int(2));
+    assert_eq!(db.get(&key).unwrap().unwrap().value, Value::I64(2));
 
     // Try with wrong version - should fail
-    let result = db.cas(run_id, key.clone(), version, Value::Int(3));
+    let result = db.cas(run_id, key.clone(), version, Value::I64(3));
     assert!(result.is_err());
 }
 
@@ -589,14 +589,14 @@ fn test_m1_sequence_of_operations() {
     // Create 100 keys
     for i in 0..100 {
         let key = Key::new_kv(ns.clone(), &format!("key_{}", i));
-        db.put(run_id, key, Value::Int(i as i64)).unwrap();
+        db.put(run_id, key, Value::I64(i as i64)).unwrap();
     }
 
     // Verify all exist
     for i in 0..100 {
         let key = Key::new_kv(ns.clone(), &format!("key_{}", i));
         let val = db.get(&key).unwrap().unwrap();
-        assert_eq!(val.value, Value::Int(i as i64));
+        assert_eq!(val.value, Value::I64(i as i64));
     }
 
     // Delete even keys
@@ -611,7 +611,7 @@ fn test_m1_sequence_of_operations() {
         if i % 2 == 0 {
             assert!(db.get(&key).unwrap().is_none());
         } else {
-            assert_eq!(db.get(&key).unwrap().unwrap().value, Value::Int(i as i64));
+            assert_eq!(db.get(&key).unwrap().unwrap().value, Value::I64(i as i64));
         }
     }
 }
@@ -633,7 +633,7 @@ fn test_transaction_metrics() {
         db.put(
             run_id,
             Key::new_kv(ns.clone(), &format!("key{}", i)),
-            Value::Int(i as i64),
+            Value::I64(i as i64),
         )
         .unwrap();
     }
@@ -652,12 +652,12 @@ fn test_transaction_metrics_with_aborts() {
     let ns = create_ns(run_id);
 
     // Successful transaction
-    db.put(run_id, Key::new_kv(ns.clone(), "success"), Value::Int(1))
+    db.put(run_id, Key::new_kv(ns.clone(), "success"), Value::I64(1))
         .unwrap();
 
     // Failed transaction
     let _result: Result<(), Error> = db.transaction(run_id, |txn| {
-        txn.put(Key::new_kv(ns.clone(), "fail"), Value::Int(2))?;
+        txn.put(Key::new_kv(ns.clone(), "fail"), Value::I64(2))?;
         Err(Error::InvalidState("intentional".to_string()))
     });
 
@@ -713,7 +713,7 @@ fn test_many_keys_in_single_transaction() {
         for i in 0..100 {
             txn.put(
                 Key::new_kv(ns.clone(), &format!("batch_key_{}", i)),
-                Value::Int(i as i64),
+                Value::I64(i as i64),
             )?;
         }
         Ok(())
@@ -723,7 +723,7 @@ fn test_many_keys_in_single_transaction() {
     // Verify all exist
     for i in 0..100 {
         let key = Key::new_kv(ns.clone(), &format!("batch_key_{}", i));
-        assert_eq!(db.get(&key).unwrap().unwrap().value, Value::Int(i as i64));
+        assert_eq!(db.get(&key).unwrap().unwrap().value, Value::I64(i as i64));
     }
 }
 
@@ -738,15 +738,15 @@ fn test_overwrite_in_same_transaction() {
 
     // Multiple writes to same key in same transaction
     db.transaction(run_id, |txn| {
-        txn.put(key.clone(), Value::Int(1))?;
-        txn.put(key.clone(), Value::Int(2))?;
-        txn.put(key.clone(), Value::Int(3))?;
+        txn.put(key.clone(), Value::I64(1))?;
+        txn.put(key.clone(), Value::I64(2))?;
+        txn.put(key.clone(), Value::I64(3))?;
         Ok(())
     })
     .unwrap();
 
     // Should have final value
-    assert_eq!(db.get(&key).unwrap().unwrap().value, Value::Int(3));
+    assert_eq!(db.get(&key).unwrap().unwrap().value, Value::I64(3));
 }
 
 #[test]
@@ -759,18 +759,18 @@ fn test_delete_then_write_in_same_transaction() {
     let key = Key::new_kv(ns, "delete_write");
 
     // Pre-populate
-    db.put(run_id, key.clone(), Value::Int(100)).unwrap();
+    db.put(run_id, key.clone(), Value::I64(100)).unwrap();
 
     // Delete then write
     db.transaction(run_id, |txn| {
         txn.delete(key.clone())?;
-        txn.put(key.clone(), Value::Int(200))?;
+        txn.put(key.clone(), Value::I64(200))?;
         Ok(())
     })
     .unwrap();
 
     // Should have new value
-    assert_eq!(db.get(&key).unwrap().unwrap().value, Value::Int(200));
+    assert_eq!(db.get(&key).unwrap().unwrap().value, Value::I64(200));
 }
 
 #[test]
@@ -784,7 +784,7 @@ fn test_write_then_delete_in_same_transaction() {
 
     // Write then delete
     db.transaction(run_id, |txn| {
-        txn.put(key.clone(), Value::Int(100))?;
+        txn.put(key.clone(), Value::I64(100))?;
         txn.delete(key.clone())?;
         Ok(())
     })
