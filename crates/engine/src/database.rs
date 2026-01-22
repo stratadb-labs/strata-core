@@ -38,7 +38,7 @@ use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
-use tracing::info;
+use tracing::{info, warn};
 
 /// Configuration for transaction retry behavior
 ///
@@ -1210,6 +1210,19 @@ impl Database {
     pub fn shutdown(&self) -> Result<()> {
         // Stop accepting new transactions
         self.accepting_transactions.store(false, Ordering::SeqCst);
+
+        // Wait for in-flight transactions to complete
+        // This ensures all transactions that started before shutdown
+        // have a chance to commit before we flush the WAL.
+        let timeout = std::time::Duration::from_secs(30);
+        if !self.coordinator.wait_for_idle(timeout) {
+            // Log warning but continue with shutdown
+            // Some transactions may be lost, but we can't wait forever
+            warn!(
+                active_count = self.coordinator.active_count(),
+                "Shutdown timeout: active transactions still in progress"
+            );
+        }
 
         // Flush WAL based on mode
         // For InMemory mode, this is a no-op
