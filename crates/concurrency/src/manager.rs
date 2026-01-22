@@ -30,6 +30,7 @@
 
 use crate::wal_writer::TransactionWALWriter;
 use crate::{CommitError, TransactionContext, TransactionStatus};
+use parking_lot::Mutex;
 use strata_core::error::Result;
 use strata_core::traits::Storage;
 use strata_durability::wal::WAL;
@@ -44,6 +45,13 @@ use std::sync::atomic::{AtomicU64, Ordering};
 ///
 /// Per spec Section 6.1: Global version counter is incremented once per transaction.
 /// All keys in a transaction get the same commit version.
+///
+/// # Thread Safety
+///
+/// The commit operation is serialized via an internal lock to prevent TOCTOU
+/// (time-of-check-to-time-of-use) races between validation and storage application.
+/// This ensures that no other transaction can modify storage between the time
+/// we validate and the time we apply our writes.
 pub struct TransactionManager {
     /// Global version counter
     ///
@@ -54,6 +62,18 @@ pub struct TransactionManager {
     ///
     /// Unique identifier for transactions. Used in WAL entries.
     next_txn_id: AtomicU64,
+
+    /// Commit serialization lock
+    ///
+    /// Prevents TOCTOU race between validation and apply. Without this lock,
+    /// the following race can occur:
+    /// 1. T1 validates (succeeds, storage at v1)
+    /// 2. T2 validates (succeeds, storage still at v1)
+    /// 3. T1 applies (storage now at v2)
+    /// 4. T2 applies (uses stale validation from step 2)
+    ///
+    /// The lock ensures validation → WAL → apply is atomic.
+    commit_lock: Mutex<()>,
 }
 
 impl TransactionManager {
@@ -78,6 +98,7 @@ impl TransactionManager {
             version: AtomicU64::new(initial_version),
             // Start next_txn_id at max_txn_id + 1 to avoid conflicts
             next_txn_id: AtomicU64::new(max_txn_id + 1),
+            commit_lock: Mutex::new(()),
         }
     }
 
@@ -117,19 +138,32 @@ impl TransactionManager {
     ///
     /// # Commit Sequence
     ///
-    /// 1. Validate and mark committed (in-memory state transition)
-    /// 2. Allocate commit version
-    /// 3. Write BeginTxn to WAL
-    /// 4. Write all operations to WAL
-    /// 5. Write CommitTxn to WAL (DURABILITY POINT)
-    /// 6. Apply writes to storage
-    /// 7. Return commit version
+    /// 1. Acquire commit lock (prevents TOCTOU race)
+    /// 2. Validate and mark committed (in-memory state transition)
+    /// 3. Allocate commit version
+    /// 4. Write BeginTxn to WAL
+    /// 5. Write all operations to WAL
+    /// 6. Write CommitTxn to WAL (DURABILITY POINT)
+    /// 7. Apply writes to storage
+    /// 8. Release commit lock
+    /// 9. Return commit version
+    ///
+    /// # Thread Safety
+    ///
+    /// The commit lock ensures that validation and apply happen atomically
+    /// with respect to other transactions. This prevents the TOCTOU race
+    /// where validation passes but storage changes before apply.
     pub fn commit<S: Storage>(
         &self,
         txn: &mut TransactionContext,
         store: &S,
         wal: &mut WAL,
     ) -> std::result::Result<u64, CommitError> {
+        // Acquire commit lock to prevent TOCTOU race between validation and apply
+        // This ensures no other transaction can modify storage between our
+        // validation check and our apply_writes call.
+        let _commit_guard = self.commit_lock.lock();
+
         // Step 1: Validate and mark committed (in-memory)
         // This performs: Active → Validating → Committed
         // Or: Active → Validating → Aborted (if conflicts detected)
