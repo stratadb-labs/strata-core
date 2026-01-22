@@ -158,6 +158,36 @@ impl TransactionCoordinator {
             },
         }
     }
+
+    /// Get current active transaction count
+    pub fn active_count(&self) -> u64 {
+        self.active_count.load(Ordering::SeqCst)
+    }
+
+    /// Wait for all active transactions to complete
+    ///
+    /// Spins with short sleeps until active_count reaches 0.
+    /// Used during shutdown to ensure all in-flight transactions
+    /// complete before flushing the WAL.
+    ///
+    /// # Arguments
+    /// * `timeout` - Maximum time to wait
+    ///
+    /// # Returns
+    /// * `true` if all transactions completed within timeout
+    /// * `false` if timeout expired with transactions still active
+    pub fn wait_for_idle(&self, timeout: std::time::Duration) -> bool {
+        let start = std::time::Instant::now();
+        let sleep_duration = std::time::Duration::from_millis(1);
+
+        while self.active_count.load(Ordering::SeqCst) > 0 {
+            if start.elapsed() > timeout {
+                return false;
+            }
+            std::thread::sleep(sleep_duration);
+        }
+        true
+    }
 }
 
 /// Transaction metrics
