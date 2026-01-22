@@ -36,7 +36,7 @@ use parking_lot::Mutex as ParkingMutex;
 use std::any::{Any, TypeId};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 use std::time::Duration;
 use tracing::info;
 
@@ -344,7 +344,8 @@ pub struct Database {
     storage: Arc<ShardedStore>,
 
     /// Write-ahead log (protected by mutex for exclusive access)
-    wal: Arc<Mutex<WAL>>,
+    /// Using parking_lot::Mutex to avoid lock poisoning on panic
+    wal: Arc<ParkingMutex<WAL>>,
 
     /// Transaction coordinator for lifecycle management, version allocation, and metrics
     ///
@@ -483,7 +484,7 @@ impl Database {
         let db = Self {
             data_dir,
             storage: Arc::new(result.storage),
-            wal: Arc::new(Mutex::new(wal)),
+            wal: Arc::new(ParkingMutex::new(wal)),
             coordinator,
             commit_locks: DashMap::new(),
             durability_mode,
@@ -516,7 +517,7 @@ impl Database {
     ///
     /// Returns an Arc to the Mutex-protected WAL.
     /// Lock the mutex to append entries.
-    pub fn wal(&self) -> Arc<Mutex<WAL>> {
+    pub fn wal(&self) -> Arc<ParkingMutex<WAL>> {
         Arc::clone(&self.wal)
     }
 
@@ -526,7 +527,7 @@ impl Database {
     /// This is automatically done based on durability mode, but can
     /// be called manually to ensure durability at a specific point.
     pub fn flush(&self) -> Result<()> {
-        let wal = self.wal.lock().unwrap();
+        let wal = self.wal.lock();
         wal.fsync()
     }
 
@@ -969,7 +970,7 @@ impl Database {
 
         // 3. Write to WAL (skip for InMemory mode)
         if self.durability_mode.requires_wal() {
-            let mut wal = self.wal.lock().unwrap();
+            let mut wal = self.wal.lock();
             let mut wal_writer = TransactionWALWriter::new(&mut wal, txn.txn_id, txn.run_id);
 
             // Write BeginTxn
@@ -1139,7 +1140,7 @@ impl Database {
         // 3. Write to WAL based on durability mode
         // InMemory mode skips WAL entirely
         if durability.requires_wal() {
-            let mut wal = self.wal.lock().unwrap();
+            let mut wal = self.wal.lock();
             {
                 let mut wal_writer = TransactionWALWriter::new(&mut wal, txn.txn_id, txn.run_id);
                 wal_writer.write_begin()?;
@@ -1214,7 +1215,7 @@ impl Database {
         // For InMemory mode, this is a no-op
         // For Buffered/Strict modes, ensure WAL is synced
         if self.durability_mode.requires_wal() {
-            let wal = self.wal.lock().unwrap();
+            let wal = self.wal.lock();
             wal.fsync()?;
         }
 
@@ -1486,7 +1487,7 @@ impl Database {
     /// Ensures all WAL entries are flushed to disk before returning.
     /// This should be called before dropping the database for guaranteed durability.
     pub fn close(&self) -> Result<()> {
-        let wal = self.wal.lock().unwrap();
+        let wal = self.wal.lock();
         wal.fsync()
     }
 }
@@ -1604,7 +1605,7 @@ mod tests {
 
             // Write to WAL
             let wal = db.wal();
-            let mut wal_guard = wal.lock().unwrap();
+            let mut wal_guard = wal.lock();
 
             wal_guard
                 .append(&WALEntry::BeginTxn {

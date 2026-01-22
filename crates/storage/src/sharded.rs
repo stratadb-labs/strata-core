@@ -530,7 +530,7 @@ impl ShardedStore {
         ShardedSnapshot {
             version: self.version.load(Ordering::Acquire),
             store: Arc::clone(self),
-            cache: std::sync::RwLock::new(FxHashMap::default()),
+            cache: parking_lot::RwLock::new(FxHashMap::default()),
         }
     }
 
@@ -615,8 +615,9 @@ pub struct ShardedSnapshot {
     /// Reference to the underlying store
     store: Arc<ShardedStore>,
     /// Cache of read values for snapshot isolation
-    /// Using RwLock for interior mutability since SnapshotView::get takes &self
-    cache: std::sync::RwLock<FxHashMap<Key, Option<VersionedValue>>>,
+    /// Using parking_lot::RwLock for interior mutability since SnapshotView::get takes &self
+    /// parking_lot::RwLock doesn't poison on panic, preventing cascade failures
+    cache: parking_lot::RwLock<FxHashMap<Key, Option<VersionedValue>>>,
 }
 
 impl Clone for ShardedSnapshot {
@@ -625,7 +626,8 @@ impl Clone for ShardedSnapshot {
             version: self.version,
             store: Arc::clone(&self.store),
             // Clone the cache contents for independent snapshot views
-            cache: std::sync::RwLock::new(self.cache.read().unwrap().clone()),
+            // parking_lot::RwLock doesn't need .unwrap() - it doesn't poison
+            cache: parking_lot::RwLock::new(self.cache.read().clone()),
         }
     }
 }
@@ -872,8 +874,9 @@ impl SnapshotView for ShardedSnapshot {
     /// Caches the result on first read for performance.
     fn get(&self, key: &Key) -> Result<Option<VersionedValue>> {
         // Fast path: check cache first (read lock)
+        // parking_lot::RwLock doesn't need .unwrap() - it doesn't poison
         {
-            let cache = self.cache.read().unwrap();
+            let cache = self.cache.read();
             if let Some(cached) = cache.get(key) {
                 return Ok(cached.clone());
             }
@@ -895,7 +898,7 @@ impl SnapshotView for ShardedSnapshot {
 
         // Cache the result (including None for missing keys)
         {
-            let mut cache = self.cache.write().unwrap();
+            let mut cache = self.cache.write();
             cache.insert(key.clone(), result.clone());
         }
 

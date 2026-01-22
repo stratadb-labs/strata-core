@@ -20,8 +20,9 @@
 use super::Durability;
 use strata_concurrency::{TransactionContext, TransactionWALWriter};
 use strata_core::error::Result;
+use parking_lot::Mutex;
 use strata_durability::wal::WAL;
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 
 /// Strict durability - fsync on every commit
 ///
@@ -32,15 +33,17 @@ use std::sync::{Arc, Mutex};
 ///
 /// # Thread Safety
 ///
-/// WAL access is synchronized via Mutex. Multiple threads can call
+/// WAL access is synchronized via parking_lot::Mutex. Multiple threads can call
 /// persist() concurrently, but commits will be serialized.
+/// Using parking_lot::Mutex to avoid lock poisoning cascade on panic.
 ///
 /// # Example
 ///
 /// ```ignore
 /// use strata_engine::durability::{Durability, StrictDurability};
 /// use strata_durability::wal::WAL;
-/// use std::sync::{Arc, Mutex};
+/// use parking_lot::Mutex;
+/// use std::sync::Arc;
 ///
 /// let wal = Arc::new(Mutex::new(WAL::open("data/wal", DurabilityMode::Strict)?));
 /// let durability = StrictDurability::new(wal);
@@ -48,6 +51,7 @@ use std::sync::{Arc, Mutex};
 /// ```
 pub struct StrictDurability {
     /// WAL for persisting transactions
+    /// Using parking_lot::Mutex to avoid lock poisoning cascade on panic
     wal: Arc<Mutex<WAL>>,
 }
 
@@ -81,10 +85,8 @@ impl Durability for StrictDurability {
     ///
     /// Returns error if WAL write or fsync fails.
     fn persist(&self, txn: &TransactionContext, commit_version: u64) -> Result<()> {
-        // Acquire WAL lock
-        let mut wal = self.wal.lock().map_err(|e| {
-            strata_core::error::Error::InvalidOperation(format!("WAL lock poisoned: {}", e))
-        })?;
+        // Acquire WAL lock (parking_lot::Mutex doesn't poison)
+        let mut wal = self.wal.lock();
 
         // Write transaction to WAL in a scoped block
         // This ensures wal_writer's mutable borrow ends before fsync
@@ -130,9 +132,8 @@ impl Durability for StrictDurability {
     /// already fsyncs. We still call fsync one more time to ensure
     /// any buffered filesystem data is persisted.
     fn shutdown(&self) -> Result<()> {
-        let wal = self.wal.lock().map_err(|e| {
-            strata_core::error::Error::InvalidOperation(format!("WAL lock poisoned: {}", e))
-        })?;
+        // parking_lot::Mutex doesn't poison, so no error handling needed
+        let wal = self.wal.lock();
         // Final fsync to ensure any buffered data is persisted
         wal.fsync()
     }
@@ -154,7 +155,7 @@ impl Durability for StrictDurability {
 impl std::fmt::Debug for StrictDurability {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("StrictDurability")
-            .field("wal", &"Arc<Mutex<WAL>>")
+            .field("wal", &"Arc<parking_lot::Mutex<WAL>>")
             .finish()
     }
 }
