@@ -174,10 +174,12 @@ pub fn decode_entry(buf: &[u8], offset: u64) -> Result<(WALEntry, usize)> {
     // Read length
     let mut len_buf = [0u8; 4];
     cursor.read_exact(&mut len_buf).map_err(|_| {
-        Error::Corruption(format!(
-            "offset {}: Failed to read length (buffer too short)",
-            offset
-        ))
+        // Buffer too short to read length - incomplete entry, not corruption
+        Error::IncompleteEntry {
+            offset,
+            have: buf.len(),
+            needed: 4,
+        }
     })?;
     let total_len = u32::from_le_bytes(len_buf) as usize;
 
@@ -190,14 +192,13 @@ pub fn decode_entry(buf: &[u8], offset: u64) -> Result<(WALEntry, usize)> {
         )));
     }
 
-    // Check buffer has enough bytes
+    // Check buffer has enough bytes - this is incomplete data, not corruption
     if buf.len() < 4 + total_len {
-        return Err(Error::Corruption(format!(
-            "offset {}: Incomplete entry: expected {} bytes, got {}",
+        return Err(Error::IncompleteEntry {
             offset,
-            4 + total_len,
-            buf.len()
-        )));
+            have: buf.len(),
+            needed: 4 + total_len,
+        });
     }
 
     // Read type tag

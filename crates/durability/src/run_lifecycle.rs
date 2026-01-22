@@ -137,11 +137,13 @@ pub fn parse_run_end_payload(payload: &[u8]) -> Result<RunEndPayload, WalEntryEr
 }
 
 /// Get current timestamp in microseconds since Unix epoch
+///
+/// Returns 0 if system clock is before Unix epoch (clock went backwards).
 pub fn now_micros() -> u64 {
     std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
-        .expect("Time went backwards")
-        .as_micros() as u64
+        .map(|d| d.as_micros() as u64)
+        .unwrap_or(0)
 }
 
 #[cfg(test)]

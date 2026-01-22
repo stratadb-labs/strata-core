@@ -22,11 +22,13 @@ use serde::{Deserialize, Serialize};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 /// Get current time in microseconds since Unix epoch
+///
+/// Returns 0 if system clock is before Unix epoch (clock went backwards).
 fn now_micros() -> u64 {
     SystemTime::now()
         .duration_since(UNIX_EPOCH)
-        .expect("Time went backwards")
-        .as_micros() as u64
+        .map(|d| d.as_micros() as u64)
+        .unwrap_or(0)
 }
 
 /// Metadata stored in KV (MessagePack serialized)

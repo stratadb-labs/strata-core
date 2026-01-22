@@ -72,6 +72,21 @@ pub enum Error {
     #[error("Data corruption: {0}")]
     Corruption(String),
 
+    /// Incomplete data (needs more bytes)
+    ///
+    /// This is NOT corruption - it means the buffer is too short to decode
+    /// a complete entry. This is expected during streaming reads or at EOF
+    /// after a partial write (crash during write).
+    #[error("Incomplete data at offset {offset}: need {needed} bytes, have {have}")]
+    IncompleteEntry {
+        /// File offset where the incomplete entry starts
+        offset: u64,
+        /// Bytes available in buffer
+        have: usize,
+        /// Bytes needed for complete entry
+        needed: usize,
+    },
+
     /// Invalid operation or state
     #[error("Invalid operation: {0}")]
     InvalidOperation(String),
@@ -1163,6 +1178,17 @@ impl From<Error> for StrataError {
                 // Legacy error doesn't have duration, default to 0
                 StrataError::TransactionTimeout { duration_ms: 0 }
             }
+            Error::IncompleteEntry {
+                offset,
+                have,
+                needed,
+            } => StrataError::Storage {
+                message: format!(
+                    "Incomplete entry at offset {}: need {} bytes, have {}",
+                    offset, needed, have
+                ),
+                source: None,
+            },
         }
     }
 }

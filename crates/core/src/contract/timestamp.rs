@@ -53,11 +53,12 @@ impl Timestamp {
 
     /// Create a timestamp for the current moment
     ///
-    /// Uses system time. Panics if system time is before Unix epoch.
+    /// Uses system time. Returns epoch (0) if system clock is before Unix epoch
+    /// (e.g., clock went backwards due to NTP adjustment).
     pub fn now() -> Self {
         let duration = SystemTime::now()
             .duration_since(UNIX_EPOCH)
-            .expect("System time is before Unix epoch");
+            .unwrap_or_default();
         Timestamp(duration.as_micros() as u64)
     }
 

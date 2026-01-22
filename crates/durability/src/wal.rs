@@ -45,6 +45,7 @@ use strata_core::{
 };
 use serde::{Deserialize, Serialize};
 use std::fs::{File, OpenOptions};
+use tracing::error;
 use std::io::{BufReader, BufWriter, Read, Seek, SeekFrom, Write};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
@@ -791,10 +792,24 @@ impl WAL {
                         offset_in_buf += bytes_consumed;
                         file_offset += bytes_consumed as u64;
                     }
-                    Err(_) => {
-                        // Decode failed - could be incomplete entry or corruption
-                        // Keep the remaining bytes and read more data
+                    Err(Error::IncompleteEntry { .. }) => {
+                        // Incomplete entry - need more data, keep the remaining bytes
+                        // This is expected when entry spans buffer boundaries
                         break;
+                    }
+                    Err(Error::Corruption(msg)) => {
+                        // CRC mismatch or deserialization failure - actual corruption!
+                        // Unlike incomplete entries, corruption must be reported.
+                        error!(
+                            offset = file_offset,
+                            error = %msg,
+                            "WAL corruption detected - data may be lost"
+                        );
+                        return Err(Error::Corruption(msg));
+                    }
+                    Err(e) => {
+                        // Other unexpected error - return it
+                        return Err(e);
                     }
                 }
             }
