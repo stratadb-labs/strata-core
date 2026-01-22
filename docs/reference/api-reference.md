@@ -1,11 +1,10 @@
 # API Reference
 
-Complete API reference for **Strata** v0.10.0 (M10 Storage Backend, Retention & Compaction).
+Complete API reference for **Strata** v0.7.0 (M7 Durability, Snapshots & Replay).
 
 ## Table of Contents
 
 - [Core Types](#core-types)
-- [Versioned Types (M9)](#versioned-types)
 - [Primitives](#primitives)
   - [KVStore](#kvstore)
   - [EventLog](#eventlog)
@@ -13,17 +12,11 @@ Complete API reference for **Strata** v0.10.0 (M10 Storage Backend, Retention & 
   - [TraceStore](#tracestore)
   - [RunIndex](#runindex)
   - [JsonStore](#jsonstore)
-  - [VectorStore (M8)](#vectorstore)
 - [Search](#search)
   - [SearchRequest](#searchrequest)
   - [SearchResponse](#searchresponse)
   - [HybridSearch](#hybridsearch)
   - [InvertedIndex](#invertedindex)
-- [Storage Backend (M10)](#storage-backend)
-  - [DatabaseConfig](#databaseconfig)
-  - [Checkpoint](#checkpoint)
-  - [Retention Policies](#retention-policies)
-  - [Compaction](#compaction)
 - [Snapshots](#snapshots)
   - [SnapshotConfig](#snapshotconfig)
   - [SnapshotInfo](#snapshotinfo)
@@ -173,53 +166,6 @@ pub enum Value {
     Bytes(Vec<u8>),
     Array(Vec<Value>),
     Map(BTreeMap<String, Value>),
-}
-```
-
----
-
-## Versioned Types
-
-All read operations return `Versioned<T>` wrappers containing the value, version, and timestamp.
-
-### `Versioned<T>`
-
-```rust
-pub struct Versioned<T> {
-    pub value: T,
-    pub version: Version,
-    pub timestamp: u64,  // microseconds since Unix epoch
-}
-```
-
-### `Version`
-
-Tagged union for version identifiers across different primitives.
-
-```rust
-pub enum Version {
-    /// Transaction-based version (KV, JSON, Vector, Run)
-    Txn(u64),
-    /// Sequence number (Events)
-    Sequence(u64),
-    /// CAS counter (StateCell)
-    Counter(u64),
-}
-```
-
-### `EntityRef`
-
-Universal reference to any entity in the database.
-
-```rust
-pub enum EntityRef {
-    Kv { run_id: RunId, key: String },
-    Json { run_id: RunId, key: String, path: Option<String> },
-    Event { run_id: RunId, stream: String, sequence: u64 },
-    State { run_id: RunId, name: String },
-    Trace { run_id: RunId, trace_id: String },
-    Vector { run_id: RunId, key: String },
-    Run { run_id: RunId },
 }
 ```
 
@@ -695,157 +641,6 @@ JsonStore uses region-based conflict detection:
 
 ---
 
-### VectorStore
-
-Vector embedding storage with similarity search for semantic retrieval.
-
-```rust
-pub struct VectorStore {
-    db: Arc<Database>
-}
-```
-
-#### Types
-
-```rust
-pub struct VectorEntry {
-    pub key: String,
-    pub embedding: Vec<f32>,
-    pub metadata: Value,
-    pub version: Version,
-    pub timestamp: u64,
-}
-
-pub struct VectorSearchResult {
-    pub key: String,
-    pub score: f32,
-    pub embedding: Vec<f32>,
-    pub metadata: Value,
-}
-
-pub enum DistanceMetric {
-    Cosine,      // Default, normalized vectors
-    Euclidean,   // L2 distance
-    DotProduct,  // Inner product (for pre-normalized vectors)
-}
-```
-
-#### Methods
-
-##### `insert`
-
-Inserts or updates a vector embedding with metadata.
-
-```rust
-pub fn insert(
-    &self,
-    run_id: &RunId,
-    key: &str,
-    embedding: Vec<f32>,
-    metadata: Value
-) -> Result<Versioned<()>>
-```
-
-##### `get`
-
-Retrieves a vector by key.
-
-```rust
-pub fn get(&self, run_id: &RunId, key: &str) -> Result<Option<Versioned<VectorEntry>>>
-```
-
-##### `delete`
-
-Deletes a vector.
-
-```rust
-pub fn delete(&self, run_id: &RunId, key: &str) -> Result<bool>
-```
-
-##### `search`
-
-Finds the top-k most similar vectors.
-
-```rust
-pub fn search(
-    &self,
-    run_id: &RunId,
-    query: &[f32],
-    k: usize,
-    metric: DistanceMetric,
-    filter: Option<MetadataFilter>
-) -> Result<Vec<VectorSearchResult>>
-```
-
-##### `search_with_threshold`
-
-Finds vectors within a similarity threshold.
-
-```rust
-pub fn search_with_threshold(
-    &self,
-    run_id: &RunId,
-    query: &[f32],
-    threshold: f32,
-    metric: DistanceMetric,
-    filter: Option<MetadataFilter>
-) -> Result<Vec<VectorSearchResult>>
-```
-
-#### Metadata Filtering
-
-```rust
-pub enum MetadataFilter {
-    Eq(String, Value),       // field == value
-    Ne(String, Value),       // field != value
-    In(String, Vec<Value>),  // field in [values]
-    And(Vec<MetadataFilter>),
-    Or(Vec<MetadataFilter>),
-}
-```
-
-#### Index Configuration
-
-```rust
-pub struct VectorIndexConfig {
-    /// Dimensions of vectors (must be consistent)
-    pub dimensions: usize,
-    /// Distance metric for similarity
-    pub metric: DistanceMetric,
-    /// Use HNSW index (for larger datasets)
-    pub use_hnsw: bool,
-    /// HNSW parameters (if enabled)
-    pub hnsw_m: usize,        // Default: 16
-    pub hnsw_ef_construction: usize,  // Default: 200
-}
-```
-
-#### Example
-
-```rust
-let vectors = VectorStore::new(db.clone());
-
-// Insert embeddings
-vectors.insert(&run_id, "doc1", vec![0.1, 0.2, 0.3, 0.4], json!({"title": "Hello"}))?;
-vectors.insert(&run_id, "doc2", vec![0.2, 0.3, 0.4, 0.5], json!({"title": "World"}))?;
-
-// Semantic search
-let query = vec![0.15, 0.25, 0.35, 0.45];
-let results = vectors.search(&run_id, &query, 10, DistanceMetric::Cosine, None)?;
-
-for result in results {
-    println!("{}: score={:.4}", result.key, result.score);
-}
-
-// Hybrid search (keyword + vector) via HybridSearch
-let hybrid = HybridSearch::new(db.clone());
-let response = hybrid.search(&run_id, SearchRequest::new("hello world")
-    .with_vector(query)
-    .with_limit(10))?;
-```
-
----
-
 ## Search
 
 ### SearchRequest
@@ -1001,178 +796,6 @@ Index statistics methods.
 ##### `version` / `wait_for_version`
 
 Version tracking for cache invalidation.
-
----
-
-## Storage Backend
-
-M10 introduces disk-backed storage with WAL + snapshots, retention policies, and compaction.
-
-### DatabaseConfig
-
-Configuration for database open.
-
-```rust
-pub struct DatabaseConfig {
-    /// Durability mode (InMemory, Buffered, Strict)
-    pub durability_mode: DurabilityMode,
-    /// WAL segment size limit (default: 64MB)
-    pub wal_segment_size: u64,
-    /// Storage codec (default: identity)
-    pub codec: StorageCodec,
-    /// Retention policy defaults
-    pub default_retention: RetentionPolicy,
-}
-
-impl Default for DatabaseConfig {
-    fn default() -> Self {
-        DatabaseConfig {
-            durability_mode: DurabilityMode::Strict,
-            wal_segment_size: 64 * 1024 * 1024,
-            codec: StorageCodec::Identity,
-            default_retention: RetentionPolicy::KeepAll,
-        }
-    }
-}
-```
-
-#### Database Open/Close
-
-```rust
-impl Database {
-    /// Opens an existing database or creates a new one
-    pub fn open<P: AsRef<Path>>(path: P, config: DatabaseConfig) -> Result<Database>
-
-    /// Opens with default path (platform-specific)
-    pub fn open_default(config: DatabaseConfig) -> Result<Database>
-
-    /// Closes the database cleanly (flush WAL, update MANIFEST)
-    pub fn close(self) -> Result<()>
-}
-```
-
-### Checkpoint
-
-Creates a stable boundary for safe copying.
-
-```rust
-pub struct CheckpointInfo {
-    /// Transaction watermark (all txn_id <= this included)
-    pub watermark_txn: u64,
-    /// Snapshot identifier
-    pub snapshot_id: u64,
-    /// Creation timestamp
-    pub timestamp: u64,
-}
-
-impl Database {
-    /// Creates a checkpoint (snapshot + WAL sync)
-    pub fn checkpoint(&self) -> Result<CheckpointInfo>
-}
-```
-
-### Retention Policies
-
-User-configurable data retention.
-
-```rust
-pub enum RetentionPolicy {
-    /// Keep all versions forever (default)
-    KeepAll,
-    /// Keep only the N most recent versions per key
-    KeepLast(u64),
-    /// Keep versions within a time window
-    KeepFor(Duration),
-    /// Combination of policies (union)
-    Composite(Vec<RetentionPolicy>),
-}
-```
-
-#### Retention API
-
-```rust
-impl Database {
-    /// Sets retention policy for a run
-    pub fn set_retention_policy(
-        &self,
-        run_id: &RunId,
-        policy: RetentionPolicy
-    ) -> Result<Versioned<()>>
-
-    /// Gets retention policy for a run
-    pub fn get_retention_policy(
-        &self,
-        run_id: &RunId
-    ) -> Result<Option<Versioned<RetentionPolicy>>>
-}
-```
-
-#### HistoryTrimmed Error
-
-When accessing a version that has been removed by retention:
-
-```rust
-pub struct HistoryTrimmedError {
-    pub requested: Version,
-    pub earliest_retained: Version,
-}
-```
-
-### Compaction
-
-User-triggered space reclamation.
-
-```rust
-pub enum CompactMode {
-    /// Remove WAL segments covered by snapshot
-    WALOnly,
-    /// WAL + retention enforcement
-    Full,
-}
-
-pub struct CompactInfo {
-    /// Bytes reclaimed
-    pub reclaimed_bytes: u64,
-    /// WAL segments removed
-    pub wal_segments_removed: u64,
-    /// Versions removed (Full mode only)
-    pub versions_removed: u64,
-}
-
-impl Database {
-    /// Triggers compaction
-    pub fn compact(&self, mode: CompactMode) -> Result<CompactInfo>
-}
-```
-
-### Directory Structure
-
-```
-strata.db/
-├── MANIFEST              # Database metadata (format_version, uuid, watermark)
-├── WAL/
-│   ├── wal-000001.seg    # WAL segment files
-│   ├── wal-000002.seg
-│   └── ...
-├── SNAPSHOTS/
-│   ├── snap-000010.chk   # Snapshot checkpoint files
-│   └── ...
-└── DATA/                 # Optional: materialized data segments
-```
-
-**Portability**: Copy a closed `strata.db/` directory to create a valid clone.
-
-### Export/Import
-
-```rust
-impl Database {
-    /// Exports database to a path (checkpoint + copy)
-    pub fn export<P: AsRef<Path>>(&self, path: P) -> Result<()>
-}
-
-// Import is just open:
-let imported = Database::open("./exported.db", config)?;
-```
 
 ---
 
@@ -1585,11 +1208,7 @@ pub enum WalEntryType {
     RunEnd = 0x62,
     RunBegin = 0x63,
 
-    // Vector (0x70-0x7F) - M8
-    VectorInsert = 0x70,
-    VectorUpdate = 0x71,
-    VectorDelete = 0x72,
-
+    // Reserved for Vector (M8): 0x70-0x7F
     // Reserved for future: 0x80-0xFF
 }
 ```
@@ -1748,56 +1367,16 @@ Synchronous fsync after every commit.
 
 ```rust
 pub enum Error {
-    // IO and storage errors
     Io(std::io::Error),
-    StorageError(String),
     Serialization(String),
     Corruption(String),
-
-    // Key/entity errors
-    NotFound(String),
     KeyNotFound(String),
-    InvalidKey(String),
-    InvalidPath(String),
-
-    // Type errors
-    WrongType { expected: String, actual: String },
-
-    // Operation errors
     InvalidOperation(String),
-    InvalidStatusTransition { from: String, to: String },
-
-    // Concurrency errors
     TransactionConflict(String),
+    InvalidStatusTransition { from: String, to: String },
     VersionMismatch { expected: u64, actual: u64 },
-    Conflict { reason: String },
-
-    // History errors (M10)
-    HistoryTrimmed {
-        requested: Version,
-        earliest_retained: Version,
-    },
-
-    // Constraint errors (M10)
-    ConstraintViolation {
-        reason: String,
-        details: Option<Value>,
-    },
-
-    // Internal errors
-    InternalError(String),
 }
 ```
-
-### Error Categories
-
-| Category | Codes | Description |
-|----------|-------|-------------|
-| **Structural** | `WrongType`, `InvalidKey`, `InvalidPath`, `ConstraintViolation` | Shape/type mismatches |
-| **Not Found** | `NotFound`, `KeyNotFound` | Entity doesn't exist |
-| **Temporal** | `Conflict`, `VersionMismatch`, `TransactionConflict`, `HistoryTrimmed` | Concurrency/versioning issues |
-| **Storage** | `Io`, `StorageError`, `Corruption`, `Serialization` | Persistence layer errors |
-| **Internal** | `InternalError` | Bugs or invariant violations |
 
 ---
 
@@ -1847,81 +1426,6 @@ pub enum Error {
 
 ## Version History
 
-### v0.10.0 (M10 Storage Backend, Retention & Compaction)
-
-**Disk-Backed Storage**:
-- Portable directory structure (`strata.db/`)
-- WAL segments with CRC32 checksums
-- MANIFEST for database metadata
-- Database can grow beyond RAM
-
-**Retention Policies**:
-- `KeepAll`, `KeepLast(N)`, `KeepFor(Duration)`, `Composite`
-- Per-run retention configuration
-- `HistoryTrimmed` error for trimmed versions
-- Policies stored as versioned database entries
-
-**Compaction**:
-- `CompactMode::WALOnly` - remove WAL covered by snapshot
-- `CompactMode::Full` - WAL + retention enforcement
-- Logically invisible (read equivalence preserved)
-- User-triggered, not background
-
-**Database Lifecycle**:
-- `Database::open(path, config)` - open or create
-- `Database::close()` - clean shutdown
-- `checkpoint()` - stable boundary for copying
-- `export()` - convenience wrapper for portability
-
-**Crash Harness**:
-- Systematic crash testing framework
-- Random kill tests, WAL corruption tests
-- Reference model comparator
-
-### v0.9.0 (M9 API Stabilization)
-
-**Versioned API**:
-- All reads return `Versioned<T>` with version and timestamp
-- `Version` tagged union: `Txn`, `Sequence`, `Counter`
-- `EntityRef` for universal addressing
-
-**Seven Invariants**:
-1. Everything is Addressable
-2. Everything is Versioned
-3. Everything is Transactional
-4. Everything Has a Lifecycle
-5. Everything Exists Within a Run
-6. Everything is Introspectable
-7. Reads and Writes Have Consistent Semantics
-
-**Unified Error Types**:
-- Canonical error codes across all surfaces
-- Structured error payloads
-- `ConstraintViolation` with reason codes
-
-### v0.8.0 (M8 Vector Primitive)
-
-**VectorStore**:
-- `insert(key, embedding, metadata)` - store vectors
-- `get(key)` - retrieve vector with metadata
-- `delete(key)` - remove vector
-- `search(query, k, metric, filter)` - top-k similarity search
-
-**Similarity Search**:
-- Cosine, Euclidean, Dot Product metrics
-- Metadata filtering (Eq, Ne, In, And, Or)
-- Brute-force and HNSW index support
-
-**Hybrid Search Integration**:
-- Vector search in `HybridSearch`
-- RRF fusion of keyword + semantic results
-- Unified `SearchRequest` with vector support
-
-**Transaction Integration**:
-- Vector operations participate in transactions
-- Snapshot-consistent vector search
-- Cross-primitive atomicity (KV + Vector)
-
 ### v0.7.0 (M7 Durability, Snapshots & Replay)
 
 **Snapshot System**:
@@ -1951,6 +1455,7 @@ pub enum Error {
 - PrimitiveStorageExt trait for adding new primitives
 - WAL entry type registry (0x00-0xFF)
 - Frozen API surface for future extension
+- Clear extension points for M8 Vector primitive
 
 ### v0.5.0 (M5 JSON + M6 Retrieval)
 
