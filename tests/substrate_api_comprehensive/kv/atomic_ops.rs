@@ -127,7 +127,6 @@ fn test_incr_isolation_between_runs() {
 }
 
 #[test]
-#[ignore] // Issue 699: panics instead of returning error
 fn test_incr_overflow_returns_error() {
     let (_, substrate) = quick_setup();
     let run = ApiRunId::default();
