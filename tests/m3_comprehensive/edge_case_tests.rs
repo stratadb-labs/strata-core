@@ -9,7 +9,6 @@
 use crate::test_utils::{concurrent, values, TestPrimitives};
 use strata_core::contract::Version;
 use strata_core::value::Value;
-use strata_primitives::TraceType;
 use std::sync::Arc;
 
 // =============================================================================
@@ -78,28 +77,6 @@ mod empty_state {
         let tp = TestPrimitives::new();
         let cells = tp.state_cell.list(&tp.run_id).unwrap();
         assert!(cells.is_empty());
-    }
-
-    #[test]
-    fn test_tracestore_get_nonexistent() {
-        let tp = TestPrimitives::new();
-        // Trace IDs are strings in format "trace-{uuid}"
-        let fake_id = "trace-nonexistent-id";
-        let result = tp.trace_store.get(&tp.run_id, fake_id).unwrap();
-        assert_eq!(result, None);
-    }
-
-    #[test]
-    fn test_tracestore_count_empty() {
-        let tp = TestPrimitives::new();
-        assert_eq!(tp.trace_store.count(&tp.run_id).unwrap(), 0);
-    }
-
-    #[test]
-    fn test_tracestore_list_empty() {
-        let tp = TestPrimitives::new();
-        let traces = tp.trace_store.list(&tp.run_id).unwrap();
-        assert!(traces.is_empty());
     }
 
     #[test]
@@ -270,25 +247,6 @@ mod boundary_values {
         assert!(tp.state_cell.read(&tp.run_id, "").unwrap().is_some());
     }
 
-    #[test]
-    fn test_tracestore_custom_trace_type() {
-        let tp = TestPrimitives::new();
-        let id = tp
-            .trace_store
-            .record(
-                &tp.run_id,
-                TraceType::Custom {
-                    name: "".into(),
-                    data: values::null(),
-                },
-                vec![],
-                values::null(),
-            )
-            .unwrap()
-            .value;
-        let trace = tp.trace_store.get(&tp.run_id, &id).unwrap().unwrap();
-        assert!(matches!(trace.value.trace_type, TraceType::Custom { name, .. } if name.is_empty()));
-    }
 }
 
 // =============================================================================
@@ -399,26 +357,6 @@ mod unicode_and_special {
             .is_some());
     }
 
-    #[test]
-    fn test_tracestore_unicode_trace_type() {
-        let tp = TestPrimitives::new();
-        let unicode_type = "思考_💭_فكرة";
-        let id = tp
-            .trace_store
-            .record(
-                &tp.run_id,
-                TraceType::Custom {
-                    name: unicode_type.into(),
-                    data: values::null(),
-                },
-                vec![],
-                values::null(),
-            )
-            .unwrap()
-            .value;
-        let trace = tp.trace_store.get(&tp.run_id, &id).unwrap().unwrap();
-        assert!(matches!(trace.value.trace_type, TraceType::Custom { name, .. } if name == unicode_type));
-    }
 }
 
 // =============================================================================

@@ -76,14 +76,6 @@ pub enum EntityRef {
         name: String,
     },
 
-    /// Reference to a trace entry
-    Trace {
-        /// Run scope
-        run_id: RunId,
-        /// Trace ID (UUID string)
-        trace_id: String,
-    },
-
     /// Reference to a run's metadata
     Run {
         /// The run being referenced (also the scope)
@@ -135,14 +127,6 @@ impl EntityRef {
         }
     }
 
-    /// Create a trace entity reference
-    pub fn trace(run_id: RunId, trace_id: impl Into<String>) -> Self {
-        EntityRef::Trace {
-            run_id,
-            trace_id: trace_id.into(),
-        }
-    }
-
     /// Create a run entity reference
     pub fn run(run_id: RunId) -> Self {
         EntityRef::Run { run_id }
@@ -174,7 +158,6 @@ impl EntityRef {
             EntityRef::Kv { run_id, .. } => *run_id,
             EntityRef::Event { run_id, .. } => *run_id,
             EntityRef::State { run_id, .. } => *run_id,
-            EntityRef::Trace { run_id, .. } => *run_id,
             EntityRef::Run { run_id } => *run_id,
             EntityRef::Json { run_id, .. } => *run_id,
             EntityRef::Vector { run_id, .. } => *run_id,
@@ -187,7 +170,6 @@ impl EntityRef {
             EntityRef::Kv { .. } => PrimitiveType::Kv,
             EntityRef::Event { .. } => PrimitiveType::Event,
             EntityRef::State { .. } => PrimitiveType::State,
-            EntityRef::Trace { .. } => PrimitiveType::Trace,
             EntityRef::Run { .. } => PrimitiveType::Run,
             EntityRef::Json { .. } => PrimitiveType::Json,
             EntityRef::Vector { .. } => PrimitiveType::Vector,
@@ -217,11 +199,6 @@ impl EntityRef {
     /// Check if this is a state reference
     pub fn is_state(&self) -> bool {
         matches!(self, EntityRef::State { .. })
-    }
-
-    /// Check if this is a trace reference
-    pub fn is_trace(&self) -> bool {
-        matches!(self, EntityRef::Trace { .. })
     }
 
     /// Check if this is a run reference
@@ -267,14 +244,6 @@ impl EntityRef {
         }
     }
 
-    /// Get the trace ID if this is a trace reference
-    pub fn trace_id(&self) -> Option<&str> {
-        match self {
-            EntityRef::Trace { trace_id, .. } => Some(trace_id),
-            _ => None,
-        }
-    }
-
     /// Get the JSON doc ID if this is a JSON reference
     pub fn json_doc_id(&self) -> Option<JsonDocId> {
         match self {
@@ -305,9 +274,6 @@ impl std::fmt::Display for EntityRef {
             }
             EntityRef::State { run_id, name } => {
                 write!(f, "state://{}/{}", run_id, name)
-            }
-            EntityRef::Trace { run_id, trace_id } => {
-                write!(f, "trace://{}/{}", run_id, trace_id)
             }
             EntityRef::Run { run_id } => {
                 write!(f, "run://{}", run_id)
@@ -379,17 +345,6 @@ mod tests {
     }
 
     #[test]
-    fn test_entity_ref_trace() {
-        let run_id = RunId::new();
-        let ref_ = EntityRef::trace(run_id, "trace-uuid-123");
-
-        assert!(ref_.is_trace());
-        assert_eq!(ref_.run_id(), run_id);
-        assert_eq!(ref_.primitive_type(), PrimitiveType::Trace);
-        assert_eq!(ref_.trace_id(), Some("trace-uuid-123"));
-    }
-
-    #[test]
     fn test_entity_ref_run() {
         let run_id = RunId::new();
         let ref_ = EntityRef::run(run_id);
@@ -435,9 +390,6 @@ mod tests {
         let state = EntityRef::state(run_id, "cell");
         assert!(format!("{}", state).starts_with("state://"));
 
-        let trace = EntityRef::trace(run_id, "trace-id");
-        assert!(format!("{}", trace).starts_with("trace://"));
-
         let run_ref = EntityRef::run(run_id);
         assert!(format!("{}", run_ref).starts_with("run://"));
 
@@ -482,7 +434,6 @@ mod tests {
             EntityRef::kv(run_id, "key"),
             EntityRef::event(run_id, 42),
             EntityRef::state(run_id, "cell"),
-            EntityRef::trace(run_id, "trace-id"),
             EntityRef::run(run_id),
             EntityRef::json(run_id, JsonDocId::new()),
             EntityRef::vector(run_id, "col", "key"),
@@ -512,7 +463,6 @@ mod tests {
         // Wrong extractors should return None
         assert!(kv_ref.event_sequence().is_none());
         assert!(kv_ref.state_name().is_none());
-        assert!(kv_ref.trace_id().is_none());
         assert!(kv_ref.json_doc_id().is_none());
         assert!(kv_ref.vector_location().is_none());
     }
@@ -527,14 +477,13 @@ mod tests {
             EntityRef::kv(run_id, "k"),
             EntityRef::event(run_id, 0),
             EntityRef::state(run_id, "s"),
-            EntityRef::trace(run_id, "t"),
             EntityRef::run(run_id),
             EntityRef::json(run_id, doc_id),
             EntityRef::vector(run_id, "c", "k"),
         ];
 
-        // Verify they map to all 7 primitive types
+        // Verify they map to all 6 primitive types
         let types: std::collections::HashSet<_> = refs.iter().map(|r| r.primitive_type()).collect();
-        assert_eq!(types.len(), 7);
+        assert_eq!(types.len(), 6);
     }
 }

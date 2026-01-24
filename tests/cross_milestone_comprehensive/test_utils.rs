@@ -1,6 +1,6 @@
 //! Test utilities for cross-milestone comprehensive tests
 //!
-//! Provides common helpers for testing all 7 primitives together.
+//! Provides common helpers for testing all 6 primitives together.
 
 use strata_core::json::{JsonPath, JsonValue};
 use strata_core::types::{JsonDocId, RunId};
@@ -8,7 +8,7 @@ use strata_core::value::Value;
 use strata_engine::Database;
 use strata_primitives::{
     register_vector_recovery, DistanceMetric, EventLog, JsonStore, KVStore, RunIndex, StateCell,
-    StorageDtype, TraceStore, VectorConfig, VectorStore,
+    StorageDtype, VectorConfig, VectorStore,
 };
 use std::path::Path;
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -24,9 +24,6 @@ fn ensure_recovery_registered() {
     });
 }
 
-// Re-export types for tests
-pub use strata_primitives::TraceType;
-
 // Counter for generating unique keys
 static COUNTER: AtomicU64 = AtomicU64::new(0);
 
@@ -34,7 +31,7 @@ static COUNTER: AtomicU64 = AtomicU64::new(0);
 // Test Database Wrapper with All Primitives
 // ============================================================================
 
-/// Test database wrapper with access to all 7 primitives
+/// Test database wrapper with access to all 6 primitives
 pub struct TestDb {
     pub db: Arc<Database>,
     pub dir: TempDir,
@@ -86,14 +83,13 @@ impl TestDb {
         TestDb { db, dir, run_id }
     }
 
-    /// Get all 7 primitives
+    /// Get all 6 primitives
     pub fn all_primitives(&self) -> AllPrimitives {
         AllPrimitives {
             kv: KVStore::new(self.db.clone()),
             json: JsonStore::new(self.db.clone()),
             event: EventLog::new(self.db.clone()),
             state: StateCell::new(self.db.clone()),
-            trace: TraceStore::new(self.db.clone()),
             run: RunIndex::new(self.db.clone()),
             vector: VectorStore::new(self.db.clone()),
         }
@@ -117,11 +113,6 @@ impl TestDb {
     /// Get the State cell
     pub fn state(&self) -> StateCell {
         StateCell::new(self.db.clone())
-    }
-
-    /// Get the Trace store
-    pub fn trace(&self) -> TraceStore {
-        TraceStore::new(self.db.clone())
     }
 
     /// Get the Run index
@@ -164,13 +155,12 @@ impl Default for TestDb {
     }
 }
 
-/// Container for all 7 primitives
+/// Container for all 6 primitives
 pub struct AllPrimitives {
     pub kv: KVStore,
     pub json: JsonStore,
     pub event: EventLog,
     pub state: StateCell,
-    pub trace: TraceStore,
     pub run: RunIndex,
     pub vector: VectorStore,
 }
@@ -308,7 +298,7 @@ pub fn assert_db_healthy(db: &Arc<Database>, run_id: &RunId) {
     assert!(value.is_some(), "Database should return written value");
 }
 
-/// Assert that all 7 primitives can perform basic operations
+/// Assert that all 6 primitives can perform basic operations
 pub fn assert_all_primitives_healthy(test_db: &TestDb) {
     let p = test_db.all_primitives();
     let run_id = test_db.run_id;
@@ -340,19 +330,6 @@ pub fn assert_all_primitives_healthy(test_db: &TestDb) {
     p.state
         .init(&run_id, &state_key, Value::String("initial".into()))
         .expect("State should init");
-
-    // Trace
-    p.trace
-        .record(
-            &run_id,
-            strata_primitives::TraceType::Thought {
-                content: "test content".into(),
-                confidence: None,
-            },
-            vec![],
-            Value::Null,
-        )
-        .expect("Trace should record");
 
     // Run
     // Run index operations are typically done through transaction extensions

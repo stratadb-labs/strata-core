@@ -53,17 +53,6 @@ fn entity_ref_uniquely_identifies_state() {
 }
 
 #[test]
-fn entity_ref_uniquely_identifies_trace() {
-    let run_id = test_run_id();
-    let ref1 = EntityRef::trace(run_id, "trace-1001");
-    let ref2 = EntityRef::trace(run_id, "trace-1001");
-    let ref3 = EntityRef::trace(run_id, "trace-1002");
-
-    assert_eq!(ref1, ref2);
-    assert_ne!(ref1, ref3);
-}
-
-#[test]
 fn entity_ref_uniquely_identifies_run() {
     let run_id1 = test_run_id();
     let run_id2 = test_run_id();
@@ -218,15 +207,6 @@ fn entity_ref_state_preserves_name() {
 }
 
 #[test]
-fn entity_ref_trace_preserves_trace_id() {
-    let run_id = test_run_id();
-    let entity_ref = EntityRef::trace(run_id, "trace-9999");
-
-    assert_eq!(entity_ref.trace_id(), Some("trace-9999"));
-    assert_eq!(entity_ref.run_id(), run_id);
-}
-
-#[test]
 fn entity_ref_json_preserves_doc_id() {
     let run_id = test_run_id();
     let doc_id = JsonDocId::new();
@@ -256,7 +236,6 @@ fn entity_ref_reports_correct_primitive_type() {
     assert_eq!(EntityRef::kv(run_id.clone(), "k").primitive_type(), PrimitiveType::Kv);
     assert_eq!(EntityRef::event(run_id.clone(), 1).primitive_type(), PrimitiveType::Event);
     assert_eq!(EntityRef::state(run_id.clone(), "s").primitive_type(), PrimitiveType::State);
-    assert_eq!(EntityRef::trace(run_id, "trace-1").primitive_type(), PrimitiveType::Trace);
     assert_eq!(EntityRef::run(run_id.clone()).primitive_type(), PrimitiveType::Run);
     assert_eq!(EntityRef::json(run_id.clone(), JsonDocId::new()).primitive_type(), PrimitiveType::Json);
     assert_eq!(EntityRef::vector(run_id, "c", "v").primitive_type(), PrimitiveType::Vector);
@@ -276,7 +255,6 @@ fn entity_ref_type_checks_are_exclusive() {
             entity_ref.is_kv(),
             entity_ref.is_event(),
             entity_ref.is_state(),
-            entity_ref.is_trace(),
             entity_ref.is_run(),
             entity_ref.is_json(),
             entity_ref.is_vector(),

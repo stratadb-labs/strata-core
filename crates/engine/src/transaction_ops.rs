@@ -31,7 +31,7 @@
 
 use strata_core::{
     Event, JsonDocId, JsonPath, JsonValue, MetadataFilter, RunMetadata, RunStatus, State,
-    StrataError, Trace, TraceType, Value, VectorEntry, VectorMatch, Version, Versioned,
+    StrataError, Value, VectorEntry, VectorMatch, Version, Versioned,
 };
 
 /// Operations available within a transaction
@@ -106,27 +106,6 @@ pub trait TransactionOps {
 
     /// Check if a state cell exists
     fn state_exists(&self, name: &str) -> Result<bool, StrataError>;
-
-    // =========================================================================
-    // Trace Operations (Phase 3)
-    // =========================================================================
-
-    /// Record a trace entry
-    fn trace_record(
-        &mut self,
-        trace_type: TraceType,
-        tags: Vec<String>,
-        content: Value,
-    ) -> Result<Versioned<u64>, StrataError>;
-
-    /// Read a trace by ID
-    fn trace_read(&self, trace_id: u64) -> Result<Option<Versioned<Trace>>, StrataError>;
-
-    /// Check if a trace exists
-    fn trace_exists(&self, trace_id: u64) -> Result<bool, StrataError>;
-
-    /// Get trace count for this run
-    fn trace_count(&self) -> Result<u64, StrataError>;
 
     // =========================================================================
     // Json Operations (Phase 4)

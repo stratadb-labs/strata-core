@@ -10,7 +10,6 @@
 use crate::test_utils::{values, PersistentTestPrimitives};
 use strata_core::contract::Version;
 use strata_core::value::Value;
-use strata_primitives::TraceType;
 
 // =============================================================================
 // Multi-Primitive Recovery
@@ -44,18 +43,6 @@ mod multi_primitive_recovery {
                 .state_cell
                 .init(&run_id, "cell", values::int(42))
                 .unwrap();
-            prims
-                .trace_store
-                .record(
-                    &run_id,
-                    TraceType::Thought {
-                        content: "thinking".into(),
-                        confidence: None,
-                    },
-                    vec![],
-                    values::null(),
-                )
-                .unwrap();
         }
 
         // Session 2: Recover and verify
@@ -81,11 +68,6 @@ mod multi_primitive_recovery {
             // StateCell recovered
             let state = prims.state_cell.read(&run_id, "cell").unwrap().unwrap();
             assert_eq!(state.value.value, values::int(42));
-
-            // TraceStore recovered
-            let traces = prims.trace_store.query_by_type(&run_id, "Thought").unwrap();
-            assert_eq!(traces.len(), 1);
-            assert!(matches!(traces[0].trace_type, TraceType::Thought { .. }));
         }
     }
 
@@ -336,150 +318,6 @@ mod cas_version_continuity {
 
 mod index_recovery {
     use super::*;
-
-    #[test]
-    fn test_tracestore_type_index_survives_recovery() {
-        let ptp = PersistentTestPrimitives::new();
-        let run_id = ptp.run_id;
-
-        // Session 1: Record traces of various types
-        {
-            let prims = ptp.open();
-            prims
-                .trace_store
-                .record(
-                    &run_id,
-                    TraceType::Thought {
-                        content: "t1".into(),
-                        confidence: None,
-                    },
-                    vec![],
-                    values::null(),
-                )
-                .unwrap();
-            prims
-                .trace_store
-                .record(
-                    &run_id,
-                    TraceType::Custom {
-                        name: "Action".into(),
-                        data: values::null(),
-                    },
-                    vec![],
-                    values::null(),
-                )
-                .unwrap();
-            prims
-                .trace_store
-                .record(
-                    &run_id,
-                    TraceType::Thought {
-                        content: "t2".into(),
-                        confidence: None,
-                    },
-                    vec![],
-                    values::null(),
-                )
-                .unwrap();
-            prims
-                .trace_store
-                .record(
-                    &run_id,
-                    TraceType::Custom {
-                        name: "Observation".into(),
-                        data: values::null(),
-                    },
-                    vec![],
-                    values::null(),
-                )
-                .unwrap();
-            prims
-                .trace_store
-                .record(
-                    &run_id,
-                    TraceType::Thought {
-                        content: "t3".into(),
-                        confidence: None,
-                    },
-                    vec![],
-                    values::null(),
-                )
-                .unwrap();
-        }
-
-        // Session 2: Query by type
-        {
-            let prims = ptp.open();
-            let thoughts = prims.trace_store.query_by_type(&run_id, "Thought").unwrap();
-            let actions = prims.trace_store.query_by_type(&run_id, "Action").unwrap();
-            let observations = prims
-                .trace_store
-                .query_by_type(&run_id, "Observation")
-                .unwrap();
-
-            assert_eq!(thoughts.len(), 3);
-            assert_eq!(actions.len(), 1);
-            assert_eq!(observations.len(), 1);
-        }
-    }
-
-    #[test]
-    fn test_tracestore_parent_child_index_survives_recovery() {
-        let ptp = PersistentTestPrimitives::new();
-        let run_id = ptp.run_id;
-
-        let parent_id;
-        // Session 1: Create trace tree
-        {
-            let prims = ptp.open();
-            parent_id = prims
-                .trace_store
-                .record(
-                    &run_id,
-                    TraceType::Custom {
-                        name: "Parent".into(),
-                        data: values::null(),
-                    },
-                    vec![],
-                    values::null(),
-                )
-                .unwrap()
-                .value;
-            prims
-                .trace_store
-                .record_child(
-                    &run_id,
-                    &parent_id,
-                    TraceType::Custom {
-                        name: "Child1".into(),
-                        data: values::null(),
-                    },
-                    vec![],
-                    values::null(),
-                )
-                .unwrap();
-            prims
-                .trace_store
-                .record_child(
-                    &run_id,
-                    &parent_id,
-                    TraceType::Custom {
-                        name: "Child2".into(),
-                        data: values::null(),
-                    },
-                    vec![],
-                    values::null(),
-                )
-                .unwrap();
-        }
-
-        // Session 2: Query children
-        {
-            let prims = ptp.open();
-            let children = prims.trace_store.get_children(&run_id, &parent_id).unwrap();
-            assert_eq!(children.len(), 2);
-        }
-    }
 
     #[test]
     fn test_eventlog_type_index_survives_recovery() {

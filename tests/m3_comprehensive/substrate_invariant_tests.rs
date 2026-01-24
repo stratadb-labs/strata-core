@@ -8,7 +8,7 @@
 
 use crate::test_utils::{values, PersistentTestPrimitives, TestPrimitives};
 use strata_core::contract::Version;
-use strata_primitives::{EventLog, KVStore, RunIndex, StateCell, TraceStore, TraceType};
+use strata_primitives::{EventLog, KVStore, RunIndex, StateCell};
 
 // =============================================================================
 // M3.21: Primitives Are Projections Over KV (Canonical Source)
@@ -70,35 +70,6 @@ mod primitives_are_projections {
         let state = state_cell_2.read(&run_id, "cell_1").unwrap().unwrap();
         assert_eq!(state.value.value, values::int(200));
         assert!(state.value.version >= 1);
-    }
-
-    #[test]
-    fn test_tracestore_data_persists_via_storage() {
-        // TraceStore data is stored in the underlying database
-        let tp = TestPrimitives::new();
-        let run_id = tp.run_id;
-
-        // Record traces
-        let trace_id = tp
-            .trace_store
-            .record(
-                &run_id,
-                TraceType::Thought {
-                    content: "thinking...".into(),
-                    confidence: None,
-                },
-                vec![],
-                values::null(),
-            )
-            .unwrap()
-            .value;
-
-        // Create new TraceStore facade
-        let trace_store_2 = TraceStore::new(tp.db.clone());
-
-        // New facade can retrieve the trace
-        let trace = trace_store_2.get(&run_id, &trace_id).unwrap().unwrap();
-        assert!(matches!(trace.value.trace_type, TraceType::Thought { .. }));
     }
 
     #[test]
@@ -210,23 +181,11 @@ mod cross_primitive_ordering {
             .append(&run_id, "event", values::int(2))
             .unwrap();
         tp.state_cell.init(&run_id, "cell", values::int(3)).unwrap();
-        tp.trace_store
-            .record(
-                &run_id,
-                TraceType::Custom {
-                    name: "trace".into(),
-                    data: values::int(4),
-                },
-                vec![],
-                values::null(),
-            )
-            .unwrap();
 
         // All are visible
         assert!(tp.kv.get(&run_id, "key").unwrap().is_some());
         assert_eq!(tp.event_log.len(&run_id).unwrap(), 1);
         assert!(tp.state_cell.read(&run_id, "cell").unwrap().is_some());
-        assert!(tp.trace_store.count(&run_id).unwrap() >= 1);
     }
 
     #[test]
@@ -299,13 +258,12 @@ mod cross_primitive_ordering {
 // M3.23: Replay Metadata Contract (M5 Forward Compatibility)
 // =============================================================================
 //
-// Even though replay is M5, we lock in the schema now. Events and traces
+// Even though replay is M5, we lock in the schema now. Events
 // must store enough metadata to enable future replay functionality.
 //
 // What breaks if this fails?
 // - M5 replay impossible
 // - Events lack sequence numbers or timestamps
-// - Traces lack parent IDs
 // - Replay cannot reconstruct execution order
 
 mod replay_metadata_contract {
@@ -398,116 +356,6 @@ mod replay_metadata_contract {
     }
 
     #[test]
-    fn test_tracestore_has_trace_type() {
-        // Traces have type for categorization
-        let tp = TestPrimitives::new();
-        let run_id = tp.run_id;
-
-        let trace_id = tp
-            .trace_store
-            .record(
-                &run_id,
-                TraceType::Thought {
-                    content: "reasoning".into(),
-                    confidence: None,
-                },
-                vec![],
-                values::null(),
-            )
-            .unwrap()
-            .value;
-
-        let trace = tp.trace_store.get(&run_id, &trace_id).unwrap().unwrap();
-        assert!(matches!(trace.value.trace_type, TraceType::Thought { .. }));
-    }
-
-    #[test]
-    fn test_tracestore_has_timestamp() {
-        // Traces have timestamps
-        let tp = TestPrimitives::new();
-        let run_id = tp.run_id;
-
-        let trace_id = tp
-            .trace_store
-            .record(
-                &run_id,
-                TraceType::Custom {
-                    name: "Action".into(),
-                    data: values::null(),
-                },
-                vec![],
-                values::null(),
-            )
-            .unwrap()
-            .value;
-
-        let trace = tp.trace_store.get(&run_id, &trace_id).unwrap().unwrap();
-        assert!(trace.value.timestamp > 0);
-    }
-
-    #[test]
-    fn test_tracestore_has_parent_id() {
-        // Child traces have parent_id for tree reconstruction
-        let tp = TestPrimitives::new();
-        let run_id = tp.run_id;
-
-        let parent_id = tp
-            .trace_store
-            .record(
-                &run_id,
-                TraceType::Thought {
-                    content: "parent".into(),
-                    confidence: None,
-                },
-                vec![],
-                values::null(),
-            )
-            .unwrap()
-            .value;
-        let child_id = tp
-            .trace_store
-            .record_child(
-                &run_id,
-                &parent_id,
-                TraceType::Thought {
-                    content: "child".into(),
-                    confidence: None,
-                },
-                vec![],
-                values::null(),
-            )
-            .unwrap()
-            .value;
-
-        let child = tp.trace_store.get(&run_id, &child_id).unwrap().unwrap();
-        assert_eq!(child.value.parent_id, Some(parent_id));
-    }
-
-    #[test]
-    fn test_tracestore_root_has_no_parent() {
-        // Root traces have no parent_id
-        let tp = TestPrimitives::new();
-        let run_id = tp.run_id;
-
-        let root_id = tp
-            .trace_store
-            .record(
-                &run_id,
-                TraceType::Thought {
-                    content: "root".into(),
-                    confidence: None,
-                },
-                vec![],
-                values::null(),
-            )
-            .unwrap()
-            .value;
-
-        let root = tp.trace_store.get(&run_id, &root_id).unwrap().unwrap();
-        assert_eq!(root.value.parent_id, None);
-    }
-
-    #[test]
     fn test_run_has_created_at_timestamp() {
         // Runs have creation timestamp
         let tp = TestPrimitives::new();
@@ -566,59 +414,6 @@ mod no_implicit_coupling {
     }
 
     #[test]
-    fn test_event_append_does_not_create_trace() {
-        // EventLog operations don't implicitly create traces
-        let tp = TestPrimitives::new();
-        let run_id = tp.run_id;
-
-        tp.event_log
-            .append(&run_id, "event_1", values::null())
-            .unwrap();
-        tp.event_log
-            .append(&run_id, "event_2", values::null())
-            .unwrap();
-        tp.event_log
-            .append(&run_id, "event_3", values::null())
-            .unwrap();
-
-        // TraceStore should be empty
-        assert_eq!(tp.trace_store.count(&run_id).unwrap(), 0);
-    }
-
-    #[test]
-    fn test_trace_record_does_not_create_event() {
-        // TraceStore operations don't implicitly create events
-        let tp = TestPrimitives::new();
-        let run_id = tp.run_id;
-
-        tp.trace_store
-            .record(
-                &run_id,
-                TraceType::Thought {
-                    content: "t1".into(),
-                    confidence: None,
-                },
-                vec![],
-                values::null(),
-            )
-            .unwrap();
-        tp.trace_store
-            .record(
-                &run_id,
-                TraceType::Thought {
-                    content: "t2".into(),
-                    confidence: None,
-                },
-                vec![],
-                values::null(),
-            )
-            .unwrap();
-
-        // EventLog should be empty
-        assert_eq!(tp.event_log.len(&run_id).unwrap(), 0);
-    }
-
-    #[test]
     fn test_primitives_dont_affect_each_other() {
         // Operations on one primitive don't change another
         let tp = TestPrimitives::new();
@@ -627,7 +422,6 @@ mod no_implicit_coupling {
         // Record initial counts (KVStore uses list().len() for counting)
         let kv_count_before = tp.kv.list(&run_id, None).unwrap().len();
         let event_count_before = tp.event_log.len(&run_id).unwrap();
-        let trace_count_before = tp.trace_store.count(&run_id).unwrap();
 
         // Do some state cell operations
         tp.state_cell.init(&run_id, "test", values::int(1)).unwrap();
@@ -636,6 +430,5 @@ mod no_implicit_coupling {
         // Other primitive counts unchanged
         assert_eq!(tp.kv.list(&run_id, None).unwrap().len(), kv_count_before);
         assert_eq!(tp.event_log.len(&run_id).unwrap(), event_count_before);
-        assert_eq!(tp.trace_store.count(&run_id).unwrap(), trace_count_before);
     }
 }

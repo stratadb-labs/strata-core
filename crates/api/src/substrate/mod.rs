@@ -1,7 +1,7 @@
 //! Substrate API - Power-user surface
 //!
 //! The Substrate API is the canonical semantic contract for Strata. It exposes:
-//! - All primitives explicitly (KVStore, JsonStore, EventLog, StateCell, VectorStore, TraceStore)
+//! - All primitives explicitly (KVStore, JsonStore, EventLog, StateCell, VectorStore)
 //! - All versioning (`Versioned<T>` returns on all reads, Version on all writes)
 //! - All run scoping (explicit run_id on every operation)
 //! - All transactional semantics (begin/commit/rollback)
@@ -21,7 +21,6 @@
 //! - `event`: EventLog operations
 //! - `state`: StateCell operations
 //! - `vector`: VectorStore operations
-//! - `trace`: TraceStore operations
 //! - `run`: RunIndex operations
 //! - `transaction`: Transaction control
 //! - `retention`: Retention policy operations
@@ -31,7 +30,7 @@
 //! ```
 //! use strata_api::substrate::{
 //!     ApiRunId, RetentionPolicy, RunInfo, RunState,
-//!     KVStore, JsonStore, EventLog, StateCell, VectorStore, TraceStore,
+//!     KVStore, JsonStore, EventLog, StateCell, VectorStore,
 //!     RunIndex, TransactionControl, RetentionSubstrate,
 //! };
 //! ```
@@ -42,7 +41,6 @@ pub mod json;
 pub mod event;
 pub mod state;
 pub mod vector;
-pub mod trace;
 pub mod run;
 pub mod transaction;
 pub mod retention;
@@ -63,7 +61,6 @@ pub use json::JsonStore;
 pub use event::EventLog;
 pub use state::StateCell;
 pub use vector::{DistanceMetric, SearchFilter, VectorData, VectorMatch, VectorStore};
-pub use trace::{TraceEntry, TraceStore, TraceType};
 pub use run::RunIndex;
 pub use transaction::{TransactionControl, TransactionSavepoint, TxnId, TxnInfo, TxnOptions, TxnStatus};
 pub use retention::{RetentionSubstrate, RetentionVersion, RetentionStats};

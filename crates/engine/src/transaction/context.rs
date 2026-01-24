@@ -19,7 +19,7 @@ use crate::transaction_ops::TransactionOps;
 use strata_concurrency::TransactionContext;
 use strata_core::{
     EntityRef, Event, JsonDocId, JsonPath, JsonValue, MetadataFilter, RunMetadata, RunStatus, State,
-    StrataError, Timestamp, Trace, TraceType, Value, VectorEntry, VectorMatch, Version, Versioned,
+    StrataError, Timestamp, Value, VectorEntry, VectorMatch, Version, Versioned,
 };
 use strata_core::types::{Key, Namespace, RunId, TypeTag};
 use sha2::{Sha256, Digest};
@@ -44,9 +44,6 @@ use sha2::{Sha256, Digest};
 ///     txn.state_init("counter", Value::Int(0))?;
 ///     txn.state_cas("counter", 1, Value::Int(1))?;
 ///
-///     // Trace operations
-///     txn.trace_record(TraceType::Thought { content: "...".into(), confidence: None }, vec![], json!({}))?;
-///
 ///     Ok(())
 /// })?;
 /// ```
@@ -61,10 +58,6 @@ pub struct Transaction<'a> {
     base_sequence: u64,
     /// Last hash for chaining (starts as zero hash or last event's hash)
     last_hash: [u8; 32],
-    /// Pending traces buffered in this transaction
-    pending_traces: Vec<Trace>,
-    /// Base trace sequence from snapshot (traces start at trace_base_sequence)
-    trace_base_sequence: u64,
 }
 
 impl<'a> Transaction<'a> {
@@ -78,14 +71,12 @@ impl<'a> Transaction<'a> {
             pending_events: Vec::new(),
             base_sequence: 0,
             last_hash: [0u8; 32],
-            pending_traces: Vec::new(),
-            trace_base_sequence: 0,
         }
     }
 
-    /// Create a new Transaction with explicit base sequences
+    /// Create a new Transaction with explicit base sequence
     ///
-    /// Use this when you know the current event/trace counts from snapshot.
+    /// Use this when you know the current event count from snapshot.
     pub fn with_base_sequence(
         ctx: &'a mut TransactionContext,
         namespace: Namespace,
@@ -98,29 +89,6 @@ impl<'a> Transaction<'a> {
             pending_events: Vec::new(),
             base_sequence,
             last_hash,
-            pending_traces: Vec::new(),
-            trace_base_sequence: 0,
-        }
-    }
-
-    /// Create a new Transaction with explicit event and trace base sequences
-    ///
-    /// Use this when you know both event and trace counts from snapshot.
-    pub fn with_full_base_sequences(
-        ctx: &'a mut TransactionContext,
-        namespace: Namespace,
-        event_base_sequence: u64,
-        last_hash: [u8; 32],
-        trace_base_sequence: u64,
-    ) -> Self {
-        Self {
-            ctx,
-            namespace,
-            pending_events: Vec::new(),
-            base_sequence: event_base_sequence,
-            last_hash,
-            pending_traces: Vec::new(),
-            trace_base_sequence,
         }
     }
 
@@ -174,21 +142,6 @@ impl<'a> Transaction<'a> {
     /// Create a state key for the given name
     fn state_key(&self, name: &str) -> Key {
         Key::new_state(self.namespace.clone(), name)
-    }
-
-    /// Create a trace key for the given sequence
-    fn trace_key(&self, sequence: u64) -> Key {
-        Key::new_trace(self.namespace.clone(), sequence)
-    }
-
-    /// Get pending traces (for commit)
-    pub fn pending_traces(&self) -> &[Trace] {
-        &self.pending_traces
-    }
-
-    /// Get the next trace sequence number
-    fn next_trace_sequence(&self) -> u64 {
-        self.trace_base_sequence + self.pending_traces.len() as u64
     }
 }
 
@@ -506,100 +459,6 @@ impl<'a> TransactionOps for Transaction<'a> {
 
         // For keys not in write/delete set, we'd need snapshot access
         Ok(false)
-    }
-
-    // =========================================================================
-    // Trace Operations (Phase 3 - Story #476)
-    // =========================================================================
-
-    fn trace_record(
-        &mut self,
-        trace_type: TraceType,
-        tags: Vec<String>,
-        metadata: Value,
-    ) -> Result<Versioned<u64>, StrataError> {
-        let sequence = self.next_trace_sequence();
-        let timestamp = Timestamp::now().as_micros() as i64;
-
-        // Generate trace ID (format: "trace-{sequence}")
-        let trace_id = format!("trace-{}", sequence);
-
-        // Create the trace
-        let trace = Trace {
-            id: trace_id,
-            parent_id: None, // Can be extended to support parent tracking
-            trace_type,
-            timestamp,
-            tags,
-            metadata,
-        };
-
-        // Serialize and write to underlying context
-        let trace_key = self.trace_key(sequence);
-        let trace_bytes = serde_json::to_vec(&trace).map_err(|e| {
-            StrataError::Serialization {
-                message: e.to_string(),
-            }
-        })?;
-        self.ctx.put(trace_key, Value::Bytes(trace_bytes)).map_err(StrataError::from)?;
-
-        // Buffer the trace
-        self.pending_traces.push(trace);
-
-        // Return the sequence number wrapped in Versioned (using TxnId per spec)
-        Ok(Versioned::new(sequence, Version::txn(self.ctx.txn_id)))
-    }
-
-    fn trace_read(&self, trace_id: u64) -> Result<Option<Versioned<Trace>>, StrataError> {
-        // Check pending traces first (read-your-writes)
-        if trace_id >= self.trace_base_sequence {
-            let index = (trace_id - self.trace_base_sequence) as usize;
-            if index < self.pending_traces.len() {
-                let trace = &self.pending_traces[index];
-                return Ok(Some(Versioned::new(
-                    trace.clone(),
-                    Version::txn(self.ctx.txn_id),
-                )));
-            }
-        }
-
-        // Check if the trace was written to ctx.write_set
-        let trace_key = self.trace_key(trace_id);
-        if let Some(Value::Bytes(bytes)) = self.ctx.write_set.get(&trace_key) {
-            let trace: Trace = serde_json::from_slice(bytes).map_err(|e| {
-                StrataError::Serialization {
-                    message: e.to_string(),
-                }
-            })?;
-            return Ok(Some(Versioned::new(trace, Version::txn(self.ctx.txn_id))));
-        }
-
-        // For reads from snapshot, would need snapshot access
-        Ok(None)
-    }
-
-    fn trace_exists(&self, trace_id: u64) -> Result<bool, StrataError> {
-        // Check pending traces first
-        if trace_id >= self.trace_base_sequence {
-            let index = (trace_id - self.trace_base_sequence) as usize;
-            if index < self.pending_traces.len() {
-                return Ok(true);
-            }
-        }
-
-        // Check write set
-        let trace_key = self.trace_key(trace_id);
-        if self.ctx.write_set.contains_key(&trace_key) {
-            return Ok(true);
-        }
-
-        // For traces not in pending or write set, would need snapshot access
-        Ok(false)
-    }
-
-    fn trace_count(&self) -> Result<u64, StrataError> {
-        // Base sequence from snapshot + pending traces
-        Ok(self.trace_base_sequence + self.pending_traces.len() as u64)
     }
 
     // =========================================================================
@@ -1069,173 +928,4 @@ mod tests {
         }
     }
 
-    // =========================================================================
-    // Trace Tests (Story #476)
-    // =========================================================================
-
-    #[test]
-    fn test_trace_record() {
-        let ns = create_test_namespace();
-        let mut ctx = create_test_context(&ns);
-        let mut txn = Transaction::new(&mut ctx, ns.clone());
-
-        // Record a trace
-        let trace_type = TraceType::Thought {
-            content: "Processing user request".to_string(),
-            confidence: Some(0.9),
-        };
-        let result = txn.trace_record(trace_type, vec!["test".to_string()], Value::Null).unwrap();
-        assert_eq!(result.value, 0); // First trace has sequence 0
-
-        // Check trace count
-        assert_eq!(txn.trace_count().unwrap(), 1);
-    }
-
-    #[test]
-    fn test_trace_record_multiple() {
-        let ns = create_test_namespace();
-        let mut ctx = create_test_context(&ns);
-        let mut txn = Transaction::new(&mut ctx, ns.clone());
-
-        // Record multiple traces
-        let t1 = txn.trace_record(
-            TraceType::Thought { content: "First thought".to_string(), confidence: None },
-            vec![],
-            Value::Null,
-        ).unwrap();
-        let t2 = txn.trace_record(
-            TraceType::Decision {
-                question: "What to do?".to_string(),
-                options: vec!["A".to_string(), "B".to_string()],
-                chosen: "A".to_string(),
-                reasoning: None,
-            },
-            vec!["decision".to_string()],
-            Value::Null,
-        ).unwrap();
-        let t3 = txn.trace_record(
-            TraceType::Error {
-                error_type: "ValidationError".to_string(),
-                message: "Invalid input".to_string(),
-                recoverable: true,
-            },
-            vec!["error".to_string()],
-            Value::Null,
-        ).unwrap();
-
-        assert_eq!(t1.value, 0);
-        assert_eq!(t2.value, 1);
-        assert_eq!(t3.value, 2);
-        assert_eq!(txn.trace_count().unwrap(), 3);
-    }
-
-    #[test]
-    fn test_trace_read() {
-        let ns = create_test_namespace();
-        let mut ctx = create_test_context(&ns);
-        let mut txn = Transaction::new(&mut ctx, ns.clone());
-
-        // Record a trace
-        let trace_type = TraceType::ToolCall {
-            tool_name: "calculator".to_string(),
-            arguments: Value::String("2+2".to_string()),
-            result: Some(Value::Int(4)),
-            duration_ms: Some(10),
-        };
-        txn.trace_record(trace_type.clone(), vec!["math".to_string()], Value::Null).unwrap();
-
-        // Read it back
-        let result = txn.trace_read(0).unwrap();
-        assert!(result.is_some());
-
-        let versioned = result.unwrap();
-        assert_eq!(versioned.value.id, "trace-0");
-        assert!(versioned.value.tags.contains(&"math".to_string()));
-        match &versioned.value.trace_type {
-            TraceType::ToolCall { tool_name, .. } => {
-                assert_eq!(tool_name, "calculator");
-            }
-            _ => panic!("Expected ToolCall trace type"),
-        }
-    }
-
-    #[test]
-    fn test_trace_read_your_writes() {
-        let ns = create_test_namespace();
-        let mut ctx = create_test_context(&ns);
-        let mut txn = Transaction::new(&mut ctx, ns.clone());
-
-        // Record and read back immediately
-        txn.trace_record(
-            TraceType::Query {
-                query_type: "search".to_string(),
-                query: "find files".to_string(),
-                results_count: Some(5),
-            },
-            vec![],
-            Value::Null,
-        ).unwrap();
-
-        let first = txn.trace_read(0).unwrap().unwrap();
-        assert_eq!(first.value.id, "trace-0");
-        match &first.value.trace_type {
-            TraceType::Query { query_type, .. } => {
-                assert_eq!(query_type, "search");
-            }
-            _ => panic!("Expected Query trace type"),
-        }
-    }
-
-    #[test]
-    fn test_trace_read_not_found() {
-        let ns = create_test_namespace();
-        let mut ctx = create_test_context(&ns);
-        let txn = Transaction::new(&mut ctx, ns.clone());
-
-        // Reading non-existent trace returns None
-        let result = txn.trace_read(999).unwrap();
-        assert!(result.is_none());
-    }
-
-    #[test]
-    fn test_trace_exists() {
-        let ns = create_test_namespace();
-        let mut ctx = create_test_context(&ns);
-        let mut txn = Transaction::new(&mut ctx, ns.clone());
-
-        // Trace doesn't exist initially
-        assert!(!txn.trace_exists(0).unwrap());
-
-        // Record and check
-        txn.trace_record(
-            TraceType::Custom { name: "test".to_string(), data: Value::Null },
-            vec![],
-            Value::Null,
-        ).unwrap();
-        assert!(txn.trace_exists(0).unwrap());
-        assert!(!txn.trace_exists(1).unwrap());
-    }
-
-    #[test]
-    fn test_pending_traces_accessor() {
-        let ns = create_test_namespace();
-        let mut ctx = create_test_context(&ns);
-        let mut txn = Transaction::new(&mut ctx, ns.clone());
-
-        txn.trace_record(
-            TraceType::Thought { content: "First".to_string(), confidence: None },
-            vec![],
-            Value::Null,
-        ).unwrap();
-        txn.trace_record(
-            TraceType::Thought { content: "Second".to_string(), confidence: None },
-            vec![],
-            Value::Null,
-        ).unwrap();
-
-        let pending = txn.pending_traces();
-        assert_eq!(pending.len(), 2);
-        assert_eq!(pending[0].id, "trace-0");
-        assert_eq!(pending[1].id, "trace-1");
-    }
 }

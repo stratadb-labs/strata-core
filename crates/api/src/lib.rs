@@ -69,13 +69,11 @@ pub use substrate::{
     // Implementation
     SubstrateImpl,
     // Primitive traits
-    KVStore, KVStoreBatch, JsonStore, EventLog, StateCell, VectorStore, TraceStore, RunIndex,
+    KVStore, KVStoreBatch, JsonStore, EventLog, StateCell, VectorStore, RunIndex,
     // Transaction control
     TransactionControl, TransactionSavepoint, TxnId, TxnInfo, TxnOptions, TxnStatus,
     // Vector types
     DistanceMetric, SearchFilter, VectorData, VectorMatch,
-    // Trace types
-    TraceEntry, TraceType,
     // Retention types
     RetentionSubstrate, RetentionVersion, RetentionStats,
 };
@@ -85,7 +83,7 @@ pub use facade::{
     // Configuration
     FacadeConfig, GetOptions, SetOptions,
     // Facade traits
-    KVFacade, KVFacadeBatch, JsonFacade, EventFacade, StateFacade, VectorFacade, TraceFacade,
+    KVFacade, KVFacadeBatch, JsonFacade, EventFacade, StateFacade, VectorFacade,
     HistoryFacade, RunFacade, ScopedFacade, SystemFacade, Capabilities, CapabilityLimits,
 };
 

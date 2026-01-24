@@ -6,7 +6,7 @@
 use strata_core::types::RunId;
 use strata_core::value::Value;
 use strata_engine::Database;
-use strata_primitives::{EventLog, KVStore, RunIndex, StateCell, TraceStore, TraceType};
+use strata_primitives::{EventLog, KVStore, RunIndex, StateCell};
 use std::collections::HashMap;
 use std::sync::Arc;
 use tempfile::TempDir;
@@ -138,66 +138,6 @@ fn test_state_cell_isolation() {
     assert_eq!(state2.value.version, 1); // Unchanged
 }
 
-/// Test TraceStore isolation - queries respect run boundaries
-#[test]
-fn test_trace_store_isolation() {
-    let (db, _temp) = setup();
-    let trace_store = TraceStore::new(db.clone());
-
-    let run1 = RunId::new();
-    let run2 = RunId::new();
-
-    // Record traces in both runs
-    trace_store
-        .record(
-            &run1,
-            TraceType::Thought {
-                content: "run1 thought".into(),
-                confidence: None,
-            },
-            vec!["tag1".into()],
-            Value::Null,
-        )
-        .unwrap();
-
-    trace_store
-        .record(
-            &run2,
-            TraceType::Thought {
-                content: "run2 thought".into(),
-                confidence: None,
-            },
-            vec!["tag2".into()],
-            Value::Null,
-        )
-        .unwrap();
-
-    // Each run has exactly 1 trace
-    assert_eq!(trace_store.count(&run1).unwrap(), 1);
-    assert_eq!(trace_store.count(&run2).unwrap(), 1);
-
-    // Queries are isolated
-    let run1_traces = trace_store.query_by_type(&run1, "Thought").unwrap();
-    let run2_traces = trace_store.query_by_type(&run2, "Thought").unwrap();
-
-    assert_eq!(run1_traces.len(), 1);
-    assert_eq!(run2_traces.len(), 1);
-
-    // Tag queries are isolated
-    let tag1_traces = trace_store.query_by_tag(&run1, "tag1").unwrap();
-    let tag2_traces = trace_store.query_by_tag(&run2, "tag2").unwrap();
-
-    assert_eq!(tag1_traces.len(), 1);
-    assert_eq!(tag2_traces.len(), 1);
-
-    // Cross-query returns nothing
-    let empty1 = trace_store.query_by_tag(&run1, "tag2").unwrap();
-    let empty2 = trace_store.query_by_tag(&run2, "tag1").unwrap();
-
-    assert_eq!(empty1.len(), 0);
-    assert_eq!(empty2.len(), 0);
-}
-
 /// Test that queries in one run context NEVER return data from another run
 #[test]
 fn test_cross_run_query_isolation() {
@@ -210,23 +150,11 @@ fn test_cross_run_query_isolation() {
     let kv = KVStore::new(db.clone());
     let event_log = EventLog::new(db.clone());
     let state_cell = StateCell::new(db.clone());
-    let trace_store = TraceStore::new(db.clone());
 
     // Run1 data
     for i in 0..10 {
         kv.put(&run1, &format!("key{}", i), Value::Int(i)).unwrap();
         event_log.append(&run1, "event", int_payload(i)).unwrap();
-        trace_store
-            .record(
-                &run1,
-                TraceType::Thought {
-                    content: format!("run1 trace {}", i),
-                    confidence: None,
-                },
-                vec![],
-                Value::Null,
-            )
-            .unwrap();
     }
     state_cell
         .init(&run1, "state", Value::String("run1".into()))
@@ -239,17 +167,6 @@ fn test_cross_run_query_isolation() {
         event_log
             .append(&run2, "event", int_payload(i + 100))
             .unwrap();
-        trace_store
-            .record(
-                &run2,
-                TraceType::Thought {
-                    content: format!("run2 trace {}", i),
-                    confidence: None,
-                },
-                vec![],
-                Value::Null,
-            )
-            .unwrap();
     }
     state_cell
         .init(&run2, "state", Value::String("run2".into()))
@@ -261,9 +178,6 @@ fn test_cross_run_query_isolation() {
 
     assert_eq!(event_log.len(&run1).unwrap(), 10);
     assert_eq!(event_log.len(&run2).unwrap(), 5);
-
-    assert_eq!(trace_store.count(&run1).unwrap(), 10);
-    assert_eq!(trace_store.count(&run2).unwrap(), 5);
 
     // Verify values are isolated
     assert_eq!(kv.get(&run1, "key0").unwrap().map(|v| v.value), Some(Value::Int(0)));
@@ -291,7 +205,6 @@ fn test_run_delete_isolation() {
     let kv = KVStore::new(db.clone());
     let event_log = EventLog::new(db.clone());
     let state_cell = StateCell::new(db.clone());
-    let trace_store = TraceStore::new(db.clone());
 
     // Create two runs via RunIndex
     let meta1 = run_index.create_run("run1").unwrap();
@@ -310,29 +223,6 @@ fn test_run_delete_isolation() {
     state_cell.init(&run1, "cell", Value::Int(10)).unwrap();
     state_cell.init(&run2, "cell", Value::Int(20)).unwrap();
 
-    trace_store
-        .record(
-            &run1,
-            TraceType::Thought {
-                content: "run1".into(),
-                confidence: None,
-            },
-            vec![],
-            Value::Null,
-        )
-        .unwrap();
-    trace_store
-        .record(
-            &run2,
-            TraceType::Thought {
-                content: "run2".into(),
-                confidence: None,
-            },
-            vec![],
-            Value::Null,
-        )
-        .unwrap();
-
     // Verify both runs have data
     assert!(kv.get(&run1, "key").unwrap().is_some());
     assert!(kv.get(&run2, "key").unwrap().is_some());
@@ -344,13 +234,11 @@ fn test_run_delete_isolation() {
     assert!(kv.get(&run1, "key").unwrap().is_none());
     assert_eq!(event_log.len(&run1).unwrap(), 0);
     assert!(!state_cell.exists(&run1, "cell").unwrap());
-    assert_eq!(trace_store.count(&run1).unwrap(), 0);
 
     // run2 data is UNTOUCHED
     assert_eq!(kv.get(&run2, "key").unwrap().map(|v| v.value), Some(Value::Int(2)));
     assert_eq!(event_log.len(&run2).unwrap(), 1);
     assert!(state_cell.exists(&run2, "cell").unwrap());
-    assert_eq!(trace_store.count(&run2).unwrap(), 1);
 }
 
 /// Test that many concurrent runs remain isolated
@@ -447,84 +335,3 @@ fn test_event_log_chain_isolation() {
     assert_eq!(event_log.verify_chain(&run2).unwrap().length, 2);
 }
 
-/// Test TraceStore parent-child relationships are isolated per run
-#[test]
-fn test_trace_parent_child_isolation() {
-    let (db, _temp) = setup();
-    let trace_store = TraceStore::new(db.clone());
-
-    let run1 = RunId::new();
-    let run2 = RunId::new();
-
-    // Create parent-child in run1
-    let parent1 = trace_store
-        .record(
-            &run1,
-            TraceType::ToolCall {
-                tool_name: "search".into(),
-                arguments: Value::Null,
-                result: None,
-                duration_ms: None,
-            },
-            vec![],
-            Value::Null,
-        )
-        .unwrap()
-        .value; // Extract trace_id from Versioned
-
-    let _child1 = trace_store
-        .record_child(
-            &run1,
-            &parent1,
-            TraceType::Thought {
-                content: "child of run1".into(),
-                confidence: None,
-            },
-            vec![],
-            Value::Null,
-        )
-        .unwrap();
-
-    // Create parent-child in run2 with same parent ID format
-    let parent2 = trace_store
-        .record(
-            &run2,
-            TraceType::ToolCall {
-                tool_name: "search".into(),
-                arguments: Value::Null,
-                result: None,
-                duration_ms: None,
-            },
-            vec![],
-            Value::Null,
-        )
-        .unwrap()
-        .value; // Extract trace_id from Versioned
-
-    let _child2 = trace_store
-        .record_child(
-            &run2,
-            &parent2,
-            TraceType::Thought {
-                content: "child of run2".into(),
-                confidence: None,
-            },
-            vec![],
-            Value::Null,
-        )
-        .unwrap();
-
-    // Get children in run1 - should only see run1's child
-    let children1 = trace_store.get_children(&run1, &parent1).unwrap();
-    assert_eq!(children1.len(), 1);
-
-    // Get children in run2 - should only see run2's child
-    let children2 = trace_store.get_children(&run2, &parent2).unwrap();
-    assert_eq!(children2.len(), 1);
-
-    // Cross-run parent lookup returns nothing
-    let cross1 = trace_store.get_children(&run1, &parent2).unwrap();
-    let cross2 = trace_store.get_children(&run2, &parent1).unwrap();
-    assert_eq!(cross1.len(), 0);
-    assert_eq!(cross2.len(), 0);
-}

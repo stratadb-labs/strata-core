@@ -17,7 +17,7 @@
 use super::*;
 use strata_core::types::RunId;
 use strata_core::value::Value;
-use strata_primitives::{EventLog, KVStore, RunIndex, StateCell, TraceStore, TraceType};
+use strata_primitives::{EventLog, KVStore, RunIndex, StateCell};
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 use std::thread;
@@ -168,7 +168,6 @@ fn run_mixed_workload(
                 let kv = KVStore::new(db.clone());
                 let events = EventLog::new(db.clone());
                 let state = StateCell::new(db.clone());
-                let traces = TraceStore::new(db.clone());
                 let runs = RunIndex::new(db.clone());
 
                 // Initialize StateCell for this run
@@ -178,7 +177,7 @@ fn run_mixed_workload(
                     let op_start = Instant::now();
 
                     // Round-robin across primitives
-                    let result = match i % 5 {
+                    let result = match i % 4 {
                         0 => {
                             // KVStore: put + get
                             let key = format!("key_{}_{}", thread_id, i);
@@ -199,20 +198,6 @@ fn run_mixed_workload(
                                 .map(|_| ())
                         }
                         3 => {
-                            // TraceStore: record
-                            traces
-                                .record(
-                                    &run_id,
-                                    TraceType::Thought {
-                                        content: format!("trace_{}", i),
-                                        confidence: None,
-                                    },
-                                    vec![],
-                                    Value::Int(i as i64),
-                                )
-                                .map(|_| ())
-                        }
-                        4 => {
                             // RunIndex: operations (less frequent)
                             if i % 50 == 4 {
                                 let run_name = format!("run_{}_{}", thread_id, i);

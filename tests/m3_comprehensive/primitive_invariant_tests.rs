@@ -17,7 +17,7 @@ use strata_core::contract::Version;
 use strata_core::error::Error;
 use strata_core::types::RunId;
 use strata_core::value::Value;
-use strata_primitives::{EventLog, KVStore, StateCell, TraceStore, TraceType};
+use strata_primitives::{EventLog, KVStore, StateCell};
 
 // ============================================================================
 // M3.1: TypeTag Isolation

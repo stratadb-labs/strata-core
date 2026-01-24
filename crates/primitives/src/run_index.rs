@@ -682,11 +682,11 @@ impl RunIndex {
     /// - KV entries
     /// - Events
     /// - State cells
-    /// - Traces
     fn delete_run_data_internal(&self, run_id: RunId) -> Result<()> {
         let ns = Namespace::for_run(run_id);
 
-        // Delete data for each type tag
+        // Delete data for each type tag (including deprecated Trace for backwards compatibility)
+        #[allow(deprecated)]
         for type_tag in [TypeTag::KV, TypeTag::Event, TypeTag::State, TypeTag::Trace] {
             self.db.transaction(run_id, |txn| {
                 let prefix = Key::new(ns.clone(), type_tag, vec![]);
@@ -1467,7 +1467,7 @@ mod tests {
 
     mod integration_tests {
         use super::*;
-        use crate::{EventLog, KVStore, StateCell, TraceStore, TraceType};
+        use crate::{EventLog, KVStore, StateCell};
 
         #[test]
         fn test_run_lifecycle_with_primitives() {
@@ -1477,7 +1477,6 @@ mod tests {
             let kv = KVStore::new(db.clone());
             let event_log = EventLog::new(db.clone());
             let state_cell = StateCell::new(db.clone());
-            let trace_store = TraceStore::new(db.clone());
 
             // Create run via RunIndex
             let meta = run_index.create_run("integration-test-run").unwrap();
@@ -1489,23 +1488,11 @@ mod tests {
                 .append(&run_id, "test-event", empty_event_payload())
                 .unwrap();
             state_cell.init(&run_id, "cell", Value::Bool(true)).unwrap();
-            trace_store
-                .record(
-                    &run_id,
-                    TraceType::Thought {
-                        content: "test thought".into(),
-                        confidence: None,
-                    },
-                    vec![],
-                    Value::Null,
-                )
-                .unwrap();
 
             // Verify data exists
             assert!(kv.get(&run_id, "key").unwrap().is_some());
             assert_eq!(event_log.len(&run_id).unwrap(), 1);
             assert!(state_cell.exists(&run_id, "cell").unwrap());
-            assert_eq!(trace_store.count(&run_id).unwrap(), 1);
 
             // Delete run (cascading)
             run_index.delete_run("integration-test-run").unwrap();
@@ -1517,7 +1504,6 @@ mod tests {
             assert!(kv.get(&run_id, "key").unwrap().is_none());
             assert_eq!(event_log.len(&run_id).unwrap(), 0);
             assert!(!state_cell.exists(&run_id, "cell").unwrap());
-            assert_eq!(trace_store.count(&run_id).unwrap(), 0);
         }
 
         #[test]
@@ -1568,7 +1554,6 @@ mod tests {
             let kv = KVStore::new(db.clone());
             let event_log = EventLog::new(db.clone());
             let state_cell = StateCell::new(db.clone());
-            let trace_store = TraceStore::new(db.clone());
 
             // Create run with tags
             let meta = run_index
@@ -1601,37 +1586,8 @@ mod tests {
                 .init(&run_id, "flag", Value::Bool(false))
                 .unwrap();
 
-            // TraceStore: record multiple traces
-            trace_store
-                .record(
-                    &run_id,
-                    TraceType::ToolCall {
-                        tool_name: "search".into(),
-                        arguments: Value::Null,
-                        result: None,
-                        duration_ms: Some(100),
-                    },
-                    vec!["tool".into()],
-                    Value::Null,
-                )
-                .unwrap();
-            trace_store
-                .record(
-                    &run_id,
-                    TraceType::Decision {
-                        question: "what to do?".into(),
-                        options: vec!["a".into(), "b".into()],
-                        chosen: "a".into(),
-                        reasoning: None,
-                    },
-                    vec![],
-                    Value::Null,
-                )
-                .unwrap();
-
             // Verify counts before delete
             assert_eq!(event_log.len(&run_id).unwrap(), 3);
-            assert_eq!(trace_store.count(&run_id).unwrap(), 2);
 
             // Query run by tag
             let prod_runs = run_index.query_by_tag("production").unwrap();
@@ -1655,7 +1611,6 @@ mod tests {
             assert_eq!(event_log.len(&run_id).unwrap(), 0);
             assert!(!state_cell.exists(&run_id, "counter").unwrap());
             assert!(!state_cell.exists(&run_id, "flag").unwrap());
-            assert_eq!(trace_store.count(&run_id).unwrap(), 0);
 
             // Verify indices are cleaned up
             let prod_runs = run_index.query_by_tag("production").unwrap();

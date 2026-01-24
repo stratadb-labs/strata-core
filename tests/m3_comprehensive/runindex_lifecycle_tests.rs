@@ -14,7 +14,7 @@
 use super::test_utils::*;
 use strata_core::types::RunId;
 use strata_core::value::Value;
-use strata_primitives::{RunIndex, RunStatus, TraceType};
+use strata_primitives::{RunIndex, RunStatus};
 
 // ============================================================================
 // M3.16: Valid Status Transitions
@@ -347,11 +347,11 @@ mod archived_is_terminal {
 // M3.19: Cascading Delete
 // ============================================================================
 // delete_run() removes all primitive data
-// KV, Events, States, Traces all deleted
+// KV, Events, States all deleted
 // Other runs unaffected
 //
 // What breaks if this fails?
-// Orphaned data. Deleted run leaves behind KV entries, events, traces.
+// Orphaned data. Deleted run leaves behind KV entries, events.
 
 mod cascading_delete {
     use super::*;
@@ -432,63 +432,22 @@ mod cascading_delete {
     }
 
     #[test]
-    fn test_delete_run_removes_traces() {
-        let tp = TestPrimitives::new();
-        let meta = tp.run_index.create_run("test-run").unwrap();
-        let run_id = RunId::from_string(&meta.value.run_id).unwrap();
-
-        // Record traces
-        for _ in 0..5 {
-            tp.trace_store
-                .record(
-                    &run_id,
-                    TraceType::Thought {
-                        content: "test".into(),
-                        confidence: None,
-                    },
-                    vec![],
-                    values::null(),
-                )
-                .unwrap();
-        }
-        assert_eq!(tp.trace_store.count(&run_id).unwrap(), 5);
-
-        // Delete run
-        tp.run_index.delete_run("test-run").unwrap();
-
-        // All traces gone
-        assert_eq!(tp.trace_store.count(&run_id).unwrap(), 0);
-    }
-
-    #[test]
     fn test_delete_run_removes_all_primitive_data() {
         let tp = TestPrimitives::new();
         let meta = tp.run_index.create_run("test-run").unwrap();
         let run_id = RunId::from_string(&meta.value.run_id).unwrap();
 
-        // Write to ALL 5 primitives
+        // Write to primitives
         tp.kv.put(&run_id, "key", values::int(1)).unwrap();
         tp.event_log
             .append(&run_id, "event", values::null())
             .unwrap();
         tp.state_cell.init(&run_id, "cell", values::int(0)).unwrap();
-        tp.trace_store
-            .record(
-                &run_id,
-                TraceType::Thought {
-                    content: "test".into(),
-                    confidence: None,
-                },
-                vec![],
-                values::null(),
-            )
-            .unwrap();
 
         // Verify data exists
         assert!(tp.kv.get(&run_id, "key").unwrap().is_some());
         assert_eq!(tp.event_log.len(&run_id).unwrap(), 1);
         assert!(tp.state_cell.exists(&run_id, "cell").unwrap());
-        assert_eq!(tp.trace_store.count(&run_id).unwrap(), 1);
 
         // Delete run (cascading)
         tp.run_index.delete_run("test-run").unwrap();
@@ -497,7 +456,6 @@ mod cascading_delete {
         assert!(tp.kv.get(&run_id, "key").unwrap().is_none());
         assert_eq!(tp.event_log.len(&run_id).unwrap(), 0);
         assert!(!tp.state_cell.exists(&run_id, "cell").unwrap());
-        assert_eq!(tp.trace_store.count(&run_id).unwrap(), 0);
     }
 
     #[test]

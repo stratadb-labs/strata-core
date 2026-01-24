@@ -9,7 +9,7 @@
 use crate::test_utils::{values, PersistentTestPrimitives, TestPrimitives};
 use strata_core::contract::Version;
 use strata_core::value::Value;
-use strata_primitives::{RunStatus, TraceType};
+use strata_primitives::{RunStatus};
 
 // =============================================================================
 // Atomic Multi-Primitive Operations
@@ -30,23 +30,11 @@ mod atomic_operations {
             .append(&run_id, "event", values::int(2))
             .unwrap();
         tp.state_cell.init(&run_id, "cell", values::int(3)).unwrap();
-        tp.trace_store
-            .record(
-                &run_id,
-                TraceType::Custom {
-                    name: "trace".into(),
-                    data: values::int(4),
-                },
-                vec![],
-                Value::Null,
-            )
-            .unwrap();
 
         // All visible
         assert!(tp.kv.get(&run_id, "key").unwrap().is_some());
         assert_eq!(tp.event_log.len(&run_id).unwrap(), 1);
         assert!(tp.state_cell.read(&run_id, "cell").unwrap().is_some());
-        assert_eq!(tp.trace_store.count(&run_id).unwrap(), 1);
     }
 
     #[test]
@@ -68,49 +56,6 @@ mod atomic_operations {
         assert_eq!(tp.event_log.len(&run_id).unwrap(), 2);
     }
 
-    #[test]
-    fn test_state_and_trace_together() {
-        // StateCell and TraceStore operations work together
-        let tp = TestPrimitives::new();
-        let run_id = tp.run_id;
-
-        tp.state_cell
-            .init(&run_id, "counter", values::int(0))
-            .unwrap();
-        let trace_id = tp
-            .trace_store
-            .record(
-                &run_id,
-                TraceType::Custom {
-                    name: "Init".into(),
-                    data: values::string("initialized counter"),
-                },
-                vec![],
-                Value::Null,
-            )
-            .unwrap()
-            .value;
-
-        tp.state_cell
-            .set(&run_id, "counter", values::int(1))
-            .unwrap();
-        tp.trace_store
-            .record_child(
-                &run_id,
-                &trace_id,
-                TraceType::Custom {
-                    name: "Increment".into(),
-                    data: values::string("counter++"),
-                },
-                vec![],
-                Value::Null,
-            )
-            .unwrap();
-
-        let state = tp.state_cell.read(&run_id, "counter").unwrap().unwrap();
-        assert_eq!(state.value.value, values::int(1));
-        assert_eq!(tp.trace_store.count(&run_id).unwrap(), 2);
-    }
 }
 
 // =============================================================================
@@ -168,30 +113,6 @@ mod read_your_writes {
         let state = tp.state_cell.read(&run_id, "cell").unwrap().unwrap();
         assert_eq!(state.value.value, values::int(10));
         assert_eq!(state.value.version, 2);
-    }
-
-    #[test]
-    fn test_trace_read_after_record() {
-        let tp = TestPrimitives::new();
-        let run_id = tp.run_id;
-
-        let trace_id = tp
-            .trace_store
-            .record(
-                &run_id,
-                TraceType::Custom {
-                    name: "Test".into(),
-                    data: values::bool_val(true),
-                },
-                vec![],
-                Value::Null,
-            )
-            .unwrap()
-            .value;
-        let trace = tp.trace_store.get(&run_id, &trace_id).unwrap().unwrap();
-        assert!(
-            matches!(trace.value.trace_type, TraceType::Custom { data, .. } if data == values::bool_val(true))
-        );
     }
 
     #[test]
@@ -253,18 +174,6 @@ mod multi_primitive_persistence {
                 .state_cell
                 .init(&run_id, "cell", values::int(300))
                 .unwrap();
-            prims
-                .trace_store
-                .record(
-                    &run_id,
-                    TraceType::Custom {
-                        name: "trace".into(),
-                        data: values::int(400),
-                    },
-                    vec![],
-                    Value::Null,
-                )
-                .unwrap();
         }
 
         // Second session: verify all data persisted
@@ -278,10 +187,6 @@ mod multi_primitive_persistence {
             assert_eq!(event.value.payload, values::int(200));
             let state = prims.state_cell.read(&run_id, "cell").unwrap().unwrap();
             assert_eq!(state.value.value, values::int(300));
-            let traces = prims.trace_store.query_by_type(&run_id, "trace").unwrap();
-            assert!(
-                matches!(&traces[0].trace_type, TraceType::Custom { data, .. } if *data == values::int(400))
-            );
         }
     }
 
@@ -300,24 +205,12 @@ mod multi_primitive_persistence {
                 .unwrap();
         }
 
-        // Session 2: StateCell and Trace
+        // Session 2: StateCell
         {
             let prims = ptp.open();
             prims
                 .state_cell
                 .init(&run_id, "cell", values::int(2))
-                .unwrap();
-            prims
-                .trace_store
-                .record(
-                    &run_id,
-                    TraceType::Custom {
-                        name: "trace1".into(),
-                        data: values::null(),
-                    },
-                    vec![],
-                    Value::Null,
-                )
                 .unwrap();
         }
 
@@ -327,7 +220,6 @@ mod multi_primitive_persistence {
             assert!(prims.kv.get(&run_id, "key1").unwrap().is_some());
             assert_eq!(prims.event_log.len(&run_id).unwrap(), 1);
             assert!(prims.state_cell.read(&run_id, "cell").unwrap().is_some());
-            assert_eq!(prims.trace_store.count(&run_id).unwrap(), 1);
         }
     }
 }

@@ -49,7 +49,6 @@ mod tier5_seven_invariants;
 mod tier6_kv_conformance;
 mod tier6_event_conformance;
 mod tier6_state_conformance;
-mod tier6_trace_conformance;
 
 // Tier 7: StrataError Tests (Epic 63: Error Standardization)
 mod tier7_strata_error;

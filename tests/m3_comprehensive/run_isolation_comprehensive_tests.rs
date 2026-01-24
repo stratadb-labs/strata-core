@@ -8,7 +8,6 @@
 
 use crate::test_utils::{concurrent, values, TestPrimitives};
 use strata_core::types::RunId;
-use strata_primitives::TraceType;
 use std::collections::HashSet;
 
 // =============================================================================
@@ -35,17 +34,6 @@ mod n_run_isolation {
             tp.state_cell
                 .init(run, "state", values::int(i as i64))
                 .unwrap();
-            tp.trace_store
-                .record(
-                    run,
-                    TraceType::Custom {
-                        name: format!("Trace{}", i),
-                        data: values::int(i as i64),
-                    },
-                    vec![],
-                    values::null(),
-                )
-                .unwrap();
         }
 
         // Verify each run sees only its own data
@@ -68,13 +56,6 @@ mod n_run_isolation {
             // StateCell isolation
             let state = tp.state_cell.read(run, "state").unwrap().unwrap();
             assert_eq!(state.value.value, values::int(i as i64));
-
-            // TraceStore isolation
-            let traces = tp
-                .trace_store
-                .query_by_type(run, &format!("Trace{}", i))
-                .unwrap();
-            assert_eq!(traces.len(), 1);
         }
     }
 
@@ -300,17 +281,6 @@ mod run_delete_isolation {
             tp.kv.put(run, "kv_key", values::int(1)).unwrap();
             tp.event_log.append(run, "event", values::null()).unwrap();
             tp.state_cell.init(run, "cell", values::int(0)).unwrap();
-            tp.trace_store
-                .record(
-                    run,
-                    TraceType::Thought {
-                        content: "thinking".into(),
-                        confidence: None,
-                    },
-                    vec![],
-                    values::null(),
-                )
-                .unwrap();
         }
 
         // Both runs have data
@@ -320,8 +290,6 @@ mod run_delete_isolation {
         assert_eq!(tp.event_log.len(&run_b).unwrap(), 1);
         assert!(tp.state_cell.read(&run_a, "cell").unwrap().is_some());
         assert!(tp.state_cell.read(&run_b, "cell").unwrap().is_some());
-        assert_eq!(tp.trace_store.count(&run_a).unwrap(), 1);
-        assert_eq!(tp.trace_store.count(&run_b).unwrap(), 1);
     }
 }
 
@@ -407,65 +375,6 @@ mod cross_run_leakage_prevention {
         assert_eq!(run2_cells.len(), 2);
         assert!(run2_cells.contains(&"cell_b".to_string()));
         assert!(run2_cells.contains(&"cell_c".to_string()));
-    }
-
-    #[test]
-    fn test_tracestore_list_returns_only_run_traces() {
-        let tp = TestPrimitives::new();
-        let run1 = tp.new_run();
-        let run2 = tp.new_run();
-
-        // Record traces in each run
-        let id1 = tp
-            .trace_store
-            .record(
-                &run1,
-                TraceType::Thought {
-                    content: "T1".into(),
-                    confidence: None,
-                },
-                vec![],
-                values::null(),
-            )
-            .unwrap()
-            .value;
-        let id2 = tp
-            .trace_store
-            .record(
-                &run2,
-                TraceType::Thought {
-                    content: "T2".into(),
-                    confidence: None,
-                },
-                vec![],
-                values::null(),
-            )
-            .unwrap()
-            .value;
-        let id3 = tp
-            .trace_store
-            .record(
-                &run2,
-                TraceType::Thought {
-                    content: "T3".into(),
-                    confidence: None,
-                },
-                vec![],
-                values::null(),
-            )
-            .unwrap()
-            .value;
-
-        // list() returns only traces for that run
-        let run1_traces = tp.trace_store.list(&run1).unwrap();
-        let run2_traces = tp.trace_store.list(&run2).unwrap();
-
-        assert_eq!(run1_traces.len(), 1);
-        assert!(run1_traces.iter().any(|t| t.id == id1));
-
-        assert_eq!(run2_traces.len(), 2);
-        assert!(run2_traces.iter().any(|t| t.id == id2));
-        assert!(run2_traces.iter().any(|t| t.id == id3));
     }
 
     #[test]

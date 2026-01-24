@@ -360,7 +360,7 @@ fn primitive_type_to_byte(ptype: PrimitiveType) -> u8 {
         PrimitiveType::Kv => 0x01,
         PrimitiveType::Event => 0x02,
         PrimitiveType::State => 0x03,
-        PrimitiveType::Trace => 0x04,
+        // 0x04 was Trace (removed)
         PrimitiveType::Run => 0x05,
         PrimitiveType::Json => 0x06,
         PrimitiveType::Vector => 0x07,
@@ -373,7 +373,7 @@ fn primitive_type_from_byte(byte: u8) -> Option<PrimitiveType> {
         0x01 => Some(PrimitiveType::Kv),
         0x02 => Some(PrimitiveType::Event),
         0x03 => Some(PrimitiveType::State),
-        0x04 => Some(PrimitiveType::Trace),
+        // 0x04 was Trace (removed)
         0x05 => Some(PrimitiveType::Run),
         0x06 => Some(PrimitiveType::Json),
         0x07 => Some(PrimitiveType::Vector),

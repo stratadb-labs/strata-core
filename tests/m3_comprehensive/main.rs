@@ -1,6 +1,6 @@
 //! M3 Comprehensive Test Suite
 //!
-//! Tests for the Primitives layer (KVStore, EventLog, StateCell, TraceStore, RunIndex)
+//! Tests for the Primitives layer (KVStore, EventLog, StateCell, RunIndex)
 //! and their integration patterns.
 //!
 //! ## Test Tier Structure

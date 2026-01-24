@@ -1,106 +1,90 @@
-//! Cross-Primitive Atomicity Tests: All 7 Primitives
+//! Cross-Primitive Atomicity Tests: All 6 Primitives
 //!
-//! Tests atomic transactions spanning all 7 primitives:
+//! Tests atomic transactions spanning all 6 primitives:
 //! - KVStore
 //! - JsonStore
 //! - EventLog
 //! - StateCell
-//! - TraceStore
 //! - RunIndex
 //! - VectorStore
 //!
 //! ## Coverage Gap Addressed
 //!
 //! Previous tests only covered pairwise combinations (KV+Vector, JSON+Vector).
-//! This file tests all 7 primitives in a single atomic transaction.
+//! This file tests all 6 primitives in a single atomic transaction.
 
 use crate::test_utils::*;
 use strata_core::json::{JsonPath, JsonValue};
 use strata_core::types::JsonDocId;
 use strata_core::value::Value;
-use strata_primitives::TraceType;
 
-/// Test atomic transaction with all 7 primitives.
+/// Test atomic transaction with all 6 primitives.
 ///
 /// This is the most comprehensive atomicity test - all primitives must
 /// commit or rollback together.
 #[test]
-fn test_all_seven_primitives_atomic_commit() {
+fn test_all_six_primitives_atomic_commit() {
     let test_db = TestDb::new_strict();
     let run_id = test_db.run_id;
     let p = test_db.all_primitives();
 
     // Create vector collection first (required before insert)
     p.vector
-        .create_collection(run_id, "seven_test", config_small())
+        .create_collection(run_id, "six_test", config_small())
         .expect("create vector collection");
 
-    // Perform operations on all 7 primitives
+    // Perform operations on all 6 primitives
     // 1. KV
-    p.kv.put(&run_id, "seven_key", Value::String("seven_value".into()))
+    p.kv.put(&run_id, "six_key", Value::String("six_value".into()))
         .expect("kv put");
 
     // 2. JSON
     let doc_id = JsonDocId::new();
     p.json
-        .create(&run_id, &doc_id, JsonValue::from(serde_json::json!({"test": "seven"})))
+        .create(&run_id, &doc_id, JsonValue::from(serde_json::json!({"test": "six"})))
         .expect("json create");
 
     // 3. Event (requires Object payload)
     p.event
-        .append(&run_id, "seven_type", empty_payload())
+        .append(&run_id, "six_type", empty_payload())
         .expect("event append");
 
     // 4. State
     p.state
-        .init(&run_id, "seven_state", Value::Int(7))
+        .init(&run_id, "six_state", Value::Int(6))
         .expect("state init");
 
-    // 5. Trace
-    p.trace
-        .record(
-            &run_id,
-            TraceType::Thought {
-                content: "Seven test".into(),
-                confidence: None,
-            },
-            vec!["test".into()],
-            Value::Null,
-        )
-        .expect("trace record");
+    // 5. Run - implicit through run_id usage
 
-    // 6. Run - implicit through run_id usage
-
-    // 7. Vector
+    // 6. Vector
     p.vector
-        .insert(run_id, "seven_test", "v1", &[1.0, 0.0, 0.0], None)
+        .insert(run_id, "six_test", "v1", &[1.0, 0.0, 0.0], None)
         .expect("vector insert");
 
     // Flush to ensure all data is persisted
     test_db.db.flush().expect("flush");
 
     // Verify all data exists
-    assert!(p.kv.get(&run_id, "seven_key").expect("kv get").map(|v| v.value).is_some());
+    assert!(p.kv.get(&run_id, "six_key").expect("kv get").map(|v| v.value).is_some());
     assert!(p
         .json
         .get(&run_id, &doc_id, &JsonPath::root())
         .expect("json get")
         .is_some());
     assert!(p.event.len(&run_id).expect("event len") > 0);
-    assert!(p.state.read(&run_id, "seven_state").expect("state read").is_some());
-    assert!(p.trace.get_roots(&run_id).expect("trace roots").len() > 0);
+    assert!(p.state.read(&run_id, "six_state").expect("state read").is_some());
     assert!(p
         .vector
-        .get(run_id, "seven_test", "v1")
+        .get(run_id, "six_test", "v1")
         .expect("vector get")
         .is_some());
 }
 
-/// Test atomic rollback with all 7 primitives.
+/// Test atomic rollback with all 6 primitives.
 ///
 /// If any primitive operation fails, all should rollback.
 #[test]
-fn test_all_seven_primitives_atomic_rollback() {
+fn test_all_six_primitives_atomic_rollback() {
     let test_db = TestDb::new_strict();
     let run_id = test_db.run_id;
     let p = test_db.all_primitives();
@@ -220,9 +204,9 @@ fn test_cross_primitive_run_isolation() {
     assert_ne!(a_vec.value.embedding, b_vec.value.embedding, "Vectors should be isolated");
 }
 
-/// Test recovery of all 7 primitives.
+/// Test recovery of all 6 primitives.
 #[test]
-fn test_all_seven_primitives_recovery() {
+fn test_all_six_primitives_recovery() {
     let mut test_db = TestDb::new_strict();
     let run_id = test_db.run_id;
 
@@ -246,17 +230,6 @@ fn test_all_seven_primitives_recovery() {
             .append(&run_id, "recover", empty_payload())
             .expect("event");
         p.state.init(&run_id, "recover_state", Value::Int(42)).expect("state");
-        p.trace
-            .record(
-                &run_id,
-                TraceType::Thought {
-                    content: "Recover".into(),
-                    confidence: None,
-                },
-                vec![],
-                Value::Null,
-            )
-            .expect("trace");
         p.vector
             .insert(run_id, "recover_col", "v1", &[1.0, 0.0, 0.0], None)
             .expect("vector");
@@ -283,10 +256,6 @@ fn test_all_seven_primitives_recovery() {
     assert!(
         p.state.read(&run_id, "recover_state").expect("state").is_some(),
         "State should recover"
-    );
-    assert!(
-        p.trace.get_roots(&run_id).expect("trace").len() > 0,
-        "Trace should recover"
     );
     assert!(
         p.vector

@@ -20,7 +20,7 @@ use strata_core::error::Result;
 use strata_core::search_types::{SearchBudget, SearchRequest, SearchResponse, SearchStats};
 use strata_core::PrimitiveType;
 use strata_engine::Database;
-use strata_primitives::{EventLog, JsonStore, KVStore, RunIndex, StateCell, TraceStore, VectorStore};
+use strata_primitives::{EventLog, JsonStore, KVStore, RunIndex, StateCell, VectorStore};
 use std::sync::Arc;
 use std::time::Instant;
 
@@ -48,7 +48,7 @@ use std::time::Instant;
 /// │  ┌────────────────────────────────────┐ │
 /// │  │     Search Each Primitive          │ │
 /// │  │  ┌───┐ ┌────┐ ┌─────┐ ┌─────┐     │ │
-/// │  │  │KV │ │JSON│ │Event│ │Trace│ ... │ │
+/// │  │  │KV │ │JSON│ │Event│ │State│ ... │ │
 /// │  │  └─┬─┘ └──┬─┘ └──┬──┘ └──┬──┘     │ │
 /// │  └────┼──────┼──────┼───────┼────────┘ │
 /// │       └──────┴──────┴───────┘          │
@@ -78,7 +78,6 @@ pub struct HybridSearch {
     json: JsonStore,
     event: EventLog,
     state: StateCell,
-    trace: TraceStore,
     run_index: RunIndex,
     vector: VectorStore,
 }
@@ -94,7 +93,6 @@ impl HybridSearch {
             json: JsonStore::new(db.clone()),
             event: EventLog::new(db.clone()),
             state: StateCell::new(db.clone()),
-            trace: TraceStore::new(db.clone()),
             run_index: RunIndex::new(db.clone()),
             vector: VectorStore::new(db.clone()),
             db,
@@ -238,7 +236,6 @@ impl HybridSearch {
             PrimitiveType::Json => self.json.search(req),
             PrimitiveType::Event => self.event.search(req),
             PrimitiveType::State => self.state.search(req),
-            PrimitiveType::Trace => self.trace.search(req),
             PrimitiveType::Run => self.run_index.search(req),
             // Vector primitive now implements Searchable.
             // Per M8_ARCHITECTURE.md Section 12.3:
@@ -342,7 +339,7 @@ mod tests {
         // Test without filter (all primitives)
         let req_all = SearchRequest::new(run_id, "test");
         let all_primitives = hybrid.select_primitives(&req_all);
-        assert_eq!(all_primitives.len(), 7); // 6 original + Vector (M8)
+        assert_eq!(all_primitives.len(), 6); // Kv, Event, State, Run, Json, Vector
     }
 
     #[test]

@@ -23,7 +23,6 @@
 //! - `event`: Event log convenience methods
 //! - `state`: State cell convenience methods
 //! - `vector`: Vector store convenience methods
-//! - `trace`: Trace store convenience methods
 //! - `history`: History access methods
 //! - `run`: Run listing and scoping
 //! - `capabilities`: Capability discovery
@@ -43,7 +42,6 @@ pub mod json;
 pub mod event;
 pub mod state;
 pub mod vector;
-pub mod trace;
 pub mod history;
 pub mod run;
 pub mod capabilities;
@@ -58,7 +56,6 @@ pub use json::JsonFacade;
 pub use event::EventFacade;
 pub use state::StateFacade;
 pub use vector::VectorFacade;
-pub use trace::TraceFacade;
 pub use history::HistoryFacade;
 pub use run::{RunFacade, ScopedFacade};
 pub use capabilities::{Capabilities, CapabilityLimits, SystemFacade};

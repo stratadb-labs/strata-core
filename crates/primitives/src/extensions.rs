@@ -21,9 +21,6 @@
 //!     // State operation
 //!     txn.state_cas("cell", version, new_value)?;
 //!
-//!     // Trace operation
-//!     txn.trace_record("ToolCall", metadata)?;
-//!
 //!     Ok(())
 //! })?;
 //! ```
@@ -85,22 +82,6 @@ pub trait StateCellExt {
     fn state_set(&mut self, name: &str, value: Value) -> Result<u64>;
 }
 
-/// Trace store operations within a transaction
-///
-/// Implemented in `trace.rs` (Story #190)
-pub trait TraceStoreExt {
-    /// Record a trace and return trace ID
-    fn trace_record(&mut self, trace_type: &str, metadata: Value) -> Result<String>;
-
-    /// Record a child trace
-    fn trace_record_child(
-        &mut self,
-        parent_id: &str,
-        trace_type: &str,
-        metadata: Value,
-    ) -> Result<String>;
-}
-
 /// JSON store operations within a transaction
 ///
 /// Implemented in `json_store.rs` (Story #477)
@@ -153,6 +134,5 @@ mod tests {
         fn _accepts_kv_ext(_ext: &dyn KVStoreExt) {}
         fn _accepts_event_ext(_ext: &dyn EventLogExt) {}
         fn _accepts_state_ext(_ext: &dyn StateCellExt) {}
-        fn _accepts_trace_ext(_ext: &dyn TraceStoreExt) {}
     }
 }

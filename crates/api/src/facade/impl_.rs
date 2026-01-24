@@ -18,12 +18,10 @@
 use std::sync::Arc;
 use strata_core::{Value, Version};
 
-use super::trace::{Trace, TraceKind};
 use super::types::FacadeConfig;
 
 use crate::substrate::{
     ApiRunId, SubstrateImpl,
-    TraceType,
 };
 
 // =============================================================================
@@ -136,42 +134,6 @@ pub(crate) fn merge_values(base: Value, patch: Value) -> Value {
     }
 }
 
-/// Convert TraceKind to substrate TraceType
-pub(crate) fn convert_trace_kind_to_type(kind: &TraceKind) -> TraceType {
-    match kind {
-        TraceKind::Thought => TraceType::Thought,
-        TraceKind::Action => TraceType::Action,
-        TraceKind::Observation => TraceType::Observation,
-        TraceKind::Tool => TraceType::Tool,
-        TraceKind::Message => TraceType::Message,
-        TraceKind::Custom(name) => TraceType::Custom(name.clone()),
-    }
-}
-
-/// Convert substrate TraceType to facade TraceKind
-pub(crate) fn convert_trace_type_to_kind(trace_type: &TraceType) -> TraceKind {
-    match trace_type {
-        TraceType::Thought => TraceKind::Thought,
-        TraceType::Action => TraceKind::Action,
-        TraceType::Observation => TraceKind::Observation,
-        TraceType::Tool => TraceKind::Tool,
-        TraceType::Message => TraceKind::Message,
-        TraceType::Custom(name) => TraceKind::Custom(name.clone()),
-    }
-}
-
-/// Convert substrate TraceEntry to facade Trace
-pub(crate) fn convert_trace_entry_to_trace(entry: crate::substrate::TraceEntry) -> Trace {
-    Trace {
-        id: entry.id,
-        kind: convert_trace_type_to_kind(&entry.trace_type),
-        parent_id: entry.parent_id,
-        content: entry.content,
-        tags: entry.tags,
-        timestamp: entry.created_at,
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -229,10 +191,4 @@ mod tests {
         }
     }
 
-    #[test]
-    fn test_trace_kind_conversion() {
-        assert!(matches!(convert_trace_kind_to_type(&TraceKind::Thought), TraceType::Thought));
-        assert!(matches!(convert_trace_kind_to_type(&TraceKind::Action), TraceType::Action));
-        assert!(matches!(convert_trace_kind_to_type(&TraceKind::Custom("foo".into())), TraceType::Custom(s) if s == "foo"));
-    }
 }

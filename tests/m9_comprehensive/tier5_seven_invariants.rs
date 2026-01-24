@@ -131,7 +131,7 @@ fn invariant2_timestamp_always_present() {
 #[test]
 fn invariant2_version_types_cover_all_patterns() {
     // Three version types cover all primitive versioning patterns
-    let txn = Version::txn(1);      // For KV, Json, Vector, Run, Trace
+    let txn = Version::txn(1);      // For KV, Json, Vector, Run
     let seq = Version::seq(1);      // For Event
     let ctr = Version::counter(1);  // For State
 
@@ -208,15 +208,14 @@ fn invariant5_run_isolation() {
 fn invariant6_all_primitives_enumerated() {
     let all = PrimitiveType::all();
 
-    // Exactly 7 primitives
-    assert_eq!(all.len(), 7);
+    // Exactly 6 primitives
+    assert_eq!(all.len(), 6);
 
     // All variants present
     let variants: HashSet<_> = all.iter().collect();
     assert!(variants.contains(&PrimitiveType::Kv));
     assert!(variants.contains(&PrimitiveType::Event));
     assert!(variants.contains(&PrimitiveType::State));
-    assert!(variants.contains(&PrimitiveType::Trace));
     assert!(variants.contains(&PrimitiveType::Run));
     assert!(variants.contains(&PrimitiveType::Json));
     assert!(variants.contains(&PrimitiveType::Vector));
@@ -294,7 +293,6 @@ fn entity_ref_covers_all_primitive_types() {
             PrimitiveType::Kv => EntityRef::kv(run_id.clone(), "k"),
             PrimitiveType::Event => EntityRef::event(run_id.clone(), 1),
             PrimitiveType::State => EntityRef::state(run_id.clone(), "s"),
-            PrimitiveType::Trace => EntityRef::trace(run_id, "trace-1"),
             PrimitiveType::Run => EntityRef::run(run_id.clone()),
             PrimitiveType::Json => EntityRef::json(run_id.clone(), JsonDocId::new()),
             PrimitiveType::Vector => EntityRef::vector(run_id.clone(), "c", "v"),
@@ -315,7 +313,6 @@ fn version_types_match_primitive_patterns() {
         PrimitiveType::Json,
         PrimitiveType::Vector,
         PrimitiveType::Run,
-        PrimitiveType::Trace,
     ];
 
     // Sequence: Append-only primitives
@@ -326,10 +323,8 @@ fn version_types_match_primitive_patterns() {
 
     // Verify CRUD classification aligns with version type
     for pt in &txn_primitives {
-        if *pt != PrimitiveType::Trace {
-            assert!(pt.supports_crud() || *pt == PrimitiveType::Run,
-                "{:?} expected to support CRUD or be Run", pt);
-        }
+        assert!(pt.supports_crud() || *pt == PrimitiveType::Run,
+            "{:?} expected to support CRUD or be Run", pt);
     }
 
     for pt in &seq_primitives {

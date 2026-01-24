@@ -3,30 +3,29 @@
 //! This type supports Invariant 6: Everything is Introspectable.
 //! Every entity can report what kind of primitive it is.
 //!
-//! ## The Seven Primitives
+//! ## The Six Primitives
 //!
-//! The database has exactly seven primitives:
+//! The database has exactly six primitives:
 //!
 //! | Primitive | Purpose | Versioning |
 //! |-----------|---------|------------|
 //! | Kv | Key-value store | TxnId |
 //! | Event | Append-only event log | Sequence |
 //! | State | Named state cells with CAS | Counter |
-//! | Trace | Structured reasoning traces | TxnId |
 //! | Run | Run lifecycle management | TxnId |
 //! | Json | JSON document store | TxnId |
 //! | Vector | Vector similarity search | TxnId |
 
 use serde::{Deserialize, Serialize};
 
-/// The seven primitive types in the database
+/// The six primitive types in the database
 ///
 /// This enum identifies which primitive a value or operation belongs to.
 /// Used for type discrimination, routing, and introspection.
 ///
 /// ## Invariant
 ///
-/// This enum MUST have exactly 7 variants - one for each primitive.
+/// This enum MUST have exactly 6 variants - one for each primitive.
 /// Adding a new primitive requires adding a variant here.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum PrimitiveType {
@@ -47,12 +46,6 @@ pub enum PrimitiveType {
     /// Named state cells with compare-and-swap.
     /// Versioning: Counter
     State,
-
-    /// Trace store
-    ///
-    /// Structured traces for reasoning logs.
-    /// Versioning: TxnId
-    Trace,
 
     /// Run index
     ///
@@ -75,11 +68,10 @@ pub enum PrimitiveType {
 
 impl PrimitiveType {
     /// All primitive types (for iteration)
-    pub const ALL: [PrimitiveType; 7] = [
+    pub const ALL: [PrimitiveType; 6] = [
         PrimitiveType::Kv,
         PrimitiveType::Event,
         PrimitiveType::State,
-        PrimitiveType::Trace,
         PrimitiveType::Run,
         PrimitiveType::Json,
         PrimitiveType::Vector,
@@ -96,7 +88,6 @@ impl PrimitiveType {
             PrimitiveType::Kv => "KVStore",
             PrimitiveType::Event => "EventLog",
             PrimitiveType::State => "StateCell",
-            PrimitiveType::Trace => "TraceStore",
             PrimitiveType::Run => "RunIndex",
             PrimitiveType::Json => "JsonStore",
             PrimitiveType::Vector => "VectorStore",
@@ -109,7 +100,6 @@ impl PrimitiveType {
             PrimitiveType::Kv => "kv",
             PrimitiveType::Event => "event",
             PrimitiveType::State => "state",
-            PrimitiveType::Trace => "trace",
             PrimitiveType::Run => "run",
             PrimitiveType::Json => "json",
             PrimitiveType::Vector => "vector",
@@ -122,7 +112,6 @@ impl PrimitiveType {
             "kv" => Some(PrimitiveType::Kv),
             "event" => Some(PrimitiveType::Event),
             "state" => Some(PrimitiveType::State),
-            "trace" => Some(PrimitiveType::Trace),
             "run" => Some(PrimitiveType::Run),
             "json" => Some(PrimitiveType::Json),
             "vector" => Some(PrimitiveType::Vector),
@@ -133,13 +122,12 @@ impl PrimitiveType {
     /// Check if this primitive supports CRUD lifecycle
     ///
     /// Kv, State, Run, Json, Vector support full CRUD.
-    /// Event and Trace are append-only (CR only).
+    /// Event is append-only (CR only).
     pub const fn supports_crud(&self) -> bool {
         match self {
             PrimitiveType::Kv => true,
             PrimitiveType::Event => false, // Append-only
             PrimitiveType::State => true,
-            PrimitiveType::Trace => false, // Append-only
             PrimitiveType::Run => true,
             PrimitiveType::Json => true,
             PrimitiveType::Vector => true,
@@ -169,13 +157,12 @@ mod tests {
     #[test]
     fn test_primitive_type_all() {
         let all = PrimitiveType::all();
-        assert_eq!(all.len(), 7);
+        assert_eq!(all.len(), 6);
 
         // Verify all variants are present
         assert!(all.contains(&PrimitiveType::Kv));
         assert!(all.contains(&PrimitiveType::Event));
         assert!(all.contains(&PrimitiveType::State));
-        assert!(all.contains(&PrimitiveType::Trace));
         assert!(all.contains(&PrimitiveType::Run));
         assert!(all.contains(&PrimitiveType::Json));
         assert!(all.contains(&PrimitiveType::Vector));
@@ -183,7 +170,7 @@ mod tests {
 
     #[test]
     fn test_primitive_type_const_all() {
-        assert_eq!(PrimitiveType::ALL.len(), 7);
+        assert_eq!(PrimitiveType::ALL.len(), 6);
     }
 
     #[test]
@@ -191,7 +178,6 @@ mod tests {
         assert_eq!(PrimitiveType::Kv.name(), "KVStore");
         assert_eq!(PrimitiveType::Event.name(), "EventLog");
         assert_eq!(PrimitiveType::State.name(), "StateCell");
-        assert_eq!(PrimitiveType::Trace.name(), "TraceStore");
         assert_eq!(PrimitiveType::Run.name(), "RunIndex");
         assert_eq!(PrimitiveType::Json.name(), "JsonStore");
         assert_eq!(PrimitiveType::Vector.name(), "VectorStore");
@@ -202,7 +188,6 @@ mod tests {
         assert_eq!(PrimitiveType::Kv.id(), "kv");
         assert_eq!(PrimitiveType::Event.id(), "event");
         assert_eq!(PrimitiveType::State.id(), "state");
-        assert_eq!(PrimitiveType::Trace.id(), "trace");
         assert_eq!(PrimitiveType::Run.id(), "run");
         assert_eq!(PrimitiveType::Json.id(), "json");
         assert_eq!(PrimitiveType::Vector.id(), "vector");
@@ -213,7 +198,6 @@ mod tests {
         assert_eq!(PrimitiveType::from_id("kv"), Some(PrimitiveType::Kv));
         assert_eq!(PrimitiveType::from_id("event"), Some(PrimitiveType::Event));
         assert_eq!(PrimitiveType::from_id("state"), Some(PrimitiveType::State));
-        assert_eq!(PrimitiveType::from_id("trace"), Some(PrimitiveType::Trace));
         assert_eq!(PrimitiveType::from_id("run"), Some(PrimitiveType::Run));
         assert_eq!(PrimitiveType::from_id("json"), Some(PrimitiveType::Json));
         assert_eq!(
@@ -250,13 +234,11 @@ mod tests {
 
         // Append-only (no delete/update)
         assert!(!PrimitiveType::Event.supports_crud());
-        assert!(!PrimitiveType::Trace.supports_crud());
     }
 
     #[test]
     fn test_primitive_type_is_append_only() {
         assert!(PrimitiveType::Event.is_append_only());
-        assert!(PrimitiveType::Trace.is_append_only());
 
         assert!(!PrimitiveType::Kv.is_append_only());
         assert!(!PrimitiveType::State.is_append_only());
@@ -280,7 +262,7 @@ mod tests {
         for pt in PrimitiveType::all() {
             set.insert(*pt);
         }
-        assert_eq!(set.len(), 7, "All PrimitiveTypes should be unique");
+        assert_eq!(set.len(), 6, "All PrimitiveTypes should be unique");
     }
 
     #[test]
@@ -296,6 +278,6 @@ mod tests {
     fn test_primitive_type_equality() {
         assert_eq!(PrimitiveType::Kv, PrimitiveType::Kv);
         assert_ne!(PrimitiveType::Kv, PrimitiveType::Event);
-        assert_ne!(PrimitiveType::Event, PrimitiveType::Trace);
+        assert_ne!(PrimitiveType::Event, PrimitiveType::State);
     }
 }

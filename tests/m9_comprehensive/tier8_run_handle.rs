@@ -3,7 +3,7 @@
 //! This module verifies the RunHandle pattern implementation:
 //!
 //! - RunHandle provides scoped access to primitives
-//! - Each primitive handle (kv(), events(), state(), etc.) is accessible
+//! - Each primitive handle (kv(), events(), state(), json(), vectors()) is accessible
 //! - transaction() provides atomic cross-primitive operations
 //! - Thread safety: Clone, Send, Sync
 //! - Run isolation: operations scoped to the bound run
@@ -82,14 +82,6 @@ fn run_handle_provides_state_handle() {
 
     // Can access State handle
     let _state = handle.state();
-}
-
-#[test]
-fn run_handle_provides_traces_handle() {
-    let (_, handle) = setup();
-
-    // Can access Traces handle
-    let _traces = handle.traces();
 }
 
 #[test]
@@ -371,13 +363,6 @@ fn state_handle_is_clone() {
     let (_, handle) = setup();
     let state = handle.state();
     let _state2 = state.clone();
-}
-
-#[test]
-fn trace_handle_is_clone() {
-    let (_, handle) = setup();
-    let traces = handle.traces();
-    let _traces2 = traces.clone();
 }
 
 #[test]

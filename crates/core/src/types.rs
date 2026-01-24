@@ -156,7 +156,8 @@ pub enum TypeTag {
     Event = 0x02,
     /// State cell records (renamed from StateMachine in M3)
     State = 0x03,
-    /// Trace entries for reasoning logs
+    /// Reserved for backwards compatibility (TraceStore was removed)
+    #[deprecated(since = "0.12.0", note = "TraceStore primitive was removed")]
     Trace = 0x04,
     /// Run index entries
     Run = 0x05,
@@ -175,12 +176,13 @@ impl TypeTag {
     }
 
     /// Try to create from byte
+    #[allow(deprecated)]
     pub fn from_byte(byte: u8) -> Option<Self> {
         match byte {
             0x01 => Some(TypeTag::KV),
             0x02 => Some(TypeTag::Event),
             0x03 => Some(TypeTag::State),
-            0x04 => Some(TypeTag::Trace),
+            0x04 => Some(TypeTag::Trace), // Deprecated but needed for backwards compatibility
             0x05 => Some(TypeTag::Run),
             0x10 => Some(TypeTag::Vector),
             0x11 => Some(TypeTag::Json),
@@ -340,41 +342,6 @@ impl Key {
     /// Helper that automatically sets type_tag to TypeTag::State
     pub fn new_state(namespace: Namespace, key: impl AsRef<[u8]>) -> Self {
         Self::new(namespace, TypeTag::State, key.as_ref().to_vec())
-    }
-
-    /// Create a trace key with sequence number
-    ///
-    /// Helper that automatically sets type_tag to TypeTag::Trace and
-    /// encodes the sequence number as big-endian bytes
-    pub fn new_trace(namespace: Namespace, seq: u64) -> Self {
-        Self::new(namespace, TypeTag::Trace, seq.to_be_bytes().to_vec())
-    }
-
-    /// Create a trace key with string ID
-    ///
-    /// Helper for M3 TraceStore which uses string IDs (UUIDs)
-    pub fn new_trace_with_id(namespace: Namespace, trace_id: &str) -> Self {
-        Self::new(namespace, TypeTag::Trace, trace_id.as_bytes().to_vec())
-    }
-
-    /// Create a trace index key
-    ///
-    /// Index keys enable efficient queries by type, tag, parent, or time.
-    /// Format: `__idx_{index_type}__{index_value}__{trace_id}`
-    ///
-    /// Example index types:
-    /// - by-type: `__idx_type__ToolCall__trace123`
-    /// - by-tag: `__idx_tag__important__trace123`
-    /// - by-parent: `__idx_parent__parent123__trace123`
-    /// - by-time: `__idx_time__1234567890__trace123`
-    pub fn new_trace_index(
-        namespace: Namespace,
-        index_type: &str,
-        index_value: &str,
-        trace_id: &str,
-    ) -> Self {
-        let key_data = format!("__idx_{}__{}__{}", index_type, index_value, trace_id);
-        Self::new(namespace, TypeTag::Trace, key_data.into_bytes())
     }
 
     /// Create a run index key
@@ -1025,14 +992,6 @@ mod tests {
         assert_eq!(state_key.type_tag, TypeTag::State);
         assert_eq!(state_key.user_key, b"state1");
 
-        // Test trace helper
-        let trace_key = Key::new_trace(ns.clone(), 100);
-        assert_eq!(trace_key.type_tag, TypeTag::Trace);
-        assert_eq!(
-            u64::from_be_bytes(trace_key.user_key.as_slice().try_into().unwrap()),
-            100
-        );
-
         // Test run index helper
         let run_key = Key::new_run(ns.clone(), run_id);
         assert_eq!(run_key.type_tag, TypeTag::Run);
@@ -1052,54 +1011,6 @@ mod tests {
         let key = Key::new_event_meta(ns);
         assert_eq!(key.type_tag, TypeTag::Event);
         assert_eq!(key.user_key, b"__meta__");
-    }
-
-    #[test]
-    fn test_new_trace_with_id() {
-        let run_id = RunId::new();
-        let ns = Namespace::new(
-            "tenant".to_string(),
-            "app".to_string(),
-            "agent".to_string(),
-            run_id,
-        );
-
-        let key = Key::new_trace_with_id(ns, "trace-abc123");
-        assert_eq!(key.type_tag, TypeTag::Trace);
-        assert_eq!(key.user_key_string(), Some("trace-abc123".to_string()));
-    }
-
-    #[test]
-    fn test_new_trace_index() {
-        let run_id = RunId::new();
-        let ns = Namespace::new(
-            "tenant".to_string(),
-            "app".to_string(),
-            "agent".to_string(),
-            run_id,
-        );
-
-        // Test by-type index
-        let key = Key::new_trace_index(ns.clone(), "type", "ToolCall", "trace-123");
-        assert_eq!(key.type_tag, TypeTag::Trace);
-        assert!(key
-            .user_key_string()
-            .unwrap()
-            .contains("__idx_type__ToolCall__trace-123"));
-
-        // Test by-tag index
-        let tag_key = Key::new_trace_index(ns.clone(), "tag", "important", "trace-456");
-        assert!(tag_key
-            .user_key_string()
-            .unwrap()
-            .contains("__idx_tag__important__trace-456"));
-
-        // Test by-parent index
-        let parent_key = Key::new_trace_index(ns.clone(), "parent", "parent-id", "trace-789");
-        assert!(parent_key
-            .user_key_string()
-            .unwrap()
-            .contains("__idx_parent__parent-id__trace-789"));
     }
 
     #[test]

@@ -21,7 +21,6 @@ fn entity_ref_primitive_type_matches_variant() {
         (EntityRef::kv(run_id.clone(), "k"), PrimitiveType::Kv),
         (EntityRef::event(run_id.clone(), 1), PrimitiveType::Event),
         (EntityRef::state(run_id.clone(), "s"), PrimitiveType::State),
-        (EntityRef::trace(run_id, "trace-1"), PrimitiveType::Trace),
         (EntityRef::run(run_id.clone()), PrimitiveType::Run),
         (EntityRef::json(run_id.clone(), JsonDocId::new()), PrimitiveType::Json),
         (EntityRef::vector(run_id, "c", "v"), PrimitiveType::Vector),
@@ -247,7 +246,7 @@ fn versioned_value_map_extracts_inner_type() {
 #[test]
 fn primitive_type_uses_appropriate_version_variant() {
     // Document the expected version variant for each primitive
-    // KV, Json, Vector, Run, Trace: TxnId (transaction-based)
+    // KV, Json, Vector, Run: TxnId (transaction-based)
     // Event: Sequence (position-based)
     // State: Counter (per-entity)
 
@@ -256,7 +255,6 @@ fn primitive_type_uses_appropriate_version_variant() {
         PrimitiveType::Json,
         PrimitiveType::Vector,
         PrimitiveType::Run,
-        PrimitiveType::Trace,
     ];
 
     let seq_primitives = vec![PrimitiveType::Event];
@@ -265,7 +263,7 @@ fn primitive_type_uses_appropriate_version_variant() {
     // Verify classifications
     for pt in txn_primitives {
         assert!(
-            pt.supports_crud() || !pt.is_append_only() || pt == PrimitiveType::Trace,
+            pt.supports_crud() || !pt.is_append_only(),
             "{:?} should use TxnId versioning",
             pt
         );
@@ -346,7 +344,7 @@ fn entity_ref_in_versioned_collection() {
         .map(|(i, r)| Versioned::new(r, Version::txn(i as u64)))
         .collect();
 
-    assert_eq!(versioned_refs.len(), 7);
+    assert_eq!(versioned_refs.len(), 6);
 
     for (i, vr) in versioned_refs.iter().enumerate() {
         assert_eq!(vr.version().as_u64(), i as u64);

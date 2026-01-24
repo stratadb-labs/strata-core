@@ -35,7 +35,6 @@ fn doc_ref_variant_construction_works() {
     let _: DocRef = EntityRef::kv(run_id.clone(), "key");
     let _: DocRef = EntityRef::event(run_id.clone(), 1);
     let _: DocRef = EntityRef::state(run_id.clone(), "state");
-    let _: DocRef = EntityRef::trace(run_id, "trace-123");
     let _: DocRef = EntityRef::run(run_id.clone());
     let _: DocRef = EntityRef::json(run_id.clone(), JsonDocId::new());
     let _: DocRef = EntityRef::vector(run_id, "coll", "vec");
@@ -121,13 +120,12 @@ fn primitive_kind_all_variants_work() {
         PrimitiveType::Kv,
         PrimitiveType::Event,
         PrimitiveType::State,
-        PrimitiveType::Trace,
         PrimitiveType::Run,
         PrimitiveType::Json,
         PrimitiveType::Vector,
     ];
 
-    assert_eq!(kinds.len(), 7);
+    assert_eq!(kinds.len(), 6);
 }
 
 #[test]

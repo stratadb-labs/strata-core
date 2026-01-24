@@ -7,7 +7,7 @@ use strata_core::error::Error;
 use strata_core::types::RunId;
 use strata_core::value::Value;
 use strata_engine::Database;
-use strata_primitives::{EventLog, KVStore, RunIndex, StateCell, TraceStore};
+use strata_primitives::{EventLog, KVStore, RunIndex, StateCell};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 use tempfile::TempDir;
@@ -21,14 +21,13 @@ pub fn unique_key(prefix: &str) -> String {
     format!("{}_{}", prefix, counter)
 }
 
-/// Test database wrapper with all five primitives
+/// Test database wrapper with all primitives
 pub struct TestPrimitives {
     pub db: Arc<Database>,
     pub run_id: RunId,
     pub kv: KVStore,
     pub event_log: EventLog,
     pub state_cell: StateCell,
-    pub trace_store: TraceStore,
     pub run_index: RunIndex,
     _temp_dir: TempDir,
 }
@@ -45,7 +44,6 @@ impl TestPrimitives {
             kv: KVStore::new(db.clone()),
             event_log: EventLog::new(db.clone()),
             state_cell: StateCell::new(db.clone()),
-            trace_store: TraceStore::new(db.clone()),
             run_index: RunIndex::new(db.clone()),
             db,
             run_id,
@@ -94,7 +92,6 @@ impl PersistentTestPrimitives {
             kv: KVStore::new(db.clone()),
             event_log: EventLog::new(db.clone()),
             state_cell: StateCell::new(db.clone()),
-            trace_store: TraceStore::new(db.clone()),
             run_index: RunIndex::new(db.clone()),
             db,
             run_id: self.run_id,
@@ -114,7 +111,6 @@ impl PersistentTestPrimitives {
             kv: KVStore::new(db.clone()),
             event_log: EventLog::new(db.clone()),
             state_cell: StateCell::new(db.clone()),
-            trace_store: TraceStore::new(db.clone()),
             run_index: RunIndex::new(db.clone()),
             db,
             run_id: self.run_id,
@@ -135,7 +131,6 @@ pub struct OpenedPrimitives {
     pub kv: KVStore,
     pub event_log: EventLog,
     pub state_cell: StateCell,
-    pub trace_store: TraceStore,
     pub run_index: RunIndex,
 }
 

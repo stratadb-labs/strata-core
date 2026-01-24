@@ -12,7 +12,6 @@
 use crate::test_utils::{concurrent, values, TestPrimitives};
 use strata_core::contract::Version;
 use strata_core::value::Value;
-use strata_primitives::TraceType;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 
@@ -485,23 +484,6 @@ mod cross_primitive_stress {
                     {
                         successes += 1;
                     }
-
-                    // TraceStore record
-                    if tp
-                        .trace_store
-                        .record(
-                            run_id,
-                            TraceType::Thought {
-                                content: format!("trace_{}_{}", i, j),
-                                confidence: None,
-                            },
-                            vec![],
-                            values::null(),
-                        )
-                        .is_ok()
-                    {
-                        successes += 1;
-                    }
                 }
                 successes
             },
@@ -509,16 +491,14 @@ mod cross_primitive_stress {
 
         // All operations should succeed
         let total: i32 = results.iter().sum();
-        assert_eq!(total, (num_threads * ops_per_thread * 4) as i32);
+        assert_eq!(total, (num_threads * ops_per_thread * 3) as i32);
 
         // Verify counts
         let kv_count = tp.kv.list(&run_id, None).unwrap().len();
         let event_count = tp.event_log.len(&run_id).unwrap() as usize;
-        let trace_count = tp.trace_store.count(&run_id).unwrap() as usize;
 
         assert_eq!(kv_count, num_threads * ops_per_thread);
         assert_eq!(event_count, num_threads * ops_per_thread);
-        assert_eq!(trace_count, num_threads * ops_per_thread);
 
         // StateCell should equal total transitions
         let state = tp.state_cell.read(&run_id, "state").unwrap().unwrap();
@@ -637,8 +617,6 @@ mod run_lifecycle_stress {
         // Create large amount of data
         let num_kv = 10_000;
         let num_events = 1_000;
-        let num_traces = 500;
-
         for i in 0..num_kv {
             tp.kv
                 .put(&run_id, &format!("key_{}", i), values::int(i as i64))
@@ -648,20 +626,6 @@ mod run_lifecycle_stress {
         for _ in 0..num_events {
             tp.event_log
                 .append(&run_id, "event", values::null())
-                .unwrap();
-        }
-
-        for _ in 0..num_traces {
-            tp.trace_store
-                .record(
-                    &run_id,
-                    TraceType::Thought {
-                        content: "stress".into(),
-                        confidence: None,
-                    },
-                    vec![],
-                    values::null(),
-                )
                 .unwrap();
         }
 

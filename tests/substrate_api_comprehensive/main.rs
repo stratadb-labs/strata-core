@@ -31,7 +31,7 @@ use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
-use strata_api::substrate::{ApiRunId, EventLog, JsonStore, KVStore, KVStoreBatch, RunIndex, StateCell, SubstrateImpl, TraceStore, VectorStore};
+use strata_api::substrate::{ApiRunId, EventLog, JsonStore, KVStore, KVStoreBatch, RunIndex, StateCell, SubstrateImpl, VectorStore};
 use strata_core::{Value, Version};
 use strata_engine::Database;
 use tempfile::TempDir;
@@ -62,7 +62,6 @@ pub mod eventlog;
 pub mod jsonstore;
 pub mod kv;
 pub mod statecell;
-pub mod tracestore;
 pub mod vectorstore;
 
 // =============================================================================

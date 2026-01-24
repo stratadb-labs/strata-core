@@ -44,13 +44,12 @@ pub fn test_versioned<T>(value: T, version: Version) -> Versioned<T> {
     Versioned::new(value, version)
 }
 
-/// Create all seven EntityRef variants for a given run
+/// Create all six EntityRef variants for a given run
 pub fn all_entity_refs(run_id: RunId) -> Vec<EntityRef> {
     vec![
         EntityRef::kv(run_id, "test_key"),
         EntityRef::event(run_id, 1),
         EntityRef::state(run_id, "test_state"),
-        EntityRef::trace(run_id, "trace-12345"),
         EntityRef::run(run_id),
         EntityRef::json(run_id, JsonDocId::new()),
         EntityRef::vector(run_id, "test_collection", "test_vector"),
@@ -84,13 +83,12 @@ pub fn assert_same_hash<T: std::hash::Hash>(a: &T, b: &T) {
     assert_eq!(hash_a, hash_b, "Expected same hash for equal values");
 }
 
-/// All seven primitive types
+/// All six primitive types
 pub fn all_primitive_types() -> Vec<PrimitiveType> {
     vec![
         PrimitiveType::Kv,
         PrimitiveType::Event,
         PrimitiveType::State,
-        PrimitiveType::Trace,
         PrimitiveType::Run,
         PrimitiveType::Json,
         PrimitiveType::Vector,

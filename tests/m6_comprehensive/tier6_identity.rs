@@ -216,12 +216,6 @@ fn test_tier6_primitive_type_correct() {
     };
     assert_eq!(state_ref.primitive_type(), PrimitiveType::State);
 
-    let trace_ref = DocRef::Trace {
-        run_id: run_id.clone(),
-        trace_id: "trace-123".to_string(),
-    };
-    assert_eq!(trace_ref.primitive_type(), PrimitiveType::Trace);
-
     let run_ref = DocRef::Run {
         run_id: run_id.clone(),
     };

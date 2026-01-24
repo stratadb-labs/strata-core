@@ -4,7 +4,7 @@
 //! **Location**: `/crates/primitives/src/vector/store.rs`
 //!
 //! **Problem**: VectorStore has search methods but does NOT implement the `Searchable` trait.
-//! All 6 other primitives implement this trait, but VectorStore is missing.
+//! All 5 other primitives implement this trait, but VectorStore is missing.
 //!
 //! **Spec Requirement**: M6 specifies all primitives must implement `Searchable`
 //! for uniform search orchestration.
@@ -92,7 +92,7 @@ fn test_vector_primitive_kind_exists() {
     // assert_eq!(vector_store.primitive_kind(), PrimitiveType::Vector);
 }
 
-/// Test that all 6 primitives can be collected as Searchable.
+/// Test that all 5 searchable primitives can be collected as Searchable.
 ///
 /// This tests polymorphic usage of all primitives that implement Searchable.
 /// ISSUE-001 is fixed: VectorStore now implements Searchable.
@@ -101,14 +101,13 @@ fn test_all_primitives_as_searchable() {
     let test_db = TestDb::new();
     let p = test_db.all_primitives();
 
-    // All 6 primitives implement Searchable
+    // 5 primitives implement Searchable
     // (RunIndex is excluded as it has different semantics)
     let searchables: Vec<&dyn Searchable> = vec![
         &p.kv,
         &p.json,
         &p.event,
         &p.state,
-        &p.trace,
         &p.vector, // ISSUE-001 fixed: VectorStore now included
     ];
 
@@ -122,18 +121,17 @@ fn test_all_primitives_as_searchable() {
                     | PrimitiveType::Json
                     | PrimitiveType::Event
                     | PrimitiveType::State
-                    | PrimitiveType::Trace
                     | PrimitiveType::Vector
             ),
             "Primitive kind should be one of the expected types"
         );
     }
 
-    // All 6 primitives implement Searchable
+    // 5 primitives implement Searchable
     assert_eq!(
         searchables.len(),
-        6,
-        "All 6 searchable primitives should implement Searchable"
+        5,
+        "All 5 searchable primitives should implement Searchable"
     );
 }
 

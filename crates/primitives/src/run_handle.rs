@@ -5,7 +5,7 @@
 //! `RunHandle` binds a `RunId` to a `Database`, eliminating the need to
 //! pass `run_id` to every operation. It provides:
 //!
-//! - `kv()`, `events()`, `state()`, `traces()`, `json()`, `vectors()` - primitive handles
+//! - `kv()`, `events()`, `state()`, `json()`, `vectors()` - primitive handles
 //! - `transaction()` - execute atomic cross-primitive transactions
 //!
 //! ## Usage
@@ -28,7 +28,7 @@
 //! ## Story #478: RunHandle Pattern Implementation
 
 use crate::extensions::{
-    EventLogExt, JsonStoreExt, KVStoreExt, StateCellExt, TraceStoreExt, VectorStoreExt,
+    EventLogExt, JsonStoreExt, KVStoreExt, StateCellExt, VectorStoreExt,
 };
 use strata_concurrency::TransactionContext;
 use strata_core::contract::{Timestamp, Version, Versioned};
@@ -108,11 +108,6 @@ impl RunHandle {
     /// Access the State primitive for this run
     pub fn state(&self) -> StateHandle {
         StateHandle::new(self.db.clone(), self.run_id)
-    }
-
-    /// Access the Trace primitive for this run
-    pub fn traces(&self) -> TraceHandle {
-        TraceHandle::new(self.db.clone(), self.run_id)
     }
 
     /// Access the Json primitive for this run
@@ -274,43 +269,6 @@ impl StateHandle {
 }
 
 // ============================================================================
-// TraceHandle
-// ============================================================================
-
-/// Handle for Trace operations scoped to a run
-#[derive(Clone)]
-pub struct TraceHandle {
-    db: Arc<Database>,
-    run_id: RunId,
-}
-
-impl TraceHandle {
-    /// Create a new TraceHandle
-    pub(crate) fn new(db: Arc<Database>, run_id: RunId) -> Self {
-        Self { db, run_id }
-    }
-
-    /// Record a trace and return trace ID
-    pub fn record(&self, trace_type: &str, metadata: Value) -> Result<String> {
-        self.db.transaction(self.run_id, |txn| {
-            txn.trace_record(trace_type, metadata)
-        })
-    }
-
-    /// Record a child trace
-    pub fn record_child(
-        &self,
-        parent_id: &str,
-        trace_type: &str,
-        metadata: Value,
-    ) -> Result<String> {
-        self.db.transaction(self.run_id, |txn| {
-            txn.trace_record_child(parent_id, trace_type, metadata)
-        })
-    }
-}
-
-// ============================================================================
 // JsonHandle
 // ============================================================================
 
@@ -401,7 +359,6 @@ mod tests {
         assert_clone_send_sync::<KvHandle>();
         assert_clone_send_sync::<EventHandle>();
         assert_clone_send_sync::<StateHandle>();
-        assert_clone_send_sync::<TraceHandle>();
         assert_clone_send_sync::<JsonHandle>();
         assert_clone_send_sync::<VectorHandle>();
     }

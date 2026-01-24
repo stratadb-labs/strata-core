@@ -13,13 +13,11 @@
 
 pub mod event;
 pub mod state;
-pub mod trace;
 pub mod vector;
 
 // Re-export all types at module level
 pub use event::{ChainVerification, Event};
 pub use state::State;
-pub use trace::{Trace, TraceTree, TraceType};
 pub use vector::{
     CollectionId, CollectionInfo, DistanceMetric, JsonScalar, MetadataFilter, StorageDtype,
     VectorConfig, VectorEntry, VectorId, VectorMatch,

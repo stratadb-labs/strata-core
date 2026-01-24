@@ -42,7 +42,6 @@ fn test_primitive_kind_enumeration() {
         PrimitiveKind::Json,
         PrimitiveKind::Event,
         PrimitiveKind::State,
-        PrimitiveKind::Trace,
     ];
 
     // Each kind should have a unique entry type range

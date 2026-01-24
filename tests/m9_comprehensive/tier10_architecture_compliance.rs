@@ -27,7 +27,7 @@ use strata_core::contract::{EntityRef, Version, Versioned};
 use strata_core::error::StrataError;
 use strata_core::types::{Namespace, RunId};
 use strata_core::value::Value;
-use strata_core::{Event, State, Trace, TraceType};
+use strata_core::{Event, State};
 use strata_engine::transaction::Transaction;
 use strata_engine::transaction_ops::TransactionOps;
 
@@ -112,30 +112,6 @@ fn rule1_state_read_returns_versioned() {
     assert!(versioned.version.is_counter());
 }
 
-#[test]
-fn rule1_trace_read_returns_versioned() {
-    let run_id = test_run_id();
-    let ns = create_namespace(run_id);
-    let mut ctx = create_context(&ns);
-    let mut txn = Transaction::new(&mut ctx, ns.clone());
-
-    // Record trace first
-    let versioned_id = txn.trace_record(
-        TraceType::Thought { content: "test".into(), confidence: None },
-        vec![],
-        Value::Null,
-    ).unwrap();
-    let trace_id = versioned_id.value;
-
-    // Read returns Option<Versioned<Trace>>
-    let result: Option<Versioned<Trace>> = txn.trace_read(trace_id).unwrap();
-    assert!(result.is_some());
-
-    let versioned = result.unwrap();
-    // Versioned includes version
-    assert!(versioned.version.is_txn_id());
-}
-
 // ============================================================================
 // RULE 2: Every Write Returns Version
 // "Every mutation returns the version it created."
@@ -192,26 +168,6 @@ fn rule2_state_cas_returns_version() {
     assert!(version.is_counter());
 }
 
-#[test]
-fn rule2_trace_record_returns_versioned_id() {
-    let run_id = test_run_id();
-    let ns = create_namespace(run_id);
-    let mut ctx = create_context(&ns);
-    let mut txn = Transaction::new(&mut ctx, ns.clone());
-
-    // Record returns Versioned<u64> (trace_id with version)
-    let versioned: Versioned<u64> = txn.trace_record(
-        TraceType::Thought { content: "test".into(), confidence: None },
-        vec![],
-        Value::Null,
-    ).unwrap();
-
-    // The version is a TxnId
-    assert!(versioned.version.is_txn_id());
-    // The value is the trace_id
-    assert!(versioned.value >= 0);
-}
-
 // ============================================================================
 // RULE 3: Transaction Trait Covers All Primitives
 // "Every primitive operation is accessible through the Transaction trait."
@@ -262,24 +218,6 @@ fn rule3_transaction_has_state_operations() {
 }
 
 #[test]
-fn rule3_transaction_has_trace_operations() {
-    let run_id = test_run_id();
-    let ns = create_namespace(run_id);
-    let mut ctx = create_context(&ns);
-    let mut txn = Transaction::new(&mut ctx, ns.clone());
-
-    // All Trace operations available via TransactionOps
-    let versioned = txn.trace_record(
-        TraceType::Thought { content: "test".into(), confidence: None },
-        vec![],
-        Value::Null,
-    ).unwrap();
-    let _ = txn.trace_read(versioned.value);
-    let _ = txn.trace_exists(versioned.value);
-    let _ = txn.trace_count();
-}
-
-#[test]
 fn rule3_cross_primitive_transaction_works() {
     let run_id = test_run_id();
     let ns = create_namespace(run_id);
@@ -290,17 +228,11 @@ fn rule3_cross_primitive_transaction_works() {
     txn.kv_put("key", Value::Int(1)).unwrap();
     txn.event_append("event", Value::Null).unwrap();
     txn.state_init("state", Value::Int(0)).unwrap();
-    txn.trace_record(
-        TraceType::Thought { content: "thought".into(), confidence: None },
-        vec![],
-        Value::Null,
-    ).unwrap();
 
     // All changes visible within transaction
     assert!(txn.kv_exists("key").unwrap());
     assert_eq!(txn.event_len().unwrap(), 1);
     assert!(txn.state_exists("state").unwrap());
-    assert!(txn.trace_count().unwrap() >= 1);
 }
 
 // ============================================================================
@@ -363,9 +295,6 @@ fn rule4_entity_ref_always_includes_run_id() {
     let state_ref = EntityRef::state(run_id, "cell");
     assert_eq!(state_ref.run_id(), run_id);
 
-    let trace_ref = EntityRef::trace(run_id, "trace-1");
-    assert_eq!(trace_ref.run_id(), run_id);
-
     let run_ref = EntityRef::run(run_id);
     assert_eq!(run_ref.run_id(), run_id);
 }
@@ -402,25 +331,6 @@ fn audit_state_has_exists() {
     // exists() returns true after init
     txn.state_init("cell", Value::Int(0)).unwrap();
     assert!(txn.state_exists("cell").unwrap());
-}
-
-#[test]
-fn audit_trace_has_exists() {
-    let run_id = test_run_id();
-    let ns = create_namespace(run_id);
-    let mut ctx = create_context(&ns);
-    let mut txn = Transaction::new(&mut ctx, ns.clone());
-
-    // exists() returns false for non-existent trace
-    assert!(!txn.trace_exists(99999).unwrap());
-
-    // exists() returns true after record
-    let versioned = txn.trace_record(
-        TraceType::Thought { content: "test".into(), confidence: None },
-        vec![],
-        Value::Null,
-    ).unwrap();
-    assert!(txn.trace_exists(versioned.value).unwrap());
 }
 
 #[test]
@@ -482,28 +392,20 @@ fn audit_all_primitives_follow_same_patterns() {
     let kv_version: Version = txn.kv_put("k", Value::Int(1)).unwrap();
     let event_version: Version = txn.event_append("e", Value::Null).unwrap();
     let state_version: Version = txn.state_init("s", Value::Int(0)).unwrap();
-    let trace_versioned: Versioned<u64> = txn.trace_record(
-        TraceType::Thought { content: "t".into(), confidence: None },
-        vec![],
-        Value::Null,
-    ).unwrap();
 
     // All have as_u64() for comparison
     let _ = kv_version.as_u64();
     let _ = event_version.as_u64();
     let _ = state_version.as_u64();
-    let _ = trace_versioned.version.as_u64();
 
     // Pattern 2: Reads return Option<Versioned<T>>
     let kv_read: Option<Versioned<Value>> = txn.kv_get("k").unwrap();
     let event_read: Option<Versioned<Event>> = txn.event_read(event_version.as_u64()).unwrap();
     let state_read: Option<Versioned<State>> = txn.state_read("s").unwrap();
-    let trace_read: Option<Versioned<Trace>> = txn.trace_read(trace_versioned.value).unwrap();
 
     assert!(kv_read.is_some());
     assert!(event_read.is_some());
     assert!(state_read.is_some());
-    assert!(trace_read.is_some());
 }
 
 // ============================================================================
@@ -512,7 +414,7 @@ fn audit_all_primitives_follow_same_patterns() {
 
 #[test]
 fn cross_primitive_transaction_atomicity() {
-    // KV + Event + State + Trace in one transaction
+    // KV + Event + State in one transaction
     // Verify all-or-nothing semantics
     let run_id = test_run_id();
     let ns = create_namespace(run_id);
@@ -523,17 +425,11 @@ fn cross_primitive_transaction_atomicity() {
     txn.kv_put("atomic_key", Value::Int(1)).unwrap();
     txn.event_append("atomic_event", Value::Null).unwrap();
     txn.state_init("atomic_state", Value::Int(0)).unwrap();
-    txn.trace_record(
-        TraceType::Thought { content: "atomic".into(), confidence: None },
-        vec![],
-        Value::Null,
-    ).unwrap();
 
     // All changes are visible within transaction (pre-commit)
     assert!(txn.kv_exists("atomic_key").unwrap());
     assert_eq!(txn.event_len().unwrap(), 1);
     assert!(txn.state_exists("atomic_state").unwrap());
-    assert!(txn.trace_count().unwrap() >= 1);
 }
 
 #[test]
@@ -577,14 +473,6 @@ fn version_types_match_primitive_semantics() {
     // State uses Counter (CAS counter)
     let state_version = txn.state_init("s", Value::Int(0)).unwrap();
     assert!(state_version.is_counter(), "State should use Counter versioning");
-
-    // Trace uses TxnId (transaction-based)
-    let trace_versioned = txn.trace_record(
-        TraceType::Thought { content: "t".into(), confidence: None },
-        vec![],
-        Value::Null,
-    ).unwrap();
-    assert!(trace_versioned.version.is_txn_id(), "Trace should use TxnId versioning");
 }
 
 // ============================================================================
@@ -620,12 +508,11 @@ fn entity_ref_covers_all_primitives() {
     let run_id = test_run_id();
     use strata_core::types::JsonDocId;
 
-    // All 7 primitives have EntityRef variants
+    // All 6 primitives have EntityRef variants
     let refs = vec![
         EntityRef::kv(run_id, "key"),
         EntityRef::event(run_id, 1),
         EntityRef::state(run_id, "cell"),
-        EntityRef::trace(run_id, "trace-1"),
         EntityRef::run(run_id),
         EntityRef::json(run_id, JsonDocId::new()),
         EntityRef::vector(run_id, "collection", "vector"),
@@ -636,10 +523,9 @@ fn entity_ref_covers_all_primitives() {
     assert_eq!(refs[0].primitive_type(), PrimitiveType::Kv);
     assert_eq!(refs[1].primitive_type(), PrimitiveType::Event);
     assert_eq!(refs[2].primitive_type(), PrimitiveType::State);
-    assert_eq!(refs[3].primitive_type(), PrimitiveType::Trace);
-    assert_eq!(refs[4].primitive_type(), PrimitiveType::Run);
-    assert_eq!(refs[5].primitive_type(), PrimitiveType::Json);
-    assert_eq!(refs[6].primitive_type(), PrimitiveType::Vector);
+    assert_eq!(refs[3].primitive_type(), PrimitiveType::Run);
+    assert_eq!(refs[4].primitive_type(), PrimitiveType::Json);
+    assert_eq!(refs[5].primitive_type(), PrimitiveType::Vector);
 
     // All refs include run_id
     for entity_ref in &refs {
@@ -669,10 +555,6 @@ fn gate1_all_primitives_conform_to_invariant_1_addressable() {
     let state_ref = EntityRef::state(run_id, "cell");
     assert_eq!(state_ref.state_name(), Some("cell"));
 
-    // Trace addressable
-    let trace_ref = EntityRef::trace(run_id, "trace-1");
-    assert_eq!(trace_ref.trace_id(), Some("trace-1"));
-
     // Run addressable
     let run_ref = EntityRef::run(run_id);
     assert_eq!(run_ref.run_id(), run_id);
@@ -699,11 +581,6 @@ fn gate1_all_primitives_conform_to_invariant_2_versioned() {
     let _: Version = txn.kv_put("k", Value::Int(1)).unwrap();
     let _: Version = txn.event_append("e", Value::Null).unwrap();
     let _: Version = txn.state_init("s", Value::Int(0)).unwrap();
-    let _: Versioned<u64> = txn.trace_record(
-        TraceType::Thought { content: "t".into(), confidence: None },
-        vec![],
-        Value::Null,
-    ).unwrap();
 }
 
 #[test]
@@ -718,17 +595,11 @@ fn gate1_all_primitives_conform_to_invariant_3_transactional() {
     txn.kv_put("k", Value::Int(1)).unwrap();
     txn.event_append("e", Value::Null).unwrap();
     txn.state_init("s", Value::Int(0)).unwrap();
-    txn.trace_record(
-        TraceType::Thought { content: "t".into(), confidence: None },
-        vec![],
-        Value::Null,
-    ).unwrap();
 
     // All visible within same transaction
     assert!(txn.kv_get("k").unwrap().is_some());
     assert_eq!(txn.event_len().unwrap(), 1);
     assert!(txn.state_read("s").unwrap().is_some());
-    assert!(txn.trace_count().unwrap() >= 1);
 }
 
 #[test]

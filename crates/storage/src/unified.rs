@@ -982,7 +982,7 @@ mod tests {
             .put(Key::new_event(ns.clone(), 3), Value::Int(102), None)
             .unwrap();
         store
-            .put(Key::new_trace(ns.clone(), 1), Value::Int(200), None)
+            .put(Key::new_state(ns.clone(), "test-state"), Value::Int(200), None)
             .unwrap();
 
         // Scan by KV type - should get 2 keys
@@ -999,16 +999,12 @@ mod tests {
             assert_eq!(key.type_tag, TypeTag::Event);
         }
 
-        // Scan by Trace type - should get 1 key
-        let trace_results = store.scan_by_type(TypeTag::Trace, u64::MAX).unwrap();
-        assert_eq!(trace_results.len(), 1);
-        for (key, _) in &trace_results {
-            assert_eq!(key.type_tag, TypeTag::Trace);
+        // Scan by State type - should get 1 key
+        let state_results = store.scan_by_type(TypeTag::State, u64::MAX).unwrap();
+        assert_eq!(state_results.len(), 1);
+        for (key, _) in &state_results {
+            assert_eq!(key.type_tag, TypeTag::State);
         }
-
-        // Scan by State type - should get 0 keys
-        let sm_results = store.scan_by_type(TypeTag::State, u64::MAX).unwrap();
-        assert_eq!(sm_results.len(), 0);
     }
 
     #[test]

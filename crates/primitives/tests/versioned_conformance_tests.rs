@@ -1,4 +1,4 @@
-//! M9 Conformance Tests: Verifying All 7 Primitives Against All 7 Invariants
+//! M9 Conformance Tests: Verifying All 6 Primitives Against All 7 Invariants
 //!
 //! This test suite verifies that all primitives conform to the Seven Invariants
 //! defined in PRIMITIVE_CONTRACT.md:
@@ -11,7 +11,7 @@
 //! 6. **Introspectable**: Every primitive has `exists()` or equivalent
 //! 7. **Read/Write**: Reads never modify state, writes always produce versions
 //!
-//! Total: ~49 tests (7 primitives × 7 invariants)
+//! Total: ~42 tests (6 primitives × 7 invariants)
 
 use strata_core::contract::{EntityRef, PrimitiveType, Version};
 use strata_core::json::JsonPath;
@@ -105,33 +105,6 @@ mod invariant_1_addressable {
         assert_eq!(entity_ref.primitive_type(), PrimitiveType::State);
         assert_eq!(entity_ref.state_name(), Some("my-cell"));
         assert!(entity_ref.is_state());
-    }
-
-    #[test]
-    fn trace_has_stable_entity_ref() {
-        let (db, run_id) = setup();
-        let traces = TraceStore::new(db);
-
-        let versioned = traces
-            .record(
-                &run_id,
-                TraceType::Thought {
-                    content: "test thought".into(),
-                    confidence: Some(0.9),
-                },
-                vec!["tag1".into()],
-                Value::String("content".into()),
-            )
-            .unwrap();
-
-        let trace_id = versioned.value;
-
-        let entity_ref = EntityRef::trace(run_id, trace_id.clone());
-
-        assert_eq!(entity_ref.run_id(), run_id);
-        assert_eq!(entity_ref.primitive_type(), PrimitiveType::Trace);
-        assert_eq!(entity_ref.trace_id(), Some(trace_id.as_str()));
-        assert!(entity_ref.is_trace());
     }
 
     #[test]
@@ -285,54 +258,6 @@ mod invariant_2_versioned {
 
         // Versions are monotonic
         assert!(v2.value > v1.value);
-    }
-
-    // --- TraceStore ---
-    #[test]
-    fn trace_read_returns_versioned() {
-        let (db, run_id) = setup();
-        let traces = TraceStore::new(db);
-
-        let recorded = traces
-            .record(
-                &run_id,
-                TraceType::Thought {
-                    content: "test".into(),
-                    confidence: None,
-                },
-                vec![],
-                Value::Null,
-            )
-            .unwrap();
-
-        let versioned = traces.get(&run_id, &recorded.value).unwrap().unwrap();
-        assert!(matches!(
-            versioned.value.trace_type,
-            TraceType::Thought { .. }
-        ));
-    }
-
-    #[test]
-    fn trace_record_returns_versioned() {
-        let (db, run_id) = setup();
-        let traces = TraceStore::new(db);
-
-        let versioned = traces
-            .record(
-                &run_id,
-                TraceType::Decision {
-                    question: "Which option?".into(),
-                    options: vec!["A".into(), "B".into()],
-                    chosen: "A".into(),
-                    reasoning: Some("test".into()),
-                },
-                vec!["tag1".into()],
-                Value::String("content".into()),
-            )
-            .unwrap();
-
-        assert!(!versioned.value.is_empty());
-        assert!(versioned.value.starts_with("trace-"));
     }
 
     // --- JsonStore ---
@@ -500,18 +425,6 @@ mod invariant_3_transactional {
     }
 
     #[test]
-    fn trace_participates_in_transaction() {
-        let (db, run_id) = setup();
-
-        let trace_id = db
-            .transaction(run_id, |txn| txn.trace_record("action", Value::Null))
-            .unwrap();
-
-        let traces = TraceStore::new(db);
-        assert!(traces.get(&run_id, &trace_id).unwrap().is_some());
-    }
-
-    #[test]
     fn json_participates_in_transaction() {
         let (db, run_id) = setup();
         let doc_id = JsonDocId::new();
@@ -652,31 +565,6 @@ mod invariant_4_lifecycle {
         // Destroy
         state.delete(&run_id, "cell").unwrap();
         assert!(!state.exists(&run_id, "cell").unwrap());
-    }
-
-    #[test]
-    fn trace_lifecycle_is_create_and_read_only() {
-        let (db, run_id) = setup();
-        let traces = TraceStore::new(db);
-
-        // Create (record)
-        let versioned = traces
-            .record(
-                &run_id,
-                TraceType::Thought {
-                    content: "test".into(),
-                    confidence: None,
-                },
-                vec![],
-                Value::Null,
-            )
-            .unwrap();
-
-        // Exist (read)
-        let t = traces.get(&run_id, &versioned.value).unwrap();
-        assert!(t.is_some());
-
-        // Traces are immutable - no evolve, no destroy
     }
 
     #[test]
@@ -827,48 +715,6 @@ mod invariant_5_run_scoped {
     }
 
     #[test]
-    fn traces_isolated_between_runs() {
-        let (db, run1) = setup();
-        let run2 = RunId::new();
-        let traces = TraceStore::new(db);
-
-        let t1 = traces
-            .record(
-                &run1,
-                TraceType::Thought {
-                    content: "run1".into(),
-                    confidence: None,
-                },
-                vec![],
-                Value::Null,
-            )
-            .unwrap();
-
-        let t2 = traces
-            .record(
-                &run2,
-                TraceType::Thought {
-                    content: "run2".into(),
-                    confidence: None,
-                },
-                vec![],
-                Value::Null,
-            )
-            .unwrap();
-
-        // Trace IDs are unique across runs
-        assert_ne!(t1.value, t2.value);
-
-        // Can only access trace from its own run
-        assert!(traces.get(&run1, &t1.value).unwrap().is_some());
-        assert!(traces.get(&run2, &t2.value).unwrap().is_some());
-
-        // Cannot access other run's trace
-        assert!(traces.get(&run1, &t2.value).unwrap().is_none());
-        assert!(traces.get(&run2, &t1.value).unwrap().is_none());
-    }
-
-    #[test]
     fn json_isolated_between_runs() {
         let (db, run1) = setup();
         let run2 = RunId::new();
@@ -980,27 +826,6 @@ mod invariant_6_introspectable {
         state.init(&run_id, "cell", Value::Int(1)).unwrap();
 
         assert!(state.exists(&run_id, "cell").unwrap());
-    }
-
-    #[test]
-    fn trace_has_exists_check() {
-        let (db, run_id) = setup();
-        let traces = TraceStore::new(db);
-
-        let versioned = traces
-            .record(
-                &run_id,
-                TraceType::Thought {
-                    content: "test".into(),
-                    confidence: None,
-                },
-                vec![],
-                Value::Null,
-            )
-            .unwrap();
-
-        assert!(traces.exists(&run_id, &versioned.value).unwrap());
-        assert!(!traces.exists(&run_id, "nonexistent-trace").unwrap());
     }
 
     #[test]
@@ -1165,21 +990,6 @@ mod invariant_7_read_write {
         let _ = state.init(&run_id, "s", Value::Int(1)).unwrap(); // write
         let _ = state.read(&run_id, "s").unwrap(); // read
 
-        // Trace
-        let traces = TraceStore::new(db.clone());
-        let tid = traces
-            .record(
-                &run_id,
-                TraceType::Thought {
-                    content: "t".into(),
-                    confidence: None,
-                },
-                vec![],
-                Value::Null,
-            )
-            .unwrap(); // write
-        let _ = traces.get(&run_id, &tid.value).unwrap(); // read
-
         // Json
         let json = JsonStore::new(db.clone());
         let doc_id = JsonDocId::new();
@@ -1290,9 +1100,9 @@ mod version_monotonicity {
 #[test]
 fn conformance_matrix_coverage() {
     // This test documents the conformance matrix
-    // 7 primitives × 7 invariants = 49 conformance checks
+    // 6 primitives × 7 invariants = 42 conformance checks
 
-    let primitives = ["KV", "Event", "State", "Trace", "Run", "Json", "Vector"];
+    let primitives = ["KV", "Event", "State", "Run", "Json", "Vector"];
 
     let invariants = [
         "1. Addressable",
@@ -1313,13 +1123,13 @@ fn conformance_matrix_coverage() {
     }
 
     // Verify test count
-    // Invariant 1: 7 tests (one per primitive)
-    // Invariant 2: 14 tests (read + write per primitive)
-    // Invariant 3: 7 tests (transaction participation)
-    // Invariant 4: 7 tests (lifecycle)
-    // Invariant 5: 7 tests (run isolation)
-    // Invariant 6: 7 tests (introspectable)
-    // Invariant 7: 6 tests (read/write semantics)
+    // Invariant 1: 6 tests (one per primitive)
+    // Invariant 2: 12 tests (read + write per primitive)
+    // Invariant 3: 6 tests (transaction participation)
+    // Invariant 4: 6 tests (lifecycle)
+    // Invariant 5: 6 tests (run isolation)
+    // Invariant 6: 6 tests (introspectable)
+    // Invariant 7: 5 tests (read/write semantics)
     // + 3 version monotonicity tests
-    // Total: ~58 tests covering all invariants
+    // Total: ~50 tests covering all invariants
 }

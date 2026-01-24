@@ -1450,9 +1450,6 @@ mod tests {
 
         let state_results = store.list_by_type(&run_id, TypeTag::State);
         assert_eq!(state_results.len(), 1);
-
-        let trace_results = store.list_by_type(&run_id, TypeTag::Trace);
-        assert!(trace_results.is_empty());
     }
 
     #[test]

@@ -7,7 +7,7 @@
 use super::*;
 use strata_core::types::RunId;
 use strata_core::value::Value;
-use strata_primitives::{EventLog, KVStore, RunIndex, RunStatus, StateCell, TraceStore, TraceType};
+use strata_primitives::{EventLog, KVStore, RunIndex, RunStatus, StateCell};
 use std::sync::{Arc, Barrier};
 use std::thread;
 
@@ -53,7 +53,6 @@ fn cross_run_complete_isolation() {
         let kv = KVStore::new(db.clone());
         let events = EventLog::new(db.clone());
         let state = StateCell::new(db.clone());
-        let traces = TraceStore::new(db.clone());
 
         let run_a = RunId::new();
         let run_b = RunId::new();
@@ -62,33 +61,11 @@ fn cross_run_complete_isolation() {
         kv.put(&run_a, "key", Value::Int(100)).unwrap();
         events.append(&run_a, "event", Value::Int(100)).unwrap();
         state.init(&run_a, "cell", Value::Int(100)).unwrap();
-        traces
-            .record(
-                &run_a,
-                TraceType::Thought {
-                    content: "test".to_string(),
-                    confidence: None,
-                },
-                vec![],
-                Value::Int(100),
-            )
-            .unwrap();
 
         // Populate run B with different values
         kv.put(&run_b, "key", Value::Int(200)).unwrap();
         events.append(&run_b, "event", Value::Int(200)).unwrap();
         state.init(&run_b, "cell", Value::Int(200)).unwrap();
-        traces
-            .record(
-                &run_b,
-                TraceType::Thought {
-                    content: "test".to_string(),
-                    confidence: None,
-                },
-                vec![],
-                Value::Int(200),
-            )
-            .unwrap();
 
         // Verify isolation
         assert_eq!(kv.get(&run_a, "key").unwrap().map(|v| v.value), Some(Value::Int(100)));
@@ -102,9 +79,6 @@ fn cross_run_complete_isolation() {
         assert_eq!(state_a.value.value, Value::Int(100));
         assert_eq!(state_b.value.value, Value::Int(200));
 
-        assert_eq!(traces.count(&run_a).unwrap(), 1);
-        assert_eq!(traces.count(&run_b).unwrap(), 1);
-
         true
     });
 }
@@ -116,7 +90,6 @@ fn primitives_no_implicit_coupling() {
         let kv = KVStore::new(db.clone());
         let events = EventLog::new(db.clone());
         let state = StateCell::new(db.clone());
-        let traces = TraceStore::new(db.clone());
         let run_id = RunId::new();
 
         // KV put should not create events
@@ -127,23 +100,9 @@ fn primitives_no_implicit_coupling() {
         events.append(&run_id, "event", Value::Int(2)).unwrap();
         assert!(kv.get(&run_id, "event").unwrap().is_none());
 
-        // StateCell should not create traces
+        // StateCell should not create events
         state.init(&run_id, "cell", Value::Int(3)).unwrap();
-        assert_eq!(traces.count(&run_id).unwrap(), 0);
-
-        // Trace should not affect StateCell
-        traces
-            .record(
-                &run_id,
-                TraceType::Thought {
-                    content: "test".to_string(),
-                    confidence: None,
-                },
-                vec![],
-                Value::Int(4),
-            )
-            .unwrap();
-        assert!(state.read(&run_id, "trace").unwrap().is_none());
+        assert_eq!(events.len(&run_id).unwrap(), 1); // Only the one we appended
 
         true
     });
@@ -214,7 +173,6 @@ fn mixed_primitive_sequence() {
         let kv = KVStore::new(db.clone());
         let events = EventLog::new(db.clone());
         let state = StateCell::new(db.clone());
-        let traces = TraceStore::new(db.clone());
         let _runs = RunIndex::new(db.clone());
         let run_id = RunId::new();
 
@@ -226,29 +184,18 @@ fn mixed_primitive_sequence() {
         state.init(&run_id, "progress", Value::Int(2)).unwrap();
 
         kv.put(&run_id, "step", Value::Int(3)).unwrap();
-        traces
-            .record(
-                &run_id,
-                TraceType::Thought {
-                    content: "step3".to_string(),
-                    confidence: None,
-                },
-                vec![],
-                Value::Int(3),
-            )
-            .unwrap();
+        events.append(&run_id, "log", Value::Int(3)).unwrap();
 
         kv.put(&run_id, "step", Value::Int(4)).unwrap();
         events.append(&run_id, "log", Value::Int(4)).unwrap();
 
         // Verify all state is correct
         assert_eq!(kv.get(&run_id, "step").unwrap().map(|v| v.value), Some(Value::Int(4)));
-        assert_eq!(events.len(&run_id).unwrap(), 2);
+        assert_eq!(events.len(&run_id).unwrap(), 4);
         assert_eq!(
             state.read(&run_id, "progress").unwrap().unwrap().value.value,
             Value::Int(2)
         );
-        assert_eq!(traces.count(&run_id).unwrap(), 1);
 
         true
     });

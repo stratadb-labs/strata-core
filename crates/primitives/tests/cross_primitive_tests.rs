@@ -6,7 +6,7 @@ use strata_core::types::RunId;
 use strata_core::value::Value;
 use strata_engine::Database;
 use strata_primitives::{
-    EventLog, EventLogExt, KVStore, KVStoreExt, StateCell, StateCellExt, TraceStore, TraceStoreExt,
+    EventLog, EventLogExt, KVStore, KVStoreExt, StateCell, StateCellExt,
 };
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -34,16 +34,16 @@ fn setup() -> (Arc<Database>, TempDir, RunId) {
     (db, temp_dir, run_id)
 }
 
-/// Test that KV, Event, State, and Trace operations work atomically in a single transaction
+/// Test that KV, Event, and State operations work atomically in a single transaction
 #[test]
-fn test_kv_event_state_trace_atomic() {
+fn test_kv_event_state_atomic() {
     let (db, _temp, run_id) = setup();
 
     // Initialize state cell first (needed for CAS)
     let state_cell = StateCell::new(db.clone());
     state_cell.init(&run_id, "workflow", Value::Int(0)).unwrap();
 
-    // Perform atomic transaction with all 4 primitives
+    // Perform atomic transaction with all 3 primitives
     let result = db.transaction(run_id, |txn| {
         // KV operation
         txn.kv_put("task/status", Value::String("running".into()))?;
@@ -56,11 +56,6 @@ fn test_kv_event_state_trace_atomic() {
         let new_version = txn.state_cas("workflow", 1, Value::String("step1".into()))?;
         assert_eq!(new_version, 2);
 
-        // Trace operation
-        let trace_id =
-            txn.trace_record("Thought", Value::String("Starting task processing".into()))?;
-        assert!(!trace_id.is_empty());
-
         Ok(())
     });
 
@@ -69,7 +64,6 @@ fn test_kv_event_state_trace_atomic() {
     // Verify all operations succeeded
     let kv = KVStore::new(db.clone());
     let event_log = EventLog::new(db.clone());
-    let trace_store = TraceStore::new(db.clone());
 
     assert_eq!(
         kv.get(&run_id, "task/status").unwrap().map(|v| v.value),
@@ -80,8 +74,6 @@ fn test_kv_event_state_trace_atomic() {
     let state = state_cell.read(&run_id, "workflow").unwrap().unwrap();
     assert_eq!(state.value.value, Value::String("step1".into()));
     assert_eq!(state.value.version, 2);
-
-    assert_eq!(trace_store.count(&run_id).unwrap(), 1);
 }
 
 /// Test that a failed operation causes full rollback of all primitives
@@ -125,7 +117,7 @@ fn test_cross_primitive_rollback() {
     assert_eq!(state.value.version, 1);
 }
 
-/// Test that all 4 extension traits compose correctly in single transaction
+/// Test that all 3 extension traits compose correctly in single transaction
 #[test]
 fn test_all_extension_traits_compose() {
     let (db, _temp, run_id) = setup();
@@ -134,7 +126,7 @@ fn test_all_extension_traits_compose() {
     let state_cell = StateCell::new(db.clone());
     state_cell.init(&run_id, "counter", Value::Int(0)).unwrap();
 
-    // Use all 4 extension traits in single transaction
+    // Use all 3 extension traits in single transaction
     let result = db.transaction(run_id, |txn| {
         // KVStoreExt::kv_put()
         txn.kv_put("config", Value::String("enabled".into()))?;
@@ -147,10 +139,6 @@ fn test_all_extension_traits_compose() {
         let version = txn.state_set("counter", Value::Int(1))?;
         assert_eq!(version, 2);
 
-        // TraceStoreExt::trace_record()
-        let trace_id = txn.trace_record("Decision", Value::String("config update".into()))?;
-        assert!(!trace_id.is_empty());
-
         Ok(())
     });
 
@@ -159,12 +147,10 @@ fn test_all_extension_traits_compose() {
     // Verify all succeeded
     let kv = KVStore::new(db.clone());
     let event_log = EventLog::new(db.clone());
-    let trace_store = TraceStore::new(db.clone());
 
     assert!(kv.get(&run_id, "config").unwrap().is_some());
     assert_eq!(event_log.len(&run_id).unwrap(), 1);
     assert!(state_cell.read(&run_id, "counter").unwrap().is_some());
-    assert_eq!(trace_store.count(&run_id).unwrap(), 1);
 }
 
 /// Test that partial failure in any primitive causes full rollback
@@ -176,7 +162,7 @@ fn test_partial_failure_full_rollback() {
     let state_cell = StateCell::new(db.clone());
     state_cell.init(&run_id, "state", Value::Int(0)).unwrap();
 
-    // Write successfully to 3 primitives, then fail on 4th
+    // Write successfully to 2 primitives, then fail on 3rd
     let result = db.transaction(run_id, |txn| {
         // 1. KV - success
         txn.kv_put("partial_key", Value::Int(1))?;
@@ -184,10 +170,7 @@ fn test_partial_failure_full_rollback() {
         // 2. Event - success
         txn.event_append("partial_event", empty_payload())?;
 
-        // 3. Trace - success
-        txn.trace_record("Thought", Value::String("partial".into()))?;
-
-        // 4. State CAS with wrong version - FAILURE
+        // 3. State CAS with wrong version - FAILURE
         txn.state_cas("state", 999, Value::Int(100))?;
 
         Ok(())
@@ -196,14 +179,12 @@ fn test_partial_failure_full_rollback() {
     // Should fail
     assert!(result.is_err());
 
-    // Verify ALL 4 operations rolled back
+    // Verify ALL operations rolled back
     let kv = KVStore::new(db.clone());
     let event_log = EventLog::new(db.clone());
-    let trace_store = TraceStore::new(db.clone());
 
     assert!(kv.get(&run_id, "partial_key").unwrap().is_none());
     assert_eq!(event_log.len(&run_id).unwrap(), 0);
-    assert_eq!(trace_store.count(&run_id).unwrap(), 0);
 
     let state = state_cell.read(&run_id, "state").unwrap().unwrap();
     assert_eq!(state.value.version, 1); // Unchanged
@@ -224,7 +205,7 @@ fn test_nested_primitive_operations() {
         .init(&run_id, "sequence_tracker", Value::Int(0))
         .unwrap();
 
-    // Chain operations: read KV -> use in Event -> update State -> record Trace
+    // Chain operations: read KV -> use in Event -> update State
     let result = db.transaction(run_id, |txn| {
         // Read KV -> use value in Event payload (wrapped in object)
         let kv_value = txn.kv_get("initial_value")?;
@@ -237,12 +218,6 @@ fn test_nested_primitive_operations() {
 
         // Update State with sequence number
         let _version = txn.state_set("sequence_tracker", Value::Int(seq as i64))?;
-
-        // Record trace documenting the chain
-        txn.trace_record(
-            "ToolCall",
-            Value::String(format!("Processed sequence {}", seq)),
-        )?;
 
         Ok(seq)
     });
@@ -263,9 +238,6 @@ fn test_nested_primitive_operations() {
         .unwrap()
         .unwrap();
     assert_eq!(state.value.value, Value::Int(0)); // Sequence number (starts at 0)
-
-    let trace_store = TraceStore::new(db.clone());
-    assert_eq!(trace_store.count(&run_id).unwrap(), 1);
 }
 
 /// Test multiple sequential transactions with all primitives
@@ -283,7 +255,6 @@ fn test_multiple_transactions_consistency() {
             txn.kv_put(&format!("key_{}", i), Value::Int(i))?;
             txn.event_append("iteration", int_payload(i))?;
             txn.state_set("counter", Value::Int(i))?;
-            txn.trace_record("Thought", Value::String(format!("Iteration {}", i)))?;
             Ok(())
         });
         assert!(result.is_ok());
@@ -292,7 +263,6 @@ fn test_multiple_transactions_consistency() {
     // Verify final state
     let kv = KVStore::new(db.clone());
     let event_log = EventLog::new(db.clone());
-    let trace_store = TraceStore::new(db.clone());
 
     // All 10 KV entries exist
     for i in 1..=10 {
@@ -308,9 +278,6 @@ fn test_multiple_transactions_consistency() {
     // Counter at 10
     let state = state_cell.read(&run_id, "counter").unwrap().unwrap();
     assert_eq!(state.value.value, Value::Int(10));
-
-    // 10 traces
-    assert_eq!(trace_store.count(&run_id).unwrap(), 10);
 }
 
 /// Test read operations within transaction see uncommitted writes

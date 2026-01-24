@@ -8,13 +8,13 @@ use strata_core::PrimitiveType;
 use std::collections::HashSet;
 
 // ============================================================================
-// All 7 primitives enumerated
+// All 6 primitives enumerated
 // ============================================================================
 
 #[test]
-fn primitive_type_has_exactly_seven_variants() {
+fn primitive_type_has_exactly_six_variants() {
     let all = PrimitiveType::all();
-    assert_eq!(all.len(), 7);
+    assert_eq!(all.len(), 6);
 }
 
 #[test]
@@ -24,7 +24,6 @@ fn primitive_type_all_returns_all_variants() {
         PrimitiveType::Kv,
         PrimitiveType::Event,
         PrimitiveType::State,
-        PrimitiveType::Trace,
         PrimitiveType::Run,
         PrimitiveType::Json,
         PrimitiveType::Vector,
@@ -40,7 +39,7 @@ fn primitive_type_all_returns_all_variants() {
 fn primitive_type_variants_are_unique() {
     let all = PrimitiveType::all();
     let unique: HashSet<_> = all.iter().collect();
-    assert_eq!(unique.len(), 7);
+    assert_eq!(unique.len(), 6);
 }
 
 // ============================================================================
@@ -52,7 +51,6 @@ fn primitive_type_name_returns_human_readable() {
     assert_eq!(PrimitiveType::Kv.name(), "KVStore");
     assert_eq!(PrimitiveType::Event.name(), "EventLog");
     assert_eq!(PrimitiveType::State.name(), "StateCell");
-    assert_eq!(PrimitiveType::Trace.name(), "TraceStore");
     assert_eq!(PrimitiveType::Run.name(), "RunIndex");
     assert_eq!(PrimitiveType::Json.name(), "JsonStore");
     assert_eq!(PrimitiveType::Vector.name(), "VectorStore");
@@ -63,7 +61,6 @@ fn primitive_type_id_returns_short_form() {
     assert_eq!(PrimitiveType::Kv.id(), "kv");
     assert_eq!(PrimitiveType::Event.id(), "event");
     assert_eq!(PrimitiveType::State.id(), "state");
-    assert_eq!(PrimitiveType::Trace.id(), "trace");
     assert_eq!(PrimitiveType::Run.id(), "run");
     assert_eq!(PrimitiveType::Json.id(), "json");
     assert_eq!(PrimitiveType::Vector.id(), "vector");
@@ -74,7 +71,6 @@ fn primitive_type_from_id_parses_correctly() {
     assert_eq!(PrimitiveType::from_id("kv"), Some(PrimitiveType::Kv));
     assert_eq!(PrimitiveType::from_id("event"), Some(PrimitiveType::Event));
     assert_eq!(PrimitiveType::from_id("state"), Some(PrimitiveType::State));
-    assert_eq!(PrimitiveType::from_id("trace"), Some(PrimitiveType::Trace));
     assert_eq!(PrimitiveType::from_id("run"), Some(PrimitiveType::Run));
     assert_eq!(PrimitiveType::from_id("json"), Some(PrimitiveType::Json));
     assert_eq!(PrimitiveType::from_id("vector"), Some(PrimitiveType::Vector));
@@ -112,14 +108,12 @@ fn primitive_type_crud_classification_correct() {
 
     // Append-only primitives don't support CRUD
     assert!(!PrimitiveType::Event.supports_crud());
-    assert!(!PrimitiveType::Trace.supports_crud());
 }
 
 #[test]
 fn primitive_type_append_only_classification_correct() {
-    // Append-only primitives: Event, Trace
+    // Append-only primitives: Event
     assert!(PrimitiveType::Event.is_append_only());
-    assert!(PrimitiveType::Trace.is_append_only());
 
     // CRUD primitives are not append-only
     assert!(!PrimitiveType::Kv.is_append_only());
@@ -151,7 +145,7 @@ fn primitive_type_hashable() {
     for pt in PrimitiveType::all() {
         set.insert(*pt);
     }
-    assert_eq!(set.len(), 7);
+    assert_eq!(set.len(), 6);
 }
 
 #[test]
@@ -261,12 +255,12 @@ fn all_primitives_have_ids() {
 fn primitive_ids_are_unique() {
     let ids: Vec<_> = PrimitiveType::all().iter().map(|pt| pt.id()).collect();
     let unique: HashSet<_> = ids.iter().collect();
-    assert_eq!(unique.len(), 7, "Primitive IDs should be unique");
+    assert_eq!(unique.len(), 6, "Primitive IDs should be unique");
 }
 
 #[test]
 fn primitive_names_are_unique() {
     let names: Vec<_> = PrimitiveType::all().iter().map(|pt| pt.name()).collect();
     let unique: HashSet<_> = names.iter().collect();
-    assert_eq!(unique.len(), 7, "Primitive names should be unique");
+    assert_eq!(unique.len(), 6, "Primitive names should be unique");
 }

@@ -71,31 +71,6 @@ fn cross_primitive_kv_and_state_in_same_transaction() {
 }
 
 #[test]
-fn cross_primitive_kv_and_trace_in_same_transaction() {
-    let run_id = test_run_id();
-    let ns = create_namespace(run_id);
-    let mut ctx = create_context(&ns);
-    let mut txn = Transaction::new(&mut ctx, ns.clone());
-
-    use strata_core::TraceType;
-
-    // Use both KV and Trace
-    txn.kv_put("operation", Value::String("compute".into())).unwrap();
-    txn.trace_record(
-        TraceType::Thought {
-            content: "Processing data".into(),
-            confidence: Some(0.9),
-        },
-        vec!["compute".into()],
-        Value::Null,
-    ).unwrap();
-
-    // Both visible
-    assert!(txn.kv_get("operation").unwrap().is_some());
-    assert!(txn.trace_count().unwrap() >= 1);
-}
-
-#[test]
 fn cross_primitive_events_and_state_in_same_transaction() {
     let run_id = test_run_id();
     let ns = create_namespace(run_id);
@@ -112,29 +87,21 @@ fn cross_primitive_events_and_state_in_same_transaction() {
 }
 
 #[test]
-fn cross_primitive_all_four_primitives() {
+fn cross_primitive_all_three_primitives() {
     let run_id = test_run_id();
     let ns = create_namespace(run_id);
     let mut ctx = create_context(&ns);
     let mut txn = Transaction::new(&mut ctx, ns.clone());
 
-    use strata_core::TraceType;
-
-    // Use all four implemented primitives
+    // Use all three primitives
     txn.kv_put("key", Value::Int(1)).unwrap();
     txn.event_append("event", Value::Null).unwrap();
     txn.state_init("state", Value::Int(0)).unwrap();
-    txn.trace_record(
-        TraceType::Thought { content: "test".into(), confidence: None },
-        vec![],
-        Value::Null,
-    ).unwrap();
 
     // All visible within transaction
     assert!(txn.kv_exists("key").unwrap());
     assert_eq!(txn.event_len().unwrap(), 1);
     assert!(txn.state_exists("state").unwrap());
-    assert!(txn.trace_count().unwrap() >= 1);
 }
 
 // ============================================================================
@@ -207,31 +174,6 @@ fn cross_primitive_read_your_writes_state() {
     assert_eq!(state.value.value, Value::Int(1));
 }
 
-#[test]
-fn cross_primitive_read_your_writes_trace() {
-    let run_id = test_run_id();
-    let ns = create_namespace(run_id);
-    let mut ctx = create_context(&ns);
-    let mut txn = Transaction::new(&mut ctx, ns.clone());
-
-    use strata_core::TraceType;
-
-    // Record trace
-    let versioned = txn.trace_record(
-        TraceType::Thought {
-            content: "Test thought".into(),
-            confidence: None,
-        },
-        vec!["tag".into()],
-        Value::String("metadata".into()),
-    ).unwrap();
-
-    // Can read it back
-    let trace_id = versioned.value;
-    let trace = txn.trace_read(trace_id).unwrap();
-    assert!(trace.is_some());
-}
-
 // ============================================================================
 // Version Consistency
 // ============================================================================
@@ -257,8 +199,6 @@ fn cross_primitive_version_consistency_mixed() {
     let mut ctx = create_context(&ns);
     let mut txn = Transaction::new(&mut ctx, ns.clone());
 
-    use strata_core::TraceType;
-
     // KV write
     let kv_version = txn.kv_put("key", Value::Int(1)).unwrap();
 
@@ -268,13 +208,6 @@ fn cross_primitive_version_consistency_mixed() {
     // State init (returns Counter)
     let state_version = txn.state_init("state", Value::Int(0)).unwrap();
 
-    // Trace record (returns TxnId)
-    let trace_versioned = txn.trace_record(
-        TraceType::Thought { content: "test".into(), confidence: None },
-        vec![],
-        Value::Null,
-    ).unwrap();
-
     // KV uses TxnId
     assert!(kv_version.is_txn_id());
 
@@ -283,9 +216,6 @@ fn cross_primitive_version_consistency_mixed() {
 
     // State uses Counter
     assert!(state_version.is_counter());
-
-    // Trace version is from the Versioned wrapper
-    assert!(trace_versioned.version.is_txn_id());
 }
 
 // ============================================================================
@@ -355,43 +285,6 @@ fn cross_primitive_workflow_counter_with_events() {
     assert_eq!(txn.event_len().unwrap(), 2);
 }
 
-#[test]
-fn cross_primitive_workflow_kv_cache_with_trace() {
-    let run_id = test_run_id();
-    let ns = create_namespace(run_id);
-    let mut ctx = create_context(&ns);
-    let mut txn = Transaction::new(&mut ctx, ns.clone());
-
-    use strata_core::TraceType;
-
-    // Record that we're caching
-    txn.trace_record(
-        TraceType::Thought {
-            content: "Caching expensive computation".into(),
-            confidence: Some(1.0),
-        },
-        vec!["cache".into()],
-        Value::Null,
-    ).unwrap();
-
-    // Store result in KV
-    txn.kv_put("cached:result", Value::String("computed_value".into())).unwrap();
-
-    // Record completion
-    txn.trace_record(
-        TraceType::Custom {
-            name: "cache_store".into(),
-            data: Value::String("Stored for future use".into()),
-        },
-        vec!["cache".into()],
-        Value::Null,
-    ).unwrap();
-
-    // Verify
-    assert!(txn.kv_exists("cached:result").unwrap());
-    assert!(txn.trace_count().unwrap() >= 2);
-}
-
 // ============================================================================
 // Error Handling
 // ============================================================================
@@ -437,32 +330,6 @@ fn cross_primitive_event_order_preserved() {
     assert_eq!(e0.value.payload, Value::Int(1));
     assert_eq!(e1.value.payload, Value::Int(2));
     assert_eq!(e2.value.payload, Value::Int(3));
-}
-
-#[test]
-fn cross_primitive_trace_order_preserved() {
-    let run_id = test_run_id();
-    let ns = create_namespace(run_id);
-    let mut ctx = create_context(&ns);
-    let mut txn = Transaction::new(&mut ctx, ns.clone());
-
-    use strata_core::TraceType;
-
-    // Record traces in order
-    let t1 = txn.trace_record(
-        TraceType::Thought { content: "first".into(), confidence: None },
-        vec![],
-        Value::Int(1),
-    ).unwrap();
-
-    let t2 = txn.trace_record(
-        TraceType::Thought { content: "second".into(), confidence: None },
-        vec![],
-        Value::Int(2),
-    ).unwrap();
-
-    // Sequence numbers should be in order
-    assert!(t1.value < t2.value);
 }
 
 // ============================================================================

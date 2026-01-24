@@ -54,7 +54,7 @@ pub use contract::{
 // Re-export primitive types at crate root for convenience
 pub use primitives::{
     ChainVerification, CollectionId, CollectionInfo, DistanceMetric, Event, JsonScalar,
-    MetadataFilter, State, StorageDtype, Trace, TraceTree, TraceType, VectorConfig, VectorEntry,
+    MetadataFilter, State, StorageDtype, VectorConfig, VectorEntry,
     VectorId, VectorMatch,
 };
 

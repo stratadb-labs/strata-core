@@ -41,7 +41,6 @@ use strata_primitives::{
     KVStore as PrimitiveKVStore,
     RunIndex as PrimitiveRunIndex,
     StateCell as PrimitiveStateCell,
-    TraceStore as PrimitiveTraceStore,
     VectorError,
     VectorStore as PrimitiveVectorStore,
 };
@@ -315,8 +314,6 @@ pub struct SubstrateImpl {
     event: PrimitiveEventLog,
     /// State primitive
     state: PrimitiveStateCell,
-    /// Trace primitive
-    trace: PrimitiveTraceStore,
     /// Run primitive
     run: PrimitiveRunIndex,
     /// Vector primitive
@@ -331,7 +328,6 @@ impl SubstrateImpl {
             json: PrimitiveJsonStore::new(db.clone()),
             event: PrimitiveEventLog::new(db.clone()),
             state: PrimitiveStateCell::new(db.clone()),
-            trace: PrimitiveTraceStore::new(db.clone()),
             run: PrimitiveRunIndex::new(db.clone()),
             vector: PrimitiveVectorStore::new(db.clone()),
             db,
@@ -370,11 +366,6 @@ impl SubstrateImpl {
     /// Get State primitive reference
     pub(crate) fn state(&self) -> &PrimitiveStateCell {
         &self.state
-    }
-
-    /// Get Trace primitive reference
-    pub(crate) fn trace(&self) -> &PrimitiveTraceStore {
-        &self.trace
     }
 
     /// Get Run primitive reference

@@ -442,7 +442,6 @@ fn strata_error_all_entity_types_in_not_found() {
     let _ = StrataError::not_found(EntityRef::kv(run_id, "key"));
     let _ = StrataError::not_found(EntityRef::event(run_id, 1));
     let _ = StrataError::not_found(EntityRef::state(run_id, "cell"));
-    let _ = StrataError::not_found(EntityRef::trace(run_id, "trace-1"));
     let _ = StrataError::not_found(EntityRef::json(run_id, doc_id));
     let _ = StrataError::not_found(EntityRef::vector(run_id, "col", "vec"));
     let _ = StrataError::not_found(EntityRef::run(run_id));
@@ -457,7 +456,6 @@ fn strata_error_all_entity_types_in_invalid_operation() {
     let _ = StrataError::invalid_operation(EntityRef::kv(run_id, "key"), "reason");
     let _ = StrataError::invalid_operation(EntityRef::event(run_id, 1), "reason");
     let _ = StrataError::invalid_operation(EntityRef::state(run_id, "cell"), "reason");
-    let _ = StrataError::invalid_operation(EntityRef::trace(run_id, "trace-1"), "reason");
     let _ = StrataError::invalid_operation(EntityRef::json(run_id, doc_id), "reason");
     let _ = StrataError::invalid_operation(EntityRef::vector(run_id, "col", "vec"), "reason");
     let _ = StrataError::invalid_operation(EntityRef::run(run_id), "reason");

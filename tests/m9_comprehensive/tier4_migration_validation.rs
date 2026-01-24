@@ -333,7 +333,6 @@ fn entity_ref_extraction_methods_return_correct_types() {
     let kv = EntityRef::kv(run_id.clone(), "key");
     let event = EntityRef::event(run_id.clone(), 42);
     let state = EntityRef::state(run_id.clone(), "cell");
-    let trace = EntityRef::trace(run_id, "trace-123");
     let json = EntityRef::json(run_id.clone(), doc_id.clone());
     let vector = EntityRef::vector(run_id.clone(), "coll", "vec");
     let run = EntityRef::run(run_id);
@@ -342,7 +341,6 @@ fn entity_ref_extraction_methods_return_correct_types() {
     assert_eq!(kv.kv_key(), Some("key"));
     assert_eq!(event.event_sequence(), Some(42));
     assert_eq!(state.state_name(), Some("cell"));
-    assert_eq!(trace.trace_id(), Some("trace-123"));
     assert_eq!(json.json_doc_id(), Some(doc_id));
     assert_eq!(vector.vector_location(), Some(("coll", "vec")));
     assert!(run.is_run()); // Run variant just has run_id
@@ -356,7 +354,6 @@ fn entity_ref_extraction_returns_none_for_wrong_variant() {
     // Wrong variant extraction returns None
     assert_eq!(kv.event_sequence(), None);
     assert_eq!(kv.state_name(), None);
-    assert_eq!(kv.trace_id(), None);
     assert_eq!(kv.json_doc_id(), None);
     assert_eq!(kv.vector_location(), None);
 }
