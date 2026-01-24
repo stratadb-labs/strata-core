@@ -205,7 +205,7 @@ mod eventlog_api {
         let tp = TestPrimitives::new();
         let version = tp
             .event_log
-            .append(&tp.run_id, "event", values::null())
+            .append(&tp.run_id, "event", values::empty_event_payload())
             .unwrap();
         let Version::Sequence(seq) = version else { panic!("Expected Sequence version") };
         assert_eq!(seq, 0);
@@ -219,14 +219,14 @@ mod eventlog_api {
         let tp = TestPrimitives::new();
         let version = tp
             .event_log
-            .append(&tp.run_id, "test_event", values::int(42))
+            .append(&tp.run_id, "test_event", values::event_payload(values::int(42)))
             .unwrap();
         let Version::Sequence(seq) = version else { panic!("Expected Sequence version") };
 
         let event = tp.event_log.read(&tp.run_id, seq).unwrap().unwrap();
         assert_eq!(event.value.sequence, seq);
         assert_eq!(event.value.event_type, "test_event");
-        assert_eq!(event.value.payload, values::int(42));
+        assert_eq!(event.value.payload, values::event_payload(values::int(42)));
     }
 
     #[test]
@@ -241,7 +241,7 @@ mod eventlog_api {
         let tp = TestPrimitives::new();
         for i in 0..5 {
             tp.event_log
-                .append(&tp.run_id, &format!("event_{}", i), values::int(i))
+                .append(&tp.run_id, &format!("event_{}", i), values::event_payload(values::int(i)))
                 .unwrap();
         }
 
@@ -264,13 +264,13 @@ mod eventlog_api {
     fn test_head_returns_most_recent() {
         let tp = TestPrimitives::new();
         tp.event_log
-            .append(&tp.run_id, "first", values::null())
+            .append(&tp.run_id, "first", values::empty_event_payload())
             .unwrap();
         tp.event_log
-            .append(&tp.run_id, "second", values::null())
+            .append(&tp.run_id, "second", values::empty_event_payload())
             .unwrap();
         tp.event_log
-            .append(&tp.run_id, "third", values::null())
+            .append(&tp.run_id, "third", values::empty_event_payload())
             .unwrap();
 
         let head = tp.event_log.head(&tp.run_id).unwrap().unwrap();
@@ -291,12 +291,12 @@ mod eventlog_api {
         assert_eq!(tp.event_log.len(&tp.run_id).unwrap(), 0);
 
         tp.event_log
-            .append(&tp.run_id, "e1", values::null())
+            .append(&tp.run_id, "e1", values::empty_event_payload())
             .unwrap();
         assert_eq!(tp.event_log.len(&tp.run_id).unwrap(), 1);
 
         tp.event_log
-            .append(&tp.run_id, "e2", values::null())
+            .append(&tp.run_id, "e2", values::empty_event_payload())
             .unwrap();
         assert_eq!(tp.event_log.len(&tp.run_id).unwrap(), 2);
     }
@@ -307,7 +307,7 @@ mod eventlog_api {
         assert!(tp.event_log.is_empty(&tp.run_id).unwrap());
 
         tp.event_log
-            .append(&tp.run_id, "e", values::null())
+            .append(&tp.run_id, "e", values::empty_event_payload())
             .unwrap();
         assert!(!tp.event_log.is_empty(&tp.run_id).unwrap());
     }
@@ -317,7 +317,7 @@ mod eventlog_api {
         let tp = TestPrimitives::new();
         for _ in 0..5 {
             tp.event_log
-                .append(&tp.run_id, "event", values::null())
+                .append(&tp.run_id, "event", values::empty_event_payload())
                 .unwrap();
         }
 
@@ -330,19 +330,19 @@ mod eventlog_api {
     fn test_read_by_type() {
         let tp = TestPrimitives::new();
         tp.event_log
-            .append(&tp.run_id, "type_a", values::null())
+            .append(&tp.run_id, "type_a", values::empty_event_payload())
             .unwrap();
         tp.event_log
-            .append(&tp.run_id, "type_b", values::null())
+            .append(&tp.run_id, "type_b", values::empty_event_payload())
             .unwrap();
         tp.event_log
-            .append(&tp.run_id, "type_a", values::null())
+            .append(&tp.run_id, "type_a", values::empty_event_payload())
             .unwrap();
         tp.event_log
-            .append(&tp.run_id, "type_c", values::null())
+            .append(&tp.run_id, "type_c", values::empty_event_payload())
             .unwrap();
         tp.event_log
-            .append(&tp.run_id, "type_a", values::null())
+            .append(&tp.run_id, "type_a", values::empty_event_payload())
             .unwrap();
 
         let type_a_events = tp.event_log.read_by_type(&tp.run_id, "type_a").unwrap();
@@ -356,13 +356,13 @@ mod eventlog_api {
     fn test_event_types() {
         let tp = TestPrimitives::new();
         tp.event_log
-            .append(&tp.run_id, "alpha", values::null())
+            .append(&tp.run_id, "alpha", values::empty_event_payload())
             .unwrap();
         tp.event_log
-            .append(&tp.run_id, "beta", values::null())
+            .append(&tp.run_id, "beta", values::empty_event_payload())
             .unwrap();
         tp.event_log
-            .append(&tp.run_id, "alpha", values::null())
+            .append(&tp.run_id, "alpha", values::empty_event_payload())
             .unwrap();
 
         let types = tp.event_log.event_types(&tp.run_id).unwrap();

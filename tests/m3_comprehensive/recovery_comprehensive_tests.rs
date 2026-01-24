@@ -33,11 +33,11 @@ mod multi_primitive_recovery {
                 .unwrap();
             prims
                 .event_log
-                .append(&run_id, "event1", values::int(1))
+                .append(&run_id, "event1", values::event_payload(values::int(1)))
                 .unwrap();
             prims
                 .event_log
-                .append(&run_id, "event2", values::int(2))
+                .append(&run_id, "event2", values::event_payload(values::int(2)))
                 .unwrap();
             prims
                 .state_cell
@@ -62,8 +62,8 @@ mod multi_primitive_recovery {
             // EventLog recovered
             let events = prims.event_log.read_range(&run_id, 0, 10).unwrap();
             assert_eq!(events.len(), 2);
-            assert_eq!(events[0].value.payload, values::int(1));
-            assert_eq!(events[1].value.payload, values::int(2));
+            assert_eq!(events[0].value.payload, values::event_payload(values::int(1)));
+            assert_eq!(events[1].value.payload, values::event_payload(values::int(2)));
 
             // StateCell recovered
             let state = prims.state_cell.read(&run_id, "cell").unwrap().unwrap();
@@ -85,7 +85,7 @@ mod multi_primitive_recovery {
                 .unwrap();
             prims
                 .event_log
-                .append(&run_id, "strict_event", values::null())
+                .append(&run_id, "strict_event", values::empty_event_payload())
                 .unwrap();
         }
 
@@ -118,17 +118,17 @@ mod sequence_continuity {
             let prims = ptp.open();
             let version0 = prims
                 .event_log
-                .append(&run_id, "event", values::int(0))
+                .append(&run_id, "event", values::event_payload(values::int(0)))
                 .unwrap();
             let Version::Sequence(seq0) = version0 else { panic!("Expected Sequence version") };
             let version1 = prims
                 .event_log
-                .append(&run_id, "event", values::int(1))
+                .append(&run_id, "event", values::event_payload(values::int(1)))
                 .unwrap();
             let Version::Sequence(seq1) = version1 else { panic!("Expected Sequence version") };
             let version2 = prims
                 .event_log
-                .append(&run_id, "event", values::int(2))
+                .append(&run_id, "event", values::event_payload(values::int(2)))
                 .unwrap();
             let Version::Sequence(seq2) = version2 else { panic!("Expected Sequence version") };
 
@@ -142,7 +142,7 @@ mod sequence_continuity {
             let prims = ptp.open();
             let version3 = prims
                 .event_log
-                .append(&run_id, "event", values::int(3))
+                .append(&run_id, "event", values::event_payload(values::int(3)))
                 .unwrap();
             let Version::Sequence(seq3) = version3 else { panic!("Expected Sequence version") };
 
@@ -165,7 +165,7 @@ mod sequence_continuity {
             for i in 0..5 {
                 prims
                     .event_log
-                    .append(&run_id, "event", values::int(i))
+                    .append(&run_id, "event", values::event_payload(values::int(i)))
                     .unwrap();
             }
         }
@@ -176,7 +176,7 @@ mod sequence_continuity {
             for i in 5..10 {
                 prims
                     .event_log
-                    .append(&run_id, "event", values::int(i))
+                    .append(&run_id, "event", values::event_payload(values::int(i)))
                     .unwrap();
             }
         }
@@ -329,19 +329,19 @@ mod index_recovery {
             let prims = ptp.open();
             prims
                 .event_log
-                .append(&run_id, "tool_call", values::null())
+                .append(&run_id, "tool_call", values::empty_event_payload())
                 .unwrap();
             prims
                 .event_log
-                .append(&run_id, "response", values::null())
+                .append(&run_id, "response", values::empty_event_payload())
                 .unwrap();
             prims
                 .event_log
-                .append(&run_id, "tool_call", values::null())
+                .append(&run_id, "tool_call", values::empty_event_payload())
                 .unwrap();
             prims
                 .event_log
-                .append(&run_id, "error", values::null())
+                .append(&run_id, "error", values::empty_event_payload())
                 .unwrap();
         }
 
@@ -375,7 +375,7 @@ mod multiple_recovery_cycles {
             prims.kv.put(&run_id, "cycle", values::int(1)).unwrap();
             prims
                 .event_log
-                .append(&run_id, "cycle_1", values::null())
+                .append(&run_id, "cycle_1", values::empty_event_payload())
                 .unwrap();
         }
 
@@ -391,7 +391,7 @@ mod multiple_recovery_cycles {
             prims.kv.put(&run_id, "cycle", values::int(2)).unwrap();
             prims
                 .event_log
-                .append(&run_id, "cycle_2", values::null())
+                .append(&run_id, "cycle_2", values::empty_event_payload())
                 .unwrap();
         }
 
@@ -407,7 +407,7 @@ mod multiple_recovery_cycles {
             prims.kv.put(&run_id, "cycle", values::int(3)).unwrap();
             prims
                 .event_log
-                .append(&run_id, "cycle_3", values::null())
+                .append(&run_id, "cycle_3", values::empty_event_payload())
                 .unwrap();
         }
 
@@ -451,7 +451,7 @@ mod multiple_recovery_cycles {
                     .unwrap();
                 prims
                     .event_log
-                    .append(&run_id, &format!("cycle_{}", cycle), values::null())
+                    .append(&run_id, &format!("cycle_{}", cycle), values::empty_event_payload())
                     .unwrap();
 
                 if cycle == 1 {
@@ -603,7 +603,7 @@ mod chain_integrity_after_recovery {
             for i in 0..10 {
                 prims
                     .event_log
-                    .append(&run_id, "event", values::int(i))
+                    .append(&run_id, "event", values::event_payload(values::int(i)))
                     .unwrap();
             }
         }
@@ -626,7 +626,7 @@ mod chain_integrity_after_recovery {
             let prims = ptp.open();
             prims
                 .event_log
-                .append(&run_id, "first", values::null())
+                .append(&run_id, "first", values::empty_event_payload())
                 .unwrap();
         }
 
@@ -635,7 +635,7 @@ mod chain_integrity_after_recovery {
             let prims = ptp.open();
             prims
                 .event_log
-                .append(&run_id, "second", values::null())
+                .append(&run_id, "second", values::empty_event_payload())
                 .unwrap();
 
             // Chain should still be valid

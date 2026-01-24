@@ -319,7 +319,7 @@ mod archived_is_terminal {
         // Write some data
         tp.kv.put(&run_id, "key", values::int(42)).unwrap();
         tp.event_log
-            .append(&run_id, "event", values::null())
+            .append(&run_id, "event", values::empty_event_payload())
             .unwrap();
 
         // Archive
@@ -395,7 +395,7 @@ mod cascading_delete {
         // Append events
         for i in 0..10 {
             tp.event_log
-                .append(&run_id, "event", values::int(i))
+                .append(&run_id, "event", values::event_payload(values::int(i)))
                 .unwrap();
         }
         assert_eq!(tp.event_log.len(&run_id).unwrap(), 10);
@@ -440,7 +440,7 @@ mod cascading_delete {
         // Write to primitives
         tp.kv.put(&run_id, "key", values::int(1)).unwrap();
         tp.event_log
-            .append(&run_id, "event", values::null())
+            .append(&run_id, "event", values::empty_event_payload())
             .unwrap();
         tp.state_cell.init(&run_id, "cell", values::int(0)).unwrap();
 
@@ -472,10 +472,10 @@ mod cascading_delete {
         tp.kv.put(&run_id1, "key", values::string("run1")).unwrap();
         tp.kv.put(&run_id2, "key", values::string("run2")).unwrap();
         tp.event_log
-            .append(&run_id1, "event", values::null())
+            .append(&run_id1, "event", values::empty_event_payload())
             .unwrap();
         tp.event_log
-            .append(&run_id2, "event", values::null())
+            .append(&run_id2, "event", values::empty_event_payload())
             .unwrap();
 
         // Delete run-1

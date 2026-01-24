@@ -44,7 +44,7 @@ mod typetag_isolation {
 
         // Write to Event with "data" as event_type
         tp.event_log
-            .append(&run_id, "data", values::string("event-value"))
+            .append(&run_id, "data", values::event_payload(values::string("event-value")))
             .unwrap();
 
         // Write to State with "data" as cell name
@@ -58,7 +58,7 @@ mod typetag_isolation {
 
         let event = tp.event_log.read(&run_id, 0).unwrap();
         assert!(event.is_some());
-        assert_eq!(event.unwrap().value.payload, values::string("event-value"));
+        assert_eq!(event.unwrap().value.payload, values::event_payload(values::string("event-value")));
 
         let state = tp.state_cell.read(&run_id, "data").unwrap();
         assert!(state.is_some());
@@ -93,7 +93,7 @@ mod typetag_isolation {
         // Append events
         for i in 0..10 {
             tp.event_log
-                .append(&run_id, &format!("event_{}", i), values::int(i))
+                .append(&run_id, &format!("event_{}", i), values::event_payload(values::int(i)))
                 .unwrap();
         }
 
@@ -173,20 +173,20 @@ mod run_namespace_isolation {
 
         // Append to both runs
         tp.event_log
-            .append(&run1, "event", values::string("run1"))
+            .append(&run1, "event", values::event_payload(values::string("run1")))
             .unwrap();
         tp.event_log
-            .append(&run2, "event", values::string("run2"))
+            .append(&run2, "event", values::event_payload(values::string("run2")))
             .unwrap();
 
         // Each run sees only its own event
         let events1 = tp.event_log.read_range(&run1, 0, 100).unwrap();
         assert_eq!(events1.len(), 1);
-        assert_eq!(events1[0].value.payload, values::string("run1"));
+        assert_eq!(events1[0].value.payload, values::event_payload(values::string("run1")));
 
         let events2 = tp.event_log.read_range(&run2, 0, 100).unwrap();
         assert_eq!(events2.len(), 1);
-        assert_eq!(events2[0].value.payload, values::string("run2"));
+        assert_eq!(events2[0].value.payload, values::event_payload(values::string("run2")));
     }
 
     #[test]
@@ -313,7 +313,7 @@ mod facade_identity {
 
         // Append with first handle
         let log1 = EventLog::new(tp.db.clone());
-        log1.append(&run_id, "event", values::string("data"))
+        log1.append(&run_id, "event", values::event_payload(values::string("data")))
             .unwrap();
         drop(log1);
 
@@ -321,7 +321,7 @@ mod facade_identity {
         let log2 = EventLog::new(tp.db.clone());
         let events = log2.read_range(&run_id, 0, 100).unwrap();
         assert_eq!(events.len(), 1);
-        assert_eq!(events[0].value.payload, values::string("data"));
+        assert_eq!(events[0].value.payload, values::event_payload(values::string("data")));
     }
 
     #[test]
@@ -517,19 +517,19 @@ mod value_type_safety {
 
         // Test different value types as event payloads
         tp.event_log
-            .append(&run_id, "int", values::int(42))
+            .append(&run_id, "int", values::event_payload(values::int(42)))
             .unwrap();
         tp.event_log
-            .append(&run_id, "str", values::string("hello"))
+            .append(&run_id, "str", values::event_payload(values::string("hello")))
             .unwrap();
         tp.event_log
-            .append(&run_id, "arr", values::array(vec![values::int(1)]))
+            .append(&run_id, "arr", values::event_payload(values::array(vec![values::int(1)])))
             .unwrap();
 
         let events = tp.event_log.read_range(&run_id, 0, 100).unwrap();
-        assert_eq!(events[0].value.payload, values::int(42));
-        assert_eq!(events[1].value.payload, values::string("hello"));
-        assert_eq!(events[2].value.payload, values::array(vec![values::int(1)]));
+        assert_eq!(events[0].value.payload, values::event_payload(values::int(42)));
+        assert_eq!(events[1].value.payload, values::event_payload(values::string("hello")));
+        assert_eq!(events[2].value.payload, values::event_payload(values::array(vec![values::int(1)])));
     }
 
     #[test]
@@ -693,7 +693,7 @@ mod no_hidden_writes {
         // Cross-primitive transaction that fails
         let result: Result<(), Error> = tp.db.transaction(run_id, |txn| {
             txn.kv_put("key", values::int(1))?;
-            txn.event_append("type", values::null())?;
+            txn.event_append("type", values::empty_event_payload())?;
             Err(Error::InvalidState("abort".to_string()))
         });
 
@@ -712,7 +712,7 @@ mod no_hidden_writes {
         // Successful append
         let version1 = tp
             .event_log
-            .append(&run_id, "first", values::int(1))
+            .append(&run_id, "first", values::event_payload(values::int(1)))
             .unwrap();
         let Version::Sequence(seq1) = version1 else { panic!("Expected Sequence version") };
         assert_eq!(seq1, 0);
@@ -720,7 +720,7 @@ mod no_hidden_writes {
         // Failed append (simulate via low-level transaction)
         use strata_primitives::extensions::*;
         let result: Result<(), Error> = tp.db.transaction(run_id, |txn| {
-            txn.event_append("failed", values::int(2))?;
+            txn.event_append("failed", values::event_payload(values::int(2)))?;
             Err(Error::InvalidState("abort".to_string()))
         });
         assert!(result.is_err());
@@ -728,7 +728,7 @@ mod no_hidden_writes {
         // Next successful append should get sequence 1 (not 2)
         let version2 = tp
             .event_log
-            .append(&run_id, "second", values::int(3))
+            .append(&run_id, "second", values::event_payload(values::int(3)))
             .unwrap();
         let Version::Sequence(seq2) = version2 else { panic!("Expected Sequence version") };
         assert_eq!(seq2, 1, "Aborted transaction consumed sequence number");
@@ -766,7 +766,7 @@ mod no_hidden_writes {
         // Setup some data
         tp.kv.put(&run_id, "key", values::int(1)).unwrap();
         tp.event_log
-            .append(&run_id, "event", values::int(2))
+            .append(&run_id, "event", values::event_payload(values::int(2)))
             .unwrap();
         tp.state_cell.init(&run_id, "cell", values::int(3)).unwrap();
 
@@ -784,7 +784,7 @@ mod no_hidden_writes {
         assert_eq!(tp.kv.get(&run_id, "key").unwrap().map(|v| v.value), Some(values::int(1)));
         assert_eq!(
             tp.event_log.read(&run_id, 0).unwrap().unwrap().value.payload,
-            values::int(2)
+            values::event_payload(values::int(2))
         );
         assert_eq!(
             tp.state_cell.read(&run_id, "cell").unwrap().unwrap().value.value,

@@ -219,25 +219,29 @@ mod boundary_values {
     }
 
     #[test]
-    fn test_eventlog_empty_event_type() {
+    fn test_eventlog_empty_event_type_rejected() {
+        // Empty event types are rejected by validation
         let tp = TestPrimitives::new();
-        let version = tp.event_log.append(&tp.run_id, "", values::null()).unwrap();
-        let Version::Sequence(seq) = version else { panic!("Expected Sequence version") };
-        let event = tp.event_log.read(&tp.run_id, seq).unwrap().unwrap();
-        assert_eq!(event.value.event_type, "");
+        let result = tp.event_log.append(&tp.run_id, "", values::empty_event_payload());
+        assert!(result.is_err(), "Empty event type should be rejected");
     }
 
     #[test]
-    fn test_eventlog_long_event_type() {
+    fn test_eventlog_long_event_type_rejected() {
+        // Event types longer than 256 characters are rejected
         let tp = TestPrimitives::new();
         let long_type = "event_".to_string() + &"a".repeat(1000);
-        let version = tp
-            .event_log
-            .append(&tp.run_id, &long_type, values::null())
-            .unwrap();
-        let Version::Sequence(seq) = version else { panic!("Expected Sequence version") };
-        let event = tp.event_log.read(&tp.run_id, seq).unwrap().unwrap();
-        assert_eq!(event.value.event_type, long_type);
+        let result = tp.event_log.append(&tp.run_id, &long_type, values::empty_event_payload());
+        assert!(result.is_err(), "Long event type should be rejected");
+    }
+
+    #[test]
+    fn test_eventlog_max_length_event_type_accepted() {
+        // Event types up to 256 characters should be accepted
+        let tp = TestPrimitives::new();
+        let max_type = "a".repeat(256);
+        let result = tp.event_log.append(&tp.run_id, &max_type, values::empty_event_payload());
+        assert!(result.is_ok(), "256-char event type should be accepted");
     }
 
     #[test]
@@ -336,7 +340,7 @@ mod unicode_and_special {
         let unicode_type = "イベント_🎯_حدث";
         let version = tp
             .event_log
-            .append(&tp.run_id, unicode_type, values::null())
+            .append(&tp.run_id, unicode_type, values::empty_event_payload())
             .unwrap();
         let Version::Sequence(seq) = version else { panic!("Expected Sequence version") };
         let event = tp.event_log.read(&tp.run_id, seq).unwrap().unwrap();
@@ -445,7 +449,7 @@ mod concurrent_edge_cases {
         let results =
             concurrent::run_with_shared(num_threads, (tp.clone(), run_id), |i, (tp, run_id)| {
                 tp.event_log
-                    .append(run_id, &format!("thread_{}", i), values::int(i as i64))
+                    .append(run_id, &format!("thread_{}", i), values::event_payload(values::int(i as i64)))
             });
 
         // All should succeed

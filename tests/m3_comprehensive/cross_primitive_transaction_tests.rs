@@ -27,7 +27,7 @@ mod atomic_operations {
         // Write to each primitive
         tp.kv.put(&run_id, "key", values::int(1)).unwrap();
         tp.event_log
-            .append(&run_id, "event", values::int(2))
+            .append(&run_id, "event", values::event_payload(values::int(2)))
             .unwrap();
         tp.state_cell.init(&run_id, "cell", values::int(3)).unwrap();
 
@@ -45,11 +45,11 @@ mod atomic_operations {
 
         tp.kv.put(&run_id, "step", values::int(1)).unwrap();
         tp.event_log
-            .append(&run_id, "started", values::null())
+            .append(&run_id, "started", values::empty_event_payload())
             .unwrap();
         tp.kv.put(&run_id, "step", values::int(2)).unwrap();
         tp.event_log
-            .append(&run_id, "finished", values::null())
+            .append(&run_id, "finished", values::empty_event_payload())
             .unwrap();
 
         assert_eq!(tp.kv.get(&run_id, "step").unwrap().map(|v| v.value), Some(values::int(2)));
@@ -82,11 +82,11 @@ mod read_your_writes {
 
         let version = tp
             .event_log
-            .append(&run_id, "test", values::int(100))
+            .append(&run_id, "test", values::event_payload(values::int(100)))
             .unwrap();
         let Version::Sequence(seq) = version else { panic!("Expected Sequence version") };
         let event = tp.event_log.read(&run_id, seq).unwrap().unwrap();
-        assert_eq!(event.value.payload, values::int(100));
+        assert_eq!(event.value.payload, values::event_payload(values::int(100)));
     }
 
     #[test]
@@ -125,7 +125,7 @@ mod read_your_writes {
         tp.kv.put(&run_id, "step1", values::int(1)).unwrap();
         let version = tp
             .event_log
-            .append(&run_id, "step1", values::int(1))
+            .append(&run_id, "step1", values::event_payload(values::int(1)))
             .unwrap();
         let Version::Sequence(seq) = version else { panic!("Expected Sequence version") };
         tp.state_cell.init(&run_id, "step", values::int(1)).unwrap();
@@ -138,7 +138,7 @@ mod read_your_writes {
         // Continue sequence
         tp.kv.put(&run_id, "step2", values::int(2)).unwrap();
         tp.event_log
-            .append(&run_id, "step2", values::int(2))
+            .append(&run_id, "step2", values::event_payload(values::int(2)))
             .unwrap();
         tp.state_cell.set(&run_id, "step", values::int(2)).unwrap();
 
@@ -168,7 +168,7 @@ mod multi_primitive_persistence {
             prims.kv.put(&run_id, "key", values::int(100)).unwrap();
             prims
                 .event_log
-                .append(&run_id, "event", values::int(200))
+                .append(&run_id, "event", values::event_payload(values::int(200)))
                 .unwrap();
             prims
                 .state_cell
@@ -184,7 +184,7 @@ mod multi_primitive_persistence {
                 Some(values::int(100))
             );
             let event = prims.event_log.read(&run_id, 0).unwrap().unwrap();
-            assert_eq!(event.value.payload, values::int(200));
+            assert_eq!(event.value.payload, values::event_payload(values::int(200)));
             let state = prims.state_cell.read(&run_id, "cell").unwrap().unwrap();
             assert_eq!(state.value.value, values::int(300));
         }
@@ -201,7 +201,7 @@ mod multi_primitive_persistence {
             prims.kv.put(&run_id, "key1", values::int(1)).unwrap();
             prims
                 .event_log
-                .append(&run_id, "event1", values::null())
+                .append(&run_id, "event1", values::empty_event_payload())
                 .unwrap();
         }
 
@@ -239,12 +239,12 @@ mod run_scoped_transactions {
 
         // Write to run1
         tp.kv.put(&run1, "shared_key", values::int(1)).unwrap();
-        tp.event_log.append(&run1, "event", values::null()).unwrap();
+        tp.event_log.append(&run1, "event", values::empty_event_payload()).unwrap();
 
         // Write to run2
         tp.kv.put(&run2, "shared_key", values::int(2)).unwrap();
-        tp.event_log.append(&run2, "event", values::null()).unwrap();
-        tp.event_log.append(&run2, "event", values::null()).unwrap();
+        tp.event_log.append(&run2, "event", values::empty_event_payload()).unwrap();
+        tp.event_log.append(&run2, "event", values::empty_event_payload()).unwrap();
 
         // Each run has its own data
         assert_eq!(
@@ -268,7 +268,7 @@ mod run_scoped_transactions {
         for (i, run) in runs.iter().enumerate() {
             tp.kv.put(run, "counter", values::int(i as i64)).unwrap();
             for _ in 0..=i {
-                tp.event_log.append(run, "tick", values::null()).unwrap();
+                tp.event_log.append(run, "tick", values::empty_event_payload()).unwrap();
             }
         }
 
@@ -302,7 +302,7 @@ mod run_status_with_primitives {
         // Write primitive data
         tp.kv.put(&run_id, "key", values::int(42)).unwrap();
         tp.event_log
-            .append(&run_id, "event", values::null())
+            .append(&run_id, "event", values::empty_event_payload())
             .unwrap();
 
         // Update status using the run name

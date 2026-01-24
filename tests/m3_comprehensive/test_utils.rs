@@ -173,6 +173,19 @@ pub mod values {
         }
         Value::Object(map)
     }
+
+    /// Create an event payload (must be an object for EventLog)
+    /// Wraps a value in {"data": value}
+    pub fn event_payload(value: Value) -> Value {
+        let mut map = std::collections::HashMap::new();
+        map.insert("data".to_string(), value);
+        Value::Object(map)
+    }
+
+    /// Create an empty event payload
+    pub fn empty_event_payload() -> Value {
+        Value::Object(std::collections::HashMap::new())
+    }
 }
 
 /// Assertion helpers for M3 invariants

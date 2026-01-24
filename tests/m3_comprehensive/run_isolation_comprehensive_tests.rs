@@ -29,7 +29,7 @@ mod n_run_isolation {
                 .put(run, "name", values::string(&format!("run_{}", i)))
                 .unwrap();
             tp.event_log
-                .append(run, &format!("init_{}", i), values::int(i as i64))
+                .append(run, &format!("init_{}", i), values::event_payload(values::int(i as i64)))
                 .unwrap();
             tp.state_cell
                 .init(run, "state", values::int(i as i64))
@@ -121,7 +121,7 @@ mod concurrent_run_operations {
                 let run = &runs[i];
                 tp.kv.put(run, "value", values::int(i as i64)).unwrap();
                 tp.event_log
-                    .append(run, "event", values::int(i as i64))
+                    .append(run, "event", values::event_payload(values::int(i as i64)))
                     .unwrap();
                 i
             },
@@ -182,7 +182,7 @@ mod concurrent_run_operations {
             let run = tp.new_run();
             tp.kv.put(&run, "creator", values::int(i as i64)).unwrap();
             tp.event_log
-                .append(&run, "created", values::int(i as i64))
+                .append(&run, "created", values::event_payload(values::int(i as i64)))
                 .unwrap();
             run
         });
@@ -219,10 +219,10 @@ mod run_delete_isolation {
         tp.kv.put(&run_a, "key", values::string("a")).unwrap();
         tp.kv.put(&run_b, "key", values::string("b")).unwrap();
         tp.event_log
-            .append(&run_a, "event_a", values::null())
+            .append(&run_a, "event_a", values::empty_event_payload())
             .unwrap();
         tp.event_log
-            .append(&run_b, "event_b", values::null())
+            .append(&run_b, "event_b", values::empty_event_payload())
             .unwrap();
 
         // Delete run A from RunIndex
@@ -279,7 +279,7 @@ mod run_delete_isolation {
         // Write to all primitives for both runs
         for run in [&run_a, &run_b] {
             tp.kv.put(run, "kv_key", values::int(1)).unwrap();
-            tp.event_log.append(run, "event", values::null()).unwrap();
+            tp.event_log.append(run, "event", values::empty_event_payload()).unwrap();
             tp.state_cell.init(run, "cell", values::int(0)).unwrap();
         }
 
@@ -335,13 +335,13 @@ mod cross_run_leakage_prevention {
 
         // Append events to each run
         tp.event_log
-            .append(&run1, "run1_event", values::null())
+            .append(&run1, "run1_event", values::empty_event_payload())
             .unwrap();
         tp.event_log
-            .append(&run2, "run2_event_1", values::null())
+            .append(&run2, "run2_event_1", values::empty_event_payload())
             .unwrap();
         tp.event_log
-            .append(&run2, "run2_event_2", values::null())
+            .append(&run2, "run2_event_2", values::empty_event_payload())
             .unwrap();
 
         // read_range() returns only events for that run

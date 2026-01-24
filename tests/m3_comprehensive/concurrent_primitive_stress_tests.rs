@@ -166,7 +166,7 @@ mod eventlog_stress {
                 for _ in 0..appends_per_thread {
                     if let Ok(version) =
                         tp.event_log
-                            .append(run_id, &format!("thread_{}", i), values::null())
+                            .append(run_id, &format!("thread_{}", i), values::empty_event_payload())
                     {
                         if let Version::Sequence(seq) = version {
                             sequences.push(seq);
@@ -199,7 +199,7 @@ mod eventlog_stress {
 
         for i in 0..num_events {
             tp.event_log
-                .append(&run_id, "event", values::int(i))
+                .append(&run_id, "event", values::event_payload(values::int(i)))
                 .unwrap();
         }
 
@@ -229,7 +229,7 @@ mod eventlog_stress {
         // Pre-populate some events
         for i in 0..100 {
             tp.event_log
-                .append(&run_id, "init", values::int(i))
+                .append(&run_id, "init", values::event_payload(values::int(i)))
                 .unwrap();
         }
 
@@ -244,7 +244,7 @@ mod eventlog_stress {
                 for _ in 0..ops_per_thread {
                     if i % 3 == 0 {
                         // Append
-                        if tp.event_log.append(run_id, "new", values::null()).is_ok() {
+                        if tp.event_log.append(run_id, "new", values::empty_event_payload()).is_ok() {
                             ops += 1;
                         }
                     } else if i % 3 == 1 {
@@ -464,7 +464,7 @@ mod cross_primitive_stress {
                     // EventLog append
                     if tp
                         .event_log
-                        .append(run_id, "op", values::int((i * 100 + j) as i64))
+                        .append(run_id, "op", values::event_payload(values::int((i * 100 + j) as i64)))
                         .is_ok()
                     {
                         successes += 1;
@@ -528,7 +528,7 @@ mod cross_primitive_stress {
                     {
                         total_ops += 1;
                     }
-                    if tp.event_log.append(&run, "event", values::null()).is_ok() {
+                    if tp.event_log.append(&run, "event", values::empty_event_payload()).is_ok() {
                         total_ops += 1;
                     }
                 }
@@ -625,7 +625,7 @@ mod run_lifecycle_stress {
 
         for _ in 0..num_events {
             tp.event_log
-                .append(&run_id, "event", values::null())
+                .append(&run_id, "event", values::empty_event_payload())
                 .unwrap();
         }
 

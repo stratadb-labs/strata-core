@@ -33,10 +33,10 @@ mod primitives_are_projections {
 
         // Append events using the EventLog
         tp.event_log
-            .append(&run_id, "event_type_1", values::string("payload_1"))
+            .append(&run_id, "event_type_1", values::event_payload(values::string("payload_1")))
             .unwrap();
         tp.event_log
-            .append(&run_id, "event_type_2", values::string("payload_2"))
+            .append(&run_id, "event_type_2", values::event_payload(values::string("payload_2")))
             .unwrap();
 
         // Create a new EventLog facade pointing to same database
@@ -126,7 +126,7 @@ mod primitives_are_projections {
                 .unwrap();
             prims
                 .event_log
-                .append(&run_id, "persistent_event", values::null())
+                .append(&run_id, "persistent_event", values::empty_event_payload())
                 .unwrap();
             prims
                 .state_cell
@@ -178,7 +178,7 @@ mod cross_primitive_ordering {
         // Write to multiple primitives
         tp.kv.put(&run_id, "key", values::int(1)).unwrap();
         tp.event_log
-            .append(&run_id, "event", values::int(2))
+            .append(&run_id, "event", values::event_payload(values::int(2)))
             .unwrap();
         tp.state_cell.init(&run_id, "cell", values::int(3)).unwrap();
 
@@ -197,7 +197,7 @@ mod cross_primitive_ordering {
         // Setup: write initial data
         tp.kv.put(&run_id, "counter", values::int(10)).unwrap();
         tp.event_log
-            .append(&run_id, "init", values::int(10))
+            .append(&run_id, "init", values::event_payload(values::int(10)))
             .unwrap();
         tp.state_cell
             .init(&run_id, "state", values::int(10))
@@ -236,13 +236,13 @@ mod cross_primitive_ordering {
         let run_id = tp.run_id;
 
         tp.event_log
-            .append(&run_id, "first", values::int(1))
+            .append(&run_id, "first", values::event_payload(values::int(1)))
             .unwrap();
         tp.event_log
-            .append(&run_id, "second", values::int(2))
+            .append(&run_id, "second", values::event_payload(values::int(2)))
             .unwrap();
         tp.event_log
-            .append(&run_id, "third", values::int(3))
+            .append(&run_id, "third", values::event_payload(values::int(3)))
             .unwrap();
 
         let events = tp.event_log.read_range(&run_id, 0, 10).unwrap();
@@ -277,7 +277,7 @@ mod replay_metadata_contract {
 
         let version = tp
             .event_log
-            .append(&run_id, "event", values::null())
+            .append(&run_id, "event", values::empty_event_payload())
             .unwrap();
         let Version::Sequence(seq) = version else { panic!("Expected Sequence version") };
 
@@ -293,7 +293,7 @@ mod replay_metadata_contract {
 
         let version = tp
             .event_log
-            .append(&run_id, "event", values::null())
+            .append(&run_id, "event", values::empty_event_payload())
             .unwrap();
         let Version::Sequence(seq) = version else { panic!("Expected Sequence version") };
 
@@ -310,7 +310,7 @@ mod replay_metadata_contract {
 
         let version = tp
             .event_log
-            .append(&run_id, "tool_call", values::string("data"))
+            .append(&run_id, "tool_call", values::event_payload(values::string("data")))
             .unwrap();
         let Version::Sequence(seq) = version else { panic!("Expected Sequence version") };
 
@@ -325,11 +325,11 @@ mod replay_metadata_contract {
         let run_id = tp.run_id;
 
         tp.event_log
-            .append(&run_id, "first", values::null())
+            .append(&run_id, "first", values::empty_event_payload())
             .unwrap();
         let version = tp
             .event_log
-            .append(&run_id, "second", values::null())
+            .append(&run_id, "second", values::empty_event_payload())
             .unwrap();
         let Version::Sequence(seq) = version else { panic!("Expected Sequence version") };
 
@@ -346,7 +346,7 @@ mod replay_metadata_contract {
 
         let version = tp
             .event_log
-            .append(&run_id, "event", values::null())
+            .append(&run_id, "event", values::empty_event_payload())
             .unwrap();
         let Version::Sequence(seq) = version else { panic!("Expected Sequence version") };
 
