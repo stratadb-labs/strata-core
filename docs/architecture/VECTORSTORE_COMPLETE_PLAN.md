@@ -34,13 +34,17 @@ VectorStore serves **two distinct purposes**:
 2. **Internal Collections**: Prefixed with `_`, invisible to substrate/facade APIs
 3. **Embedding Generation**: External concern (Python library with HuggingFace, etc.) - not in database primitives
 
-**Current Layer Status:**
+**Implementation Status:**
 
-| Layer | Methods | Key Gaps |
-|-------|---------|----------|
-| Primitive | 18 public | Source refs, batch ops |
-| Substrate | 9 trait | Budget search, count, internal collection hiding |
-| Facade | 7 trait | List collections, versioned access |
+| Phase | Goal | Status |
+|-------|------|--------|
+| Phase 0 | Foundation (source refs, internal collections) | ✅ Complete |
+| Phase 1 | User API (count, list, budget search) | ✅ Complete |
+| Phase 2 | Batch Operations | ✅ Complete |
+| Phase 2.5 | WAL Recovery Fix | 🔲 Pending |
+| Phase 3 | History & Advanced | 🔲 Pending |
+
+**Current Limitation:** Vector embeddings do not survive database restart (WAL recovery bug).
 
 ---
 
@@ -676,47 +680,75 @@ fn compute_similarity_edges(
 
 ## Part 8: Implementation Priority
 
-### Phase 0: Foundation (Immediate)
+### Phase 0: Foundation ✅ COMPLETE
 
 **Goal**: Enable internal search infrastructure
 
-| Item | Effort | Files |
-|------|--------|-------|
-| Add `source_ref` to `VectorEntry` | 1h | `crates/core/src/primitives/vector.rs` |
-| Add `source_ref` to `VectorRecord` | 1h | `crates/primitives/src/vector/types.rs` |
-| Add `insert_with_source()` | 2h | `crates/primitives/src/vector/store.rs` |
-| Add `search_with_sources()` | 3h | `crates/primitives/src/vector/store.rs` |
-| Update WAL entries | 2h | `crates/primitives/src/vector/wal.rs` |
-| Hide internal collections | 1h | `crates/api/src/substrate/vector.rs` |
+| Item | Effort | Files | Status |
+|------|--------|-------|--------|
+| Add `source_ref` to `VectorEntry` | 1h | `crates/core/src/primitives/vector.rs` | ✅ |
+| Add `source_ref` to `VectorRecord` | 1h | `crates/primitives/src/vector/types.rs` | ✅ |
+| Add `insert_with_source()` | 2h | `crates/primitives/src/vector/store.rs` | ✅ |
+| Add `search_with_sources()` | 3h | `crates/primitives/src/vector/store.rs` | ✅ |
+| Update WAL entries | 2h | `crates/primitives/src/vector/wal.rs` | ✅ |
+| Hide internal collections | 1h | `crates/api/src/substrate/vector.rs` | ✅ |
 
 **Total: ~10 hours**
 
-### Phase 1: User API Improvements
+### Phase 1: User API Improvements ✅ COMPLETE
 
 **Goal**: Complete user-facing API
 
-| Item | Effort | Files |
-|------|--------|-------|
-| Add `vector_count` | 1h | Substrate |
-| Add `vcollection_list` | 30m | Facade |
-| Add `vgetv` | 30m | Facade |
-| Expose `search_with_budget` | 2h | Substrate + Facade |
-| Collection info returns struct | 2h | Substrate + Facade |
+| Item | Effort | Files | Status |
+|------|--------|-------|--------|
+| Add `vector_count` | 1h | Substrate | ✅ |
+| Add `vcollection_list` | 30m | Facade | ✅ |
+| Add `vgetv` | 30m | Facade | ✅ |
+| Expose `search_with_budget` | 2h | Substrate + Facade | ✅ |
+| Collection info returns struct | 2h | Substrate + Facade | ✅ |
 
 **Total: ~6 hours**
 
-### Phase 2: Batch Operations
+### Phase 2: Batch Operations ✅ COMPLETE
 
 **Goal**: Efficient bulk operations
 
-| Item | Effort |
-|------|--------|
-| Primitive batch methods | 6h |
-| Substrate wrappers | 3h |
-| Facade trait | 2h |
-| Tests | 3h |
+| Item | Effort | Status |
+|------|--------|--------|
+| Primitive batch methods (`insert_batch`, `get_batch`, `delete_batch`) | 6h | ✅ |
+| Substrate wrappers (`vector_upsert_batch`, `vector_get_batch`, `vector_delete_batch`) | 3h | ✅ |
+| Facade trait (`vadd_batch`, `vget_batch`, `vdel_batch`) | 2h | ✅ |
+| Tests (19 new batch tests) | 3h | ✅ |
 
 **Total: ~14 hours**
+
+### Phase 2.5: WAL Recovery Fix
+
+**Goal**: Ensure vectors survive database restart
+
+**Problem**: WAL entries are written correctly but `replay_vector_entry()` doesn't
+load embeddings into the in-memory index. After restart, `vector_get()` fails with
+"Embedding missing from backend". This makes all durability promises hollow.
+
+**Why Before Phase 3**: History and list/scan operations are pointless if base data
+doesn't survive restart. This is a prerequisite for Phase 3.
+
+| Item | Effort | Files |
+|------|--------|-------|
+| Fix `replay_vector_entry` to load embeddings into backend | 2h | `crates/primitives/src/vector/store.rs` |
+| Ensure collection backend exists before vector replay | 1h | `crates/primitives/src/vector/store.rs` |
+| Handle replay ordering (collection create before vector upsert) | 1h | `crates/primitives/src/vector/store.rs` |
+| Un-ignore and verify 6 durability tests | 1h | `tests/substrate_api_comprehensive/vectorstore/durability.rs` |
+
+**Total: ~5 hours**
+
+**Tests to Enable:**
+- `test_vector_persist_after_restart`
+- `test_vector_metadata_persist`
+- `test_vector_delete_persist`
+- `test_vector_run_isolation_persists`
+- `test_vector_update_persist`
+- `test_vector_search_after_restart`
 
 ### Phase 3: History & Advanced
 
