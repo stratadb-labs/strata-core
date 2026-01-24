@@ -10,10 +10,10 @@
 |----------|-------|----------|
 | ~~Hidden Primitive Features~~ | ~~4~~ 0 | ~~P0~~ RESOLVED |
 | ~~Stubbed/Unimplemented~~ | ~~1~~ 0 | ~~P1~~ RESOLVED |
-| Missing Convenience APIs | 2 | P2 |
+| ~~Missing Convenience APIs~~ | ~~2~~ 1 | P2 |
 | API Design Considerations | 2 | P2 |
 | Advanced Coordination Features | 9 | P1-P2 |
-| **Total Open Issues** | **13** | |
+| **Total Open Issues** | **12** | |
 
 ---
 
@@ -38,7 +38,7 @@ StateCell is a **coordination primitive** for single-value state machines, NOT a
 
 ---
 
-## Current Substrate API (11 methods)
+## Current Substrate API (12 methods)
 
 ```rust
 // Core operations
@@ -50,6 +50,7 @@ fn state_exists(run, cell) -> bool;
 
 // Initialization
 fn state_init(run, cell, value) -> Version;  // ✅ IMPLEMENTED
+fn state_get_or_init(run, cell, default: FnOnce) -> Versioned<Value>;  // ✅ IMPLEMENTED (MVP)
 
 // Discovery
 fn state_list(run) -> Vec<String>;  // ✅ IMPLEMENTED
@@ -150,32 +151,44 @@ for entry in history {
 
 ---
 
-## Part 3: Missing Convenience APIs (P2)
+## Part 3: Convenience APIs
 
-### Gap 2: `state_get_or_init` - Get or Initialize
+### ✅ RESOLVED: `state_get_or_init` - Get or Initialize (Lazy Default)
 
-**Priority:** P2 - Convenience helper
+**Status:** IMPLEMENTED at `state.rs:419-447`
 
-**Proposed API:**
+**API:**
 ```rust
-fn state_get_or_init(&self, run: &ApiRunId, cell: &str, default: Value)
-    -> StrataResult<Versioned<Value>>;
+fn state_get_or_init<F>(
+    &self,
+    run: &ApiRunId,
+    cell: &str,
+    default: F,
+) -> StrataResult<Versioned<Value>>
+where
+    F: FnOnce() -> Value;
 ```
 
-**Why Useful:**
-- "Get existing or create with default" is very common
-- Can be composed from `state_init` + `state_get` but requires two calls
+**Key Design Decision:** Uses `FnOnce() -> Value` for **lazy default evaluation**.
+This avoids allocating defaults on the hot path when reading existing cells.
 
-**Current Workaround:**
 ```rust
-// Users can do this themselves:
-let _ = substrate.state_init(&run, cell, default.clone()); // ignore error if exists
-let state = substrate.state_get(&run, cell)?.unwrap();
+// Example: expensive default only computed if cell doesn't exist
+let state = substrate.state_get_or_init(&run, "config", || {
+    compute_expensive_default()  // Only called if cell is missing
+})?;
 ```
+
+**Semantics:**
+- If cell exists: returns current value (default closure NOT called)
+- If cell doesn't exist: calls `default()`, initializes cell, returns new value
+- New cells always have version 1
+
+**Test Coverage:** 8 tests in `statecell/basic_ops.rs`
 
 ---
 
-### Gap 3: `state_info` - Cell Metadata (O(1))
+### Gap 3: `state_info` - Cell Metadata (O(1)) [DEFERRED]
 
 **Priority:** P2 - Performance optimization
 
@@ -308,8 +321,8 @@ No way to associate cells with client sessions for automatic cleanup.
 | ~~Gap 3~~ | ~~Init (create if absent)~~ | ~~P0~~ | ✅ RESOLVED | - |
 | ~~Gap 4~~ | ~~Transition or init~~ | ~~P0~~ | ✅ RESOLVED | - |
 | ~~Gap 5~~ | ~~History stubbed~~ | ~~P1~~ | ✅ RESOLVED | - |
-| Gap 2 | Get or init | P2 | OPEN | Low |
-| Gap 3 | Cell info/metadata | P2 | OPEN | Low |
+| ~~Gap 6~~ | ~~Get or init~~ | ~~P2~~ | ✅ RESOLVED (MVP) | - |
+| Gap 3 | Cell info/metadata | P2 | DEFERRED | Low |
 | Gap 4 | Fencing tokens | P1 | OPEN | Medium |
 | Gap 5 | Multi-cell transactions | P1 | OPEN | High |
 | Gap 6 | Atomic increment | P2 | OPEN | Low |
@@ -334,12 +347,13 @@ No way to associate cells with client sessions for automatic cleanup.
 | `state_delete` | `basic_ops.rs` | ✅ |
 | `state_exists` | `basic_ops.rs` | ✅ |
 | `state_init` | `invariants.rs` | ✅ |
+| `state_get_or_init` | `basic_ops.rs` | ✅ 8 tests |
 | `state_list` | `invariants.rs` | ✅ |
 | `state_transition` | `transitions.rs` | ✅ 22 tests |
 | `state_transition_or_init` | `transitions.rs` | ✅ |
 | `state_history` | `transitions.rs` | ✅ 9 tests |
 
-**Total StateCell Tests:** 105
+**Total StateCell Tests:** 114
 
 ---
 
@@ -353,6 +367,7 @@ No way to associate cells with client sessions for automatic cleanup.
 | **Transitions** | ✅ | ❌ | ❌ | ❌ |
 | **List** | ✅ | ✅ | ✅ | ✅ |
 | **Init if absent** | ✅ | ✅ | ❌ | ❌ |
+| **Get or init (lazy)** | ✅ | ❌ | ❌ | ❌ |
 | **History** | ✅ | ❌ | ✅ | ❌ |
 | Watch | ❌ | ✅ | ✅ | ✅ |
 | TTL/Lease | ❌ | ✅ | ✅ | ✅ |
@@ -360,7 +375,9 @@ No way to associate cells with client sessions for automatic cleanup.
 | Multi-key Txn | ❌ | ✅ | ✅ | ❌ |
 | Sessions | ❌ | ✅ | ✅ | ✅ |
 
-**Strata's Unique Strength:** Transition closures with automatic OCC retry (200 retries) - no other system has this built-in.
+**Strata's Unique Strengths:**
+1. Transition closures with automatic OCC retry (200 retries) - no other system has this built-in
+2. Lazy `get_or_init` with `FnOnce` - avoids default allocation on hot path
 
 ---
 
@@ -368,6 +385,7 @@ No way to associate cells with client sessions for automatic cleanup.
 
 | Version | Date | Changes |
 |---------|------|---------|
+| 2.2 | 2026-01-23 | Implemented state_get_or_init with lazy default (MVP complete) |
 | 2.1 | 2026-01-23 | Implemented state_history using storage layer's get_history |
 | 2.0 | 2026-01-23 | Major update: marked resolved gaps, updated test coverage |
 | 1.0 | 2026-01-22 | Initial audit |
