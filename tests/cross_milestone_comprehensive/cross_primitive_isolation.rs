@@ -34,7 +34,7 @@ fn test_complete_run_isolation() {
         .create(&run_a, &doc_a, JsonValue::from(serde_json::json!({"run": "a"})))
         .expect("json a");
     p.event
-        .append(&run_a, "type", Value::Null)
+        .append(&run_a, "type", empty_payload())
         .expect("event a");
     p.state.init(&run_a, "cell", Value::Int(1)).expect("state a");
     p.vector
@@ -48,7 +48,7 @@ fn test_complete_run_isolation() {
         .create(&run_b, &doc_b, JsonValue::from(serde_json::json!({"run": "b"})))
         .expect("json b");
     p.event
-        .append(&run_b, "type", Value::Null)
+        .append(&run_b, "type", empty_payload())
         .expect("event b");
     p.state.init(&run_b, "cell", Value::Int(2)).expect("state b");
     p.vector

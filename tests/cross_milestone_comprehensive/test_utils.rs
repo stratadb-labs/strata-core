@@ -229,6 +229,25 @@ pub fn random_vector(dimension: usize) -> Vec<f32> {
 }
 
 // ============================================================================
+// Event Payload Generation (EventLog requires Object payloads)
+// ============================================================================
+
+/// Create an empty object payload for EventLog
+pub fn empty_payload() -> Value {
+    Value::Object(std::collections::HashMap::new())
+}
+
+/// Create an object payload with an integer value for EventLog
+pub fn int_payload(v: i64) -> Value {
+    Value::Object(std::collections::HashMap::from([("value".to_string(), Value::Int(v))]))
+}
+
+/// Create an object payload with a string value for EventLog
+pub fn string_payload(s: &str) -> Value {
+    Value::Object(std::collections::HashMap::from([("data".to_string(), Value::String(s.into()))]))
+}
+
+// ============================================================================
 // JSON Generation
 // ============================================================================
 
@@ -311,9 +330,9 @@ pub fn assert_all_primitives_healthy(test_db: &TestDb) {
         .expect("JSON read")
         .is_some());
 
-    // Event
+    // Event (requires Object payload)
     p.event
-        .append(&run_id, "test_event", Value::Null)
+        .append(&run_id, "test_event", empty_payload())
         .expect("Event should append");
 
     // State
