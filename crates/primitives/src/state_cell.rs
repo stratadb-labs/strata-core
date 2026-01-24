@@ -232,6 +232,78 @@ impl StateCell {
         })
     }
 
+    /// Get version history for a cell
+    ///
+    /// Returns historical versions newest first.
+    /// Each entry contains the value and counter version at that point in time.
+    ///
+    /// ## Parameters
+    ///
+    /// - `limit`: Maximum number of versions to return
+    /// - `before_counter`: Only return versions with counter < this value
+    ///
+    /// ## Example
+    ///
+    /// ```ignore
+    /// // Get last 10 versions
+    /// let history = sc.history(&run_id, "cell", Some(10), None)?;
+    ///
+    /// // Paginate: get next 10 after counter 50
+    /// let page2 = sc.history(&run_id, "cell", Some(10), Some(50))?;
+    /// ```
+    pub fn history(
+        &self,
+        run_id: &RunId,
+        name: &str,
+        limit: Option<usize>,
+        before_counter: Option<u64>,
+    ) -> Result<Vec<Versioned<Value>>> {
+        use strata_core::traits::Storage;
+
+        let key = self.key_for(run_id, name);
+
+        // Get raw history from storage layer
+        // Storage uses transaction versions, but StateCell stores counter inside State struct
+        let raw_history = self.db.storage().get_history(&key, limit, None)?;
+
+        // Convert storage entries to StateCell format
+        // Each stored value is a serialized State struct containing counter version
+        let mut results: Vec<Versioned<Value>> = Vec::new();
+
+        for versioned_value in raw_history {
+            // Deserialize the State struct from storage
+            let state: State = match from_stored_value(&versioned_value.value) {
+                Ok(s) => s,
+                Err(_) => continue, // Skip malformed entries
+            };
+
+            // Apply before_counter filter (based on cell's internal counter, not txn version)
+            if let Some(before) = before_counter {
+                if state.version >= before {
+                    continue;
+                }
+            }
+
+            // Build Versioned<Value> with counter-based version
+            let versioned = Versioned::with_timestamp(
+                state.value,
+                Version::counter(state.version),
+                Timestamp::from_micros(state.updated_at as u64),
+            );
+
+            results.push(versioned);
+
+            // Apply limit after filtering
+            if let Some(max) = limit {
+                if results.len() >= max {
+                    break;
+                }
+            }
+        }
+
+        Ok(results)
+    }
+
     // ========== CAS & Set Operations (Story #182, #468) ==========
 
     /// Compare-and-swap: Update only if version matches

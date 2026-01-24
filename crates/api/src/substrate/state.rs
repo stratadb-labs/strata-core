@@ -283,13 +283,26 @@ impl StateCell for SubstrateImpl {
 
     fn state_history(
         &self,
-        _run: &ApiRunId,
-        _cell: &str,
-        _limit: Option<u64>,
-        _before: Option<Version>,
+        run: &ApiRunId,
+        cell: &str,
+        limit: Option<u64>,
+        before: Option<Version>,
     ) -> StrataResult<Vec<Versioned<Value>>> {
-        // History not yet implemented
-        Ok(vec![])
+        let run_id = run.to_run_id();
+
+        // Extract counter from before (StateCell uses Counter versions)
+        let before_counter = match before {
+            Some(Version::Counter(c)) => Some(c),
+            Some(_) => return Err(strata_core::StrataError::invalid_input(
+                "StateCell operations use Counter versions",
+            )),
+            None => None,
+        };
+
+        // Use primitive's history method
+        self.state()
+            .history(&run_id, cell, limit.map(|l| l as usize), before_counter)
+            .map_err(convert_error)
     }
 
     fn state_init(&self, run: &ApiRunId, cell: &str, value: Value) -> StrataResult<Version> {

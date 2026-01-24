@@ -485,6 +485,167 @@ impl EdgeCaseData {
     }
 }
 
+// =============================================================================
+// STATECELL TEST DATA
+// =============================================================================
+
+/// Header for StateCell test data
+#[derive(Debug, Deserialize)]
+pub struct StateCellHeader {
+    pub description: String,
+    #[serde(default)]
+    pub total_runs: usize,
+    #[serde(default)]
+    pub cells_per_run: usize,
+    #[serde(default)]
+    pub total_entries: usize,
+    #[serde(default)]
+    pub includes: Vec<String>,
+}
+
+/// A single StateCell test entry
+#[derive(Debug, Clone)]
+pub struct StateCellTestEntry {
+    pub run_index: usize,
+    pub cell_name: String,
+    pub entry_index: usize,
+    pub value: Value,
+    pub value_type: String,
+}
+
+/// CAS test sequence entry
+#[derive(Debug, Clone)]
+pub struct CasTestEntry {
+    pub cell_name: String,
+    pub sequence: Vec<CasStep>,
+}
+
+#[derive(Debug, Clone)]
+pub struct CasStep {
+    pub expected_counter: Option<u64>,
+    pub value: i64,
+}
+
+/// Init test entry
+#[derive(Debug, Clone)]
+pub struct InitTestEntry {
+    pub cell_name: String,
+    pub initial_value: i64,
+}
+
+/// Loaded StateCell test data
+pub struct StateCellTestData {
+    pub header: StateCellHeader,
+    pub entries: Vec<StateCellTestEntry>,
+    pub entries_by_run: HashMap<usize, Vec<StateCellTestEntry>>,
+    pub init_tests: Vec<InitTestEntry>,
+    pub cas_tests: Vec<CasTestEntry>,
+}
+
+/// Load StateCell test data from JSONL
+pub fn load_statecell_test_data() -> StateCellTestData {
+    let path = testdata_dir().join("statecell_test_data.jsonl");
+    let file = File::open(&path).expect(&format!("Failed to open {:?}", path));
+    let reader = BufReader::new(file);
+
+    let mut header: Option<StateCellHeader> = None;
+    let mut entries = Vec::new();
+    let mut entries_by_run: HashMap<usize, Vec<StateCellTestEntry>> = HashMap::new();
+    let mut init_tests = Vec::new();
+    let mut cas_tests = Vec::new();
+
+    for (line_num, line) in reader.lines().enumerate() {
+        let line = line.expect(&format!("Failed to read line {}", line_num));
+        let json: JsonValue = serde_json::from_str(&line)
+            .expect(&format!("Failed to parse line {}: {}", line_num, line));
+
+        let entry_type = json.get("type").and_then(|v| v.as_str());
+
+        // Header
+        if line_num == 0 && entry_type == Some("header") {
+            header = Some(serde_json::from_value(json).expect("Failed to parse header"));
+            continue;
+        }
+
+        // Init test entries
+        if entry_type == Some("init_test") {
+            let cell_name = json["cell_name"].as_str().unwrap_or("").to_string();
+            let initial_value = json["initial_value"].as_i64().unwrap_or(0);
+            init_tests.push(InitTestEntry { cell_name, initial_value });
+            continue;
+        }
+
+        // CAS test entries
+        if entry_type == Some("cas_test") {
+            let cell_name = json["cell_name"].as_str().unwrap_or("").to_string();
+            let sequence = json["sequence"].as_array()
+                .map(|arr| arr.iter().map(|step| {
+                    CasStep {
+                        expected_counter: step["expected_counter"].as_u64(),
+                        value: step["value"].as_i64().unwrap_or(0),
+                    }
+                }).collect())
+                .unwrap_or_default();
+            cas_tests.push(CasTestEntry { cell_name, sequence });
+            continue;
+        }
+
+        // Regular entry
+        let entry = parse_statecell_entry(&json);
+        entries_by_run
+            .entry(entry.run_index)
+            .or_default()
+            .push(entry.clone());
+        entries.push(entry);
+    }
+
+    StateCellTestData {
+        header: header.expect("No header found in StateCell test data"),
+        entries,
+        entries_by_run,
+        init_tests,
+        cas_tests,
+    }
+}
+
+fn parse_statecell_entry(json: &JsonValue) -> StateCellTestEntry {
+    let run_index = json["run_index"].as_u64().unwrap_or(0) as usize;
+    let cell_name = json["cell_name"].as_str().unwrap_or("").to_string();
+    let entry_index = json["entry_index"].as_u64().unwrap_or(0) as usize;
+    let value = json_to_value(&json["value"]);
+    let value_type = json["value_type"].as_str().unwrap_or("unknown").to_string();
+
+    StateCellTestEntry {
+        run_index,
+        cell_name,
+        entry_index,
+        value,
+        value_type,
+    }
+}
+
+impl StateCellTestData {
+    /// Get entries for a specific run
+    pub fn get_run(&self, run_index: usize) -> &[StateCellTestEntry] {
+        self.entries_by_run.get(&run_index).map(|v| v.as_slice()).unwrap_or(&[])
+    }
+
+    /// Get first N entries
+    pub fn take(&self, n: usize) -> &[StateCellTestEntry] {
+        &self.entries[..n.min(self.entries.len())]
+    }
+
+    /// Get init test entries
+    pub fn get_init_tests(&self) -> &[InitTestEntry] {
+        &self.init_tests
+    }
+
+    /// Get CAS test entries
+    pub fn get_cas_tests(&self) -> &[CasTestEntry] {
+        &self.cas_tests
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -520,5 +681,17 @@ mod tests {
         assert_eq!(data.entries_by_run.len(), 20, "Should have entries for all 20 runs");
         // Verify invalid payloads for negative testing
         assert!(data.invalid_payloads.len() >= 8, "Should have invalid payloads for negative testing");
+    }
+
+    #[test]
+    fn test_load_statecell_test_data() {
+        let data = load_statecell_test_data();
+        assert!(data.entries.len() >= 20000, "Should load 20000+ StateCell entries, got {}", data.entries.len());
+        assert_eq!(data.header.total_runs, 20);
+        // Verify data is distributed across runs
+        assert_eq!(data.entries_by_run.len(), 20, "Should have entries for all 20 runs");
+        // Verify init and CAS test entries
+        assert!(data.init_tests.len() >= 10, "Should have init test entries");
+        assert!(data.cas_tests.len() >= 10, "Should have CAS test entries");
     }
 }
