@@ -5,7 +5,6 @@
 //! - KV get: >20K ops/sec
 //! - EventLog append: >5K ops/sec
 //! - StateCell CAS: >5K ops/sec
-//! - TraceStore record: >2K ops/sec (index overhead)
 //! - Cross-primitive txn: >1K ops/sec
 
 use criterion::{criterion_group, criterion_main, Criterion, Throughput};
@@ -13,8 +12,7 @@ use strata_core::types::RunId;
 use strata_core::value::Value;
 use strata_engine::Database;
 use strata_primitives::{
-    EventLog, EventLogExt, KVStore, KVStoreExt, StateCell, StateCellExt, TraceStore, TraceStoreExt,
-    TraceType,
+    EventLog, EventLogExt, KVStore, KVStoreExt, StateCell, StateCellExt,
 };
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
@@ -122,33 +120,6 @@ fn bench_state_cas(c: &mut Criterion) {
     group.finish();
 }
 
-/// Benchmark TraceStore record operations
-/// Target: >2K ops/sec (higher due to index overhead)
-fn bench_trace_record(c: &mut Criterion) {
-    let (db, _temp, run_id) = setup_db();
-    let trace_store = TraceStore::new(db.clone());
-
-    let mut group = c.benchmark_group("trace_store");
-    group.throughput(Throughput::Elements(1));
-
-    group.bench_function("record", |b| {
-        b.iter(|| {
-            trace_store
-                .record(
-                    &run_id,
-                    TraceType::Thought {
-                        content: "benchmark thought".into(),
-                        confidence: Some(0.95),
-                    },
-                    vec![],
-                    Value::Null,
-                )
-                .unwrap()
-        })
-    });
-    group.finish();
-}
-
 /// Benchmark cross-primitive transactions
 /// Target: >1K ops/sec
 fn bench_cross_primitive_transaction(c: &mut Criterion) {
@@ -162,14 +133,13 @@ fn bench_cross_primitive_transaction(c: &mut Criterion) {
     group.throughput(Throughput::Elements(1));
 
     let counter = AtomicU64::new(0);
-    group.bench_function("4_primitive_txn", |b| {
+    group.bench_function("3_primitive_txn", |b| {
         b.iter(|| {
             let n = counter.fetch_add(1, Ordering::SeqCst);
             db.transaction(run_id, |txn| {
                 txn.kv_put(&format!("txn_key{}", n), Value::Int(n as i64))?;
                 txn.event_append("txn_event", Value::Int(n as i64))?;
                 txn.state_set("txn_cell", Value::Int(n as i64))?;
-                txn.trace_record("Thought", Value::String(format!("txn {}", n)))?;
                 Ok(())
             })
             .unwrap()
@@ -222,48 +192,6 @@ fn bench_state_read(c: &mut Criterion) {
     group.finish();
 }
 
-/// Benchmark TraceStore query by type
-fn bench_trace_query(c: &mut Criterion) {
-    let (db, _temp, run_id) = setup_db();
-    let trace_store = TraceStore::new(db.clone());
-
-    // Pre-populate 100 traces of each type
-    for _ in 0..100 {
-        trace_store
-            .record(
-                &run_id,
-                TraceType::Thought {
-                    content: "thought".into(),
-                    confidence: None,
-                },
-                vec![],
-                Value::Null,
-            )
-            .unwrap();
-        trace_store
-            .record(
-                &run_id,
-                TraceType::ToolCall {
-                    tool_name: "tool".into(),
-                    arguments: Value::Null,
-                    result: None,
-                    duration_ms: None,
-                },
-                vec![],
-                Value::Null,
-            )
-            .unwrap();
-    }
-
-    let mut group = c.benchmark_group("trace_store");
-    group.throughput(Throughput::Elements(1));
-
-    group.bench_function("query_by_type", |b| {
-        b.iter(|| trace_store.query_by_type(&run_id, "Thought").unwrap())
-    });
-    group.finish();
-}
-
 /// Benchmark KV list operations
 fn bench_kv_list(c: &mut Criterion) {
     let (db, _temp, run_id) = setup_db();
@@ -297,8 +225,6 @@ criterion_group!(
     bench_event_read,
     bench_state_cas,
     bench_state_read,
-    bench_trace_record,
-    bench_trace_query,
     bench_cross_primitive_transaction,
 );
 criterion_main!(benches);

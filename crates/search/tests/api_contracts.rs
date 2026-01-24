@@ -46,7 +46,7 @@ fn populate_test_data(db: &Arc<Database>, run_id: &RunId) {
     kv.put(run_id, "another", Value::String("more test values".into()))
         .unwrap();
 
-    // Note: Other primitives (Json, Event, State, Trace) have more complex APIs
+    // Note: Other primitives (Json, Event, State) have more complex APIs
     // and are tested individually in their respective test modules
 }
 
@@ -360,17 +360,16 @@ fn test_hits_are_ranked() {
 // PrimitiveType Contract Tests
 // ============================================================================
 
-/// PrimitiveType::all() returns all 7 primitives
+/// PrimitiveType::all() returns all 6 primitives
 #[test]
 fn test_primitive_type_all() {
     let all = PrimitiveType::all();
-    assert_eq!(all.len(), 7, "Should have exactly 7 primitives");
+    assert_eq!(all.len(), 6, "Should have exactly 6 primitives");
 
     assert!(all.contains(&PrimitiveType::Kv));
     assert!(all.contains(&PrimitiveType::Json));
     assert!(all.contains(&PrimitiveType::Event));
     assert!(all.contains(&PrimitiveType::State));
-    assert!(all.contains(&PrimitiveType::Trace));
     assert!(all.contains(&PrimitiveType::Run));
     assert!(all.contains(&PrimitiveType::Vector));
 }
@@ -382,6 +381,6 @@ fn test_primitive_type_display() {
     assert_eq!(format!("{}", PrimitiveType::Json), "JsonStore");
     assert_eq!(format!("{}", PrimitiveType::Event), "EventLog");
     assert_eq!(format!("{}", PrimitiveType::State), "StateCell");
-    assert_eq!(format!("{}", PrimitiveType::Trace), "TraceStore");
     assert_eq!(format!("{}", PrimitiveType::Run), "RunIndex");
+    assert_eq!(format!("{}", PrimitiveType::Vector), "VectorStore");
 }

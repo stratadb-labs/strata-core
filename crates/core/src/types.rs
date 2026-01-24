@@ -140,13 +140,14 @@ impl PartialOrd for Namespace {
 /// - KV = 0x01
 /// - Event = 0x02
 /// - State = 0x03
-/// - Trace = 0x04
 /// - Run = 0x05
 /// - Vector = 0x10 (M8 vector metadata)
 /// - Json = 0x11 (M5 JSON primitive)
 /// - VectorConfig = 0x12 (M8 vector collection config)
 ///
-/// Ordering: KV < Event < State < Trace < Run < Vector < Json < VectorConfig
+/// Note: 0x04 was formerly Trace (TraceStore was removed in 0.12.0)
+///
+/// Ordering: KV < Event < State < Run < Vector < Json < VectorConfig
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, PartialOrd, Ord)]
 #[repr(u8)]
 pub enum TypeTag {
@@ -814,19 +815,18 @@ mod tests {
         let _kv = TypeTag::KV;
         let _event = TypeTag::Event;
         let _state = TypeTag::State;
-        let _trace = TypeTag::Trace;
         let _run = TypeTag::Run;
         let _vector = TypeTag::Vector;
         let _json = TypeTag::Json;
     }
 
     #[test]
+    #[allow(deprecated)]
     fn test_typetag_ordering() {
         // TypeTag ordering must be stable for BTreeMap
         assert!(TypeTag::KV < TypeTag::Event);
         assert!(TypeTag::Event < TypeTag::State);
-        assert!(TypeTag::State < TypeTag::Trace);
-        assert!(TypeTag::Trace < TypeTag::Run);
+        assert!(TypeTag::State < TypeTag::Run);
         assert!(TypeTag::Run < TypeTag::Vector);
         assert!(TypeTag::Vector < TypeTag::Json);
 
@@ -834,6 +834,7 @@ mod tests {
         assert_eq!(TypeTag::KV as u8, 0x01);
         assert_eq!(TypeTag::Event as u8, 0x02);
         assert_eq!(TypeTag::State as u8, 0x03);
+        // TypeTag::Trace (0x04) is deprecated but still exists for backwards compatibility
         assert_eq!(TypeTag::Trace as u8, 0x04);
         assert_eq!(TypeTag::Run as u8, 0x05);
         assert_eq!(TypeTag::Vector as u8, 0x10);
@@ -841,10 +842,12 @@ mod tests {
     }
 
     #[test]
+    #[allow(deprecated)]
     fn test_typetag_as_byte() {
         assert_eq!(TypeTag::KV.as_byte(), 0x01);
         assert_eq!(TypeTag::Event.as_byte(), 0x02);
         assert_eq!(TypeTag::State.as_byte(), 0x03);
+        // TypeTag::Trace (0x04) is deprecated but still exists for backwards compatibility
         assert_eq!(TypeTag::Trace.as_byte(), 0x04);
         assert_eq!(TypeTag::Run.as_byte(), 0x05);
         assert_eq!(TypeTag::Vector.as_byte(), 0x10);
@@ -852,10 +855,12 @@ mod tests {
     }
 
     #[test]
+    #[allow(deprecated)]
     fn test_typetag_from_byte() {
         assert_eq!(TypeTag::from_byte(0x01), Some(TypeTag::KV));
         assert_eq!(TypeTag::from_byte(0x02), Some(TypeTag::Event));
         assert_eq!(TypeTag::from_byte(0x03), Some(TypeTag::State));
+        // 0x04 still parses to Trace for backwards compatibility
         assert_eq!(TypeTag::from_byte(0x04), Some(TypeTag::Trace));
         assert_eq!(TypeTag::from_byte(0x05), Some(TypeTag::Run));
         assert_eq!(TypeTag::from_byte(0x10), Some(TypeTag::Vector));
@@ -871,7 +876,6 @@ mod tests {
             TypeTag::KV,
             TypeTag::Event,
             TypeTag::State,
-            TypeTag::Trace,
             TypeTag::Run,
             TypeTag::Vector,
             TypeTag::Json,
@@ -888,7 +892,6 @@ mod tests {
             TypeTag::KV,
             TypeTag::Event,
             TypeTag::State,
-            TypeTag::Trace,
             TypeTag::Run,
             TypeTag::Vector,
             TypeTag::Json,
@@ -916,7 +919,7 @@ mod tests {
     fn test_typetag_equality() {
         assert_eq!(TypeTag::KV, TypeTag::KV);
         assert_ne!(TypeTag::KV, TypeTag::Event);
-        assert_ne!(TypeTag::Event, TypeTag::Trace);
+        assert_ne!(TypeTag::Event, TypeTag::State);
     }
 
     #[test]

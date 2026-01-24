@@ -419,12 +419,11 @@ impl SnapshotReader {
 /// New code should pass types implementing `PrimitiveStorageExt`, which automatically
 /// implement `SnapshotSerializable` via blanket implementation.
 #[allow(deprecated)]
-pub fn serialize_all_primitives<K, J, E, S, T, R>(
+pub fn serialize_all_primitives<K, J, E, S, R>(
     kv: &K,
     json: &J,
     event: &E,
     state: &S,
-    trace: &T,
     run: &R,
 ) -> Result<Vec<PrimitiveSection>, SnapshotError>
 where
@@ -432,7 +431,6 @@ where
     J: SnapshotSerializable,
     E: SnapshotSerializable,
     S: SnapshotSerializable,
-    T: SnapshotSerializable,
     R: SnapshotSerializable,
 {
     // Serialize each primitive - can't use vec![] macro due to fallible operations
@@ -454,10 +452,6 @@ where
             data: state.snapshot_serialize()?,
         },
         PrimitiveSection {
-            primitive_type: trace.primitive_type_id(),
-            data: trace.snapshot_serialize()?,
-        },
-        PrimitiveSection {
             primitive_type: run.primitive_type_id(),
             data: run.snapshot_serialize()?,
         },
@@ -468,13 +462,12 @@ where
 ///
 /// Restores state to all primitives from snapshot sections.
 #[allow(deprecated)]
-pub fn deserialize_primitives<K, J, E, S, T, R>(
+pub fn deserialize_primitives<K, J, E, S, R>(
     sections: &[PrimitiveSection],
     kv: &mut K,
     json: &mut J,
     event: &mut E,
     state: &mut S,
-    trace: &mut T,
     run: &mut R,
 ) -> Result<(), SnapshotError>
 where
@@ -482,7 +475,6 @@ where
     J: SnapshotSerializable,
     E: SnapshotSerializable,
     S: SnapshotSerializable,
-    T: SnapshotSerializable,
     R: SnapshotSerializable,
 {
     for section in sections {
@@ -491,7 +483,6 @@ where
             primitive_ids::JSON => json.snapshot_deserialize(&section.data)?,
             primitive_ids::EVENT => event.snapshot_deserialize(&section.data)?,
             primitive_ids::STATE => state.snapshot_deserialize(&section.data)?,
-            primitive_ids::TRACE => trace.snapshot_deserialize(&section.data)?,
             primitive_ids::RUN => run.snapshot_deserialize(&section.data)?,
             _ => {
                 // Unknown primitive - log warning but continue
@@ -711,7 +702,6 @@ mod tests {
             PrimitiveSection::new(primitive_ids::JSON, b"json-data".to_vec()),
             PrimitiveSection::new(primitive_ids::EVENT, b"event-data".to_vec()),
             PrimitiveSection::new(primitive_ids::STATE, b"state-data".to_vec()),
-            PrimitiveSection::new(primitive_ids::TRACE, b"trace-data".to_vec()),
             PrimitiveSection::new(primitive_ids::RUN, b"run-data".to_vec()),
         ];
 
@@ -719,14 +709,13 @@ mod tests {
         writer.write(&header, &sections, &path).unwrap();
 
         let envelope = SnapshotReader::read_envelope(&path).unwrap();
-        assert_eq!(envelope.sections.len(), 6);
+        assert_eq!(envelope.sections.len(), 5);
 
         for (i, expected_type) in [
             primitive_ids::KV,
             primitive_ids::JSON,
             primitive_ids::EVENT,
             primitive_ids::STATE,
-            primitive_ids::TRACE,
             primitive_ids::RUN,
         ]
         .iter()
@@ -802,20 +791,16 @@ mod tests {
             type_id: primitive_ids::STATE,
             data: vec![4],
         };
-        let trace = MockPrimitive {
-            type_id: primitive_ids::TRACE,
-            data: vec![5],
-        };
         let run = MockPrimitive {
             type_id: primitive_ids::RUN,
             data: vec![6],
         };
 
-        let sections = serialize_all_primitives(&kv, &json, &event, &state, &trace, &run).unwrap();
+        let sections = serialize_all_primitives(&kv, &json, &event, &state, &run).unwrap();
 
-        assert_eq!(sections.len(), 6);
+        assert_eq!(sections.len(), 5);
         assert_eq!(sections[0].data, vec![1]);
-        assert_eq!(sections[5].data, vec![6]);
+        assert_eq!(sections[4].data, vec![6]);
     }
 
     #[test]
@@ -825,7 +810,6 @@ mod tests {
             PrimitiveSection::new(primitive_ids::JSON, vec![20]),
             PrimitiveSection::new(primitive_ids::EVENT, vec![30]),
             PrimitiveSection::new(primitive_ids::STATE, vec![40]),
-            PrimitiveSection::new(primitive_ids::TRACE, vec![50]),
             PrimitiveSection::new(primitive_ids::RUN, vec![60]),
         ];
 
@@ -845,17 +829,13 @@ mod tests {
             type_id: primitive_ids::STATE,
             data: vec![],
         };
-        let mut trace = MockPrimitive {
-            type_id: primitive_ids::TRACE,
-            data: vec![],
-        };
         let mut run = MockPrimitive {
             type_id: primitive_ids::RUN,
             data: vec![],
         };
 
         deserialize_primitives(
-            &sections, &mut kv, &mut json, &mut event, &mut state, &mut trace, &mut run,
+            &sections, &mut kv, &mut json, &mut event, &mut state, &mut run,
         )
         .unwrap();
 
@@ -863,7 +843,6 @@ mod tests {
         assert_eq!(json.data, vec![20]);
         assert_eq!(event.data, vec![30]);
         assert_eq!(state.data, vec![40]);
-        assert_eq!(trace.data, vec![50]);
         assert_eq!(run.data, vec![60]);
     }
 
@@ -890,10 +869,6 @@ mod tests {
             type_id: primitive_ids::STATE,
             data: vec![],
         };
-        let mut trace = MockPrimitive {
-            type_id: primitive_ids::TRACE,
-            data: vec![],
-        };
         let mut run = MockPrimitive {
             type_id: primitive_ids::RUN,
             data: vec![],
@@ -901,7 +876,7 @@ mod tests {
 
         // Should not fail, just skip unknown
         deserialize_primitives(
-            &sections, &mut kv, &mut json, &mut event, &mut state, &mut trace, &mut run,
+            &sections, &mut kv, &mut json, &mut event, &mut state, &mut run,
         )
         .unwrap();
 

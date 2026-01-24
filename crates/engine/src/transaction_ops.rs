@@ -44,7 +44,7 @@ use strata_core::{
 ///
 /// Phase 2 implements KV and EventLog operations. Other primitive
 /// operations return `unimplemented!()` and will be wired in later phases:
-/// - Phase 3: State + Trace
+/// - Phase 3: State
 /// - Phase 4: Json + Vector
 /// - Phase 5: Run operations (finalize)
 pub trait TransactionOps {

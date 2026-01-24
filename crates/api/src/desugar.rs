@@ -120,20 +120,6 @@
 //! | `vcollection_info(coll)` | `vector_collection_info(default, coll)` |
 //! | `vcollection_drop(coll)` | `vector_drop_collection(default, coll)` |
 //!
-//! ### Trace Facade
-//!
-//! | Facade | Substrate |
-//! |--------|-----------|
-//! | `trace(kind, content)` | `trace_create(default, kind, None, content, []).0` |
-//! | `trace_with_options(kind, content, opts)` | `trace_create[_with_id](default, [id,] kind, parent, content, tags)` |
-//! | `trace_child(parent, kind, content)` | `trace_create(default, kind, Some(parent), content, []).0` |
-//! | `trace_get(id)` | `trace_get(default, id).map(\|v\| Trace{...})` |
-//! | `trace_list(kind, limit)` | `trace_list(default, kind, None, None, limit, None)` |
-//! | `trace_roots(limit)` | `trace_list(default, None, Some(None), None, limit, None)` |
-//! | `trace_children(parent)` | `trace_children(default, parent)` |
-//! | `trace_tag(id, tags)` | `trace_update_tags(default, id, tags, [])` |
-//! | `trace_untag(id, tags)` | `trace_update_tags(default, id, [], tags)` |
-//!
 //! ## Type Conversions
 //!
 //! ### Version Stripping

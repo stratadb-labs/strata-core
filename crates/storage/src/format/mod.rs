@@ -31,8 +31,8 @@ pub use writeset::{Mutation, Writeset, WritesetError};
 
 pub use primitives::{
     EventSnapshotEntry, JsonSnapshotEntry, KvSnapshotEntry, PrimitiveSerializeError,
-    RunSnapshotEntry, SnapshotSerializer, SpanSnapshotEntry, StateSnapshotEntry,
-    TraceSnapshotEntry, VectorCollectionSnapshotEntry, VectorSnapshotEntry,
+    RunSnapshotEntry, SnapshotSerializer, StateSnapshotEntry,
+    VectorCollectionSnapshotEntry, VectorSnapshotEntry,
 };
 pub use watermark::{CheckpointInfo, SnapshotWatermark, WatermarkError};
 pub use manifest::{Manifest, ManifestError, ManifestManager, MANIFEST_FORMAT_VERSION, MANIFEST_MAGIC};

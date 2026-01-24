@@ -12,7 +12,7 @@
 //! | 0x20-0x2F | JSON | JSON document operations |
 //! | 0x30-0x3F | Event | Event log operations |
 //! | 0x40-0x4F | State | State cell operations |
-//! | 0x50-0x5F | Trace | Trace store operations |
+//! | 0x50-0x5F | Reserved | Reserved for future primitives |
 //! | 0x60-0x6F | Run | Run lifecycle operations |
 //! | 0x70-0x7F | Vector | Reserved for M8 Vector primitive |
 //! | 0x80-0xFF | Future | Reserved for future primitives |
@@ -37,8 +37,6 @@ pub enum PrimitiveKind {
     Event,
     /// State cell
     State,
-    /// Trace store
-    Trace,
     /// Run index
     Run,
     /// Vector store (M8)
@@ -53,7 +51,6 @@ impl PrimitiveKind {
             PrimitiveKind::Json => (0x20, 0x2F),
             PrimitiveKind::Event => (0x30, 0x3F),
             PrimitiveKind::State => (0x40, 0x4F),
-            PrimitiveKind::Trace => (0x50, 0x5F),
             PrimitiveKind::Run => (0x60, 0x6F),
             PrimitiveKind::Vector => (0x70, 0x7F),
         }
@@ -66,7 +63,6 @@ impl PrimitiveKind {
             PrimitiveKind::Json => 2,
             PrimitiveKind::Event => 3,
             PrimitiveKind::State => 4,
-            PrimitiveKind::Trace => 5,
             PrimitiveKind::Run => 6,
             PrimitiveKind::Vector => 7,
         }
@@ -81,7 +77,7 @@ impl PrimitiveKind {
 /// - 0x20-0x2F: JSON primitive
 /// - 0x30-0x3F: Event primitive
 /// - 0x40-0x4F: State primitive
-/// - 0x50-0x5F: Trace primitive
+/// - 0x50-0x5F: Reserved for future primitives
 /// - 0x60-0x6F: Run primitive
 /// - 0x70-0x7F: Reserved for Vector (M8)
 /// - 0x80-0xFF: Reserved for future primitives
@@ -162,12 +158,6 @@ pub enum WalEntryType {
     StateTransition = 0x42,
 
     // ========================================================================
-    // Trace Primitive (0x50-0x5F)
-    // ========================================================================
-    /// Trace record (span)
-    TraceRecord = 0x50,
-
-    // ========================================================================
     // Run Primitive (0x60-0x6F)
     // ========================================================================
     /// Run creation
@@ -239,7 +229,7 @@ impl WalEntryType {
             0x20..=0x2F => Some(PrimitiveKind::Json),
             0x30..=0x3F => Some(PrimitiveKind::Event),
             0x40..=0x4F => Some(PrimitiveKind::State),
-            0x50..=0x5F => Some(PrimitiveKind::Trace),
+            0x50..=0x5F => None, // Reserved for future primitives
             0x60..=0x6F => Some(PrimitiveKind::Run),
             0x70..=0x7F => Some(PrimitiveKind::Vector),
             _ => None, // Reserved for future
@@ -256,7 +246,7 @@ impl WalEntryType {
             0x20..=0x2F => "JSON",
             0x30..=0x3F => "Event",
             0x40..=0x4F => "State",
-            0x50..=0x5F => "Trace",
+            0x50..=0x5F => "Reserved",
             0x60..=0x6F => "Run",
             0x70..=0x7F => "Vector",
             _ => "Future (reserved)",
@@ -288,7 +278,6 @@ impl WalEntryType {
             WalEntryType::StateInit => "State initialization",
             WalEntryType::StateSet => "State set",
             WalEntryType::StateTransition => "State transition",
-            WalEntryType::TraceRecord => "Trace span record",
             WalEntryType::RunCreate => "Run creation",
             WalEntryType::RunUpdate => "Run update",
             WalEntryType::RunEnd => "Run end",
@@ -352,8 +341,11 @@ impl TryFrom<u8> for WalEntryType {
             0x41 => Ok(WalEntryType::StateSet),
             0x42 => Ok(WalEntryType::StateTransition),
 
-            // Trace (0x50-0x5F)
-            0x50 => Ok(WalEntryType::TraceRecord),
+            // Reserved (0x50-0x5F) - formerly Trace
+            0x50..=0x5F => Err(WalEntryTypeError::ReservedEntryType {
+                value,
+                range: "Reserved (formerly Trace)",
+            }),
 
             // Run (0x60-0x6F)
             0x60 => Ok(WalEntryType::RunCreate),
@@ -422,9 +414,6 @@ mod tests {
         assert_eq!(WalEntryType::StateSet as u8, 0x41);
         assert_eq!(WalEntryType::StateTransition as u8, 0x42);
 
-        // Trace
-        assert_eq!(WalEntryType::TraceRecord as u8, 0x50);
-
         // Run
         assert_eq!(WalEntryType::RunCreate as u8, 0x60);
         assert_eq!(WalEntryType::RunUpdate as u8, 0x61);
@@ -457,10 +446,8 @@ mod tests {
             WalEntryType::try_from(0x40).unwrap(),
             WalEntryType::StateInit
         );
-        assert_eq!(
-            WalEntryType::try_from(0x50).unwrap(),
-            WalEntryType::TraceRecord
-        );
+        // 0x50 is now reserved (formerly Trace)
+        assert!(WalEntryType::try_from(0x50).is_err());
         assert_eq!(
             WalEntryType::try_from(0x60).unwrap(),
             WalEntryType::RunCreate
@@ -574,10 +561,6 @@ mod tests {
             Some(PrimitiveKind::State)
         );
         assert_eq!(
-            WalEntryType::TraceRecord.primitive_kind(),
-            Some(PrimitiveKind::Trace)
-        );
-        assert_eq!(
             WalEntryType::RunCreate.primitive_kind(),
             Some(PrimitiveKind::Run)
         );
@@ -599,7 +582,7 @@ mod tests {
         assert_eq!(WalEntryType::range_name(0x20), "JSON");
         assert_eq!(WalEntryType::range_name(0x30), "Event");
         assert_eq!(WalEntryType::range_name(0x40), "State");
-        assert_eq!(WalEntryType::range_name(0x50), "Trace");
+        assert_eq!(WalEntryType::range_name(0x50), "Reserved");
         assert_eq!(WalEntryType::range_name(0x60), "Run");
         assert_eq!(WalEntryType::range_name(0x70), "Vector");
         assert_eq!(WalEntryType::range_name(0x80), "Future (reserved)");
@@ -640,7 +623,6 @@ mod tests {
             WalEntryType::StateInit,
             WalEntryType::StateSet,
             WalEntryType::StateTransition,
-            WalEntryType::TraceRecord,
             WalEntryType::RunCreate,
             WalEntryType::RunUpdate,
             WalEntryType::RunEnd,
@@ -673,9 +655,6 @@ mod tests {
         let state_range = PrimitiveKind::State.entry_type_range();
         assert_eq!(state_range, (0x40, 0x4F));
 
-        let trace_range = PrimitiveKind::Trace.entry_type_range();
-        assert_eq!(trace_range, (0x50, 0x5F));
-
         let run_range = PrimitiveKind::Run.entry_type_range();
         assert_eq!(run_range, (0x60, 0x6F));
 
@@ -689,7 +668,6 @@ mod tests {
         assert_eq!(PrimitiveKind::Json.primitive_id(), 2);
         assert_eq!(PrimitiveKind::Event.primitive_id(), 3);
         assert_eq!(PrimitiveKind::State.primitive_id(), 4);
-        assert_eq!(PrimitiveKind::Trace.primitive_id(), 5);
         assert_eq!(PrimitiveKind::Run.primitive_id(), 6);
         assert_eq!(PrimitiveKind::Vector.primitive_id(), 7);
     }
@@ -711,7 +689,6 @@ mod tests {
             WalEntryType::StateInit,
             WalEntryType::StateSet,
             WalEntryType::StateTransition,
-            WalEntryType::TraceRecord,
             WalEntryType::RunCreate,
             WalEntryType::RunUpdate,
             WalEntryType::RunEnd,
@@ -724,6 +701,18 @@ mod tests {
 
         for entry_type in entry_types {
             assert!(!entry_type.description().is_empty());
+        }
+    }
+
+    #[test]
+    fn test_trace_range_reserved() {
+        // The 0x50-0x5F range (formerly Trace) is now reserved
+        for val in 0x50..=0x5F {
+            let result = WalEntryType::try_from(val);
+            assert!(matches!(
+                result,
+                Err(WalEntryTypeError::ReservedEntryType { .. })
+            ));
         }
     }
 }

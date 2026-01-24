@@ -5,7 +5,7 @@
 //!
 //! # Story #474: KV Operations in TransactionOps
 //! # Story #475: Event Operations in TransactionOps
-//! # Story #476: State/Trace Operations in TransactionOps
+//! # Story #476: State Operations in TransactionOps
 //!
 //! This implementation provides:
 //! - Read-your-writes semantics (check write set first)
@@ -13,7 +13,6 @@
 //! - Proper key construction with namespaces
 //! - Event buffering with sequence allocation
 //! - State cell CAS (compare-and-swap) support
-//! - Trace recording with sequence allocation
 
 use crate::transaction_ops::TransactionOps;
 use strata_concurrency::TransactionContext;

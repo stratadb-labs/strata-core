@@ -455,7 +455,6 @@ fn test_cross_primitive_transaction_survives_recovery() {
         txn.kv_put("txn_key", Value::String("txn_value".into()))?;
         txn.event_append("txn_event", int_payload(100))?;
         txn.state_set("txn_state", Value::Int(42))?;
-        txn.trace_record("Thought", Value::String("txn thought".into()))?;
         Ok(())
     });
     assert!(result.is_ok());
@@ -469,7 +468,6 @@ fn test_cross_primitive_transaction_survives_recovery() {
     let kv = KVStore::new(db.clone());
     let event_log = EventLog::new(db.clone());
     let state_cell = StateCell::new(db.clone());
-    let trace_store = TraceStore::new(db.clone());
 
     // All operations survived
     assert_eq!(
@@ -479,7 +477,6 @@ fn test_cross_primitive_transaction_survives_recovery() {
     assert_eq!(event_log.len(&run_id).unwrap(), 1);
     let state = state_cell.read(&run_id, "txn_state").unwrap().unwrap();
     assert_eq!(state.value.value, Value::Int(42));
-    assert_eq!(trace_store.count(&run_id).unwrap(), 1);
 }
 
 /// Test multiple sequential recoveries
@@ -546,7 +543,6 @@ fn test_all_primitives_recover_together() {
         let kv = KVStore::new(db.clone());
         let event_log = EventLog::new(db.clone());
         let state_cell = StateCell::new(db.clone());
-        let trace_store = TraceStore::new(db.clone());
 
         // Create run
         let run_meta = run_index.create_run("full-test").unwrap();
@@ -566,18 +562,6 @@ fn test_all_primitives_recover_together() {
         state_cell
             .cas(&run_id, "full_state", 1, Value::Int(100))
             .unwrap();
-
-        trace_store
-            .record(
-                &run_id,
-                TraceType::Thought {
-                    content: "full thought".into(),
-                    confidence: None,
-                },
-                vec![],
-                Value::Null,
-            )
-            .unwrap();
     }
 
     // Phase 2: Verify all recovered
@@ -587,7 +571,6 @@ fn test_all_primitives_recover_together() {
         let kv = KVStore::new(db.clone());
         let event_log = EventLog::new(db.clone());
         let state_cell = StateCell::new(db.clone());
-        let trace_store = TraceStore::new(db.clone());
 
         // RunIndex
         let run = run_index.get_run("full-test").unwrap().unwrap();
@@ -608,8 +591,5 @@ fn test_all_primitives_recover_together() {
         let state = state_cell.read(&run_id, "full_state").unwrap().unwrap();
         assert_eq!(state.value.value, Value::Int(100));
         assert_eq!(state.value.version, 2);
-
-        // TraceStore
-        assert_eq!(trace_store.count(&run_id).unwrap(), 1);
     }
 }

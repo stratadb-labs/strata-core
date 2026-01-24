@@ -684,9 +684,6 @@ impl RecoveryEngine {
                     TxEntry::StateTransition { key, from, to } => {
                         tx.state_transition(key, from, to);
                     }
-                    TxEntry::TraceRecord { span } => {
-                        tx.trace_record(span);
-                    }
                     TxEntry::RunCreate { metadata } => {
                         tx.run_create(metadata);
                     }
@@ -1172,8 +1169,7 @@ mod tests {
             tx.kv_put("kv_key", "kv_value")
                 .json_set("json_key", b"{}".to_vec())
                 .event_append(b"event".to_vec())
-                .state_set("state_key", "active")
-                .trace_record(b"trace".to_vec());
+                .state_set("state_key", "active");
 
             expected_tx_id = tx.id();
             writer.commit_atomic(tx).unwrap();
@@ -1189,14 +1185,13 @@ mod tests {
         // Verify all entries have same tx_id
         let (tx_id, entries) = &transactions[0];
         assert_eq!(*tx_id, expected_tx_id);
-        assert_eq!(entries.len(), 5); // KV, JSON, Event, State, Trace
+        assert_eq!(entries.len(), 4); // KV, JSON, Event, State
 
         // Verify entry types
         assert_eq!(entries[0].entry_type, WalEntryType::KvPut);
         assert_eq!(entries[1].entry_type, WalEntryType::JsonSet);
         assert_eq!(entries[2].entry_type, WalEntryType::EventAppend);
         assert_eq!(entries[3].entry_type, WalEntryType::StateSet);
-        assert_eq!(entries[4].entry_type, WalEntryType::TraceRecord);
 
         // All entries share same tx_id
         for entry in entries {

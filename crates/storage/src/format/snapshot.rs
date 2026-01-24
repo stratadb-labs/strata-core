@@ -191,8 +191,6 @@ pub mod primitive_tags {
     pub const EVENT: u8 = 0x02;
     /// State cell
     pub const STATE: u8 = 0x03;
-    /// Trace
-    pub const TRACE: u8 = 0x04;
     /// Run
     pub const RUN: u8 = 0x05;
     /// JSON document
@@ -206,7 +204,6 @@ pub mod primitive_tags {
             KV => "KV",
             EVENT => "Event",
             STATE => "State",
-            TRACE => "Trace",
             RUN => "Run",
             JSON => "Json",
             VECTOR => "Vector",
@@ -215,7 +212,7 @@ pub mod primitive_tags {
     }
 
     /// All valid primitive tags in order
-    pub const ALL_TAGS: [u8; 7] = [KV, EVENT, STATE, TRACE, RUN, JSON, VECTOR];
+    pub const ALL_TAGS: [u8; 6] = [KV, EVENT, STATE, RUN, JSON, VECTOR];
 }
 
 /// Generate snapshot file path
@@ -349,7 +346,6 @@ mod tests {
         assert_eq!(primitive_tags::tag_name(primitive_tags::KV), "KV");
         assert_eq!(primitive_tags::tag_name(primitive_tags::EVENT), "Event");
         assert_eq!(primitive_tags::tag_name(primitive_tags::STATE), "State");
-        assert_eq!(primitive_tags::tag_name(primitive_tags::TRACE), "Trace");
         assert_eq!(primitive_tags::tag_name(primitive_tags::RUN), "Run");
         assert_eq!(primitive_tags::tag_name(primitive_tags::JSON), "Json");
         assert_eq!(primitive_tags::tag_name(primitive_tags::VECTOR), "Vector");
@@ -358,14 +354,13 @@ mod tests {
 
     #[test]
     fn test_all_tags() {
-        assert_eq!(primitive_tags::ALL_TAGS.len(), 7);
+        assert_eq!(primitive_tags::ALL_TAGS.len(), 6);
         assert_eq!(
             primitive_tags::ALL_TAGS,
             [
                 primitive_tags::KV,
                 primitive_tags::EVENT,
                 primitive_tags::STATE,
-                primitive_tags::TRACE,
                 primitive_tags::RUN,
                 primitive_tags::JSON,
                 primitive_tags::VECTOR,

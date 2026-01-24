@@ -785,8 +785,7 @@ mod tests {
         tx.kv_put("kv_key", "kv_value")
             .json_set("json_key", b"{}".to_vec())
             .event_append(b"event_data".to_vec())
-            .state_set("state_key", "active")
-            .trace_record(b"span_data".to_vec());
+            .state_set("state_key", "active");
 
         let tx_id = tx.id();
         let offset = writer.commit_atomic(tx).unwrap();
@@ -802,17 +801,17 @@ mod tests {
             entries.push(entry);
         }
 
-        // Should have 5 entries + 1 commit marker = 6 total
-        assert_eq!(entries.len(), 6);
+        // Should have 4 entries + 1 commit marker = 5 total
+        assert_eq!(entries.len(), 5);
 
         // All non-commit entries should share the same tx_id
-        for entry in &entries[..5] {
+        for entry in &entries[..4] {
             assert_eq!(entry.tx_id, tx_id);
         }
 
         // Last entry should be commit marker
-        assert_eq!(entries[5].entry_type, WalEntryType::TransactionCommit);
-        assert_eq!(entries[5].tx_id, tx_id);
+        assert_eq!(entries[4].entry_type, WalEntryType::TransactionCommit);
+        assert_eq!(entries[4].tx_id, tx_id);
     }
 
     #[test]
@@ -926,9 +925,6 @@ mod tests {
         tx.state_set("state2", "set");
         tx.state_transition("state3", "from", "to");
 
-        // Trace operation
-        tx.trace_record(b"span".to_vec());
-
         // Run operations
         tx.run_create(b"run_create".to_vec());
         tx.run_begin(b"run_begin".to_vec());
@@ -946,8 +942,8 @@ mod tests {
             entries.push(entry);
         }
 
-        // 15 entries + 1 commit marker
-        assert_eq!(entries.len(), 16);
+        // 14 entries + 1 commit marker
+        assert_eq!(entries.len(), 15);
 
         // Check entry types
         assert_eq!(entries[0].entry_type, WalEntryType::KvPut);
@@ -960,12 +956,11 @@ mod tests {
         assert_eq!(entries[7].entry_type, WalEntryType::StateInit);
         assert_eq!(entries[8].entry_type, WalEntryType::StateSet);
         assert_eq!(entries[9].entry_type, WalEntryType::StateTransition);
-        assert_eq!(entries[10].entry_type, WalEntryType::TraceRecord);
-        assert_eq!(entries[11].entry_type, WalEntryType::RunCreate);
-        assert_eq!(entries[12].entry_type, WalEntryType::RunBegin);
-        assert_eq!(entries[13].entry_type, WalEntryType::RunUpdate);
-        assert_eq!(entries[14].entry_type, WalEntryType::RunEnd);
-        assert_eq!(entries[15].entry_type, WalEntryType::TransactionCommit);
+        assert_eq!(entries[10].entry_type, WalEntryType::RunCreate);
+        assert_eq!(entries[11].entry_type, WalEntryType::RunBegin);
+        assert_eq!(entries[12].entry_type, WalEntryType::RunUpdate);
+        assert_eq!(entries[13].entry_type, WalEntryType::RunEnd);
+        assert_eq!(entries[14].entry_type, WalEntryType::TransactionCommit);
 
         // All share same tx_id
         for entry in &entries {

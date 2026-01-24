@@ -101,7 +101,6 @@ pub enum PrimitiveExtError {
 /// | JSON | 0x20-0x2F | FROZEN |
 /// | Event | 0x30-0x3F | FROZEN |
 /// | State | 0x40-0x4F | FROZEN |
-/// | Trace | 0x50-0x5F | FROZEN |
 /// | Run | 0x60-0x6F | FROZEN |
 /// | Vector | 0x70-0x7F | RESERVED (M8) |
 /// | Future | 0x80-0xFF | AVAILABLE |
@@ -114,7 +113,6 @@ pub enum PrimitiveExtError {
 /// | JSON | 2 |
 /// | Event | 3 |
 /// | State | 4 |
-/// | Trace | 5 |
 /// | Run | 6 |
 /// | Vector | 7 (M8) |
 pub trait PrimitiveStorageExt: Send + Sync {
@@ -182,8 +180,6 @@ pub mod primitive_type_ids {
     pub const EVENT: u8 = 3;
     /// State Cell
     pub const STATE: u8 = 4;
-    /// Trace Store
-    pub const TRACE: u8 = 5;
     /// Run Index
     pub const RUN: u8 = 6;
     /// Vector Store (M8 - reserved)
@@ -220,11 +216,6 @@ pub mod wal_ranges {
     /// State primitive end
     pub const STATE_END: u8 = 0x4F;
 
-    /// Trace primitive (0x50-0x5F)
-    pub const TRACE_START: u8 = 0x50;
-    /// Trace primitive end
-    pub const TRACE_END: u8 = 0x5F;
-
     /// Run primitive (0x60-0x6F)
     pub const RUN_START: u8 = 0x60;
     /// Run primitive end
@@ -252,10 +243,9 @@ pub fn primitive_for_wal_type(wal_type: u8) -> Option<&'static str> {
         JSON_START..=JSON_END => Some("json"),
         EVENT_START..=EVENT_END => Some("event"),
         STATE_START..=STATE_END => Some("state"),
-        TRACE_START..=TRACE_END => Some("trace"),
         RUN_START..=RUN_END => Some("run"),
         VECTOR_START..=VECTOR_END => Some("vector"),
-        FUTURE_START..=FUTURE_END => None, // Future - not yet assigned
+        _ => None, // Unknown or future - not assigned
     }
 }
 
@@ -294,9 +284,6 @@ mod tests {
         assert_eq!(primitive_for_wal_type(0x40), Some("state"));
         assert_eq!(primitive_for_wal_type(0x42), Some("state"));
 
-        // Trace
-        assert_eq!(primitive_for_wal_type(0x50), Some("trace"));
-
         // Run
         assert_eq!(primitive_for_wal_type(0x60), Some("run"));
         assert_eq!(primitive_for_wal_type(0x63), Some("run"));
@@ -332,7 +319,6 @@ mod tests {
         assert_eq!(primitive_type_ids::JSON, 2);
         assert_eq!(primitive_type_ids::EVENT, 3);
         assert_eq!(primitive_type_ids::STATE, 4);
-        assert_eq!(primitive_type_ids::TRACE, 5);
         assert_eq!(primitive_type_ids::RUN, 6);
         assert_eq!(primitive_type_ids::VECTOR, 7);
     }

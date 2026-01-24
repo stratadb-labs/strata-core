@@ -135,15 +135,6 @@ pub enum TxEntry {
     },
 
     // ========================================================================
-    // Trace Primitive Operations
-    // ========================================================================
-    /// Trace span record
-    TraceRecord {
-        /// Span data
-        span: Vec<u8>,
-    },
-
-    // ========================================================================
     // Run Primitive Operations
     // ========================================================================
     /// Run creation
@@ -326,17 +317,6 @@ impl Transaction {
     }
 
     // ========================================================================
-    // Trace Operations
-    // ========================================================================
-
-    /// Add a trace record operation
-    pub fn trace_record(&mut self, span: impl Into<Vec<u8>>) -> &mut Self {
-        self.entries
-            .push(TxEntry::TraceRecord { span: span.into() });
-        self
-    }
-
-    // ========================================================================
     // Run Operations
     // ========================================================================
 
@@ -426,7 +406,6 @@ impl TxEntry {
             TxEntry::StateInit { .. } => WalEntryType::StateInit,
             TxEntry::StateSet { .. } => WalEntryType::StateSet,
             TxEntry::StateTransition { .. } => WalEntryType::StateTransition,
-            TxEntry::TraceRecord { .. } => WalEntryType::TraceRecord,
             TxEntry::RunCreate { .. } => WalEntryType::RunCreate,
             TxEntry::RunUpdate { .. } => WalEntryType::RunUpdate,
             TxEntry::RunBegin { .. } => WalEntryType::RunBegin,
@@ -457,7 +436,6 @@ impl TxEntry {
             TxEntry::StateInit { key, value } => serialize_kv(key, value),
             TxEntry::StateSet { key, value } => serialize_kv(key, value),
             TxEntry::StateTransition { key, from, to } => serialize_transition(key, from, to),
-            TxEntry::TraceRecord { span } => span.clone(),
             TxEntry::RunCreate { metadata } => metadata.clone(),
             TxEntry::RunUpdate { metadata } => metadata.clone(),
             TxEntry::RunBegin { metadata } => metadata.clone(),
@@ -509,9 +487,6 @@ impl TxEntry {
                 let (key, from, to) = deserialize_transition(payload)?;
                 Some(TxEntry::StateTransition { key, from, to })
             }
-            WalEntryType::TraceRecord => Some(TxEntry::TraceRecord {
-                span: payload.to_vec(),
-            }),
             WalEntryType::RunCreate => Some(TxEntry::RunCreate {
                 metadata: payload.to_vec(),
             }),
@@ -665,15 +640,6 @@ mod tests {
     }
 
     #[test]
-    fn test_transaction_builder_trace() {
-        let mut tx = Transaction::new();
-        tx.trace_record(b"span_data".to_vec());
-
-        assert_eq!(tx.len(), 1);
-        assert!(matches!(&tx.entries()[0], TxEntry::TraceRecord { .. }));
-    }
-
-    #[test]
     fn test_transaction_builder_run() {
         let mut tx = Transaction::new();
         tx.run_create(b"create_meta".to_vec())
@@ -690,15 +656,14 @@ mod tests {
         tx.kv_put("kv_key", "kv_value")
             .json_set("json_key", b"{\"field\":\"value\"}".to_vec())
             .event_append(b"event_payload".to_vec())
-            .state_set("state_key", "active")
-            .trace_record(b"trace_span".to_vec());
+            .state_set("state_key", "active");
 
-        assert_eq!(tx.len(), 5);
+        assert_eq!(tx.len(), 4);
 
         // All entries should share the same tx_id
         let (tx_id, entries) = tx.into_wal_entries();
         assert!(!tx_id.is_nil());
-        assert_eq!(entries.len(), 5);
+        assert_eq!(entries.len(), 4);
 
         for entry in &entries {
             assert_eq!(entry.tx_id, tx_id);
@@ -765,9 +730,6 @@ mod tests {
                 key: b"state".to_vec(),
                 from: b"a".to_vec(),
                 to: b"b".to_vec(),
-            },
-            TxEntry::TraceRecord {
-                span: b"trace".to_vec(),
             },
             TxEntry::RunCreate {
                 metadata: b"run".to_vec(),
@@ -935,10 +897,6 @@ mod tests {
             }
             .entry_type(),
             WalEntryType::StateTransition
-        );
-        assert_eq!(
-            TxEntry::TraceRecord { span: vec![] }.entry_type(),
-            WalEntryType::TraceRecord
         );
         assert_eq!(
             TxEntry::RunCreate { metadata: vec![] }.entry_type(),

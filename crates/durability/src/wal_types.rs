@@ -565,7 +565,6 @@ mod tests {
             WalEntryType::StateInit,
             WalEntryType::StateSet,
             WalEntryType::StateTransition,
-            WalEntryType::TraceRecord,
             WalEntryType::RunCreate,
             WalEntryType::RunUpdate,
             WalEntryType::RunEnd,

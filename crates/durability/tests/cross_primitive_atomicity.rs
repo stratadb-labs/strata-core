@@ -1,7 +1,7 @@
 //! Cross-Primitive Atomicity Integration Tests (Story #320)
 //!
 //! These tests verify that transactions spanning multiple primitives (KV, JSON,
-//! Event, State, Trace, Run) are atomic - after crash recovery, you see either
+//! Event, State, Run) are atomic - after crash recovery, you see either
 //! all effects of a transaction or none.
 //!
 //! ## Core Guarantee
@@ -38,8 +38,7 @@ fn test_cross_primitive_commit() {
         tx.kv_put("kv_key", "kv_value")
             .json_set("json_key", b"{\"field\":\"value\"}".to_vec())
             .event_append(b"task_started".to_vec())
-            .state_set("state_key", "active")
-            .trace_record(b"span_data".to_vec());
+            .state_set("state_key", "active");
 
         writer.commit_atomic(tx).unwrap();
     }
@@ -52,19 +51,18 @@ fn test_cross_primitive_commit() {
     assert_eq!(result.transactions_recovered, 1);
     assert_eq!(result.orphaned_transactions, 0);
 
-    // Should have 5 entries (KV, JSON, Event, State, Trace)
+    // Should have 4 entries (KV, JSON, Event, State)
     let (_, entries) = &transactions[0];
-    assert_eq!(entries.len(), 5);
+    assert_eq!(entries.len(), 4);
 
     // Verify entry types
     assert_eq!(entries[0].entry_type, WalEntryType::KvPut);
     assert_eq!(entries[1].entry_type, WalEntryType::JsonSet);
     assert_eq!(entries[2].entry_type, WalEntryType::EventAppend);
     assert_eq!(entries[3].entry_type, WalEntryType::StateSet);
-    assert_eq!(entries[4].entry_type, WalEntryType::TraceRecord);
 }
 
-/// Test: All 6 primitives in one transaction
+/// Test: All 5 primitives in one transaction
 #[test]
 fn test_all_primitives_atomic() {
     let temp_dir = create_test_dir();
@@ -87,9 +85,6 @@ fn test_all_primitives_atomic() {
         // State operations
         tx.state_set("state_key", "running");
 
-        // Trace operation
-        tx.trace_record(b"operation1".to_vec());
-
         // Run operations
         tx.run_create(b"run_metadata".to_vec());
 
@@ -103,7 +98,7 @@ fn test_all_primitives_atomic() {
     assert_eq!(result.transactions_recovered, 1);
 
     let (_, entries) = &transactions[0];
-    assert_eq!(entries.len(), 6); // One entry per primitive
+    assert_eq!(entries.len(), 5); // One entry per primitive
 }
 
 // ============================================================================
@@ -613,9 +608,6 @@ fn test_all_operations() {
         tx.state_set("state2", "set");
         tx.state_transition("state3", "from", "to");
 
-        // Trace operation
-        tx.trace_record(b"span".to_vec());
-
         // Run operations
         tx.run_create(b"create".to_vec());
         tx.run_begin(b"begin".to_vec());
@@ -631,9 +623,9 @@ fn test_all_operations() {
     assert_eq!(transactions.len(), 1);
     assert_eq!(result.transactions_recovered, 1);
 
-    // Should have 15 entries total
+    // Should have 14 entries total
     let (_, entries) = &transactions[0];
-    assert_eq!(entries.len(), 15);
+    assert_eq!(entries.len(), 14);
 
     // Verify entry types
     assert_eq!(entries[0].entry_type, WalEntryType::KvPut);
@@ -646,9 +638,8 @@ fn test_all_operations() {
     assert_eq!(entries[7].entry_type, WalEntryType::StateInit);
     assert_eq!(entries[8].entry_type, WalEntryType::StateSet);
     assert_eq!(entries[9].entry_type, WalEntryType::StateTransition);
-    assert_eq!(entries[10].entry_type, WalEntryType::TraceRecord);
-    assert_eq!(entries[11].entry_type, WalEntryType::RunCreate);
-    assert_eq!(entries[12].entry_type, WalEntryType::RunBegin);
-    assert_eq!(entries[13].entry_type, WalEntryType::RunUpdate);
-    assert_eq!(entries[14].entry_type, WalEntryType::RunEnd);
+    assert_eq!(entries[10].entry_type, WalEntryType::RunCreate);
+    assert_eq!(entries[11].entry_type, WalEntryType::RunBegin);
+    assert_eq!(entries[12].entry_type, WalEntryType::RunUpdate);
+    assert_eq!(entries[13].entry_type, WalEntryType::RunEnd);
 }

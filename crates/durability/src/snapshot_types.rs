@@ -62,9 +62,7 @@ pub mod primitive_ids {
     pub const EVENT: u8 = 3;
     /// State Cell primitive
     pub const STATE: u8 = 4;
-    /// Trace Store primitive
-    pub const TRACE: u8 = 5;
-    /// Run Index primitive
+    /// Run Index primitive (ID 5 was formerly TRACE, skipped for compatibility)
     pub const RUN: u8 = 6;
     /// Vector primitive (M8)
     pub const VECTOR: u8 = 7;
@@ -76,7 +74,6 @@ pub mod primitive_ids {
             JSON => "JSON",
             EVENT => "Event",
             STATE => "State",
-            TRACE => "Trace",
             RUN => "Run",
             VECTOR => "Vector",
             _ => "Unknown",
@@ -85,7 +82,9 @@ pub mod primitive_ids {
 
     /// Check if primitive ID is valid
     pub fn is_valid(id: u8) -> bool {
-        (1..=7).contains(&id)
+        // IDs 1-4 (KV, JSON, Event, State), 6-7 (Run, Vector) are valid
+        // ID 5 (formerly Trace) is no longer valid
+        matches!(id, 1..=4 | 6..=7)
     }
 }
 
@@ -394,7 +393,6 @@ mod tests {
             primitive_ids::JSON,
             primitive_ids::EVENT,
             primitive_ids::STATE,
-            primitive_ids::TRACE,
             primitive_ids::RUN,
             primitive_ids::VECTOR,
         ];
@@ -410,7 +408,7 @@ mod tests {
         assert_eq!(primitive_ids::JSON, 2);
         assert_eq!(primitive_ids::EVENT, 3);
         assert_eq!(primitive_ids::STATE, 4);
-        assert_eq!(primitive_ids::TRACE, 5);
+        // ID 5 was formerly TRACE, now skipped
         assert_eq!(primitive_ids::RUN, 6);
         assert_eq!(primitive_ids::VECTOR, 7);
     }
@@ -421,7 +419,8 @@ mod tests {
         assert_eq!(primitive_ids::name(primitive_ids::JSON), "JSON");
         assert_eq!(primitive_ids::name(primitive_ids::EVENT), "Event");
         assert_eq!(primitive_ids::name(primitive_ids::STATE), "State");
-        assert_eq!(primitive_ids::name(primitive_ids::TRACE), "Trace");
+        // ID 5 (formerly TRACE) is now unknown
+        assert_eq!(primitive_ids::name(5), "Unknown");
         assert_eq!(primitive_ids::name(primitive_ids::RUN), "Run");
         assert_eq!(primitive_ids::name(primitive_ids::VECTOR), "Vector");
         assert_eq!(primitive_ids::name(99), "Unknown");
@@ -429,8 +428,13 @@ mod tests {
 
     #[test]
     fn test_primitive_ids_is_valid() {
-        for id in 1..=7 {
-            assert!(primitive_ids::is_valid(id));
+        // Valid IDs: 1-4 (KV, JSON, Event, State), 6-7 (Run, Vector)
+        for id in 1..=4 {
+            assert!(primitive_ids::is_valid(id), "ID {} should be valid", id);
+        }
+        assert!(!primitive_ids::is_valid(5), "ID 5 (formerly Trace) should not be valid");
+        for id in 6..=7 {
+            assert!(primitive_ids::is_valid(id), "ID {} should be valid", id);
         }
         assert!(!primitive_ids::is_valid(0));
         assert!(!primitive_ids::is_valid(8));
