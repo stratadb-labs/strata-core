@@ -4,11 +4,28 @@
 //! across different durability modes.
 
 use strata_core::types::RunId;
+use strata_core::value::Value;
 use strata_durability::wal::DurabilityMode;
 use strata_engine::Database;
+use std::collections::HashMap;
 use std::fmt::Debug;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
+
+/// Helper to create Value::Object from key-value pairs
+/// Usage: `obj([("key", Value::Int(1))])`
+pub fn obj<I>(pairs: I) -> Value
+where
+    I: IntoIterator<Item = (&'static str, Value)>,
+{
+    Value::Object(pairs.into_iter().map(|(k, v)| (k.to_string(), v)).collect())
+}
+
+/// Helper to wrap a value in an object with a "value" key
+/// Usage: `wrap_payload(Value::Int(42))` -> `{"value": 42}`
+pub fn wrap_payload(v: Value) -> Value {
+    obj([("value", v)])
+}
 
 // Test modules in priority order
 pub mod aba_detection;

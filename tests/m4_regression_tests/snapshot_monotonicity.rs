@@ -228,7 +228,7 @@ fn eventlog_sequence_stability() {
 
         // Append some events
         for i in 0..10 {
-            events.append(&run_id, "test", Value::Int(i)).unwrap();
+            events.append(&run_id, "test", wrap_payload(Value::Int(i))).unwrap();
         }
 
         // Read range multiple times
@@ -272,7 +272,7 @@ fn eventlog_no_sequence_regression() {
             thread::spawn(move || {
                 barrier.wait();
                 for i in 0..100 {
-                    let _ = events.append(&run_id, &format!("writer_{}", writer_id), Value::Int(i));
+                    let _ = events.append(&run_id, &format!("writer_{}", writer_id), wrap_payload(Value::Int(i)));
                 }
             })
         })

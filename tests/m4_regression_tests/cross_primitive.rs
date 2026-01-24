@@ -59,12 +59,12 @@ fn cross_run_complete_isolation() {
 
         // Populate run A
         kv.put(&run_a, "key", Value::Int(100)).unwrap();
-        events.append(&run_a, "event", Value::Int(100)).unwrap();
+        events.append(&run_a, "event", wrap_payload(Value::Int(100))).unwrap();
         state.init(&run_a, "cell", Value::Int(100)).unwrap();
 
         // Populate run B with different values
         kv.put(&run_b, "key", Value::Int(200)).unwrap();
-        events.append(&run_b, "event", Value::Int(200)).unwrap();
+        events.append(&run_b, "event", wrap_payload(Value::Int(200))).unwrap();
         state.init(&run_b, "cell", Value::Int(200)).unwrap();
 
         // Verify isolation
@@ -97,7 +97,7 @@ fn primitives_no_implicit_coupling() {
         assert_eq!(events.len(&run_id).unwrap(), 0);
 
         // Event append should not create KV entries
-        events.append(&run_id, "event", Value::Int(2)).unwrap();
+        events.append(&run_id, "event", wrap_payload(Value::Int(2))).unwrap();
         assert!(kv.get(&run_id, "event").unwrap().is_none());
 
         // StateCell should not create events
@@ -178,20 +178,20 @@ fn mixed_primitive_sequence() {
 
         // Interleaved operations
         kv.put(&run_id, "step", Value::Int(1)).unwrap();
-        events.append(&run_id, "log", Value::Int(1)).unwrap();
+        events.append(&run_id, "log", wrap_payload(Value::Int(1))).unwrap();
 
         kv.put(&run_id, "step", Value::Int(2)).unwrap();
         state.init(&run_id, "progress", Value::Int(2)).unwrap();
 
         kv.put(&run_id, "step", Value::Int(3)).unwrap();
-        events.append(&run_id, "log", Value::Int(3)).unwrap();
+        events.append(&run_id, "log", wrap_payload(Value::Int(3))).unwrap();
 
         kv.put(&run_id, "step", Value::Int(4)).unwrap();
-        events.append(&run_id, "log", Value::Int(4)).unwrap();
+        events.append(&run_id, "log", wrap_payload(Value::Int(4))).unwrap();
 
         // Verify all state is correct
         assert_eq!(kv.get(&run_id, "step").unwrap().map(|v| v.value), Some(Value::Int(4)));
-        assert_eq!(events.len(&run_id).unwrap(), 4);
+        assert_eq!(events.len(&run_id).unwrap(), 3); // 3 appends: 1, 3, 4 (not 2, which is state init)
         assert_eq!(
             state.read(&run_id, "progress").unwrap().unwrap().value.value,
             Value::Int(2)
@@ -268,7 +268,7 @@ fn data_survives_facade_recreation() {
             let state = StateCell::new(db.clone());
 
             kv.put(&run_id, "persistent", Value::Int(999)).unwrap();
-            events.append(&run_id, "recorded", Value::Int(888)).unwrap();
+            events.append(&run_id, "recorded", wrap_payload(Value::Int(888))).unwrap();
             state.init(&run_id, "saved", Value::Int(777)).unwrap();
         }
 
