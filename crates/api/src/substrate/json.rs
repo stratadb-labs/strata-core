@@ -229,6 +229,232 @@ pub trait JsonStore {
         query: &str,
         k: u64,
     ) -> StrataResult<Vec<JsonSearchHit>>;
+
+    /// List documents with cursor-based pagination
+    ///
+    /// Returns document keys matching the optional prefix filter.
+    /// Supports cursor-based pagination for iterating through large result sets.
+    ///
+    /// ## Parameters
+    ///
+    /// - `prefix`: Optional key prefix filter
+    /// - `cursor`: Resume from this cursor (returned from previous call)
+    /// - `limit`: Maximum number of keys to return
+    ///
+    /// ## Return Value
+    ///
+    /// List result containing document keys and optional next cursor.
+    ///
+    /// ## Errors
+    ///
+    /// - `NotFound`: Run does not exist
+    fn json_list(
+        &self,
+        run: &ApiRunId,
+        prefix: Option<&str>,
+        cursor: Option<&str>,
+        limit: u64,
+    ) -> StrataResult<JsonListResult>;
+
+    /// Compare-and-swap: atomically update if version matches
+    ///
+    /// Provides optimistic concurrency control for JSON documents.
+    /// The update only succeeds if the document's current version matches
+    /// the expected version.
+    ///
+    /// ## Parameters
+    ///
+    /// - `key`: Document key
+    /// - `expected_version`: Version the caller believes the document has
+    /// - `path`: Path within the document to update
+    /// - `value`: New value to set at path
+    ///
+    /// ## Return Value
+    ///
+    /// New document version if update succeeded.
+    ///
+    /// ## Errors
+    ///
+    /// - `VersionConflict`: Version didn't match (includes actual version)
+    /// - `InvalidKey`: Key is invalid
+    /// - `InvalidPath`: Path syntax error
+    /// - `NotFound`: Document or run does not exist
+    fn json_cas(
+        &self,
+        run: &ApiRunId,
+        key: &str,
+        expected_version: u64,
+        path: &str,
+        value: Value,
+    ) -> StrataResult<Version>;
+
+    /// Query documents by exact field match
+    ///
+    /// Finds documents where the value at the specified path exactly matches
+    /// the given value. Unlike search (fuzzy text matching), query performs
+    /// exact equality comparison.
+    ///
+    /// ## Parameters
+    ///
+    /// - `path`: Path within documents to compare
+    /// - `value`: Value to match exactly
+    /// - `limit`: Maximum number of results to return
+    ///
+    /// ## Return Value
+    ///
+    /// Document keys with matching value at path.
+    ///
+    /// ## Errors
+    ///
+    /// - `InvalidPath`: Path syntax error
+    /// - `NotFound`: Run does not exist
+    fn json_query(
+        &self,
+        run: &ApiRunId,
+        path: &str,
+        value: Value,
+        limit: u64,
+    ) -> StrataResult<Vec<String>>;
+
+    /// Count documents in the store
+    ///
+    /// Returns the total number of JSON documents for a run.
+    ///
+    /// ## Return Value
+    ///
+    /// Number of documents.
+    ///
+    /// ## Errors
+    ///
+    /// - `NotFound`: Run does not exist
+    fn json_count(&self, run: &ApiRunId) -> StrataResult<u64>;
+
+    /// Batch get multiple documents
+    ///
+    /// Retrieves multiple documents in a single operation.
+    /// More efficient than multiple individual get() calls.
+    ///
+    /// ## Parameters
+    ///
+    /// - `keys`: Document keys to retrieve
+    ///
+    /// ## Return Value
+    ///
+    /// Documents in same order as input keys.
+    /// Returns `None` for documents that don't exist.
+    ///
+    /// ## Errors
+    ///
+    /// - `InvalidKey`: One or more keys are invalid
+    /// - `NotFound`: Run does not exist
+    fn json_batch_get(
+        &self,
+        run: &ApiRunId,
+        keys: &[&str],
+    ) -> StrataResult<Vec<Option<Versioned<Value>>>>;
+
+    /// Batch create multiple documents atomically
+    ///
+    /// Creates multiple documents in a single atomic transaction.
+    /// If any document fails to create, the entire operation fails.
+    ///
+    /// ## Parameters
+    ///
+    /// - `docs`: Key and value pairs to create
+    ///
+    /// ## Return Value
+    ///
+    /// Versions of created documents in same order as input.
+    ///
+    /// ## Errors
+    ///
+    /// - `InvalidKey`: One or more keys are invalid
+    /// - `ConstraintViolation`: One or more documents already exist
+    /// - `NotFound`: Run does not exist
+    fn json_batch_create(
+        &self,
+        run: &ApiRunId,
+        docs: Vec<(&str, Value)>,
+    ) -> StrataResult<Vec<Version>>;
+
+    /// Atomically push values to an array at path
+    ///
+    /// Appends one or more values to an array within a document.
+    ///
+    /// ## Parameters
+    ///
+    /// - `key`: Document key
+    /// - `path`: Path to the array
+    /// - `values`: Values to append
+    ///
+    /// ## Return Value
+    ///
+    /// New array length.
+    ///
+    /// ## Errors
+    ///
+    /// - `InvalidKey`: Key is invalid
+    /// - `InvalidPath`: Path syntax error or doesn't point to an array
+    /// - `NotFound`: Document or run does not exist
+    fn json_array_push(
+        &self,
+        run: &ApiRunId,
+        key: &str,
+        path: &str,
+        values: Vec<Value>,
+    ) -> StrataResult<usize>;
+
+    /// Atomically increment a numeric value at path
+    ///
+    /// Adds a delta to a numeric value within a document.
+    ///
+    /// ## Parameters
+    ///
+    /// - `key`: Document key
+    /// - `path`: Path to the number
+    /// - `delta`: Value to add (can be negative for decrement)
+    ///
+    /// ## Return Value
+    ///
+    /// New numeric value.
+    ///
+    /// ## Errors
+    ///
+    /// - `InvalidKey`: Key is invalid
+    /// - `InvalidPath`: Path syntax error or doesn't point to a number
+    /// - `NotFound`: Document or run does not exist
+    fn json_increment(
+        &self,
+        run: &ApiRunId,
+        key: &str,
+        path: &str,
+        delta: f64,
+    ) -> StrataResult<f64>;
+
+    /// Atomically pop a value from an array at path
+    ///
+    /// Removes and returns the last element from an array.
+    ///
+    /// ## Parameters
+    ///
+    /// - `key`: Document key
+    /// - `path`: Path to the array
+    ///
+    /// ## Return Value
+    ///
+    /// The popped value, or None if array was empty.
+    ///
+    /// ## Errors
+    ///
+    /// - `InvalidKey`: Key is invalid
+    /// - `InvalidPath`: Path syntax error or doesn't point to an array
+    /// - `NotFound`: Document or run does not exist
+    fn json_array_pop(
+        &self,
+        run: &ApiRunId,
+        key: &str,
+        path: &str,
+    ) -> StrataResult<Option<Value>>;
 }
 
 /// A search hit in JSON document search
@@ -240,6 +466,15 @@ pub struct JsonSearchHit {
     pub score: f32,
 }
 
+/// Result of listing JSON documents
+#[derive(Debug, Clone, PartialEq)]
+pub struct JsonListResult {
+    /// Document keys returned
+    pub keys: Vec<String>,
+    /// Cursor for next page, if more results exist
+    pub next_cursor: Option<String>,
+}
+
 // =============================================================================
 // Implementation
 // =============================================================================
@@ -247,7 +482,7 @@ pub struct JsonSearchHit {
 use strata_core::json::JsonValue;
 use super::impl_::{
     SubstrateImpl, convert_error,
-    value_to_json, json_to_value, parse_doc_id, parse_path, json_merge_patch,
+    value_to_json, json_to_value, parse_doc_id, parse_path,
 };
 
 impl JsonStore for SubstrateImpl {
@@ -327,43 +562,15 @@ impl JsonStore for SubstrateImpl {
         path: &str,
         patch: Value,
     ) -> StrataResult<Version> {
-        // RFC 7396 JSON Merge Patch - implement as read-modify-write
+        // Delegate to primitive's atomic merge implementation
         let run_id = run.to_run_id();
         let doc_id = parse_doc_id(key)?;
         let json_path = parse_path(path)?;
         let patch_json = value_to_json(patch)?;
 
-        // Check if document exists
-        let exists = self.json().exists(&run_id, &doc_id).map_err(convert_error)?;
-
-        if !exists {
-            // Document doesn't exist - create it with the patch value at the path
-            if json_path.is_root() {
-                // Create document at root with patch value
-                return self.json().create(&run_id, &doc_id, patch_json).map_err(convert_error);
-            } else {
-                // Create empty object first, then set at path
-                self.json().create(&run_id, &doc_id, JsonValue::object()).map_err(convert_error)?;
-                return self.json().set(&run_id, &doc_id, &json_path, patch_json).map_err(convert_error);
-            }
-        }
-
-        // Get current value at path
-        let current = self.json().get(&run_id, &doc_id, &json_path).map_err(convert_error)?;
-
-        // Apply merge patch
-        let merged = match current {
-            Some(versioned) => {
-                let mut base: serde_json::Value = versioned.value.into();
-                let patch_val: serde_json::Value = patch_json.into();
-                json_merge_patch(&mut base, &patch_val);
-                JsonValue::from(base)
-            }
-            None => patch_json,
-        };
-
-        // Set the merged value
-        self.json().set(&run_id, &doc_id, &json_path, merged).map_err(convert_error)
+        self.json()
+            .merge(&run_id, &doc_id, &json_path, patch_json)
+            .map_err(convert_error)
     }
 
     fn json_history(
@@ -409,6 +616,182 @@ impl JsonStore for SubstrateImpl {
                 score: hit.score,
             }
         }).collect())
+    }
+
+    fn json_list(
+        &self,
+        run: &ApiRunId,
+        prefix: Option<&str>,
+        cursor: Option<&str>,
+        limit: u64,
+    ) -> StrataResult<JsonListResult> {
+        let run_id = run.to_run_id();
+        let result = self.json()
+            .list(&run_id, prefix, cursor, limit as usize)
+            .map_err(convert_error)?;
+
+        Ok(JsonListResult {
+            keys: result.doc_ids.into_iter().map(|id| id.to_string()).collect(),
+            next_cursor: result.next_cursor,
+        })
+    }
+
+    fn json_cas(
+        &self,
+        run: &ApiRunId,
+        key: &str,
+        expected_version: u64,
+        path: &str,
+        value: Value,
+    ) -> StrataResult<Version> {
+        let run_id = run.to_run_id();
+        let doc_id = parse_doc_id(key)?;
+        let json_path = parse_path(path)?;
+        let json_value = value_to_json(value)?;
+
+        self.json()
+            .cas(&run_id, &doc_id, expected_version, &json_path, json_value)
+            .map_err(convert_error)
+    }
+
+    fn json_query(
+        &self,
+        run: &ApiRunId,
+        path: &str,
+        value: Value,
+        limit: u64,
+    ) -> StrataResult<Vec<String>> {
+        let run_id = run.to_run_id();
+        let json_path = parse_path(path)?;
+        let json_value = value_to_json(value)?;
+
+        let doc_ids = self.json()
+            .query(&run_id, &json_path, &json_value, limit as usize)
+            .map_err(convert_error)?;
+
+        Ok(doc_ids.into_iter().map(|id| id.to_string()).collect())
+    }
+
+    fn json_count(&self, run: &ApiRunId) -> StrataResult<u64> {
+        let run_id = run.to_run_id();
+        self.json().count(&run_id).map_err(convert_error)
+    }
+
+    fn json_batch_get(
+        &self,
+        run: &ApiRunId,
+        keys: &[&str],
+    ) -> StrataResult<Vec<Option<Versioned<Value>>>> {
+        let run_id = run.to_run_id();
+
+        // Parse all doc_ids first
+        let doc_ids: Vec<_> = keys
+            .iter()
+            .map(|k| parse_doc_id(k))
+            .collect::<Result<_, _>>()?;
+
+        let results = self.json()
+            .batch_get(&run_id, &doc_ids)
+            .map_err(convert_error)?;
+
+        // Convert JsonDoc to Value
+        results
+            .into_iter()
+            .map(|opt| {
+                opt.map(|versioned| {
+                    let value = json_to_value(versioned.value.value)?;
+                    Ok(Versioned {
+                        value,
+                        version: versioned.version,
+                        timestamp: versioned.timestamp,
+                    })
+                })
+                .transpose()
+            })
+            .collect()
+    }
+
+    fn json_batch_create(
+        &self,
+        run: &ApiRunId,
+        docs: Vec<(&str, Value)>,
+    ) -> StrataResult<Vec<Version>> {
+        let run_id = run.to_run_id();
+
+        // Parse keys and convert values
+        let typed_docs: Vec<_> = docs
+            .into_iter()
+            .map(|(key, value)| {
+                let doc_id = parse_doc_id(key)?;
+                let json_value = value_to_json(value)?;
+                Ok((doc_id, json_value))
+            })
+            .collect::<StrataResult<Vec<_>>>()?;
+
+        self.json()
+            .batch_create(&run_id, typed_docs)
+            .map_err(convert_error)
+    }
+
+    fn json_array_push(
+        &self,
+        run: &ApiRunId,
+        key: &str,
+        path: &str,
+        values: Vec<Value>,
+    ) -> StrataResult<usize> {
+        let run_id = run.to_run_id();
+        let doc_id = parse_doc_id(key)?;
+        let json_path = parse_path(path)?;
+
+        let json_values: Vec<_> = values
+            .into_iter()
+            .map(value_to_json)
+            .collect::<Result<_, _>>()?;
+
+        let (_version, len) = self.json()
+            .array_push(&run_id, &doc_id, &json_path, json_values)
+            .map_err(convert_error)?;
+
+        Ok(len)
+    }
+
+    fn json_increment(
+        &self,
+        run: &ApiRunId,
+        key: &str,
+        path: &str,
+        delta: f64,
+    ) -> StrataResult<f64> {
+        let run_id = run.to_run_id();
+        let doc_id = parse_doc_id(key)?;
+        let json_path = parse_path(path)?;
+
+        let (_version, new_val) = self.json()
+            .increment(&run_id, &doc_id, &json_path, delta)
+            .map_err(convert_error)?;
+
+        Ok(new_val)
+    }
+
+    fn json_array_pop(
+        &self,
+        run: &ApiRunId,
+        key: &str,
+        path: &str,
+    ) -> StrataResult<Option<Value>> {
+        let run_id = run.to_run_id();
+        let doc_id = parse_doc_id(key)?;
+        let json_path = parse_path(path)?;
+
+        let (_version, popped) = self.json()
+            .array_pop(&run_id, &doc_id, &json_path)
+            .map_err(convert_error)?;
+
+        match popped {
+            Some(json_val) => Ok(Some(json_to_value(json_val)?)),
+            None => Ok(None),
+        }
     }
 }
 

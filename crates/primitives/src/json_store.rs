@@ -94,6 +94,17 @@ pub struct JsonDoc {
     pub updated_at: i64,
 }
 
+/// Result of listing JSON documents
+///
+/// Contains document IDs and an optional cursor for pagination.
+#[derive(Debug, Clone, PartialEq)]
+pub struct JsonListResult {
+    /// Document IDs returned
+    pub doc_ids: Vec<JsonDocId>,
+    /// Cursor for next page, if more results exist
+    pub next_cursor: Option<String>,
+}
+
 impl JsonDoc {
     /// Create a new document with initial value
     ///
@@ -492,6 +503,818 @@ impl JsonStore {
             txn.delete(key.clone())?;
             Ok(true)
         })
+    }
+
+    // ========================================================================
+    // Atomic Merge (M11B)
+    // ========================================================================
+
+    /// Atomically merge a patch into a document using RFC 7396 JSON Merge Patch
+    ///
+    /// This operation is atomic - the read, merge, and write happen within
+    /// a single transaction, preventing race conditions with concurrent updates.
+    ///
+    /// If the document doesn't exist, it will be created with the patch value.
+    ///
+    /// # Arguments
+    ///
+    /// * `run_id` - RunId for namespace isolation
+    /// * `doc_id` - Document to merge into
+    /// * `path` - Path within the document to merge at (use JsonPath::root() for whole doc)
+    /// * `patch` - The patch to apply (RFC 7396 merge patch semantics)
+    ///
+    /// # Returns
+    ///
+    /// * `Ok(Version)` - New document version after merge
+    /// * `Err` - On path error or serialization error
+    ///
+    /// # RFC 7396 Semantics
+    ///
+    /// - If patch is an object, recursively merge each key
+    /// - If a key's value is null, remove that key from target
+    /// - If patch is not an object, it replaces the target entirely
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// // Initial document: {"name": "Alice", "age": 30}
+    /// // Patch: {"age": 31, "city": "NYC"}
+    /// // Result: {"name": "Alice", "age": 31, "city": "NYC"}
+    ///
+    /// let version = json.merge(&run_id, &doc_id, &JsonPath::root(), patch)?;
+    /// ```
+    pub fn merge(
+        &self,
+        run_id: &RunId,
+        doc_id: &JsonDocId,
+        path: &JsonPath,
+        patch: JsonValue,
+    ) -> Result<Version> {
+        use strata_core::json::merge_patch;
+
+        // Validate path and patch limits
+        path.validate().map_err(limit_error_to_error)?;
+        patch.validate().map_err(limit_error_to_error)?;
+
+        let key = self.key_for(run_id, doc_id);
+
+        self.db.transaction(*run_id, |txn| {
+            // Load existing document or create new one
+            let mut doc = match txn.get(&key)? {
+                Some(stored) => Self::deserialize_doc(&stored)?,
+                None => {
+                    // Document doesn't exist - create it
+                    if path.is_root() {
+                        // At root, just create with patch value
+                        let doc = JsonDoc::new(*doc_id, patch.clone());
+                        let serialized = Self::serialize_doc(&doc)?;
+                        txn.put(key.clone(), serialized)?;
+                        return Ok(Version::counter(doc.version));
+                    } else {
+                        // At path, create empty object first
+                        JsonDoc::new(*doc_id, JsonValue::object())
+                    }
+                }
+            };
+
+            // Get current value at path (or create if path doesn't exist yet)
+            if path.is_root() {
+                // Merge at root
+                merge_patch(&mut doc.value, &patch);
+            } else {
+                // Get or create value at path
+                match get_at_path(&doc.value, path).cloned() {
+                    Some(mut current) => {
+                        // Merge into existing value
+                        merge_patch(&mut current, &patch);
+                        set_at_path(&mut doc.value, path, current)
+                            .map_err(|e| Error::InvalidOperation(format!("Path error: {}", e)))?;
+                    }
+                    None => {
+                        // Path doesn't exist - set patch value directly
+                        set_at_path(&mut doc.value, path, patch)
+                            .map_err(|e| Error::InvalidOperation(format!("Path error: {}", e)))?;
+                    }
+                }
+            }
+
+            doc.touch();
+
+            // Store updated document
+            let serialized = Self::serialize_doc(&doc)?;
+            txn.put(key.clone(), serialized)?;
+
+            Ok(Version::counter(doc.version))
+        })
+    }
+
+    // ========================================================================
+    // Compare-and-Swap (M11B)
+    // ========================================================================
+
+    /// Compare-and-swap: atomically update if version matches
+    ///
+    /// This operation provides optimistic concurrency control. It reads the
+    /// document, checks that the version matches the expected version, and
+    /// only then applies the update.
+    ///
+    /// # Arguments
+    ///
+    /// * `run_id` - RunId for namespace isolation
+    /// * `doc_id` - Document to update
+    /// * `expected_version` - The version the caller believes the document has
+    /// * `path` - Path within the document to update
+    /// * `value` - New value to set at path
+    ///
+    /// # Returns
+    ///
+    /// * `Ok(Version)` - Update succeeded, returns new version
+    /// * `Err(VersionMismatch)` - Version didn't match
+    /// * `Err(InvalidOperation)` - Document doesn't exist
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// // Read document and its version
+    /// let versioned = json.get(&run_id, &doc_id, &JsonPath::root())?;
+    /// let version = versioned.version; // e.g., 5
+    ///
+    /// // Try to update only if version is still 5
+    /// match json.cas(&run_id, &doc_id, 5, &"name".parse()?, new_value) {
+    ///     Ok(new_ver) => println!("Updated to version {}", new_ver),
+    ///     Err(Error::VersionMismatch { actual, .. }) => {
+    ///         println!("Conflict! Current version is {}", actual);
+    ///     }
+    ///     Err(e) => return Err(e),
+    /// }
+    /// ```
+    pub fn cas(
+        &self,
+        run_id: &RunId,
+        doc_id: &JsonDocId,
+        expected_version: u64,
+        path: &JsonPath,
+        value: JsonValue,
+    ) -> Result<Version> {
+        // Validate path and value limits
+        path.validate().map_err(limit_error_to_error)?;
+        value.validate().map_err(limit_error_to_error)?;
+
+        let key = self.key_for(run_id, doc_id);
+
+        self.db.transaction(*run_id, |txn| {
+            // Load existing document
+            let stored = txn.get(&key)?.ok_or_else(|| {
+                Error::InvalidOperation(format!("JSON document {} not found", doc_id))
+            })?;
+            let mut doc = Self::deserialize_doc(&stored)?;
+
+            // Check version
+            if doc.version != expected_version {
+                return Err(Error::VersionMismatch {
+                    expected: expected_version,
+                    actual: doc.version,
+                });
+            }
+
+            // Apply mutation
+            set_at_path(&mut doc.value, path, value)
+                .map_err(|e| Error::InvalidOperation(format!("Path error: {}", e)))?;
+            doc.touch();
+
+            // Store updated document
+            let serialized = Self::serialize_doc(&doc)?;
+            txn.put(key.clone(), serialized)?;
+
+            Ok(Version::counter(doc.version))
+        })
+    }
+
+    // ========================================================================
+    // Introspection (M11B)
+    // ========================================================================
+
+    /// List documents in the store with cursor-based pagination
+    ///
+    /// Supports Primitive Contract Invariant 6: Introspectable.
+    /// Returns document IDs for a run, optionally filtered by prefix.
+    ///
+    /// # Arguments
+    ///
+    /// * `run_id` - RunId for namespace isolation
+    /// * `prefix` - Optional prefix to filter document IDs (compared as strings)
+    /// * `cursor` - Resume pagination from this cursor (doc_id to start after)
+    /// * `limit` - Maximum number of results to return
+    ///
+    /// # Returns
+    ///
+    /// * `Ok(JsonListResult)` - Document IDs and optional next cursor
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// // List first 10 documents
+    /// let result = json.list(&run_id, None, None, 10)?;
+    ///
+    /// // List documents with prefix "user:"
+    /// let result = json.list(&run_id, Some("user:"), None, 10)?;
+    ///
+    /// // Paginate through results
+    /// let page1 = json.list(&run_id, None, None, 10)?;
+    /// if let Some(cursor) = page1.next_cursor {
+    ///     let page2 = json.list(&run_id, None, Some(&cursor), 10)?;
+    /// }
+    /// ```
+    pub fn list(
+        &self,
+        run_id: &RunId,
+        prefix: Option<&str>,
+        cursor: Option<&str>,
+        limit: usize,
+    ) -> Result<JsonListResult> {
+        let snapshot = self.db.storage().create_snapshot();
+        let ns = self.namespace_for_run(run_id);
+        let scan_prefix = Key::new_json_prefix(ns);
+
+        let mut doc_ids = Vec::with_capacity(limit + 1);
+
+        // Parse cursor into a JsonDocId if provided
+        let cursor_doc_id: Option<JsonDocId> = match cursor {
+            Some(c) => {
+                // Use the same parsing logic as parse_doc_id
+                use std::collections::hash_map::DefaultHasher;
+                use std::hash::{Hash, Hasher};
+
+                match uuid::Uuid::parse_str(c) {
+                    Ok(uuid) => Some(JsonDocId::from_uuid(uuid)),
+                    Err(_) => {
+                        // Hash-based deterministic UUID
+                        let mut hasher = DefaultHasher::new();
+                        c.hash(&mut hasher);
+                        let hash1 = hasher.finish();
+                        hasher.write_u64(0x12345678);
+                        c.hash(&mut hasher);
+                        let hash2 = hasher.finish();
+
+                        let mut bytes = [0u8; 16];
+                        bytes[..8].copy_from_slice(&hash1.to_le_bytes());
+                        bytes[8..].copy_from_slice(&hash2.to_le_bytes());
+                        bytes[6] = (bytes[6] & 0x0f) | 0x40;
+                        bytes[8] = (bytes[8] & 0x3f) | 0x80;
+
+                        Some(JsonDocId::from_uuid(uuid::Uuid::from_bytes(bytes)))
+                    }
+                }
+            }
+            None => None,
+        };
+
+        let mut past_cursor = cursor_doc_id.is_none();
+
+        for (_key, versioned_value) in snapshot.scan_prefix(&scan_prefix)? {
+            // Deserialize to get doc_id
+            let doc = match Self::deserialize_doc(&versioned_value.value) {
+                Ok(d) => d,
+                Err(_) => continue, // Skip invalid documents
+            };
+
+            // Handle cursor: skip until we're past the cursor
+            if !past_cursor {
+                if Some(doc.id) == cursor_doc_id {
+                    past_cursor = true;
+                }
+                continue;
+            }
+
+            // Apply prefix filter if specified
+            if let Some(p) = prefix {
+                let doc_id_str = doc.id.to_string();
+                if !doc_id_str.starts_with(p) {
+                    continue;
+                }
+            }
+
+            doc_ids.push(doc.id);
+
+            // Collect limit + 1 to detect if there are more
+            if doc_ids.len() > limit {
+                break;
+            }
+        }
+
+        // If we have more than limit, pop the last and use it as cursor
+        let next_cursor = if doc_ids.len() > limit {
+            doc_ids.pop(); // Remove the extra item
+            doc_ids.last().map(|id| id.to_string())
+        } else {
+            None
+        };
+
+        Ok(JsonListResult { doc_ids, next_cursor })
+    }
+
+    /// Count documents in the store
+    ///
+    /// Returns the total number of JSON documents for a run.
+    /// Supports Primitive Contract Invariant 6: Introspectable.
+    ///
+    /// # Arguments
+    ///
+    /// * `run_id` - RunId for namespace isolation
+    ///
+    /// # Returns
+    ///
+    /// * `Ok(u64)` - Number of documents
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// let count = json.count(&run_id)?;
+    /// println!("Store has {} documents", count);
+    /// ```
+    pub fn count(&self, run_id: &RunId) -> Result<u64> {
+        let snapshot = self.db.storage().create_snapshot();
+        let ns = self.namespace_for_run(run_id);
+        let scan_prefix = Key::new_json_prefix(ns);
+
+        let mut count = 0u64;
+        for (_key, _versioned_value) in snapshot.scan_prefix(&scan_prefix)? {
+            count += 1;
+        }
+
+        Ok(count)
+    }
+
+    /// Batch get multiple documents
+    ///
+    /// Retrieves multiple documents in a single operation.
+    /// More efficient than multiple individual get() calls.
+    ///
+    /// # Arguments
+    ///
+    /// * `run_id` - RunId for namespace isolation
+    /// * `doc_ids` - Document IDs to retrieve
+    ///
+    /// # Returns
+    ///
+    /// * `Ok(Vec<Option<Versioned<JsonDoc>>>)` - Documents in same order as input
+    ///   Returns `None` for documents that don't exist
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// let doc_ids = vec![id1, id2, id3];
+    /// let docs = json.batch_get(&run_id, &doc_ids)?;
+    /// for (i, doc) in docs.iter().enumerate() {
+    ///     match doc {
+    ///         Some(v) => println!("Doc {} exists: {:?}", i, v.value),
+    ///         None => println!("Doc {} not found", i),
+    ///     }
+    /// }
+    /// ```
+    pub fn batch_get(
+        &self,
+        run_id: &RunId,
+        doc_ids: &[JsonDocId],
+    ) -> Result<Vec<Option<Versioned<JsonDoc>>>> {
+        let snapshot = self.db.storage().create_snapshot();
+
+        let results: Vec<Option<Versioned<JsonDoc>>> = doc_ids
+            .iter()
+            .map(|doc_id| {
+                let key = self.key_for(run_id, doc_id);
+                match snapshot.get(&key) {
+                    Ok(Some(vv)) => {
+                        match Self::deserialize_doc(&vv.value) {
+                            Ok(doc) => Some(Versioned::with_timestamp(
+                                doc.clone(),
+                                Version::counter(doc.version),
+                                Timestamp::from_micros((doc.updated_at * 1000) as u64),
+                            )),
+                            Err(_) => None,
+                        }
+                    }
+                    Ok(None) => None,
+                    Err(_) => None,
+                }
+            })
+            .collect();
+
+        Ok(results)
+    }
+
+    /// Batch create multiple documents atomically
+    ///
+    /// Creates multiple documents in a single atomic transaction.
+    /// If any document fails to create (e.g., already exists), the entire
+    /// operation fails and no documents are created.
+    ///
+    /// # Arguments
+    ///
+    /// * `run_id` - RunId for namespace isolation
+    /// * `docs` - Document ID and value pairs to create
+    ///
+    /// # Returns
+    ///
+    /// * `Ok(Vec<Version>)` - Versions of created documents in same order as input
+    ///
+    /// # Errors
+    ///
+    /// * `InvalidOperation` - If any document already exists
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// let docs = vec![
+    ///     (id1, JsonValue::from("value1")),
+    ///     (id2, JsonValue::from("value2")),
+    /// ];
+    /// let versions = json.batch_create(&run_id, docs)?;
+    /// ```
+    pub fn batch_create(
+        &self,
+        run_id: &RunId,
+        docs: Vec<(JsonDocId, JsonValue)>,
+    ) -> Result<Vec<Version>> {
+        // Validate all values first
+        for (_doc_id, value) in &docs {
+            value.validate().map_err(limit_error_to_error)?;
+        }
+
+        self.db.transaction(*run_id, |txn| {
+            let mut versions = Vec::with_capacity(docs.len());
+
+            for (doc_id, value) in &docs {
+                let key = self.key_for(run_id, doc_id);
+
+                // Check if document already exists
+                if txn.get(&key)?.is_some() {
+                    return Err(Error::InvalidOperation(format!(
+                        "JSON document {} already exists",
+                        doc_id
+                    )));
+                }
+
+                let doc = JsonDoc::new(*doc_id, value.clone());
+                let serialized = Self::serialize_doc(&doc)?;
+                txn.put(key, serialized)?;
+                versions.push(Version::counter(doc.version));
+            }
+
+            Ok(versions)
+        })
+    }
+
+    // ========================================================================
+    // Array Operations (M11B Tier 3)
+    // ========================================================================
+
+    /// Atomically push values to an array at path
+    ///
+    /// Appends one or more values to an array within a document.
+    /// The operation is atomic - all values are appended or none.
+    ///
+    /// # Arguments
+    ///
+    /// * `run_id` - RunId for namespace isolation
+    /// * `doc_id` - Document containing the array
+    /// * `path` - Path to the array
+    /// * `values` - Values to append
+    ///
+    /// # Returns
+    ///
+    /// * `Ok((Version, usize))` - New document version and new array length
+    ///
+    /// # Errors
+    ///
+    /// * `InvalidOperation` - If document doesn't exist
+    /// * `InvalidOperation` - If path doesn't point to an array
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// // Append to array
+    /// let (version, len) = json.array_push(
+    ///     &run_id,
+    ///     &doc_id,
+    ///     &"items".parse()?,
+    ///     vec![JsonValue::from("new_item")],
+    /// )?;
+    /// println!("Array now has {} items", len);
+    /// ```
+    pub fn array_push(
+        &self,
+        run_id: &RunId,
+        doc_id: &JsonDocId,
+        path: &JsonPath,
+        values: Vec<JsonValue>,
+    ) -> Result<(Version, usize)> {
+        // Validate path and values
+        path.validate().map_err(limit_error_to_error)?;
+        for value in &values {
+            value.validate().map_err(limit_error_to_error)?;
+        }
+
+        let key = self.key_for(run_id, doc_id);
+
+        self.db.transaction(*run_id, |txn| {
+            // Load existing document
+            let stored = txn.get(&key)?.ok_or_else(|| {
+                Error::InvalidOperation(format!("JSON document {} not found", doc_id))
+            })?;
+            let mut doc = Self::deserialize_doc(&stored)?;
+
+            // Get the array at path
+            let arr = match get_at_path(&doc.value, path) {
+                Some(val) => match val.as_array() {
+                    Some(arr) => arr.clone(),
+                    None => {
+                        return Err(Error::InvalidOperation(format!(
+                            "Path '{}' does not point to an array",
+                            path
+                        )));
+                    }
+                },
+                None => {
+                    return Err(Error::InvalidOperation(format!(
+                        "Path '{}' does not exist",
+                        path
+                    )));
+                }
+            };
+
+            // Create new array with appended values
+            let mut new_arr = arr;
+            new_arr.extend(values.into_iter().map(|v| v.into_inner()));
+            let new_len = new_arr.len();
+
+            // Update document
+            let new_array = JsonValue::from(serde_json::Value::Array(new_arr));
+            set_at_path(&mut doc.value, path, new_array)
+                .map_err(|e| Error::InvalidOperation(format!("Path error: {}", e)))?;
+            doc.touch();
+
+            // Store updated document
+            let serialized = Self::serialize_doc(&doc)?;
+            txn.put(key.clone(), serialized)?;
+
+            Ok((Version::counter(doc.version), new_len))
+        })
+    }
+
+    /// Atomically increment a numeric value at path
+    ///
+    /// Adds a delta to a numeric value within a document.
+    /// The operation is atomic - guaranteed not to lose increments.
+    ///
+    /// # Arguments
+    ///
+    /// * `run_id` - RunId for namespace isolation
+    /// * `doc_id` - Document containing the number
+    /// * `path` - Path to the number
+    /// * `delta` - Value to add (can be negative for decrement)
+    ///
+    /// # Returns
+    ///
+    /// * `Ok((Version, f64))` - New document version and new value
+    ///
+    /// # Errors
+    ///
+    /// * `InvalidOperation` - If document doesn't exist
+    /// * `InvalidOperation` - If path doesn't point to a number
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// // Increment counter
+    /// let (version, new_val) = json.increment(
+    ///     &run_id,
+    ///     &doc_id,
+    ///     &"views".parse()?,
+    ///     1.0,
+    /// )?;
+    /// println!("View count is now {}", new_val);
+    /// ```
+    pub fn increment(
+        &self,
+        run_id: &RunId,
+        doc_id: &JsonDocId,
+        path: &JsonPath,
+        delta: f64,
+    ) -> Result<(Version, f64)> {
+        // Validate path
+        path.validate().map_err(limit_error_to_error)?;
+
+        let key = self.key_for(run_id, doc_id);
+
+        self.db.transaction(*run_id, |txn| {
+            // Load existing document
+            let stored = txn.get(&key)?.ok_or_else(|| {
+                Error::InvalidOperation(format!("JSON document {} not found", doc_id))
+            })?;
+            let mut doc = Self::deserialize_doc(&stored)?;
+
+            // Get the current value at path
+            let current_value = match get_at_path(&doc.value, path) {
+                Some(val) => {
+                    // Try to get as number
+                    if let Some(n) = val.as_f64() {
+                        n
+                    } else if let Some(n) = val.as_i64() {
+                        n as f64
+                    } else {
+                        return Err(Error::InvalidOperation(format!(
+                            "Path '{}' does not point to a number",
+                            path
+                        )));
+                    }
+                }
+                None => {
+                    return Err(Error::InvalidOperation(format!(
+                        "Path '{}' does not exist",
+                        path
+                    )));
+                }
+            };
+
+            // Calculate new value
+            let new_value = current_value + delta;
+
+            // Update document
+            let new_json_value = if new_value.fract() == 0.0 && new_value >= i64::MIN as f64 && new_value <= i64::MAX as f64 {
+                // Store as integer if it's a whole number
+                JsonValue::from(new_value as i64)
+            } else {
+                JsonValue::from(new_value)
+            };
+            set_at_path(&mut doc.value, path, new_json_value)
+                .map_err(|e| Error::InvalidOperation(format!("Path error: {}", e)))?;
+            doc.touch();
+
+            // Store updated document
+            let serialized = Self::serialize_doc(&doc)?;
+            txn.put(key.clone(), serialized)?;
+
+            Ok((Version::counter(doc.version), new_value))
+        })
+    }
+
+    /// Atomically pop a value from an array at path
+    ///
+    /// Removes and returns the last element from an array within a document.
+    /// The operation is atomic.
+    ///
+    /// # Arguments
+    ///
+    /// * `run_id` - RunId for namespace isolation
+    /// * `doc_id` - Document containing the array
+    /// * `path` - Path to the array
+    ///
+    /// # Returns
+    ///
+    /// * `Ok((Version, Some(value)))` - New version and popped value
+    /// * `Ok((Version, None))` - New version but array was empty
+    ///
+    /// # Errors
+    ///
+    /// * `InvalidOperation` - If document doesn't exist
+    /// * `InvalidOperation` - If path doesn't point to an array
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// // Pop from array
+    /// let (version, popped) = json.array_pop(&run_id, &doc_id, &"items".parse()?)?;
+    /// match popped {
+    ///     Some(val) => println!("Popped: {:?}", val),
+    ///     None => println!("Array was empty"),
+    /// }
+    /// ```
+    pub fn array_pop(
+        &self,
+        run_id: &RunId,
+        doc_id: &JsonDocId,
+        path: &JsonPath,
+    ) -> Result<(Version, Option<JsonValue>)> {
+        // Validate path
+        path.validate().map_err(limit_error_to_error)?;
+
+        let key = self.key_for(run_id, doc_id);
+
+        self.db.transaction(*run_id, |txn| {
+            // Load existing document
+            let stored = txn.get(&key)?.ok_or_else(|| {
+                Error::InvalidOperation(format!("JSON document {} not found", doc_id))
+            })?;
+            let mut doc = Self::deserialize_doc(&stored)?;
+
+            // Get the array at path
+            let mut arr = match get_at_path(&doc.value, path) {
+                Some(val) => match val.as_array() {
+                    Some(arr) => arr.clone(),
+                    None => {
+                        return Err(Error::InvalidOperation(format!(
+                            "Path '{}' does not point to an array",
+                            path
+                        )));
+                    }
+                },
+                None => {
+                    return Err(Error::InvalidOperation(format!(
+                        "Path '{}' does not exist",
+                        path
+                    )));
+                }
+            };
+
+            // Pop the last element
+            let popped = arr.pop().map(JsonValue::from);
+
+            // Update document
+            let new_array = JsonValue::from(serde_json::Value::Array(arr));
+            set_at_path(&mut doc.value, path, new_array)
+                .map_err(|e| Error::InvalidOperation(format!("Path error: {}", e)))?;
+            doc.touch();
+
+            // Store updated document
+            let serialized = Self::serialize_doc(&doc)?;
+            txn.put(key.clone(), serialized)?;
+
+            Ok((Version::counter(doc.version), popped))
+        })
+    }
+
+    /// Query documents by exact field match
+    ///
+    /// Finds documents where the value at the specified path exactly matches
+    /// the given value. Unlike search (fuzzy text matching), query performs
+    /// exact equality comparison.
+    ///
+    /// # Arguments
+    ///
+    /// * `run_id` - RunId for namespace isolation
+    /// * `path` - Path within documents to compare
+    /// * `value` - Value to match exactly
+    /// * `limit` - Maximum number of results to return
+    ///
+    /// # Returns
+    ///
+    /// * `Ok(Vec<JsonDocId>)` - Document IDs with matching value at path
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// // Find all documents where status == "active"
+    /// let active_docs = json.query(
+    ///     &run_id,
+    ///     &"status".parse()?,
+    ///     &JsonValue::from("active"),
+    ///     100,
+    /// )?;
+    ///
+    /// // Find all orders for a specific user
+    /// let user_orders = json.query(
+    ///     &run_id,
+    ///     &"user_id".parse()?,
+    ///     &JsonValue::from(user_id),
+    ///     50,
+    /// )?;
+    /// ```
+    pub fn query(
+        &self,
+        run_id: &RunId,
+        path: &JsonPath,
+        value: &JsonValue,
+        limit: usize,
+    ) -> Result<Vec<JsonDocId>> {
+        // Validate path limits
+        path.validate().map_err(limit_error_to_error)?;
+
+        let snapshot = self.db.storage().create_snapshot();
+        let ns = self.namespace_for_run(run_id);
+        let scan_prefix = Key::new_json_prefix(ns);
+
+        let mut results = Vec::new();
+
+        for (_key, versioned_value) in snapshot.scan_prefix(&scan_prefix)? {
+            // Deserialize document
+            let doc = match Self::deserialize_doc(&versioned_value.value) {
+                Ok(d) => d,
+                Err(_) => continue, // Skip invalid documents
+            };
+
+            // Check if value at path matches
+            if let Some(doc_value) = get_at_path(&doc.value, path) {
+                if doc_value == value {
+                    results.push(doc.id);
+                    if results.len() >= limit {
+                        break;
+                    }
+                }
+            }
+        }
+
+        Ok(results)
     }
 
     // ========================================================================

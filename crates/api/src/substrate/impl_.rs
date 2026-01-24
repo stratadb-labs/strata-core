@@ -379,28 +379,6 @@ impl SubstrateImpl {
     }
 }
 
-/// RFC 7396 JSON Merge Patch implementation
-pub(crate) fn json_merge_patch(target: &mut serde_json::Value, patch: &serde_json::Value) {
-    if let serde_json::Value::Object(patch_obj) = patch {
-        if !target.is_object() {
-            *target = serde_json::Value::Object(serde_json::Map::new());
-        }
-        if let serde_json::Value::Object(target_obj) = target {
-            for (key, value) in patch_obj {
-                if value.is_null() {
-                    target_obj.remove(key);
-                } else if let Some(target_value) = target_obj.get_mut(key) {
-                    json_merge_patch(target_value, value);
-                } else {
-                    target_obj.insert(key.clone(), value.clone());
-                }
-            }
-        }
-    } else {
-        *target = patch.clone();
-    }
-}
-
 // =============================================================================
 // Tests
 // =============================================================================

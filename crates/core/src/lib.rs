@@ -35,9 +35,9 @@ pub use error::{
     StrataResult,
 };
 pub use json::{
-    apply_patches, delete_at_path, get_at_path, get_at_path_mut, set_at_path, JsonPatch, JsonPath,
-    JsonPathError, JsonValue, LimitError, PathParseError, PathSegment, MAX_ARRAY_SIZE,
-    MAX_DOCUMENT_SIZE, MAX_NESTING_DEPTH, MAX_PATH_LENGTH,
+    apply_patches, delete_at_path, get_at_path, get_at_path_mut, merge_patch, set_at_path,
+    JsonPatch, JsonPath, JsonPathError, JsonValue, LimitError, PathParseError, PathSegment,
+    MAX_ARRAY_SIZE, MAX_DOCUMENT_SIZE, MAX_NESTING_DEPTH, MAX_PATH_LENGTH,
 };
 pub use run_types::{RunEventOffsets, RunMetadata, RunStatus};
 pub use search_types::{SearchBudget, SearchHit, SearchMode, SearchRequest, SearchResponse, SearchStats};

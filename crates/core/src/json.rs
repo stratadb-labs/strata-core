@@ -1388,6 +1388,78 @@ pub fn apply_patches(root: &mut JsonValue, patches: &[JsonPatch]) -> Result<(), 
     Ok(())
 }
 
+// =============================================================================
+// RFC 7396 JSON Merge Patch
+// =============================================================================
+
+/// Apply RFC 7396 JSON Merge Patch
+///
+/// Merges `patch` into `target` following RFC 7396 semantics:
+/// - If patch is an object, recursively merge each key
+/// - If a key's value is null, remove that key from target
+/// - If a key exists in both, recursively merge (if objects) or replace (otherwise)
+/// - If a key only exists in patch, add it to target
+/// - If patch is not an object, it replaces target entirely
+///
+/// # Arguments
+///
+/// * `target` - The target JSON value to modify in place
+/// * `patch` - The patch to apply
+///
+/// # Examples
+///
+/// ```
+/// use strata_core::json::{JsonValue, merge_patch};
+///
+/// // Merge objects
+/// let mut target: JsonValue = serde_json::json!({"a": 1, "b": 2}).into();
+/// let patch: JsonValue = serde_json::json!({"b": 3, "c": 4}).into();
+/// merge_patch(&mut target, &patch);
+/// // target is now {"a": 1, "b": 3, "c": 4}
+///
+/// // Null removes keys
+/// let mut target: JsonValue = serde_json::json!({"a": 1, "b": 2}).into();
+/// let patch: JsonValue = serde_json::json!({"b": null}).into();
+/// merge_patch(&mut target, &patch);
+/// // target is now {"a": 1}
+///
+/// // Non-object patch replaces entirely
+/// let mut target: JsonValue = serde_json::json!({"a": 1}).into();
+/// let patch: JsonValue = serde_json::json!([1, 2, 3]).into();
+/// merge_patch(&mut target, &patch);
+/// // target is now [1, 2, 3]
+/// ```
+pub fn merge_patch(target: &mut JsonValue, patch: &JsonValue) {
+    merge_patch_inner(target.as_inner_mut(), patch.as_inner());
+}
+
+/// Internal implementation operating on serde_json::Value
+fn merge_patch_inner(target: &mut serde_json::Value, patch: &serde_json::Value) {
+    if let serde_json::Value::Object(patch_obj) = patch {
+        // Patch is an object - merge recursively
+        if !target.is_object() {
+            *target = serde_json::Value::Object(serde_json::Map::new());
+        }
+        if let serde_json::Value::Object(target_obj) = target {
+            for (key, value) in patch_obj {
+                if value.is_null() {
+                    // Null removes the key
+                    target_obj.remove(key);
+                } else if let Some(target_value) = target_obj.get_mut(key) {
+                    // Key exists - recursively merge
+                    merge_patch_inner(target_value, value);
+                } else {
+                    // Key doesn't exist - add it
+                    target_obj.insert(key.clone(), value.clone());
+                }
+            }
+        }
+    } else {
+        // Patch is not an object - replace target entirely
+        *target = patch.clone();
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

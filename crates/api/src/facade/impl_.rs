@@ -115,25 +115,6 @@ pub(crate) fn value_type_name(value: &Value) -> String {
     }
 }
 
-/// Merge two Values using JSON Merge Patch semantics (RFC 7396)
-pub(crate) fn merge_values(base: Value, patch: Value) -> Value {
-    match (base, patch) {
-        (Value::Object(mut base_map), Value::Object(patch_map)) => {
-            for (key, patch_value) in patch_map {
-                if matches!(patch_value, Value::Null) {
-                    base_map.remove(&key);
-                } else if let Some(base_value) = base_map.remove(&key) {
-                    base_map.insert(key, merge_values(base_value, patch_value));
-                } else {
-                    base_map.insert(key, patch_value);
-                }
-            }
-            Value::Object(base_map)
-        }
-        (_, patch) => patch, // Non-object patches replace entirely
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -142,53 +123,4 @@ mod tests {
     fn test_version_to_u64() {
         assert_eq!(version_to_u64(&Version::Txn(42)), 42);
     }
-
-    #[test]
-    fn test_merge_values_objects() {
-        use std::collections::HashMap;
-
-        let base = Value::Object(HashMap::from([
-            ("a".to_string(), Value::Int(1)),
-            ("b".to_string(), Value::Int(2)),
-        ]));
-
-        let patch = Value::Object(HashMap::from([
-            ("b".to_string(), Value::Int(3)),
-            ("c".to_string(), Value::Int(4)),
-        ]));
-
-        let result = merge_values(base, patch);
-
-        if let Value::Object(map) = result {
-            assert_eq!(map.get("a"), Some(&Value::Int(1)));
-            assert_eq!(map.get("b"), Some(&Value::Int(3)));
-            assert_eq!(map.get("c"), Some(&Value::Int(4)));
-        } else {
-            panic!("Expected object");
-        }
-    }
-
-    #[test]
-    fn test_merge_values_null_deletes() {
-        use std::collections::HashMap;
-
-        let base = Value::Object(HashMap::from([
-            ("a".to_string(), Value::Int(1)),
-            ("b".to_string(), Value::Int(2)),
-        ]));
-
-        let patch = Value::Object(HashMap::from([
-            ("b".to_string(), Value::Null),
-        ]));
-
-        let result = merge_values(base, patch);
-
-        if let Value::Object(map) = result {
-            assert_eq!(map.get("a"), Some(&Value::Int(1)));
-            assert!(!map.contains_key("b"));
-        } else {
-            panic!("Expected object");
-        }
-    }
-
 }

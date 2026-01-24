@@ -116,6 +116,11 @@ pub trait JsonFacade {
     /// Returns new array length.
     fn json_arrappend(&self, key: &str, path: &str, values: Vec<Value>) -> StrataResult<usize>;
 
+    /// Pop from array at path
+    ///
+    /// Removes and returns the last element. Returns None if array is empty.
+    fn json_arrpop(&self, key: &str, path: &str) -> StrataResult<Option<Value>>;
+
     /// Get array length at path
     fn json_arrlen(&self, key: &str, path: &str) -> StrataResult<Option<usize>>;
 
@@ -131,7 +136,7 @@ pub trait JsonFacade {
 // =============================================================================
 
 use strata_core::StrataError;
-use super::impl_::{FacadeImpl, version_to_u64, merge_values, value_type_name};
+use super::impl_::{FacadeImpl, version_to_u64, value_type_name};
 use crate::substrate::JsonStore as SubstrateJsonStore;
 
 impl JsonFacade for FacadeImpl {
@@ -159,12 +164,8 @@ impl JsonFacade for FacadeImpl {
     }
 
     fn json_merge(&self, key: &str, path: &str, patch: Value) -> StrataResult<()> {
-        let current = self.substrate().json_get(self.default_run(), key, path)?;
-        let merged = match current {
-            Some(v) => merge_values(v.value, patch),
-            None => patch,
-        };
-        let _version = self.substrate().json_set(self.default_run(), key, path, merged)?;
+        // Delegate to substrate's atomic merge implementation
+        self.substrate().json_merge(self.default_run(), key, path, patch)?;
         Ok(())
     }
 
@@ -174,21 +175,8 @@ impl JsonFacade for FacadeImpl {
     }
 
     fn json_numincrby(&self, key: &str, path: &str, delta: f64) -> StrataResult<f64> {
-        let current = self.substrate().json_get(self.default_run(), key, path)?;
-        let current_num = match current {
-            Some(v) => match v.value {
-                Value::Int(i) => i as f64,
-                Value::Float(f) => f,
-                _ => return Err(StrataError::invalid_operation(
-                    strata_core::EntityRef::kv(self.default_run().to_run_id(), key),
-                    &format!("Expected number, got {:?}", value_type_name(&v.value)),
-                )),
-            },
-            None => 0.0,
-        };
-        let new_value = current_num + delta;
-        self.substrate().json_set(self.default_run(), key, path, Value::Float(new_value))?;
-        Ok(new_value)
+        // Delegate to substrate's atomic increment
+        self.substrate().json_increment(self.default_run(), key, path, delta)
     }
 
     fn json_strappend(&self, key: &str, path: &str, suffix: &str) -> StrataResult<usize> {
@@ -210,21 +198,13 @@ impl JsonFacade for FacadeImpl {
     }
 
     fn json_arrappend(&self, key: &str, path: &str, values: Vec<Value>) -> StrataResult<usize> {
-        let current = self.substrate().json_get(self.default_run(), key, path)?;
-        let mut arr = match current {
-            Some(v) => match v.value {
-                Value::Array(a) => a,
-                _ => return Err(StrataError::invalid_operation(
-                    strata_core::EntityRef::kv(self.default_run().to_run_id(), key),
-                    "Expected array",
-                )),
-            },
-            None => Vec::new(),
-        };
-        arr.extend(values);
-        let len = arr.len();
-        self.substrate().json_set(self.default_run(), key, path, Value::Array(arr))?;
-        Ok(len)
+        // Delegate to substrate's atomic array push
+        self.substrate().json_array_push(self.default_run(), key, path, values)
+    }
+
+    fn json_arrpop(&self, key: &str, path: &str) -> StrataResult<Option<Value>> {
+        // Delegate to substrate's atomic array pop
+        self.substrate().json_array_pop(self.default_run(), key, path)
     }
 
     fn json_arrlen(&self, key: &str, path: &str) -> StrataResult<Option<usize>> {
