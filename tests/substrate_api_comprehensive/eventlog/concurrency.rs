@@ -5,7 +5,10 @@
 //! - No lost events under contention
 //! - Sequence ordering is total
 //! - Concurrent reads are safe
+//!
+//! All test data is loaded from testdata/eventlog_test_data.jsonl
 
+use crate::test_data::load_eventlog_test_data;
 use crate::*;
 use std::collections::HashMap;
 use std::sync::{Arc, Barrier};
@@ -21,6 +24,12 @@ fn test_concurrent_appends_no_lost_events() {
     let db = Arc::new(db);
     let run = ApiRunId::default();
 
+    // Load test data and prepare payloads for threads
+    let test_data = load_eventlog_test_data();
+    let payloads: Arc<Vec<Value>> = Arc::new(
+        test_data.entries.iter().take(100).map(|e| e.payload.clone()).collect()
+    );
+
     let thread_count = 4;
     let events_per_thread = 25;
     let barrier = Arc::new(Barrier::new(thread_count));
@@ -30,20 +39,18 @@ fn test_concurrent_appends_no_lost_events() {
             let db = db.clone();
             let barrier = barrier.clone();
             let run = run.clone();
+            let payloads = payloads.clone();
 
             thread::spawn(move || {
                 let substrate = SubstrateImpl::new((*db).clone());
                 barrier.wait();
 
                 for i in 0..events_per_thread {
-                    let payload = Value::Object({
-                        let mut m = HashMap::new();
-                        m.insert("thread".to_string(), Value::Int(thread_id as i64));
-                        m.insert("index".to_string(), Value::Int(i as i64));
-                        m
-                    });
+                    // Use payload from test data, cycling through available payloads
+                    let payload_idx = (thread_id * events_per_thread + i) % payloads.len();
+                    let payload = payloads[payload_idx].clone();
                     substrate
-                        .event_append(&run, "stream1", payload)
+                        .event_append(&run, "conc_stream1", payload)
                         .expect("append should succeed");
                 }
             })
@@ -57,7 +64,7 @@ fn test_concurrent_appends_no_lost_events() {
     // Verify no events lost
     let substrate = SubstrateImpl::new((*db).clone());
     let len = substrate
-        .event_len(&run, "stream1")
+        .event_len(&run, "conc_stream1")
         .expect("len should succeed");
 
     let expected = (thread_count * events_per_thread) as u64;
@@ -74,6 +81,12 @@ fn test_concurrent_appends_sequence_monotonic() {
     let db = Arc::new(db);
     let run = ApiRunId::default();
 
+    // Load test data and prepare payloads for threads
+    let test_data = load_eventlog_test_data();
+    let payloads: Arc<Vec<Value>> = Arc::new(
+        test_data.entries.iter().take(40).map(|e| e.payload.clone()).collect()
+    );
+
     let thread_count = 4;
     let events_per_thread = 10;
     let barrier = Arc::new(Barrier::new(thread_count));
@@ -83,6 +96,7 @@ fn test_concurrent_appends_sequence_monotonic() {
             let db = db.clone();
             let barrier = barrier.clone();
             let run = run.clone();
+            let payloads = payloads.clone();
 
             thread::spawn(move || {
                 let substrate = SubstrateImpl::new((*db).clone());
@@ -90,14 +104,10 @@ fn test_concurrent_appends_sequence_monotonic() {
 
                 let mut sequences = Vec::new();
                 for i in 0..events_per_thread {
-                    let payload = Value::Object({
-                        let mut m = HashMap::new();
-                        m.insert("thread".to_string(), Value::Int(thread_id as i64));
-                        m.insert("index".to_string(), Value::Int(i as i64));
-                        m
-                    });
+                    let payload_idx = (thread_id * events_per_thread + i) % payloads.len();
+                    let payload = payloads[payload_idx].clone();
                     let version = substrate
-                        .event_append(&run, "stream1", payload)
+                        .event_append(&run, "seq_mono_stream", payload)
                         .expect("append should succeed");
 
                     if let Version::Sequence(seq) = version {
@@ -142,6 +152,12 @@ fn test_concurrent_appends_to_different_streams() {
     let db = Arc::new(db);
     let run = ApiRunId::default();
 
+    // Load test data and prepare payloads for threads
+    let test_data = load_eventlog_test_data();
+    let payloads: Arc<Vec<Value>> = Arc::new(
+        test_data.entries.iter().take(100).map(|e| e.payload.clone()).collect()
+    );
+
     let thread_count = 4;
     let events_per_thread = 25;
     let barrier = Arc::new(Barrier::new(thread_count));
@@ -151,19 +167,16 @@ fn test_concurrent_appends_to_different_streams() {
             let db = db.clone();
             let barrier = barrier.clone();
             let run = run.clone();
+            let payloads = payloads.clone();
 
             thread::spawn(move || {
                 let substrate = SubstrateImpl::new((*db).clone());
-                let stream = format!("stream_{}", thread_id);
+                let stream = format!("diff_stream_{}", thread_id);
                 barrier.wait();
 
                 for i in 0..events_per_thread {
-                    let payload = Value::Object({
-                        let mut m = HashMap::new();
-                        m.insert("thread".to_string(), Value::Int(thread_id as i64));
-                        m.insert("index".to_string(), Value::Int(i as i64));
-                        m
-                    });
+                    let payload_idx = (thread_id * events_per_thread + i) % payloads.len();
+                    let payload = payloads[payload_idx].clone();
                     substrate
                         .event_append(&run, &stream, payload)
                         .expect("append should succeed");
@@ -179,7 +192,7 @@ fn test_concurrent_appends_to_different_streams() {
     // Verify each stream has correct count
     let substrate = SubstrateImpl::new((*db).clone());
     for thread_id in 0..thread_count {
-        let stream = format!("stream_{}", thread_id);
+        let stream = format!("diff_stream_{}", thread_id);
         let len = substrate
             .event_len(&run, &stream)
             .expect("len should succeed");
@@ -201,15 +214,11 @@ fn test_concurrent_reads_safe() {
     let db = Arc::new(db);
     let run = ApiRunId::default();
 
-    // Pre-populate with events
-    for i in 0..50 {
-        let payload = Value::Object({
-            let mut m = HashMap::new();
-            m.insert("index".to_string(), Value::Int(i));
-            m
-        });
+    // Load test data and pre-populate with events
+    let test_data = load_eventlog_test_data();
+    for entry in test_data.take(50) {
         substrate
-            .event_append(&run, "stream1", payload)
+            .event_append(&run, "read_safe_stream", entry.payload.clone())
             .expect("append should succeed");
     }
 
@@ -230,12 +239,12 @@ fn test_concurrent_reads_safe() {
                 let mut results = Vec::new();
                 for _ in 0..reads_per_thread {
                     let events = substrate
-                        .event_range(&run, "stream1", None, None, None)
+                        .event_range(&run, "read_safe_stream", None, None, None)
                         .expect("range should succeed");
                     results.push(events.len());
 
                     let len = substrate
-                        .event_len(&run, "stream1")
+                        .event_len(&run, "read_safe_stream")
                         .expect("len should succeed");
                     results.push(len as usize);
                 }
@@ -259,6 +268,12 @@ fn test_concurrent_reads_and_writes() {
     let db = Arc::new(db);
     let run = ApiRunId::default();
 
+    // Load test data and prepare payloads for threads
+    let test_data = load_eventlog_test_data();
+    let payloads: Arc<Vec<Value>> = Arc::new(
+        test_data.entries.iter().take(100).map(|e| e.payload.clone()).collect()
+    );
+
     let writer_count = 2;
     let reader_count = 4;
     let events_per_writer = 50;
@@ -271,20 +286,17 @@ fn test_concurrent_reads_and_writes() {
             let db = db.clone();
             let barrier = barrier.clone();
             let run = run.clone();
+            let payloads = payloads.clone();
 
             thread::spawn(move || {
                 let substrate = SubstrateImpl::new((*db).clone());
                 barrier.wait();
 
                 for i in 0..events_per_writer {
-                    let payload = Value::Object({
-                        let mut m = HashMap::new();
-                        m.insert("writer".to_string(), Value::Int(writer_id as i64));
-                        m.insert("index".to_string(), Value::Int(i as i64));
-                        m
-                    });
+                    let payload_idx = (writer_id * events_per_writer + i) % payloads.len();
+                    let payload = payloads[payload_idx].clone();
                     substrate
-                        .event_append(&run, "stream1", payload)
+                        .event_append(&run, "rw_stream", payload)
                         .expect("append should succeed");
                 }
             })
@@ -305,7 +317,7 @@ fn test_concurrent_reads_and_writes() {
                 let mut lens = Vec::new();
                 for _ in 0..reads_per_reader {
                     let len = substrate
-                        .event_len(&run, "stream1")
+                        .event_len(&run, "rw_stream")
                         .expect("len should succeed");
                     lens.push(len);
                     // Small delay to spread reads over write period
@@ -338,7 +350,7 @@ fn test_concurrent_reads_and_writes() {
     // Final verification
     let substrate = SubstrateImpl::new((*db).clone());
     let final_len = substrate
-        .event_len(&run, "stream1")
+        .event_len(&run, "rw_stream")
         .expect("len should succeed");
     let expected = (writer_count * events_per_writer) as u64;
     assert_eq!(
@@ -357,6 +369,12 @@ fn test_run_isolation_under_concurrency() {
     let (db, _) = quick_setup();
     let db = Arc::new(db);
 
+    // Load test data and prepare payloads for threads
+    let test_data = load_eventlog_test_data();
+    let payloads: Arc<Vec<Value>> = Arc::new(
+        test_data.entries.iter().take(100).map(|e| e.payload.clone()).collect()
+    );
+
     let thread_count = 4;
     let events_per_thread = 25;
     let barrier = Arc::new(Barrier::new(thread_count));
@@ -366,6 +384,7 @@ fn test_run_isolation_under_concurrency() {
         .map(|thread_id| {
             let db = db.clone();
             let barrier = barrier.clone();
+            let payloads = payloads.clone();
 
             thread::spawn(move || {
                 let substrate = SubstrateImpl::new((*db).clone());
@@ -373,20 +392,16 @@ fn test_run_isolation_under_concurrency() {
                 barrier.wait();
 
                 for i in 0..events_per_thread {
-                    let payload = Value::Object({
-                        let mut m = HashMap::new();
-                        m.insert("thread".to_string(), Value::Int(thread_id as i64));
-                        m.insert("index".to_string(), Value::Int(i as i64));
-                        m
-                    });
+                    let payload_idx = (thread_id * events_per_thread + i) % payloads.len();
+                    let payload = payloads[payload_idx].clone();
                     substrate
-                        .event_append(&run, "stream1", payload)
+                        .event_append(&run, "iso_conc_stream", payload)
                         .expect("append should succeed");
                 }
 
                 // Verify this run only sees its own events
                 let len = substrate
-                    .event_len(&run, "stream1")
+                    .event_len(&run, "iso_conc_stream")
                     .expect("len should succeed");
                 (run, len)
             })
@@ -413,6 +428,12 @@ fn test_high_contention_single_stream() {
     let db = Arc::new(db);
     let run = ApiRunId::default();
 
+    // Load test data and prepare payloads for threads
+    let test_data = load_eventlog_test_data();
+    let payloads: Arc<Vec<Value>> = Arc::new(
+        test_data.entries.iter().take(400).map(|e| e.payload.clone()).collect()
+    );
+
     let thread_count = 8;
     let events_per_thread = 50;
     let barrier = Arc::new(Barrier::new(thread_count));
@@ -422,6 +443,7 @@ fn test_high_contention_single_stream() {
             let db = db.clone();
             let barrier = barrier.clone();
             let run = run.clone();
+            let payloads = payloads.clone();
 
             thread::spawn(move || {
                 let substrate = SubstrateImpl::new((*db).clone());
@@ -429,12 +451,8 @@ fn test_high_contention_single_stream() {
 
                 let mut success_count = 0;
                 for i in 0..events_per_thread {
-                    let payload = Value::Object({
-                        let mut m = HashMap::new();
-                        m.insert("t".to_string(), Value::Int(thread_id as i64));
-                        m.insert("i".to_string(), Value::Int(i as i64));
-                        m
-                    });
+                    let payload_idx = (thread_id * events_per_thread + i) % payloads.len();
+                    let payload = payloads[payload_idx].clone();
                     match substrate.event_append(&run, "hot_stream", payload) {
                         Ok(_) => success_count += 1,
                         Err(e) => panic!("Append failed under contention: {:?}", e),
@@ -476,17 +494,19 @@ fn test_mixed_operations_stress() {
     let db = Arc::new(db);
     let run = ApiRunId::default();
 
+    // Load test data and prepare payloads
+    let test_data = load_eventlog_test_data();
+    let payloads: Arc<Vec<Value>> = Arc::new(
+        test_data.entries.iter().take(200).map(|e| e.payload.clone()).collect()
+    );
+
     // Pre-populate
     {
         let substrate = SubstrateImpl::new((*db).clone());
         for i in 0..10 {
-            let payload = Value::Object({
-                let mut m = HashMap::new();
-                m.insert("initial".to_string(), Value::Int(i));
-                m
-            });
+            let payload = payloads[i % payloads.len()].clone();
             substrate
-                .event_append(&run, "stream1", payload)
+                .event_append(&run, "mixed_stream", payload)
                 .expect("append should succeed");
         }
     }
@@ -500,6 +520,7 @@ fn test_mixed_operations_stress() {
             let db = db.clone();
             let barrier = barrier.clone();
             let run = run.clone();
+            let payloads = payloads.clone();
 
             thread::spawn(move || {
                 let substrate = SubstrateImpl::new((*db).clone());
@@ -509,32 +530,28 @@ fn test_mixed_operations_stress() {
                     match i % 4 {
                         0 => {
                             // Append
-                            let payload = Value::Object({
-                                let mut m = HashMap::new();
-                                m.insert("thread".to_string(), Value::Int(thread_id as i64));
-                                m.insert("index".to_string(), Value::Int(i as i64));
-                                m
-                            });
+                            let payload_idx = (thread_id * ops_per_thread + i) % payloads.len();
+                            let payload = payloads[payload_idx].clone();
                             substrate
-                                .event_append(&run, "stream1", payload)
+                                .event_append(&run, "mixed_stream", payload)
                                 .expect("append should succeed");
                         }
                         1 => {
                             // Range read
                             let _ = substrate
-                                .event_range(&run, "stream1", None, None, Some(10))
+                                .event_range(&run, "mixed_stream", None, None, Some(10))
                                 .expect("range should succeed");
                         }
                         2 => {
                             // Len
                             let _ = substrate
-                                .event_len(&run, "stream1")
+                                .event_len(&run, "mixed_stream")
                                 .expect("len should succeed");
                         }
                         _ => {
                             // Latest sequence
                             let _ = substrate
-                                .event_latest_sequence(&run, "stream1")
+                                .event_latest_sequence(&run, "mixed_stream")
                                 .expect("latest_sequence should succeed");
                         }
                     }
@@ -550,7 +567,7 @@ fn test_mixed_operations_stress() {
     // Verify data integrity
     let substrate = SubstrateImpl::new((*db).clone());
     let events = substrate
-        .event_range(&run, "stream1", None, None, None)
+        .event_range(&run, "mixed_stream", None, None, None)
         .expect("range should succeed");
 
     // Should have initial 10 + appends from threads

@@ -11,11 +11,13 @@
 //! - `concurrency`: Multi-threaded safety and ordering
 //! - `recovery_invariants`: Recovery guarantees
 //! - `immutability`: Append-only verification, no update/delete
+//! - `invariants`: Tests for all 7 invariants from PRIMITIVE_CONTRACT.md
 
 pub mod basic_ops;
 pub mod concurrency;
 pub mod durability;
 pub mod edge_cases;
 pub mod immutability;
+pub mod invariants;
 pub mod recovery_invariants;
 pub mod streams;

@@ -90,9 +90,21 @@ pub struct EventLogHeader {
     #[serde(default)]
     pub total_runs: usize,
     #[serde(default)]
-    pub streams_per_run: usize,
+    pub events_per_run: usize,
     #[serde(default)]
-    pub events_per_stream: usize,
+    pub streams: Vec<String>,
+    #[serde(default)]
+    pub total_entries: usize,
+    #[serde(default)]
+    pub invalid_payloads_count: usize,
+}
+
+/// Invalid payload entry for negative testing
+#[derive(Debug, Clone)]
+pub struct InvalidPayloadEntry {
+    pub name: String,
+    pub payload: Value,
+    pub expected: String,
 }
 
 /// Loaded EventLog test data
@@ -101,6 +113,7 @@ pub struct EventLogTestData {
     pub entries: Vec<EventLogTestEntry>,
     pub entries_by_run: HashMap<usize, Vec<EventLogTestEntry>>,
     pub entries_by_stream: HashMap<String, Vec<EventLogTestEntry>>,
+    pub invalid_payloads: Vec<InvalidPayloadEntry>,
 }
 
 // =============================================================================
@@ -173,21 +186,36 @@ pub fn load_eventlog_test_data() -> EventLogTestData {
     let mut entries = Vec::new();
     let mut entries_by_run: HashMap<usize, Vec<EventLogTestEntry>> = HashMap::new();
     let mut entries_by_stream: HashMap<String, Vec<EventLogTestEntry>> = HashMap::new();
+    let mut invalid_payloads = Vec::new();
 
     for (line_num, line) in reader.lines().enumerate() {
         let line = line.expect(&format!("Failed to read line {}", line_num));
         let json: JsonValue = serde_json::from_str(&line)
             .expect(&format!("Failed to parse line {}: {}", line_num, line));
 
+        // Check the type field
+        let entry_type = json.get("type").and_then(|v| v.as_str());
+
         // First line is header
-        if line_num == 0 {
-            if json.get("type").and_then(|v| v.as_str()) == Some("header") {
-                header = Some(serde_json::from_value(json).expect("Failed to parse header"));
-                continue;
-            }
+        if line_num == 0 && entry_type == Some("header") {
+            header = Some(serde_json::from_value(json).expect("Failed to parse header"));
+            continue;
         }
 
-        // Parse entry
+        // Invalid payload entries (for negative testing)
+        if entry_type == Some("invalid_payload") {
+            let name = json["name"].as_str().unwrap_or("unknown").to_string();
+            let payload = json_to_value(&json["payload"]);
+            let expected = json["expected"].as_str().unwrap_or("rejection").to_string();
+            invalid_payloads.push(InvalidPayloadEntry {
+                name,
+                payload,
+                expected,
+            });
+            continue;
+        }
+
+        // Parse regular entry
         let entry = parse_eventlog_entry(&json);
 
         entries_by_run
@@ -208,6 +236,7 @@ pub fn load_eventlog_test_data() -> EventLogTestData {
         entries,
         entries_by_run,
         entries_by_stream,
+        invalid_payloads,
     }
 }
 
@@ -437,6 +466,11 @@ impl EventLogTestData {
     pub fn take(&self, n: usize) -> &[EventLogTestEntry] {
         &self.entries[..n.min(self.entries.len())]
     }
+
+    /// Get invalid payloads for negative testing
+    pub fn get_invalid_payloads(&self) -> &[InvalidPayloadEntry] {
+        &self.invalid_payloads
+    }
 }
 
 impl EdgeCaseData {
@@ -473,10 +507,18 @@ mod tests {
     #[test]
     fn test_load_eventlog_test_data() {
         let data = load_eventlog_test_data();
-        assert!(data.entries.len() > 1900, "Should load ~2000 EventLog entries");
+        assert!(data.entries.len() >= 20000, "Should load 20000+ EventLog entries, got {}", data.entries.len());
         assert_eq!(data.header.total_runs, 20);
-        assert!(data.entries_by_stream.contains_key("events"));
-        assert!(data.entries_by_stream.contains_key("logs"));
-        assert!(data.entries_by_stream.contains_key("metrics"));
+        // Verify all six streams exist
+        assert!(data.entries_by_stream.contains_key("events"), "Should have 'events' stream");
+        assert!(data.entries_by_stream.contains_key("logs"), "Should have 'logs' stream");
+        assert!(data.entries_by_stream.contains_key("metrics"), "Should have 'metrics' stream");
+        assert!(data.entries_by_stream.contains_key("edge_cases"), "Should have 'edge_cases' stream");
+        assert!(data.entries_by_stream.contains_key("security"), "Should have 'security' stream");
+        assert!(data.entries_by_stream.contains_key("stress"), "Should have 'stress' stream");
+        // Verify data is distributed across runs
+        assert_eq!(data.entries_by_run.len(), 20, "Should have entries for all 20 runs");
+        // Verify invalid payloads for negative testing
+        assert!(data.invalid_payloads.len() >= 8, "Should have invalid payloads for negative testing");
     }
 }

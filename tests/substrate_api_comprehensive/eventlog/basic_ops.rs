@@ -6,7 +6,10 @@
 //! - event_range: Read events in range
 //! - event_len: Get event count in stream
 //! - event_latest_sequence: Get latest sequence number
+//!
+//! All test data is loaded from testdata/eventlog_test_data.jsonl
 
+use crate::test_data::load_eventlog_test_data;
 use crate::*;
 use std::collections::HashMap;
 
@@ -18,15 +21,13 @@ use std::collections::HashMap;
 fn test_append_returns_sequence_version() {
     let (_, substrate) = quick_setup();
     let run = ApiRunId::default();
+    let test_data = load_eventlog_test_data();
 
-    let payload = Value::Object({
-        let mut m = HashMap::new();
-        m.insert("message".to_string(), Value::String("hello".into()));
-        m
-    });
+    // Use first entry from test data
+    let entry = &test_data.entries[0];
 
     let version = substrate
-        .event_append(&run, "stream1", payload)
+        .event_append(&run, &entry.stream, entry.payload.clone())
         .expect("append should succeed");
 
     // Version should be a sequence version (0-indexed)
@@ -40,18 +41,14 @@ fn test_append_returns_sequence_version() {
 fn test_append_sequences_are_monotonic() {
     let (_, substrate) = quick_setup();
     let run = ApiRunId::default();
+    let test_data = load_eventlog_test_data();
 
     let mut sequences = Vec::new();
 
-    for i in 0..10 {
-        let payload = Value::Object({
-            let mut m = HashMap::new();
-            m.insert("index".to_string(), Value::Int(i));
-            m
-        });
-
+    // Use first 10 entries from test data
+    for entry in test_data.take(10) {
         let version = substrate
-            .event_append(&run, "stream1", payload)
+            .event_append(&run, &entry.stream, entry.payload.clone())
             .expect("append should succeed");
 
         if let Version::Sequence(seq) = version {
@@ -74,6 +71,7 @@ fn test_append_sequences_are_monotonic() {
 fn test_append_creates_stream_on_first_event() {
     let (_, substrate) = quick_setup();
     let run = ApiRunId::default();
+    let test_data = load_eventlog_test_data();
 
     // Stream doesn't exist yet
     let len_before = substrate
@@ -81,14 +79,10 @@ fn test_append_creates_stream_on_first_event() {
         .expect("len should succeed");
     assert_eq!(len_before, 0, "Stream should be empty before first append");
 
-    // Append creates stream
-    let payload = Value::Object({
-        let mut m = HashMap::new();
-        m.insert("first".to_string(), Value::Bool(true));
-        m
-    });
+    // Append creates stream using first test entry's payload
+    let entry = &test_data.entries[0];
     substrate
-        .event_append(&run, "new_stream", payload)
+        .event_append(&run, "new_stream", entry.payload.clone())
         .expect("append should succeed");
 
     // Stream now has event
@@ -122,15 +116,13 @@ fn test_append_empty_object_payload() {
 fn test_get_existing_event() {
     let (_, substrate) = quick_setup();
     let run = ApiRunId::default();
+    let test_data = load_eventlog_test_data();
 
-    let payload = Value::Object({
-        let mut m = HashMap::new();
-        m.insert("data".to_string(), Value::String("test".into()));
-        m
-    });
+    // Use first entry from test data
+    let entry = &test_data.entries[0];
 
     let version = substrate
-        .event_append(&run, "stream1", payload.clone())
+        .event_append(&run, &entry.stream, entry.payload.clone())
         .expect("append should succeed");
 
     let sequence = match version {
@@ -139,12 +131,12 @@ fn test_get_existing_event() {
     };
 
     let event = substrate
-        .event_get(&run, "stream1", sequence)
+        .event_get(&run, &entry.stream, sequence)
         .expect("get should succeed")
         .expect("event should exist");
 
     // Verify payload
-    assert_eq!(event.value, payload);
+    assert_eq!(event.value, entry.payload);
 }
 
 #[test]
@@ -167,15 +159,13 @@ fn test_get_missing_event_returns_none() {
 fn test_get_returns_versioned_with_sequence() {
     let (_, substrate) = quick_setup();
     let run = ApiRunId::default();
+    let test_data = load_eventlog_test_data();
 
-    let payload = Value::Object({
-        let mut m = HashMap::new();
-        m.insert("test".to_string(), Value::Int(42));
-        m
-    });
+    // Use first entry from test data
+    let entry = &test_data.entries[0];
 
     let version = substrate
-        .event_append(&run, "stream1", payload)
+        .event_append(&run, &entry.stream, entry.payload.clone())
         .expect("append should succeed");
 
     let sequence = match version {
@@ -184,7 +174,7 @@ fn test_get_returns_versioned_with_sequence() {
     };
 
     let event = substrate
-        .event_get(&run, "stream1", sequence)
+        .event_get(&run, &entry.stream, sequence)
         .expect("get should succeed")
         .expect("event should exist");
 
@@ -203,31 +193,26 @@ fn test_get_returns_versioned_with_sequence() {
 fn test_range_all_events() {
     let (_, substrate) = quick_setup();
     let run = ApiRunId::default();
+    let test_data = load_eventlog_test_data();
 
-    // Append several events
-    let mut expected_payloads = Vec::new();
-    for i in 0..5 {
-        let payload = Value::Object({
-            let mut m = HashMap::new();
-            m.insert("index".to_string(), Value::Int(i));
-            m
-        });
-        expected_payloads.push(payload.clone());
+    // Append 5 events from test data to same stream
+    let entries: Vec<_> = test_data.take(5).to_vec();
+    for entry in &entries {
         substrate
-            .event_append(&run, "stream1", payload)
+            .event_append(&run, "range_test_stream", entry.payload.clone())
             .expect("append should succeed");
     }
 
     // Read all events (no bounds)
     let events = substrate
-        .event_range(&run, "stream1", None, None, None)
+        .event_range(&run, "range_test_stream", None, None, None)
         .expect("range should succeed");
 
     assert_eq!(events.len(), 5, "Should have 5 events");
 
     // Verify order is ascending (oldest first)
     for (i, event) in events.iter().enumerate() {
-        assert_eq!(event.value, expected_payloads[i]);
+        assert_eq!(event.value, entries[i].payload);
     }
 }
 
@@ -235,16 +220,12 @@ fn test_range_all_events() {
 fn test_range_with_start_bound() {
     let (_, substrate) = quick_setup();
     let run = ApiRunId::default();
+    let test_data = load_eventlog_test_data();
 
     let mut sequences = Vec::new();
-    for i in 0..5 {
-        let payload = Value::Object({
-            let mut m = HashMap::new();
-            m.insert("index".to_string(), Value::Int(i));
-            m
-        });
+    for entry in test_data.take(5) {
         let version = substrate
-            .event_append(&run, "stream1", payload)
+            .event_append(&run, "start_bound_stream", entry.payload.clone())
             .expect("append should succeed");
         if let Version::Sequence(seq) = version {
             sequences.push(seq);
@@ -253,7 +234,7 @@ fn test_range_with_start_bound() {
 
     // Read from third event onwards
     let events = substrate
-        .event_range(&run, "stream1", Some(sequences[2]), None, None)
+        .event_range(&run, "start_bound_stream", Some(sequences[2]), None, None)
         .expect("range should succeed");
 
     assert_eq!(events.len(), 3, "Should have 3 events from start bound");
@@ -263,16 +244,12 @@ fn test_range_with_start_bound() {
 fn test_range_with_end_bound() {
     let (_, substrate) = quick_setup();
     let run = ApiRunId::default();
+    let test_data = load_eventlog_test_data();
 
     let mut sequences = Vec::new();
-    for i in 0..5 {
-        let payload = Value::Object({
-            let mut m = HashMap::new();
-            m.insert("index".to_string(), Value::Int(i));
-            m
-        });
+    for entry in test_data.take(5) {
         let version = substrate
-            .event_append(&run, "stream1", payload)
+            .event_append(&run, "end_bound_stream", entry.payload.clone())
             .expect("append should succeed");
         if let Version::Sequence(seq) = version {
             sequences.push(seq);
@@ -281,7 +258,7 @@ fn test_range_with_end_bound() {
 
     // Read up to third event (inclusive)
     let events = substrate
-        .event_range(&run, "stream1", None, Some(sequences[2]), None)
+        .event_range(&run, "end_bound_stream", None, Some(sequences[2]), None)
         .expect("range should succeed");
 
     assert_eq!(events.len(), 3, "Should have 3 events up to end bound");
@@ -291,16 +268,12 @@ fn test_range_with_end_bound() {
 fn test_range_with_both_bounds() {
     let (_, substrate) = quick_setup();
     let run = ApiRunId::default();
+    let test_data = load_eventlog_test_data();
 
     let mut sequences = Vec::new();
-    for i in 0..10 {
-        let payload = Value::Object({
-            let mut m = HashMap::new();
-            m.insert("index".to_string(), Value::Int(i));
-            m
-        });
+    for entry in test_data.take(10) {
         let version = substrate
-            .event_append(&run, "stream1", payload)
+            .event_append(&run, "both_bounds_stream", entry.payload.clone())
             .expect("append should succeed");
         if let Version::Sequence(seq) = version {
             sequences.push(seq);
@@ -309,7 +282,7 @@ fn test_range_with_both_bounds() {
 
     // Read middle range
     let events = substrate
-        .event_range(&run, "stream1", Some(sequences[3]), Some(sequences[6]), None)
+        .event_range(&run, "both_bounds_stream", Some(sequences[3]), Some(sequences[6]), None)
         .expect("range should succeed");
 
     assert_eq!(events.len(), 4, "Should have 4 events in middle range");
@@ -319,21 +292,17 @@ fn test_range_with_both_bounds() {
 fn test_range_with_limit() {
     let (_, substrate) = quick_setup();
     let run = ApiRunId::default();
+    let test_data = load_eventlog_test_data();
 
-    for i in 0..10 {
-        let payload = Value::Object({
-            let mut m = HashMap::new();
-            m.insert("index".to_string(), Value::Int(i));
-            m
-        });
+    for entry in test_data.take(10) {
         substrate
-            .event_append(&run, "stream1", payload)
+            .event_append(&run, "limit_stream", entry.payload.clone())
             .expect("append should succeed");
     }
 
     // Read with limit
     let events = substrate
-        .event_range(&run, "stream1", None, None, Some(3))
+        .event_range(&run, "limit_stream", None, None, Some(3))
         .expect("range should succeed");
 
     assert_eq!(events.len(), 3, "Should respect limit of 3");
@@ -356,20 +325,16 @@ fn test_range_empty_stream() {
 fn test_range_ascending_order() {
     let (_, substrate) = quick_setup();
     let run = ApiRunId::default();
+    let test_data = load_eventlog_test_data();
 
-    for i in 0..5 {
-        let payload = Value::Object({
-            let mut m = HashMap::new();
-            m.insert("index".to_string(), Value::Int(i));
-            m
-        });
+    for entry in test_data.take(5) {
         substrate
-            .event_append(&run, "stream1", payload)
+            .event_append(&run, "order_stream", entry.payload.clone())
             .expect("append should succeed");
     }
 
     let events = substrate
-        .event_range(&run, "stream1", None, None, None)
+        .event_range(&run, "order_stream", None, None, None)
         .expect("range should succeed");
 
     // Verify ascending order by sequence
@@ -411,20 +376,16 @@ fn test_len_empty_stream() {
 fn test_len_after_appends() {
     let (_, substrate) = quick_setup();
     let run = ApiRunId::default();
+    let test_data = load_eventlog_test_data();
 
-    for i in 0..7 {
-        let payload = Value::Object({
-            let mut m = HashMap::new();
-            m.insert("index".to_string(), Value::Int(i));
-            m
-        });
+    for entry in test_data.take(7) {
         substrate
-            .event_append(&run, "stream1", payload)
+            .event_append(&run, "len_stream", entry.payload.clone())
             .expect("append should succeed");
     }
 
     let len = substrate
-        .event_len(&run, "stream1")
+        .event_len(&run, "len_stream")
         .expect("len should succeed");
 
     assert_eq!(len, 7, "Stream should have 7 events");
@@ -434,38 +395,27 @@ fn test_len_after_appends() {
 fn test_len_multiple_streams() {
     let (_, substrate) = quick_setup();
     let run = ApiRunId::default();
+    let test_data = load_eventlog_test_data();
 
     // Add 3 events to stream1
-    for i in 0..3 {
-        let payload = Value::Object({
-            let mut m = HashMap::new();
-            m.insert("stream".to_string(), Value::String("s1".into()));
-            m.insert("index".to_string(), Value::Int(i));
-            m
-        });
+    for entry in test_data.take(3) {
         substrate
-            .event_append(&run, "stream1", payload)
+            .event_append(&run, "multi_stream1", entry.payload.clone())
             .expect("append should succeed");
     }
 
-    // Add 5 events to stream2
-    for i in 0..5 {
-        let payload = Value::Object({
-            let mut m = HashMap::new();
-            m.insert("stream".to_string(), Value::String("s2".into()));
-            m.insert("index".to_string(), Value::Int(i));
-            m
-        });
+    // Add 5 events to stream2 (skip first 3)
+    for entry in test_data.entries.iter().skip(3).take(5) {
         substrate
-            .event_append(&run, "stream2", payload)
+            .event_append(&run, "multi_stream2", entry.payload.clone())
             .expect("append should succeed");
     }
 
     let len1 = substrate
-        .event_len(&run, "stream1")
+        .event_len(&run, "multi_stream1")
         .expect("len should succeed");
     let len2 = substrate
-        .event_len(&run, "stream2")
+        .event_len(&run, "multi_stream2")
         .expect("len should succeed");
 
     assert_eq!(len1, 3, "stream1 should have 3 events");
@@ -495,16 +445,12 @@ fn test_latest_sequence_empty_stream() {
 fn test_latest_sequence_after_appends() {
     let (_, substrate) = quick_setup();
     let run = ApiRunId::default();
+    let test_data = load_eventlog_test_data();
 
     let mut last_seq = 0;
-    for i in 0..5 {
-        let payload = Value::Object({
-            let mut m = HashMap::new();
-            m.insert("index".to_string(), Value::Int(i));
-            m
-        });
+    for entry in test_data.take(5) {
         let version = substrate
-            .event_append(&run, "stream1", payload)
+            .event_append(&run, "latest_seq_stream", entry.payload.clone())
             .expect("append should succeed");
         if let Version::Sequence(seq) = version {
             last_seq = seq;
@@ -512,7 +458,7 @@ fn test_latest_sequence_after_appends() {
     }
 
     let latest = substrate
-        .event_latest_sequence(&run, "stream1")
+        .event_latest_sequence(&run, "latest_seq_stream")
         .expect("latest_sequence should succeed")
         .expect("should have latest");
 
@@ -523,34 +469,27 @@ fn test_latest_sequence_after_appends() {
 fn test_latest_sequence_updates_on_append() {
     let (_, substrate) = quick_setup();
     let run = ApiRunId::default();
+    let test_data = load_eventlog_test_data();
 
     // First append
-    let payload1 = Value::Object({
-        let mut m = HashMap::new();
-        m.insert("first".to_string(), Value::Bool(true));
-        m
-    });
+    let entry1 = &test_data.entries[0];
     substrate
-        .event_append(&run, "stream1", payload1)
+        .event_append(&run, "update_seq_stream", entry1.payload.clone())
         .expect("append should succeed");
 
     let latest1 = substrate
-        .event_latest_sequence(&run, "stream1")
+        .event_latest_sequence(&run, "update_seq_stream")
         .expect("latest_sequence should succeed")
         .expect("should have latest");
 
     // Second append
-    let payload2 = Value::Object({
-        let mut m = HashMap::new();
-        m.insert("second".to_string(), Value::Bool(true));
-        m
-    });
+    let entry2 = &test_data.entries[1];
     let version2 = substrate
-        .event_append(&run, "stream1", payload2)
+        .event_append(&run, "update_seq_stream", entry2.payload.clone())
         .expect("append should succeed");
 
     let latest2 = substrate
-        .event_latest_sequence(&run, "stream1")
+        .event_latest_sequence(&run, "update_seq_stream")
         .expect("latest_sequence should succeed")
         .expect("should have latest");
 
@@ -573,53 +512,36 @@ fn test_run_isolation_separate_streams() {
     let (_, substrate) = quick_setup();
     let run1 = ApiRunId::new();
     let run2 = ApiRunId::new();
+    let test_data = load_eventlog_test_data();
+
+    // Use entries from different runs in test data
+    let entry1 = &test_data.get_run(0)[0];
+    let entry2 = &test_data.get_run(1)[0];
 
     // Append to run1
-    let payload1 = Value::Object({
-        let mut m = HashMap::new();
-        m.insert("run".to_string(), Value::String("run1".into()));
-        m
-    });
     substrate
-        .event_append(&run1, "stream1", payload1)
+        .event_append(&run1, "iso_stream", entry1.payload.clone())
         .expect("append should succeed");
 
     // Append to run2
-    let payload2 = Value::Object({
-        let mut m = HashMap::new();
-        m.insert("run".to_string(), Value::String("run2".into()));
-        m
-    });
     substrate
-        .event_append(&run2, "stream1", payload2)
+        .event_append(&run2, "iso_stream", entry2.payload.clone())
         .expect("append should succeed");
 
     // Each run should see only its own event
     let events1 = substrate
-        .event_range(&run1, "stream1", None, None, None)
+        .event_range(&run1, "iso_stream", None, None, None)
         .expect("range should succeed");
     let events2 = substrate
-        .event_range(&run2, "stream1", None, None, None)
+        .event_range(&run2, "iso_stream", None, None, None)
         .expect("range should succeed");
 
     assert_eq!(events1.len(), 1, "run1 should see 1 event");
     assert_eq!(events2.len(), 1, "run2 should see 1 event");
 
-    // Verify correct payloads
-    if let Value::Object(ref m) = events1[0].value {
-        assert_eq!(
-            m.get("run"),
-            Some(&Value::String("run1".into())),
-            "run1 should see run1 event"
-        );
-    }
-    if let Value::Object(ref m) = events2[0].value {
-        assert_eq!(
-            m.get("run"),
-            Some(&Value::String("run2".into())),
-            "run2 should see run2 event"
-        );
-    }
+    // Verify correct payloads (each run sees its own data)
+    assert_eq!(events1[0].value, entry1.payload, "run1 should see entry1 payload");
+    assert_eq!(events2[0].value, entry2.payload, "run2 should see entry2 payload");
 }
 
 #[test]
@@ -627,36 +549,27 @@ fn test_run_isolation_len() {
     let (_, substrate) = quick_setup();
     let run1 = ApiRunId::new();
     let run2 = ApiRunId::new();
+    let test_data = load_eventlog_test_data();
 
     // Append 3 events to run1
-    for i in 0..3 {
-        let payload = Value::Object({
-            let mut m = HashMap::new();
-            m.insert("index".to_string(), Value::Int(i));
-            m
-        });
+    for entry in test_data.take(3) {
         substrate
-            .event_append(&run1, "stream1", payload)
+            .event_append(&run1, "iso_len_stream", entry.payload.clone())
             .expect("append should succeed");
     }
 
-    // Append 7 events to run2
-    for i in 0..7 {
-        let payload = Value::Object({
-            let mut m = HashMap::new();
-            m.insert("index".to_string(), Value::Int(i));
-            m
-        });
+    // Append 7 events to run2 (using different entries)
+    for entry in test_data.entries.iter().skip(3).take(7) {
         substrate
-            .event_append(&run2, "stream1", payload)
+            .event_append(&run2, "iso_len_stream", entry.payload.clone())
             .expect("append should succeed");
     }
 
     let len1 = substrate
-        .event_len(&run1, "stream1")
+        .event_len(&run1, "iso_len_stream")
         .expect("len should succeed");
     let len2 = substrate
-        .event_len(&run2, "stream1")
+        .event_len(&run2, "iso_len_stream")
         .expect("len should succeed");
 
     assert_eq!(len1, 3, "run1 should have 3 events");
@@ -669,18 +582,15 @@ fn test_run_isolation_len() {
 
 #[test]
 fn test_cross_mode_equivalence() {
-    test_across_modes("eventlog_basic_ops", |db| {
+    let test_data = load_eventlog_test_data();
+    let entry = test_data.entries[0].clone();
+
+    test_across_modes("eventlog_basic_ops", move |db| {
         let substrate = create_substrate(db);
         let run = ApiRunId::default();
 
-        let payload = Value::Object({
-            let mut m = HashMap::new();
-            m.insert("test".to_string(), Value::Int(42));
-            m
-        });
-
         substrate
-            .event_append(&run, "test_stream", payload)
+            .event_append(&run, "test_stream", entry.payload.clone())
             .expect("append should succeed");
 
         let events = substrate

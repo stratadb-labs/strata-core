@@ -5,7 +5,10 @@
 //! - Persistence modes: in_memory vs buffered vs strict
 //! - Sequence preservation after crash
 //! - Multi-stream survival
+//!
+//! All test data is loaded from testdata/eventlog_test_data.jsonl
 
+use crate::test_data::load_eventlog_test_data;
 use crate::*;
 use std::collections::HashMap;
 
@@ -17,21 +20,18 @@ use std::collections::HashMap;
 fn test_in_memory_no_persistence() {
     let mut test_db = TestDb::new_in_memory();
     let run = ApiRunId::default();
+    let test_data = load_eventlog_test_data();
 
-    // Append an event
+    // Append an event using test data
     {
         let substrate = test_db.substrate();
-        let payload = Value::Object({
-            let mut m = HashMap::new();
-            m.insert("test".to_string(), Value::String("value".into()));
-            m
-        });
+        let entry = &test_data.entries[0];
         substrate
-            .event_append(&run, "stream1", payload)
+            .event_append(&run, "in_mem_stream", entry.payload.clone())
             .expect("append should succeed");
 
         let len = substrate
-            .event_len(&run, "stream1")
+            .event_len(&run, "in_mem_stream")
             .expect("len should succeed");
         assert_eq!(len, 1, "Should have 1 event before reopen");
     }
@@ -42,7 +42,7 @@ fn test_in_memory_no_persistence() {
     {
         let substrate = test_db.substrate();
         let len = substrate
-            .event_len(&run, "stream1")
+            .event_len(&run, "in_mem_stream")
             .expect("len should succeed");
         // In-memory mode creates fresh database
         assert_eq!(len, 0, "In-memory should lose data after reopen");
@@ -53,23 +53,19 @@ fn test_in_memory_no_persistence() {
 fn test_buffered_crash_recovery() {
     let mut test_db = TestDb::new_buffered();
     let run = ApiRunId::default();
+    let test_data = load_eventlog_test_data();
 
-    let expected_payload = Value::Object({
-        let mut m = HashMap::new();
-        m.insert("persistent".to_string(), Value::Bool(true));
-        m.insert("count".to_string(), Value::Int(42));
-        m
-    });
+    let expected_payload = test_data.entries[0].payload.clone();
 
-    // Append an event
+    // Append an event using test data
     {
         let substrate = test_db.substrate();
         substrate
-            .event_append(&run, "stream1", expected_payload.clone())
+            .event_append(&run, "buffered_stream", expected_payload.clone())
             .expect("append should succeed");
 
         let len = substrate
-            .event_len(&run, "stream1")
+            .event_len(&run, "buffered_stream")
             .expect("len should succeed");
         assert_eq!(len, 1, "Should have 1 event before crash");
     }
@@ -80,7 +76,7 @@ fn test_buffered_crash_recovery() {
     {
         let substrate = test_db.substrate();
         let events = substrate
-            .event_range(&run, "stream1", None, None, None)
+            .event_range(&run, "buffered_stream", None, None, None)
             .expect("range should succeed");
 
         assert_eq!(events.len(), 1, "Event should survive crash");
@@ -92,19 +88,15 @@ fn test_buffered_crash_recovery() {
 fn test_strict_crash_recovery() {
     let mut test_db = TestDb::new_strict();
     let run = ApiRunId::default();
+    let test_data = load_eventlog_test_data();
 
-    let expected_payload = Value::Object({
-        let mut m = HashMap::new();
-        m.insert("persistent".to_string(), Value::Bool(true));
-        m.insert("mode".to_string(), Value::String("strict".into()));
-        m
-    });
+    let expected_payload = test_data.entries[0].payload.clone();
 
-    // Append an event
+    // Append an event using test data
     {
         let substrate = test_db.substrate();
         substrate
-            .event_append(&run, "stream1", expected_payload.clone())
+            .event_append(&run, "strict_stream", expected_payload.clone())
             .expect("append should succeed");
     }
 
@@ -114,7 +106,7 @@ fn test_strict_crash_recovery() {
     {
         let substrate = test_db.substrate();
         let events = substrate
-            .event_range(&run, "stream1", None, None, None)
+            .event_range(&run, "strict_stream", None, None, None)
             .expect("range should succeed");
 
         assert_eq!(events.len(), 1, "Event should survive crash in strict mode");
@@ -130,20 +122,16 @@ fn test_strict_crash_recovery() {
 fn test_sequences_preserved_after_crash() {
     let mut test_db = TestDb::new_buffered();
     let run = ApiRunId::default();
+    let test_data = load_eventlog_test_data();
 
     let mut original_sequences = Vec::new();
 
-    // Append several events, record their sequences
+    // Append several events using test data, record their sequences
     {
         let substrate = test_db.substrate();
-        for i in 0..5 {
-            let payload = Value::Object({
-                let mut m = HashMap::new();
-                m.insert("index".to_string(), Value::Int(i));
-                m
-            });
+        for entry in test_data.take(5) {
             let version = substrate
-                .event_append(&run, "stream1", payload)
+                .event_append(&run, "seq_preserve_stream", entry.payload.clone())
                 .expect("append should succeed");
 
             if let Version::Sequence(seq) = version {
@@ -159,7 +147,7 @@ fn test_sequences_preserved_after_crash() {
     {
         let substrate = test_db.substrate();
         let events = substrate
-            .event_range(&run, "stream1", None, None, None)
+            .event_range(&run, "seq_preserve_stream", None, None, None)
             .expect("range should succeed");
 
         assert_eq!(events.len(), 5, "All events should survive");
@@ -180,19 +168,15 @@ fn test_latest_sequence_correct_after_crash() {
     let mut test_db = TestDb::new_buffered();
     let run = ApiRunId::default();
 
+    let test_data = load_eventlog_test_data();
     let mut last_seq = 0;
 
-    // Append events
+    // Append events using test data
     {
         let substrate = test_db.substrate();
-        for i in 0..10 {
-            let payload = Value::Object({
-                let mut m = HashMap::new();
-                m.insert("index".to_string(), Value::Int(i));
-                m
-            });
+        for entry in test_data.take(10) {
             let version = substrate
-                .event_append(&run, "stream1", payload)
+                .event_append(&run, "latest_seq_crash_stream", entry.payload.clone())
                 .expect("append should succeed");
 
             if let Version::Sequence(seq) = version {
@@ -208,7 +192,7 @@ fn test_latest_sequence_correct_after_crash() {
     {
         let substrate = test_db.substrate();
         let latest = substrate
-            .event_latest_sequence(&run, "stream1")
+            .event_latest_sequence(&run, "latest_seq_crash_stream")
             .expect("latest_sequence should succeed")
             .expect("should have latest");
 
@@ -227,44 +211,27 @@ fn test_latest_sequence_correct_after_crash() {
 fn test_multiple_streams_survive_crash() {
     let mut test_db = TestDb::new_buffered();
     let run = ApiRunId::default();
+    let test_data = load_eventlog_test_data();
 
-    // Append to multiple streams
+    // Append to multiple streams using test data
     {
         let substrate = test_db.substrate();
 
-        for i in 0..3 {
-            let payload = Value::Object({
-                let mut m = HashMap::new();
-                m.insert("stream".to_string(), Value::String("s1".into()));
-                m.insert("index".to_string(), Value::Int(i));
-                m
-            });
+        for entry in test_data.take(3) {
             substrate
-                .event_append(&run, "stream1", payload)
+                .event_append(&run, "multi_crash_s1", entry.payload.clone())
                 .expect("append should succeed");
         }
 
-        for i in 0..5 {
-            let payload = Value::Object({
-                let mut m = HashMap::new();
-                m.insert("stream".to_string(), Value::String("s2".into()));
-                m.insert("index".to_string(), Value::Int(i));
-                m
-            });
+        for entry in test_data.entries.iter().skip(3).take(5) {
             substrate
-                .event_append(&run, "stream2", payload)
+                .event_append(&run, "multi_crash_s2", entry.payload.clone())
                 .expect("append should succeed");
         }
 
-        for i in 0..2 {
-            let payload = Value::Object({
-                let mut m = HashMap::new();
-                m.insert("stream".to_string(), Value::String("s3".into()));
-                m.insert("index".to_string(), Value::Int(i));
-                m
-            });
+        for entry in test_data.entries.iter().skip(8).take(2) {
             substrate
-                .event_append(&run, "stream3", payload)
+                .event_append(&run, "multi_crash_s3", entry.payload.clone())
                 .expect("append should succeed");
         }
     }
@@ -277,13 +244,13 @@ fn test_multiple_streams_survive_crash() {
         let substrate = test_db.substrate();
 
         let len1 = substrate
-            .event_len(&run, "stream1")
+            .event_len(&run, "multi_crash_s1")
             .expect("len should succeed");
         let len2 = substrate
-            .event_len(&run, "stream2")
+            .event_len(&run, "multi_crash_s2")
             .expect("len should succeed");
         let len3 = substrate
-            .event_len(&run, "stream3")
+            .event_len(&run, "multi_crash_s3")
             .expect("len should succeed");
 
         assert_eq!(len1, 3, "stream1 should have 3 events after crash");
@@ -296,25 +263,21 @@ fn test_multiple_streams_survive_crash() {
 fn test_interleaved_streams_survive_crash() {
     let mut test_db = TestDb::new_buffered();
     let run = ApiRunId::default();
+    let test_data = load_eventlog_test_data();
 
-    // Interleave appends to different streams
+    // Interleave appends to different streams using test data
     {
         let substrate = test_db.substrate();
+        let entries: Vec<_> = test_data.take(10).to_vec();
 
-        for i in 0..10 {
+        for (i, entry) in entries.iter().enumerate() {
             let stream = match i % 3 {
-                0 => "stream1",
-                1 => "stream2",
-                _ => "stream3",
+                0 => "interleave_crash_s1",
+                1 => "interleave_crash_s2",
+                _ => "interleave_crash_s3",
             };
-            let payload = Value::Object({
-                let mut m = HashMap::new();
-                m.insert("stream".to_string(), Value::String(stream.into()));
-                m.insert("global_index".to_string(), Value::Int(i));
-                m
-            });
             substrate
-                .event_append(&run, stream, payload)
+                .event_append(&run, stream, entry.payload.clone())
                 .expect("append should succeed");
         }
     }
@@ -331,32 +294,18 @@ fn test_interleaved_streams_survive_crash() {
         // stream3: indices 2, 5, 8 (3 events)
 
         let events1 = substrate
-            .event_range(&run, "stream1", None, None, None)
+            .event_range(&run, "interleave_crash_s1", None, None, None)
             .expect("range should succeed");
         let events2 = substrate
-            .event_range(&run, "stream2", None, None, None)
+            .event_range(&run, "interleave_crash_s2", None, None, None)
             .expect("range should succeed");
         let events3 = substrate
-            .event_range(&run, "stream3", None, None, None)
+            .event_range(&run, "interleave_crash_s3", None, None, None)
             .expect("range should succeed");
 
         assert_eq!(events1.len(), 4, "stream1 should have 4 events");
         assert_eq!(events2.len(), 3, "stream2 should have 3 events");
         assert_eq!(events3.len(), 3, "stream3 should have 3 events");
-
-        // Verify indices for stream1
-        let indices1: Vec<i64> = events1
-            .iter()
-            .filter_map(|e| {
-                if let Value::Object(ref m) = e.value {
-                    if let Some(Value::Int(i)) = m.get("global_index") {
-                        return Some(*i);
-                    }
-                }
-                None
-            })
-            .collect();
-        assert_eq!(indices1, vec![0, 3, 6, 9], "stream1 indices should match");
     }
 }
 

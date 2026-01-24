@@ -5,7 +5,10 @@
 //! - Stream isolation (events only visible in their stream)
 //! - Global vs per-stream sequences (known limitation)
 //! - Stream naming conventions
+//!
+//! All test data is loaded from testdata/eventlog_test_data.jsonl
 
+use crate::test_data::load_eventlog_test_data;
 use crate::*;
 use std::collections::HashMap;
 
@@ -17,64 +20,41 @@ use std::collections::HashMap;
 fn test_multiple_streams_independent() {
     let (_, substrate) = quick_setup();
     let run = ApiRunId::default();
+    let test_data = load_eventlog_test_data();
 
-    // Append to stream1
-    for i in 0..3 {
-        let payload = Value::Object({
-            let mut m = HashMap::new();
-            m.insert("stream".to_string(), Value::String("stream1".into()));
-            m.insert("index".to_string(), Value::Int(i));
-            m
-        });
+    // Append 3 events from test data to stream1
+    let stream1_entries: Vec<_> = test_data.take(3).to_vec();
+    for entry in &stream1_entries {
         substrate
-            .event_append(&run, "stream1", payload)
+            .event_append(&run, "ind_stream1", entry.payload.clone())
             .expect("append should succeed");
     }
 
-    // Append to stream2
-    for i in 0..5 {
-        let payload = Value::Object({
-            let mut m = HashMap::new();
-            m.insert("stream".to_string(), Value::String("stream2".into()));
-            m.insert("index".to_string(), Value::Int(i));
-            m
-        });
+    // Append 5 events from test data to stream2
+    let stream2_entries: Vec<_> = test_data.entries.iter().skip(3).take(5).cloned().collect();
+    for entry in &stream2_entries {
         substrate
-            .event_append(&run, "stream2", payload)
+            .event_append(&run, "ind_stream2", entry.payload.clone())
             .expect("append should succeed");
     }
 
     // Verify streams are independent
     let events1 = substrate
-        .event_range(&run, "stream1", None, None, None)
+        .event_range(&run, "ind_stream1", None, None, None)
         .expect("range should succeed");
     let events2 = substrate
-        .event_range(&run, "stream2", None, None, None)
+        .event_range(&run, "ind_stream2", None, None, None)
         .expect("range should succeed");
 
     assert_eq!(events1.len(), 3, "stream1 should have 3 events");
     assert_eq!(events2.len(), 5, "stream2 should have 5 events");
 
-    // Verify all events in stream1 have correct marker
-    for event in &events1 {
-        if let Value::Object(ref m) = event.value {
-            assert_eq!(
-                m.get("stream"),
-                Some(&Value::String("stream1".into())),
-                "All stream1 events should have stream1 marker"
-            );
-        }
+    // Verify payloads match what was appended
+    for (i, event) in events1.iter().enumerate() {
+        assert_eq!(event.value, stream1_entries[i].payload, "stream1 event {} should match", i);
     }
-
-    // Verify all events in stream2 have correct marker
-    for event in &events2 {
-        if let Value::Object(ref m) = event.value {
-            assert_eq!(
-                m.get("stream"),
-                Some(&Value::String("stream2".into())),
-                "All stream2 events should have stream2 marker"
-            );
-        }
+    for (i, event) in events2.iter().enumerate() {
+        assert_eq!(event.value, stream2_entries[i].payload, "stream2 event {} should match", i);
     }
 }
 
@@ -82,60 +62,47 @@ fn test_multiple_streams_independent() {
 fn test_interleaved_appends_to_different_streams() {
     let (_, substrate) = quick_setup();
     let run = ApiRunId::default();
+    let test_data = load_eventlog_test_data();
 
     // Interleave appends: s1, s2, s1, s2, s1
-    for i in 0..5 {
-        let stream = if i % 2 == 0 { "stream1" } else { "stream2" };
-        let payload = Value::Object({
-            let mut m = HashMap::new();
-            m.insert("stream".to_string(), Value::String(stream.into()));
-            m.insert("global_index".to_string(), Value::Int(i));
-            m
-        });
+    let entries: Vec<_> = test_data.take(5).to_vec();
+    let mut stream1_payloads = Vec::new();
+    let mut stream2_payloads = Vec::new();
+
+    for (i, entry) in entries.iter().enumerate() {
+        let stream = if i % 2 == 0 { "interleave_s1" } else { "interleave_s2" };
         substrate
-            .event_append(&run, stream, payload)
+            .event_append(&run, stream, entry.payload.clone())
             .expect("append should succeed");
+
+        if i % 2 == 0 {
+            stream1_payloads.push(entry.payload.clone());
+        } else {
+            stream2_payloads.push(entry.payload.clone());
+        }
     }
 
     // stream1: indices 0, 2, 4 (3 events)
     let events1 = substrate
-        .event_range(&run, "stream1", None, None, None)
+        .event_range(&run, "interleave_s1", None, None, None)
         .expect("range should succeed");
     // stream2: indices 1, 3 (2 events)
     let events2 = substrate
-        .event_range(&run, "stream2", None, None, None)
+        .event_range(&run, "interleave_s2", None, None, None)
         .expect("range should succeed");
 
     assert_eq!(events1.len(), 3, "stream1 should have 3 events");
     assert_eq!(events2.len(), 2, "stream2 should have 2 events");
 
-    // Verify global indices for stream1
-    let indices1: Vec<i64> = events1
-        .iter()
-        .filter_map(|e| {
-            if let Value::Object(ref m) = e.value {
-                if let Some(Value::Int(i)) = m.get("global_index") {
-                    return Some(*i);
-                }
-            }
-            None
-        })
-        .collect();
-    assert_eq!(indices1, vec![0, 2, 4], "stream1 should have indices 0, 2, 4");
+    // Verify payloads for stream1
+    for (i, event) in events1.iter().enumerate() {
+        assert_eq!(event.value, stream1_payloads[i], "stream1 event {} should match", i);
+    }
 
-    // Verify global indices for stream2
-    let indices2: Vec<i64> = events2
-        .iter()
-        .filter_map(|e| {
-            if let Value::Object(ref m) = e.value {
-                if let Some(Value::Int(i)) = m.get("global_index") {
-                    return Some(*i);
-                }
-            }
-            None
-        })
-        .collect();
-    assert_eq!(indices2, vec![1, 3], "stream2 should have indices 1, 3");
+    // Verify payloads for stream2
+    for (i, event) in events2.iter().enumerate() {
+        assert_eq!(event.value, stream2_payloads[i], "stream2 event {} should match", i);
+    }
 }
 
 // =============================================================================
@@ -150,15 +117,12 @@ fn test_sequences_are_global_not_per_stream() {
 
     let (_, substrate) = quick_setup();
     let run = ApiRunId::default();
+    let test_data = load_eventlog_test_data();
 
     // Append to stream1, get sequence
-    let payload1 = Value::Object({
-        let mut m = HashMap::new();
-        m.insert("stream".to_string(), Value::String("stream1".into()));
-        m
-    });
+    let entry1 = &test_data.entries[0];
     let v1 = substrate
-        .event_append(&run, "stream1", payload1)
+        .event_append(&run, "global_seq_s1", entry1.payload.clone())
         .expect("append should succeed");
     let seq1 = match v1 {
         Version::Sequence(n) => n,
@@ -166,13 +130,9 @@ fn test_sequences_are_global_not_per_stream() {
     };
 
     // Append to stream2, get sequence
-    let payload2 = Value::Object({
-        let mut m = HashMap::new();
-        m.insert("stream".to_string(), Value::String("stream2".into()));
-        m
-    });
+    let entry2 = &test_data.entries[1];
     let v2 = substrate
-        .event_append(&run, "stream2", payload2)
+        .event_append(&run, "global_seq_s2", entry2.payload.clone())
         .expect("append should succeed");
     let seq2 = match v2 {
         Version::Sequence(n) => n,
@@ -180,14 +140,9 @@ fn test_sequences_are_global_not_per_stream() {
     };
 
     // Append to stream1 again
-    let payload3 = Value::Object({
-        let mut m = HashMap::new();
-        m.insert("stream".to_string(), Value::String("stream1".into()));
-        m.insert("second".to_string(), Value::Bool(true));
-        m
-    });
+    let entry3 = &test_data.entries[2];
     let v3 = substrate
-        .event_append(&run, "stream1", payload3)
+        .event_append(&run, "global_seq_s1", entry3.payload.clone())
         .expect("append should succeed");
     let seq3 = match v3 {
         Version::Sequence(n) => n,
@@ -206,15 +161,12 @@ fn test_sequences_are_global_not_per_stream() {
 fn test_get_event_by_global_sequence() {
     let (_, substrate) = quick_setup();
     let run = ApiRunId::default();
+    let test_data = load_eventlog_test_data();
 
     // Append to stream1
-    let payload1 = Value::Object({
-        let mut m = HashMap::new();
-        m.insert("which".to_string(), Value::String("first".into()));
-        m
-    });
+    let entry1 = &test_data.entries[0];
     let v1 = substrate
-        .event_append(&run, "stream1", payload1)
+        .event_append(&run, "get_by_seq_s1", entry1.payload.clone())
         .expect("append should succeed");
     let seq1 = match v1 {
         Version::Sequence(n) => n,
@@ -222,13 +174,9 @@ fn test_get_event_by_global_sequence() {
     };
 
     // Append to stream2
-    let payload2 = Value::Object({
-        let mut m = HashMap::new();
-        m.insert("which".to_string(), Value::String("second".into()));
-        m
-    });
+    let entry2 = &test_data.entries[1];
     let v2 = substrate
-        .event_append(&run, "stream2", payload2)
+        .event_append(&run, "get_by_seq_s2", entry2.payload.clone())
         .expect("append should succeed");
     let seq2 = match v2 {
         Version::Sequence(n) => n,
@@ -237,35 +185,23 @@ fn test_get_event_by_global_sequence() {
 
     // Get event from stream1 using its sequence
     let event1 = substrate
-        .event_get(&run, "stream1", seq1)
+        .event_get(&run, "get_by_seq_s1", seq1)
         .expect("get should succeed")
         .expect("event should exist");
 
-    if let Value::Object(ref m) = event1.value {
-        assert_eq!(
-            m.get("which"),
-            Some(&Value::String("first".into())),
-            "Should get correct event from stream1"
-        );
-    }
+    assert_eq!(event1.value, entry1.payload, "Should get correct event from stream1");
 
     // Get event from stream2 using its sequence
     let event2 = substrate
-        .event_get(&run, "stream2", seq2)
+        .event_get(&run, "get_by_seq_s2", seq2)
         .expect("get should succeed")
         .expect("event should exist");
 
-    if let Value::Object(ref m) = event2.value {
-        assert_eq!(
-            m.get("which"),
-            Some(&Value::String("second".into())),
-            "Should get correct event from stream2"
-        );
-    }
+    assert_eq!(event2.value, entry2.payload, "Should get correct event from stream2");
 
     // Try to get stream2's event from stream1 - should return None
     let wrong_stream = substrate
-        .event_get(&run, "stream1", seq2)
+        .event_get(&run, "get_by_seq_s1", seq2)
         .expect("get should succeed");
 
     assert!(
@@ -282,6 +218,7 @@ fn test_get_event_by_global_sequence() {
 fn test_stream_name_with_special_characters() {
     let (_, substrate) = quick_setup();
     let run = ApiRunId::default();
+    let test_data = load_eventlog_test_data();
 
     let special_streams = vec![
         "stream-with-dashes",
@@ -293,14 +230,10 @@ fn test_stream_name_with_special_characters() {
         "UPPERCASE_STREAM",
     ];
 
-    for stream_name in &special_streams {
-        let payload = Value::Object({
-            let mut m = HashMap::new();
-            m.insert("stream_name".to_string(), Value::String(stream_name.to_string()));
-            m
-        });
-
-        let result = substrate.event_append(&run, stream_name, payload);
+    // Use test data entries for payloads
+    for (i, stream_name) in special_streams.iter().enumerate() {
+        let entry = &test_data.entries[i % test_data.entries.len()];
+        let result = substrate.event_append(&run, stream_name, entry.payload.clone());
         assert!(
             result.is_ok(),
             "Stream name '{}' should be accepted: {:?}",
@@ -322,6 +255,7 @@ fn test_stream_name_with_special_characters() {
 fn test_stream_name_unicode() {
     let (_, substrate) = quick_setup();
     let run = ApiRunId::default();
+    let test_data = load_eventlog_test_data();
 
     let unicode_streams = vec![
         "stream_unicode_emoji",  // Avoid actual emoji in stream names
@@ -329,14 +263,9 @@ fn test_stream_name_unicode() {
         "stream_arabic_test",
     ];
 
-    for stream_name in &unicode_streams {
-        let payload = Value::Object({
-            let mut m = HashMap::new();
-            m.insert("test".to_string(), Value::Bool(true));
-            m
-        });
-
-        let result = substrate.event_append(&run, stream_name, payload);
+    for (i, stream_name) in unicode_streams.iter().enumerate() {
+        let entry = &test_data.entries[i];
+        let result = substrate.event_append(&run, stream_name, entry.payload.clone());
         assert!(
             result.is_ok(),
             "Stream name '{}' should be accepted: {:?}",
@@ -350,52 +279,34 @@ fn test_stream_name_unicode() {
 fn test_stream_case_sensitivity() {
     let (_, substrate) = quick_setup();
     let run = ApiRunId::default();
+    let test_data = load_eventlog_test_data();
 
-    // Append to "Stream" and "stream" - should be different streams
-    let payload_upper = Value::Object({
-        let mut m = HashMap::new();
-        m.insert("case".to_string(), Value::String("upper".into()));
-        m
-    });
+    // Append to "CaseStream" and "casestream" - should be different streams
+    let entry_upper = &test_data.entries[0];
+    let entry_lower = &test_data.entries[1];
+
     substrate
-        .event_append(&run, "Stream", payload_upper)
+        .event_append(&run, "CaseStream", entry_upper.payload.clone())
         .expect("append should succeed");
 
-    let payload_lower = Value::Object({
-        let mut m = HashMap::new();
-        m.insert("case".to_string(), Value::String("lower".into()));
-        m
-    });
     substrate
-        .event_append(&run, "stream", payload_lower)
+        .event_append(&run, "casestream", entry_lower.payload.clone())
         .expect("append should succeed");
 
     // Should be different streams
     let events_upper = substrate
-        .event_range(&run, "Stream", None, None, None)
+        .event_range(&run, "CaseStream", None, None, None)
         .expect("range should succeed");
     let events_lower = substrate
-        .event_range(&run, "stream", None, None, None)
+        .event_range(&run, "casestream", None, None, None)
         .expect("range should succeed");
 
-    assert_eq!(events_upper.len(), 1, "Stream should have 1 event");
-    assert_eq!(events_lower.len(), 1, "stream should have 1 event");
+    assert_eq!(events_upper.len(), 1, "CaseStream should have 1 event");
+    assert_eq!(events_lower.len(), 1, "casestream should have 1 event");
 
     // Verify correct payloads
-    if let Value::Object(ref m) = events_upper[0].value {
-        assert_eq!(
-            m.get("case"),
-            Some(&Value::String("upper".into())),
-            "Stream should have upper event"
-        );
-    }
-    if let Value::Object(ref m) = events_lower[0].value {
-        assert_eq!(
-            m.get("case"),
-            Some(&Value::String("lower".into())),
-            "stream should have lower event"
-        );
-    }
+    assert_eq!(events_upper[0].value, entry_upper.payload, "CaseStream should have upper entry");
+    assert_eq!(events_lower[0].value, entry_lower.payload, "casestream should have lower entry");
 }
 
 // =============================================================================
@@ -406,33 +317,24 @@ fn test_stream_case_sensitivity() {
 fn test_latest_sequence_per_stream() {
     let (_, substrate) = quick_setup();
     let run = ApiRunId::default();
+    let test_data = load_eventlog_test_data();
 
     // Append to multiple streams
     let mut last_seq1 = 0;
     let mut last_seq2 = 0;
 
-    for i in 0..3 {
-        let payload = Value::Object({
-            let mut m = HashMap::new();
-            m.insert("index".to_string(), Value::Int(i));
-            m
-        });
+    for entry in test_data.take(3) {
         let v = substrate
-            .event_append(&run, "stream1", payload)
+            .event_append(&run, "latest_per_s1", entry.payload.clone())
             .expect("append should succeed");
         if let Version::Sequence(seq) = v {
             last_seq1 = seq;
         }
     }
 
-    for i in 0..5 {
-        let payload = Value::Object({
-            let mut m = HashMap::new();
-            m.insert("index".to_string(), Value::Int(i));
-            m
-        });
+    for entry in test_data.entries.iter().skip(3).take(5) {
         let v = substrate
-            .event_append(&run, "stream2", payload)
+            .event_append(&run, "latest_per_s2", entry.payload.clone())
             .expect("append should succeed");
         if let Version::Sequence(seq) = v {
             last_seq2 = seq;
@@ -441,12 +343,12 @@ fn test_latest_sequence_per_stream() {
 
     // Latest sequence should be different for each stream
     let latest1 = substrate
-        .event_latest_sequence(&run, "stream1")
+        .event_latest_sequence(&run, "latest_per_s1")
         .expect("latest_sequence should succeed")
         .expect("should have latest");
 
     let latest2 = substrate
-        .event_latest_sequence(&run, "stream2")
+        .event_latest_sequence(&run, "latest_per_s2")
         .expect("latest_sequence should succeed")
         .expect("should have latest");
 
@@ -463,53 +365,39 @@ fn test_latest_sequence_per_stream() {
 fn test_len_isolated_per_stream() {
     let (_, substrate) = quick_setup();
     let run = ApiRunId::default();
+    let test_data = load_eventlog_test_data();
 
-    // Append different counts to different streams
-    for i in 0..2 {
-        let payload = Value::Object({
-            let mut m = HashMap::new();
-            m.insert("index".to_string(), Value::Int(i));
-            m
-        });
+    // Append different counts to different streams using test data
+    for entry in test_data.take(2) {
         substrate
-            .event_append(&run, "stream1", payload)
+            .event_append(&run, "len_iso_s1", entry.payload.clone())
             .expect("append should succeed");
     }
 
-    for i in 0..5 {
-        let payload = Value::Object({
-            let mut m = HashMap::new();
-            m.insert("index".to_string(), Value::Int(i));
-            m
-        });
+    for entry in test_data.entries.iter().skip(2).take(5) {
         substrate
-            .event_append(&run, "stream2", payload)
+            .event_append(&run, "len_iso_s2", entry.payload.clone())
             .expect("append should succeed");
     }
 
-    for i in 0..10 {
-        let payload = Value::Object({
-            let mut m = HashMap::new();
-            m.insert("index".to_string(), Value::Int(i));
-            m
-        });
+    for entry in test_data.entries.iter().skip(7).take(10) {
         substrate
-            .event_append(&run, "stream3", payload)
+            .event_append(&run, "len_iso_s3", entry.payload.clone())
             .expect("append should succeed");
     }
 
     assert_eq!(
-        substrate.event_len(&run, "stream1").expect("len should succeed"),
+        substrate.event_len(&run, "len_iso_s1").expect("len should succeed"),
         2,
         "stream1 should have 2 events"
     );
     assert_eq!(
-        substrate.event_len(&run, "stream2").expect("len should succeed"),
+        substrate.event_len(&run, "len_iso_s2").expect("len should succeed"),
         5,
         "stream2 should have 5 events"
     );
     assert_eq!(
-        substrate.event_len(&run, "stream3").expect("len should succeed"),
+        substrate.event_len(&run, "len_iso_s3").expect("len should succeed"),
         10,
         "stream3 should have 10 events"
     );
