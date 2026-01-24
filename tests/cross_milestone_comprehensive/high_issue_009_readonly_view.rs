@@ -12,7 +12,6 @@
 //! **Impact**: Replay invariants P1-P3 not fully implemented.
 
 use crate::test_utils::*;
-use strata_core::value::Value;
 
 /// Test ReadOnlyView construction from EventLog.
 #[test]
@@ -20,11 +19,11 @@ fn test_readonly_view_from_eventlog() {
     let test_db = TestDb::new_strict();
     let run_id = test_db.run_id;
 
-    // Create events
+    // Create events (EventLog requires Object payloads)
     let event = test_db.event();
-    event.append(&run_id, "type1", Value::Int(1))
+    event.append(&run_id, "type1", int_payload(1))
         .expect("append");
-    event.append(&run_id, "type2", Value::Int(2))
+    event.append(&run_id, "type2", int_payload(2))
         .expect("append");
 
     test_db.db.flush().expect("flush");

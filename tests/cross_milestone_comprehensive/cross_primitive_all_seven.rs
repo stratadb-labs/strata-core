@@ -46,9 +46,9 @@ fn test_all_seven_primitives_atomic_commit() {
         .create(&run_id, &doc_id, JsonValue::from(serde_json::json!({"test": "seven"})))
         .expect("json create");
 
-    // 3. Event
+    // 3. Event (requires Object payload)
     p.event
-        .append(&run_id, "seven_type", Value::Null)
+        .append(&run_id, "seven_type", empty_payload())
         .expect("event append");
 
     // 4. State
@@ -137,7 +137,7 @@ fn test_cross_primitive_visibility() {
     p.json
         .create(&run_id, &doc_id, JsonValue::from(serde_json::json!({"visible": true})))
         .expect("json");
-    p.event.append(&run_id, "vis", Value::Null).expect("event");
+    p.event.append(&run_id, "vis", empty_payload()).expect("event");
     p.state.init(&run_id, "vis_state", Value::Bool(true)).expect("state");
 
     // All should be visible immediately (snapshot isolation)
@@ -243,7 +243,7 @@ fn test_all_seven_primitives_recovery() {
             .create(&run_id, &doc_id, JsonValue::from(serde_json::json!({"r": 1})))
             .expect("json");
         p.event
-            .append(&run_id, "recover", Value::Null)
+            .append(&run_id, "recover", empty_payload())
             .expect("event");
         p.state.init(&run_id, "recover_state", Value::Int(42)).expect("state");
         p.trace

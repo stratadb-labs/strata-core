@@ -3,7 +3,6 @@
 //! Tests with many events.
 
 use crate::test_utils::*;
-use strata_core::value::Value;
 
 /// Test 100K events in single log.
 #[test]
@@ -14,7 +13,7 @@ fn test_100k_events() {
 
     for i in 0..100_000 {
         event
-            .append(&run_id, "mega_event", Value::Int(i))
+            .append(&run_id, "mega_event", int_payload(i))
             .expect("append");
 
         if i % 10_000 == 0 {
@@ -43,7 +42,7 @@ fn test_many_event_types() {
         let event_type = format!("type_{}", log);
         for i in 0..100 {
             event
-                .append(&run_id, &event_type, Value::Int(i))
+                .append(&run_id, &event_type, int_payload(i))
                 .expect("append");
         }
     }
@@ -63,7 +62,7 @@ fn test_chain_integrity_at_scale() {
     // Append 1000 events
     for i in 0..1000 {
         event
-            .append(&run_id, "chain_type", Value::Int(i))
+            .append(&run_id, "chain_type", int_payload(i))
             .expect("append");
     }
 

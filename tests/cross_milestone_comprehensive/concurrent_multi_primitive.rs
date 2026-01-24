@@ -6,7 +6,13 @@ use crate::test_utils::*;
 use strata_core::json::JsonValue;
 use strata_core::types::JsonDocId;
 use strata_core::value::Value;
+use std::collections::HashMap;
 use std::thread;
+
+/// Create an object payload with an integer value for EventLog
+fn event_int_payload(v: i64) -> Value {
+    Value::Object(HashMap::from([("value".to_string(), Value::Int(v))]))
+}
 
 /// Test concurrent operations on all primitives.
 #[test]
@@ -44,7 +50,7 @@ fn test_concurrent_all_primitives() {
         let event = strata_primitives::EventLog::new(db_event);
         let run_id = strata_core::types::RunId::new();
         for i in 0..100 {
-            event.append(&run_id, "type", Value::Int(i))
+            event.append(&run_id, "type", event_int_payload(i))
                 .expect("event append");
         }
     }));
