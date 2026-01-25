@@ -181,9 +181,12 @@ impl Default for PersistenceMode {
 /// use strata_engine::{Database, DatabaseBuilder};
 /// use strata_durability::wal::DurabilityMode;
 ///
-/// // InMemory mode for tests (fastest)
+/// // Ephemeral mode for unit tests (no disk I/O)
+/// let db = Database::ephemeral()?;
+///
+/// // No-durability mode for integration tests (disk, no fsync)
 /// let db = Database::builder()
-///     .in_memory()
+///     .no_durability()
 ///     .open_temp()?;
 ///
 /// // Buffered mode for production (balanced)
@@ -463,7 +466,7 @@ impl Database {
     ///
     /// ```ignore
     /// let db = Database::builder()
-    ///     .in_memory()
+    ///     .no_durability()
     ///     .open_temp()?;
     /// ```
     pub fn builder() -> DatabaseBuilder {
@@ -1779,8 +1782,8 @@ mod tests {
         {
             let db = Database::open(&db_path).unwrap();
 
-            // Write to WAL
-            let wal = db.wal();
+            // Write to WAL (disk-backed database always has WAL)
+            let wal = db.wal().expect("disk-backed database should have WAL");
             let mut wal_guard = wal.lock();
 
             wal_guard
@@ -2842,8 +2845,8 @@ mod tests {
     }
 
     #[test]
-    fn test_database_builder_in_memory() {
-        let builder = DatabaseBuilder::new().in_memory();
+    fn test_database_builder_no_durability() {
+        let builder = DatabaseBuilder::new().no_durability();
         assert_eq!(builder.get_durability(), DurabilityMode::InMemory);
     }
 
@@ -2888,7 +2891,7 @@ mod tests {
         // Last mode wins
         let builder = DatabaseBuilder::new()
             .path("/tmp/test")
-            .in_memory()
+            .no_durability()
             .buffered()
             .strict();
 
@@ -2901,7 +2904,7 @@ mod tests {
 
     #[test]
     fn test_database_builder_open_temp() {
-        let db = Database::builder().in_memory().open_temp().unwrap();
+        let db = Database::builder().no_durability().open_temp().unwrap();
 
         // Should have a temp path
         assert!(db.data_dir().exists());
@@ -2963,10 +2966,10 @@ mod tests {
     #[test]
     fn test_transaction_with_durability_strict() {
         let temp_dir = TempDir::new().unwrap();
-        // Open database with InMemory mode
+        // Open database with no-durability mode (no fsync)
         let db = Database::builder()
             .path(temp_dir.path().join("db"))
-            .in_memory()
+            .no_durability()
             .open()
             .unwrap();
 
@@ -3137,11 +3140,11 @@ mod tests {
             assert_eq!(db.durability_mode(), DurabilityMode::Strict);
         }
 
-        // Test with InMemory mode
+        // Test with no-durability mode (InMemory durability)
         {
             let db = Database::builder()
-                .path(temp_dir.path().join("inmemory"))
-                .in_memory()
+                .path(temp_dir.path().join("no_durability"))
+                .no_durability()
                 .open()
                 .unwrap();
             assert_eq!(db.durability_mode(), DurabilityMode::InMemory);

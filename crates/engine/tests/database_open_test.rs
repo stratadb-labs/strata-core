@@ -36,7 +36,7 @@ fn test_database_lifecycle() {
     {
         let db = Database::open(&db_path).expect("Failed to open database");
 
-        let wal = db.wal();
+        let wal = db.wal().unwrap();
         let mut wal_guard = wal.lock();
 
         // Write transaction 1
@@ -96,7 +96,7 @@ fn test_database_lifecycle() {
         assert_eq!(user2.version, Version::Txn(2));
 
         // Add more data
-        let wal = db.wal();
+        let wal = db.wal().unwrap();
         let mut wal_guard = wal.lock();
 
         wal_guard
@@ -167,7 +167,7 @@ fn test_crash_recovery() {
     {
         let db = Database::open(&db_path).expect("Failed to open database");
 
-        let wal = db.wal();
+        let wal = db.wal().unwrap();
         let mut wal_guard = wal.lock();
 
         // Committed transaction
@@ -262,7 +262,7 @@ fn test_multiple_run_ids() {
     {
         let db = Database::open(&db_path).expect("Failed to open database");
 
-        let wal = db.wal();
+        let wal = db.wal().unwrap();
         let mut wal_guard = wal.lock();
 
         // Transaction from run 1
@@ -358,7 +358,7 @@ fn test_delete_operations() {
     {
         let db = Database::open(&db_path).expect("Failed to open database");
 
-        let wal = db.wal();
+        let wal = db.wal().unwrap();
         let mut wal_guard = wal.lock();
 
         // Create key
@@ -438,7 +438,7 @@ fn test_durability_modes() {
         let db = Database::open_with_mode(&db_path, DurabilityMode::Strict)
             .expect("Failed to open with Strict mode");
 
-        let wal = db.wal();
+        let wal = db.wal().unwrap();
         let mut wal_guard = wal.lock();
 
         wal_guard
@@ -486,7 +486,7 @@ fn test_durability_modes() {
         )
         .expect("Failed to open with Batched mode");
 
-        let wal = db.wal();
+        let wal = db.wal().unwrap();
         let mut wal_guard = wal.lock();
 
         wal_guard
@@ -543,7 +543,7 @@ fn test_large_transaction() {
     {
         let db = Database::open(&db_path).expect("Failed to open database");
 
-        let wal = db.wal();
+        let wal = db.wal().unwrap();
         let mut wal_guard = wal.lock();
 
         wal_guard
@@ -608,7 +608,7 @@ fn test_aborted_transaction_discarded() {
     {
         let db = Database::open(&db_path).expect("Failed to open database");
 
-        let wal = db.wal();
+        let wal = db.wal().unwrap();
         let mut wal_guard = wal.lock();
 
         // Committed transaction
