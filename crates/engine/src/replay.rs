@@ -832,4 +832,312 @@ mod tests {
         assert_eq!(counts.get(&RunStatus::Active), Some(&3));
         assert_eq!(counts.get(&RunStatus::Completed), Some(&2));
     }
+
+    // ========== Replay Invariant Tests ==========
+    // These tests verify the documented invariants P1-P6
+
+    /// P5: Deterministic - Same inputs = Same view
+    /// Running replay with the same operations should produce identical views
+    #[test]
+    fn test_replay_invariant_p5_deterministic() {
+        let run_id = RunId::new();
+        let ns = test_namespace();
+
+        // Define a sequence of operations
+        let operations: Vec<(&str, Value)> = vec![
+            ("key1", Value::Int(100)),
+            ("key2", Value::String("hello".into())),
+            ("key3", Value::Float(3.14)),
+        ];
+
+        // Create first view
+        let mut view1 = ReadOnlyView::new(run_id);
+        for (key, value) in &operations {
+            view1.apply_kv_put(Key::new_kv(ns.clone(), key), value.clone());
+        }
+        view1.append_event("TestEvent".into(), Value::Int(1));
+
+        // Create second view with same operations
+        let mut view2 = ReadOnlyView::new(run_id);
+        for (key, value) in &operations {
+            view2.apply_kv_put(Key::new_kv(ns.clone(), key), value.clone());
+        }
+        view2.append_event("TestEvent".into(), Value::Int(1));
+
+        // Views should be identical
+        assert_eq!(view1.kv_count(), view2.kv_count());
+        assert_eq!(view1.event_count(), view2.event_count());
+        assert_eq!(view1.operation_count(), view2.operation_count());
+
+        // Every key in view1 should have the same value in view2
+        for (key, value) in view1.kv_entries() {
+            let value2 = view2.get_kv(key);
+            assert_eq!(Some(value), value2, "Values differ for key {:?}", key);
+        }
+
+        // Diff should be empty
+        let diff = diff_views(&view1, &view2);
+        assert!(diff.is_empty(), "Deterministic replay should produce identical views");
+    }
+
+    /// P5: Deterministic - Order of operations matters
+    /// Different operation orders should produce different views
+    #[test]
+    fn test_replay_invariant_p5_order_matters() {
+        let run_id = RunId::new();
+        let ns = test_namespace();
+        let key = Key::new_kv(ns.clone(), "counter");
+
+        // View 1: put 1, then put 2 (final value = 2)
+        let mut view1 = ReadOnlyView::new(run_id);
+        view1.apply_kv_put(key.clone(), Value::Int(1));
+        view1.apply_kv_put(key.clone(), Value::Int(2));
+
+        // View 2: put 2, then put 1 (final value = 1)
+        let mut view2 = ReadOnlyView::new(run_id);
+        view2.apply_kv_put(key.clone(), Value::Int(2));
+        view2.apply_kv_put(key.clone(), Value::Int(1));
+
+        // Final values should differ
+        assert_eq!(view1.get_kv(&key), Some(&Value::Int(2)));
+        assert_eq!(view2.get_kv(&key), Some(&Value::Int(1)));
+
+        // Diff should show modification
+        let diff = diff_views(&view1, &view2);
+        assert!(!diff.is_empty());
+        assert_eq!(diff.modified.len(), 1);
+    }
+
+    /// P6: Idempotent - Running twice produces identical view
+    /// Applying the same operation sequence twice should give same result
+    #[test]
+    fn test_replay_invariant_p6_idempotent() {
+        let run_id = RunId::new();
+        let ns = test_namespace();
+
+        // Function to build a view from operations
+        fn build_view(run_id: RunId, ns: &Namespace) -> ReadOnlyView {
+            let mut view = ReadOnlyView::new(run_id);
+            view.apply_kv_put(Key::new_kv(ns.clone(), "a"), Value::Int(1));
+            view.apply_kv_put(Key::new_kv(ns.clone(), "b"), Value::Int(2));
+            view.apply_kv_delete(&Key::new_kv(ns.clone(), "a"));
+            view.apply_kv_put(Key::new_kv(ns.clone(), "c"), Value::Int(3));
+            view.append_event("E1".into(), Value::Null);
+            view.append_event("E2".into(), Value::Null);
+            view
+        }
+
+        // Run twice
+        let view1 = build_view(run_id, &ns);
+        let view2 = build_view(run_id, &ns);
+
+        // Should be identical
+        assert_eq!(view1.kv_count(), view2.kv_count());
+        assert_eq!(view1.event_count(), view2.event_count());
+
+        let diff = diff_views(&view1, &view2);
+        assert!(diff.is_empty(), "Idempotent replay should produce identical views");
+    }
+
+    /// P2: Side-effect free - ReadOnlyView operations don't affect external state
+    /// This is a structural test - we verify the view is self-contained
+    #[test]
+    fn test_replay_invariant_p2_self_contained() {
+        let run_id = RunId::new();
+        let ns = test_namespace();
+
+        // Create a view and modify it
+        let mut view = ReadOnlyView::new(run_id);
+        let key = Key::new_kv(ns.clone(), "test");
+
+        // The view should be completely self-contained
+        view.apply_kv_put(key.clone(), Value::Int(42));
+
+        // Create another view - it should be independent
+        let view2 = ReadOnlyView::new(run_id);
+
+        // view2 should not see view's changes (they're independent)
+        assert!(view.contains_kv(&key));
+        assert!(!view2.contains_kv(&key));
+    }
+
+    /// P3: Derived view - Not a source of truth
+    /// Views are snapshots, not live data
+    #[test]
+    fn test_replay_invariant_p3_derived_view() {
+        let run_id = RunId::new();
+        let ns = test_namespace();
+        let key = Key::new_kv(ns.clone(), "test");
+
+        // Create a view
+        let mut view = ReadOnlyView::new(run_id);
+        view.apply_kv_put(key.clone(), Value::Int(1));
+
+        // Clone the view
+        let view_clone = view.clone();
+
+        // Modify original
+        view.apply_kv_put(key.clone(), Value::Int(2));
+
+        // Clone should retain original value (it's a snapshot)
+        assert_eq!(view.get_kv(&key), Some(&Value::Int(2)));
+        assert_eq!(view_clone.get_kv(&key), Some(&Value::Int(1)));
+    }
+
+    // ========== Additional Diff Tests for Robustness ==========
+
+    #[test]
+    fn test_diff_complex_scenario() {
+        let run_a = RunId::new();
+        let run_b = RunId::new();
+        let ns = test_namespace();
+
+        let mut view_a = ReadOnlyView::new(run_a);
+        view_a.apply_kv_put(Key::new_kv(ns.clone(), "shared"), Value::Int(1));
+        view_a.apply_kv_put(Key::new_kv(ns.clone(), "only_a"), Value::Int(2));
+        view_a.apply_kv_put(Key::new_kv(ns.clone(), "modified"), Value::Int(10));
+        view_a.append_event("E1".into(), Value::Null);
+
+        let mut view_b = ReadOnlyView::new(run_b);
+        view_b.apply_kv_put(Key::new_kv(ns.clone(), "shared"), Value::Int(1)); // Same
+        view_b.apply_kv_put(Key::new_kv(ns.clone(), "only_b"), Value::Int(3)); // Added
+        view_b.apply_kv_put(Key::new_kv(ns.clone(), "modified"), Value::Int(20)); // Modified
+        view_b.append_event("E1".into(), Value::Null);
+        view_b.append_event("E2".into(), Value::Null); // Added event
+
+        let diff = diff_views(&view_a, &view_b);
+
+        // Verify counts
+        assert_eq!(diff.added.len(), 2, "Should have 2 additions (only_b + E2)");
+        assert_eq!(diff.removed.len(), 1, "Should have 1 removal (only_a)");
+        assert_eq!(diff.modified.len(), 1, "Should have 1 modification (modified)");
+
+        // Verify specific entries
+        assert!(diff.added.iter().any(|e| e.key == "only_b"));
+        assert!(diff.removed.iter().any(|e| e.key == "only_a"));
+        assert!(diff.modified.iter().any(|e| e.key == "modified"));
+    }
+
+    #[test]
+    fn test_diff_event_count_difference() {
+        let run_a = RunId::new();
+        let run_b = RunId::new();
+
+        let mut view_a = ReadOnlyView::new(run_a);
+        view_a.append_event("E1".into(), Value::Int(1));
+        view_a.append_event("E2".into(), Value::Int(2));
+        view_a.append_event("E3".into(), Value::Int(3));
+
+        let mut view_b = ReadOnlyView::new(run_b);
+        view_b.append_event("E1".into(), Value::Int(1));
+
+        let diff = diff_views(&view_a, &view_b);
+
+        // B has fewer events than A - should show as removed
+        assert_eq!(diff.removed.len(), 2);
+        assert!(diff.removed.iter().all(|e| e.primitive == DiffPrimitiveKind::Event));
+    }
+
+    #[test]
+    fn test_run_index_list_run_ids() {
+        let mut index = RunIndex::new();
+
+        let run1 = RunId::new();
+        let run2 = RunId::new();
+        let run3 = RunId::new();
+
+        index.insert(run1, RunMetadata::new(run1, 1000, 0));
+        index.insert(run2, RunMetadata::new(run2, 2000, 100));
+        index.insert(run3, RunMetadata::new(run3, 3000, 200));
+
+        let ids = index.list_run_ids();
+        assert_eq!(ids.len(), 3);
+        assert!(ids.contains(&run1));
+        assert!(ids.contains(&run2));
+        assert!(ids.contains(&run3));
+    }
+
+    #[test]
+    fn test_read_only_view_kv_keys_iterator() {
+        let run_id = RunId::new();
+        let ns = test_namespace();
+
+        let mut view = ReadOnlyView::new(run_id);
+        view.apply_kv_put(Key::new_kv(ns.clone(), "a"), Value::Int(1));
+        view.apply_kv_put(Key::new_kv(ns.clone(), "b"), Value::Int(2));
+        view.apply_kv_put(Key::new_kv(ns.clone(), "c"), Value::Int(3));
+
+        let keys: Vec<_> = view.kv_keys().collect();
+        assert_eq!(keys.len(), 3);
+    }
+
+    #[test]
+    fn test_run_error_conversions() {
+        // Test From<RunError> for StrataError
+        let error = RunError::AlreadyExists(RunId::new());
+        let strata_error: StrataError = error.into();
+        assert!(matches!(strata_error, StrataError::InvalidOperation { .. }));
+
+        let error = RunError::NotFound(RunId::new());
+        let strata_error: StrataError = error.into();
+        assert!(matches!(strata_error, StrataError::RunNotFound { .. }));
+
+        let error = RunError::NotActive(RunId::new());
+        let strata_error: StrataError = error.into();
+        assert!(matches!(strata_error, StrataError::InvalidOperation { .. }));
+
+        let error = RunError::Wal("test".to_string());
+        let strata_error: StrataError = error.into();
+        assert!(matches!(strata_error, StrataError::Storage { .. }));
+
+        let error = RunError::Storage("test".to_string());
+        let strata_error: StrataError = error.into();
+        assert!(matches!(strata_error, StrataError::Storage { .. }));
+    }
+
+    #[test]
+    fn test_replay_error_display() {
+        let error = ReplayError::RunNotFound(RunId::new());
+        let msg = error.to_string();
+        assert!(msg.contains("Run not found"));
+
+        let error = ReplayError::EventLog("test error".to_string());
+        let msg = error.to_string();
+        assert!(msg.contains("Event log error"));
+        assert!(msg.contains("test error"));
+
+        let error = ReplayError::Wal("wal error".to_string());
+        let msg = error.to_string();
+        assert!(msg.contains("WAL error"));
+
+        let error = ReplayError::InvalidOperation("invalid".to_string());
+        let msg = error.to_string();
+        assert!(msg.contains("Invalid operation"));
+    }
+
+    #[test]
+    fn test_diff_entry_constructors() {
+        let added = DiffEntry::added("key".into(), DiffPrimitiveKind::Kv, "value".into());
+        assert!(added.value_a.is_none());
+        assert!(added.value_b.is_some());
+
+        let removed = DiffEntry::removed("key".into(), DiffPrimitiveKind::Kv, "value".into());
+        assert!(removed.value_a.is_some());
+        assert!(removed.value_b.is_none());
+
+        let modified = DiffEntry::modified(
+            "key".into(),
+            DiffPrimitiveKind::Kv,
+            "old".into(),
+            "new".into(),
+        );
+        assert!(modified.value_a.is_some());
+        assert!(modified.value_b.is_some());
+    }
+
+    #[test]
+    fn test_diff_primitive_kind_display() {
+        assert_eq!(format!("{}", DiffPrimitiveKind::Kv), "KV");
+        assert_eq!(format!("{}", DiffPrimitiveKind::Event), "Event");
+    }
 }

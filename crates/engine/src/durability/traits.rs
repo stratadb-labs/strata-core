@@ -242,4 +242,190 @@ mod tests {
         };
         assert_eq!(inmemory.mode_name(), "InMemory");
     }
+
+    // ========== CommitData Tests ==========
+
+    #[test]
+    fn test_commit_data_from_transaction_with_writes() {
+        use strata_core::types::Key;
+
+        let run_id = RunId::new();
+        let mut txn = TransactionContext::new(1, run_id, 0);
+
+        // Add some writes
+        let ns = strata_core::types::Namespace::for_run(run_id);
+        txn.write_set.insert(
+            Key::new_kv(ns.clone(), "key1"),
+            strata_core::value::Value::Int(1),
+        );
+        txn.write_set.insert(
+            Key::new_kv(ns.clone(), "key2"),
+            strata_core::value::Value::Int(2),
+        );
+        txn.write_set.insert(
+            Key::new_kv(ns.clone(), "key3"),
+            strata_core::value::Value::Int(3),
+        );
+
+        // Add some deletes
+        txn.delete_set.insert(Key::new_kv(ns.clone(), "del1"));
+        txn.delete_set.insert(Key::new_kv(ns.clone(), "del2"));
+
+        let commit_data = CommitData::from_transaction(&txn, 42);
+
+        assert_eq!(commit_data.txn_id, 1);
+        assert_eq!(commit_data.run_id, run_id);
+        assert_eq!(commit_data.commit_version, 42);
+        assert_eq!(commit_data.put_count, 3);
+        assert_eq!(commit_data.delete_count, 2);
+        assert_eq!(commit_data.cas_count, 0); // No CAS operations added
+    }
+
+    #[test]
+    fn test_commit_data_total_operations() {
+        let commit_data = CommitData {
+            txn_id: 1,
+            run_id: RunId::new(),
+            commit_version: 100,
+            put_count: 5,
+            delete_count: 3,
+            cas_count: 2,
+        };
+
+        assert_eq!(commit_data.total_operations(), 10);
+    }
+
+    #[test]
+    fn test_commit_data_total_operations_zero() {
+        let commit_data = CommitData {
+            txn_id: 1,
+            run_id: RunId::new(),
+            commit_version: 100,
+            put_count: 0,
+            delete_count: 0,
+            cas_count: 0,
+        };
+
+        assert_eq!(commit_data.total_operations(), 0);
+    }
+
+    #[test]
+    fn test_commit_data_is_read_only_true() {
+        let commit_data = CommitData {
+            txn_id: 1,
+            run_id: RunId::new(),
+            commit_version: 100,
+            put_count: 0,
+            delete_count: 0,
+            cas_count: 0,
+        };
+
+        assert!(commit_data.is_read_only());
+    }
+
+    #[test]
+    fn test_commit_data_is_read_only_false_with_puts() {
+        let commit_data = CommitData {
+            txn_id: 1,
+            run_id: RunId::new(),
+            commit_version: 100,
+            put_count: 1,
+            delete_count: 0,
+            cas_count: 0,
+        };
+
+        assert!(!commit_data.is_read_only());
+    }
+
+    #[test]
+    fn test_commit_data_is_read_only_false_with_deletes() {
+        let commit_data = CommitData {
+            txn_id: 1,
+            run_id: RunId::new(),
+            commit_version: 100,
+            put_count: 0,
+            delete_count: 1,
+            cas_count: 0,
+        };
+
+        assert!(!commit_data.is_read_only());
+    }
+
+    #[test]
+    fn test_commit_data_is_read_only_false_with_cas() {
+        let commit_data = CommitData {
+            txn_id: 1,
+            run_id: RunId::new(),
+            commit_version: 100,
+            put_count: 0,
+            delete_count: 0,
+            cas_count: 1,
+        };
+
+        assert!(!commit_data.is_read_only());
+    }
+
+    #[test]
+    fn test_commit_data_clone() {
+        let commit_data = CommitData {
+            txn_id: 42,
+            run_id: RunId::new(),
+            commit_version: 100,
+            put_count: 5,
+            delete_count: 3,
+            cas_count: 2,
+        };
+
+        let cloned = commit_data.clone();
+        assert_eq!(commit_data.txn_id, cloned.txn_id);
+        assert_eq!(commit_data.run_id, cloned.run_id);
+        assert_eq!(commit_data.commit_version, cloned.commit_version);
+        assert_eq!(commit_data.put_count, cloned.put_count);
+        assert_eq!(commit_data.delete_count, cloned.delete_count);
+        assert_eq!(commit_data.cas_count, cloned.cas_count);
+    }
+
+    #[test]
+    fn test_commit_data_debug() {
+        let commit_data = CommitData {
+            txn_id: 42,
+            run_id: RunId::new(),
+            commit_version: 100,
+            put_count: 5,
+            delete_count: 3,
+            cas_count: 2,
+        };
+
+        let debug_str = format!("{:?}", commit_data);
+        assert!(debug_str.contains("CommitData"));
+        assert!(debug_str.contains("txn_id"));
+        assert!(debug_str.contains("42"));
+        assert!(debug_str.contains("put_count"));
+        assert!(debug_str.contains("5"));
+    }
+
+    // ========== Durability Trait Object Safety ==========
+
+    fn accept_dyn_durability(_d: &dyn Durability) {}
+
+    #[test]
+    fn test_durability_trait_is_object_safe() {
+        let mock = MockDurability {
+            persistent: true,
+            name: "Test",
+        };
+        accept_dyn_durability(&mock);
+    }
+
+    #[test]
+    fn test_durability_can_be_boxed() {
+        let mock: Box<dyn Durability> = Box::new(MockDurability {
+            persistent: true,
+            name: "Boxed",
+        });
+
+        assert!(mock.is_persistent());
+        assert_eq!(mock.mode_name(), "Boxed");
+        assert!(mock.requires_wal());
+    }
 }

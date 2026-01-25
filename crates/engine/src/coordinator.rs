@@ -392,4 +392,273 @@ mod tests {
         assert_eq!(metrics.total_committed, 2);
         assert_eq!(metrics.total_aborted, 1);
     }
+
+    // ========== wait_for_idle Tests ==========
+
+    #[test]
+    fn test_wait_for_idle_no_active_transactions() {
+        let coordinator = TransactionCoordinator::new(0);
+
+        // No transactions active, should return immediately
+        let result = coordinator.wait_for_idle(std::time::Duration::from_millis(100));
+        assert!(result, "wait_for_idle should return true when no transactions are active");
+    }
+
+    #[test]
+    fn test_wait_for_idle_timeout_with_active_transaction() {
+        let coordinator = Arc::new(TransactionCoordinator::new(0));
+        let storage = create_test_storage();
+        let run_id = RunId::new();
+
+        // Start a transaction but don't complete it
+        let _txn = coordinator.start_transaction(run_id, &storage);
+        assert_eq!(coordinator.active_count(), 1);
+
+        // Wait with a short timeout - should return false
+        let start = std::time::Instant::now();
+        let result = coordinator.wait_for_idle(std::time::Duration::from_millis(50));
+        let elapsed = start.elapsed();
+
+        assert!(!result, "wait_for_idle should return false on timeout");
+        assert!(
+            elapsed >= std::time::Duration::from_millis(50),
+            "Should have waited at least 50ms, waited {:?}",
+            elapsed
+        );
+        assert!(
+            elapsed < std::time::Duration::from_millis(100),
+            "Should not have waited too long, waited {:?}",
+            elapsed
+        );
+    }
+
+    #[test]
+    fn test_wait_for_idle_transaction_completes_before_timeout() {
+        use std::thread;
+
+        let coordinator = Arc::new(TransactionCoordinator::new(0));
+        let storage = create_test_storage();
+        let run_id = RunId::new();
+
+        // Start a transaction
+        let _txn = coordinator.start_transaction(run_id, &storage);
+
+        // Spawn a thread to complete the transaction after a short delay
+        let coordinator_clone = Arc::clone(&coordinator);
+        let completer = thread::spawn(move || {
+            thread::sleep(std::time::Duration::from_millis(25));
+            coordinator_clone.record_commit();
+        });
+
+        // Wait for idle with a longer timeout
+        let start = std::time::Instant::now();
+        let result = coordinator.wait_for_idle(std::time::Duration::from_millis(200));
+        let elapsed = start.elapsed();
+
+        completer.join().unwrap();
+
+        assert!(result, "wait_for_idle should return true when transaction completes");
+        assert!(
+            elapsed < std::time::Duration::from_millis(100),
+            "Should have returned early when transaction completed, waited {:?}",
+            elapsed
+        );
+    }
+
+    #[test]
+    fn test_wait_for_idle_multiple_transactions_complete() {
+        use std::thread;
+        use std::sync::Barrier;
+
+        let coordinator = Arc::new(TransactionCoordinator::new(0));
+        let storage = create_test_storage();
+        let run_id = RunId::new();
+
+        // Start 5 transactions
+        for _ in 0..5 {
+            let _txn = coordinator.start_transaction(run_id, &storage);
+        }
+        assert_eq!(coordinator.active_count(), 5);
+
+        // Spawn threads to complete transactions with staggered timing
+        let barrier = Arc::new(Barrier::new(6)); // 5 completers + 1 waiter
+        let handles: Vec<_> = (0..5)
+            .map(|i| {
+                let coord = Arc::clone(&coordinator);
+                let barrier = Arc::clone(&barrier);
+                thread::spawn(move || {
+                    barrier.wait();
+                    thread::sleep(std::time::Duration::from_millis(10 * (i + 1) as u64));
+                    coord.record_commit();
+                })
+            })
+            .collect();
+
+        // Wait for barrier, then wait for idle
+        barrier.wait();
+        let result = coordinator.wait_for_idle(std::time::Duration::from_millis(500));
+
+        for handle in handles {
+            handle.join().unwrap();
+        }
+
+        assert!(result, "wait_for_idle should return true when all transactions complete");
+        assert_eq!(coordinator.active_count(), 0);
+        assert_eq!(coordinator.metrics().total_committed, 5);
+    }
+
+    #[test]
+    fn test_wait_for_idle_zero_timeout() {
+        let coordinator = TransactionCoordinator::new(0);
+        let storage = create_test_storage();
+        let run_id = RunId::new();
+
+        // Start a transaction
+        let _txn = coordinator.start_transaction(run_id, &storage);
+
+        // Zero timeout should return false immediately
+        let start = std::time::Instant::now();
+        let result = coordinator.wait_for_idle(std::time::Duration::ZERO);
+        let elapsed = start.elapsed();
+
+        assert!(!result, "wait_for_idle with zero timeout should return false");
+        // Should return very quickly (within a few milliseconds)
+        assert!(
+            elapsed < std::time::Duration::from_millis(10),
+            "Zero timeout should return quickly, took {:?}",
+            elapsed
+        );
+    }
+
+    #[test]
+    fn test_wait_for_idle_concurrent_start_and_complete() {
+        use std::thread;
+        use std::sync::atomic::{AtomicBool, Ordering};
+
+        let coordinator = Arc::new(TransactionCoordinator::new(0));
+        let storage = Arc::new(ShardedStore::new());
+        let run_id = RunId::new();
+        let stop_flag = Arc::new(AtomicBool::new(false));
+
+        // Spawn a thread that rapidly starts and completes transactions
+        let coord_clone = Arc::clone(&coordinator);
+        let storage_clone = Arc::clone(&storage);
+        let stop_clone = Arc::clone(&stop_flag);
+        let worker = thread::spawn(move || {
+            let mut completed = 0;
+            while !stop_clone.load(Ordering::SeqCst) {
+                let _txn = coord_clone.start_transaction(run_id, &storage_clone);
+                thread::yield_now();
+                coord_clone.record_commit();
+                completed += 1;
+                if completed >= 50 {
+                    break;
+                }
+            }
+            completed
+        });
+
+        // Try to catch a moment when transactions are idle
+        thread::sleep(std::time::Duration::from_millis(10));
+        stop_flag.store(true, Ordering::SeqCst);
+
+        // Give the worker time to finish
+        let completed = worker.join().unwrap();
+
+        // After worker stops, wait for idle should succeed
+        let result = coordinator.wait_for_idle(std::time::Duration::from_millis(100));
+        assert!(result, "Should eventually reach idle state");
+        assert!(completed > 0, "Worker should have completed some transactions");
+    }
+
+    #[test]
+    fn test_active_count_accuracy_under_concurrent_load() {
+        use std::thread;
+        use std::sync::Barrier;
+
+        let coordinator = Arc::new(TransactionCoordinator::new(0));
+        let storage = Arc::new(ShardedStore::new());
+        let run_id = RunId::new();
+        let barrier = Arc::new(Barrier::new(10));
+
+        // 10 threads start transactions concurrently, then 10 threads complete them
+        let mut handles = Vec::new();
+
+        // Starters
+        for _ in 0..10 {
+            let coord = Arc::clone(&coordinator);
+            let stor = Arc::clone(&storage);
+            let barr = Arc::clone(&barrier);
+            handles.push(thread::spawn(move || {
+                barr.wait();
+                let _txn = coord.start_transaction(run_id, &stor);
+                // Don't record_commit - leave active
+            }));
+        }
+
+        // Wait for starters to finish
+        for handle in handles {
+            handle.join().unwrap();
+        }
+
+        // All 10 should be active
+        assert_eq!(coordinator.active_count(), 10);
+        assert_eq!(coordinator.metrics().total_started, 10);
+
+        // Now complete them all concurrently
+        let barrier2 = Arc::new(Barrier::new(10));
+        let mut completers = Vec::new();
+
+        for _ in 0..10 {
+            let coord = Arc::clone(&coordinator);
+            let barr = Arc::clone(&barrier2);
+            completers.push(thread::spawn(move || {
+                barr.wait();
+                coord.record_commit();
+            }));
+        }
+
+        for handle in completers {
+            handle.join().unwrap();
+        }
+
+        // All should be complete
+        assert_eq!(coordinator.active_count(), 0);
+        assert_eq!(coordinator.metrics().total_committed, 10);
+    }
+
+    #[test]
+    fn test_from_recovery_restores_txn_id() {
+        use strata_concurrency::RecoveryStats;
+
+        let stats = RecoveryStats {
+            txns_replayed: 10,
+            incomplete_txns: 2,
+            aborted_txns: 1,
+            writes_applied: 50,
+            deletes_applied: 5,
+            final_version: 500,
+            max_txn_id: 15,
+            from_checkpoint: false,
+        };
+
+        let result = RecoveryResult {
+            storage: ShardedStore::new(),
+            txn_manager: TransactionManager::new(500),
+            stats,
+        };
+
+        let coordinator = TransactionCoordinator::from_recovery(&result);
+
+        // Version should be restored
+        assert_eq!(coordinator.current_version(), 500);
+
+        // Next txn_id should be > max_txn_id from recovery
+        let next_id = coordinator.next_txn_id();
+        assert!(
+            next_id > 15,
+            "Next txn_id ({}) should be > max_txn_id from recovery (15)",
+            next_id
+        );
+    }
 }
