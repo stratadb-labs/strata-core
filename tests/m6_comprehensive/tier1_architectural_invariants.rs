@@ -241,11 +241,12 @@ fn test_tier1_rule6_can_swap_fuser() {
 // Additional Invariants
 // ============================================================================
 
-/// PrimitiveType has exactly 7 variants
+/// PrimitiveType has exactly 6 variants
+/// The six primitives are: Kv, Event, State, Run, Json, Vector
 #[test]
 fn test_tier1_primitive_type_count() {
     let all = PrimitiveType::all();
-    assert_eq!(all.len(), 7, "Should have exactly 7 primitives");
+    assert_eq!(all.len(), 6, "Should have exactly 6 primitives");
 }
 
 /// All primitive types are distinct
@@ -253,7 +254,7 @@ fn test_tier1_primitive_type_count() {
 fn test_tier1_primitive_types_distinct() {
     let all = PrimitiveType::all();
     let set: HashSet<_> = all.iter().collect();
-    assert_eq!(set.len(), 7, "All primitive types should be distinct");
+    assert_eq!(set.len(), 6, "All primitive types should be distinct");
 }
 
 /// DocRef correctly reports primitive type

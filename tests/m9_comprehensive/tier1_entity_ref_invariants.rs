@@ -147,8 +147,8 @@ fn entity_ref_hashable_for_collections() {
         set.insert(entity_ref.clone());
     }
 
-    // All 7 variants should be in the set
-    assert_eq!(set.len(), 7);
+    // All 6 variants should be in the set (Kv, Event, State, Run, Json, Vector)
+    assert_eq!(set.len(), 6);
 }
 
 #[test]

@@ -466,18 +466,32 @@ mod tests {
 
     #[test]
     fn test_json_to_value_conversion() {
-        // JSON to Value requires the tagged format: {"Int": 42}
-        let json_str = r#"{"Int": 42}"#;
+        // Direct JSON to Value conversion (not serde-tagged enums)
+        // JSON number -> Value::Int
+        let json_str = r#"42"#;
         let serde_val: serde_json::Value = serde_json::from_str(json_str).unwrap();
         let json = JsonValue::from(serde_val);
         let value = json_to_value(json).unwrap();
         assert_eq!(value, Value::Int(42));
 
-        let json_str = r#"{"String": "hello"}"#;
+        // JSON string -> Value::String
+        let json_str = r#""hello""#;
         let serde_val: serde_json::Value = serde_json::from_str(json_str).unwrap();
         let json = JsonValue::from(serde_val);
         let value = json_to_value(json).unwrap();
         assert_eq!(value, Value::String("hello".into()));
+
+        // JSON object -> Value::Object
+        let json_str = r#"{"key": 42}"#;
+        let serde_val: serde_json::Value = serde_json::from_str(json_str).unwrap();
+        let json = JsonValue::from(serde_val);
+        let value = json_to_value(json).unwrap();
+        match value {
+            Value::Object(map) => {
+                assert_eq!(map.get("key"), Some(&Value::Int(42)));
+            }
+            _ => panic!("Expected Object"),
+        }
     }
 
     #[test]

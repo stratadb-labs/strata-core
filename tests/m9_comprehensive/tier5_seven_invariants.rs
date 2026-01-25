@@ -23,13 +23,13 @@ use std::collections::{HashMap, HashSet};
 fn invariant1_every_entity_has_stable_identity() {
     let run_id = test_run_id();
 
-    // All seven primitive types have corresponding EntityRef variants
+    // All six primitive types have corresponding EntityRef variants
     let entity_refs = all_entity_refs(run_id);
-    assert_eq!(entity_refs.len(), 7);
+    assert_eq!(entity_refs.len(), 6);
 
     // Each entity ref can identify its primitive type
     let types: HashSet<_> = entity_refs.iter().map(|r| r.primitive_type()).collect();
-    assert_eq!(types.len(), 7);
+    assert_eq!(types.len(), 6);
 }
 
 #[test]
@@ -344,10 +344,10 @@ fn version_types_match_primitive_patterns() {
 fn contract_types_are_complete() {
     // Verify all contract types are properly defined and usable
 
-    // EntityRef: 7 variants
+    // EntityRef: 6 variants (Kv, Event, State, Run, Json, Vector)
     let run_id = test_run_id();
     let refs = all_entity_refs(run_id);
-    assert_eq!(refs.len(), 7);
+    assert_eq!(refs.len(), 6);
 
     // Version: 3 variants
     let _ = Version::txn(1);
@@ -361,8 +361,8 @@ fn contract_types_are_complete() {
     // Versioned<T>: generic wrapper
     let _ = Versioned::new(42, Version::txn(1));
 
-    // PrimitiveType: 7 variants
-    assert_eq!(PrimitiveType::all().len(), 7);
+    // PrimitiveType: 6 variants (Kv, Event, State, Run, Json, Vector)
+    assert_eq!(PrimitiveType::all().len(), 6);
 
     // RunName: validated string
     assert!(RunName::new("valid".to_string()).is_ok());

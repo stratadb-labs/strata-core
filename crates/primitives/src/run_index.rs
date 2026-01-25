@@ -643,11 +643,10 @@ impl RunIndex {
             .ok_or_else(|| Error::InvalidOperation(format!("Run '{}' not found", run_id)))?
             .value;
 
-        // Use run_meta.name (user-provided key) for namespace, not run_meta.run_id (internal UUID).
-        // Other primitives (KV, State, etc.) use the user-provided name/key for namespacing,
-        // so cascade delete must use the same identifier.
-        let actual_run_id = RunId::from_string(&run_meta.name).ok_or_else(|| {
-            Error::InvalidOperation(format!("Invalid run name format: {}", run_meta.name))
+        // Use run_meta.run_id (the internal UUID) for namespace.
+        // All primitives (KV, State, etc.) use the UUID for namespacing via Namespace::for_run().
+        let actual_run_id = RunId::from_string(&run_meta.run_id).ok_or_else(|| {
+            Error::InvalidOperation(format!("Invalid run UUID: {}", run_meta.run_id))
         })?;
 
         // First, delete all run-scoped data (cascading delete)

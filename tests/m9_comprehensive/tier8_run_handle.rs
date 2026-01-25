@@ -11,9 +11,23 @@
 //! # Story #478: RunHandle Pattern Implementation
 
 use strata_core::types::RunId;
+use strata_core::value::Value;
 use strata_primitives::run_handle::RunHandle;
 use strata_engine::Database;
+use std::collections::HashMap;
 use std::sync::Arc;
+
+/// Create an empty object payload for EventLog tests
+fn empty_payload() -> Value {
+    Value::Object(HashMap::new())
+}
+
+/// Create an object payload with a single field
+fn test_payload(key: &str, value: Value) -> Value {
+    let mut map = HashMap::new();
+    map.insert(key.to_string(), value);
+    Value::Object(map)
+}
 
 /// Create a test database and RunHandle
 fn setup() -> (Arc<Database>, RunHandle) {
@@ -155,8 +169,8 @@ fn event_handle_append_returns_sequence() {
     let (_, handle) = setup();
     let events = handle.events();
 
-    let seq1 = events.append("test-event", strata_core::value::Value::Null).unwrap();
-    let seq2 = events.append("test-event", strata_core::value::Value::Null).unwrap();
+    let seq1 = events.append("test-event", empty_payload()).unwrap();
+    let seq2 = events.append("test-event", empty_payload()).unwrap();
 
     // Sequences should be monotonically increasing
     assert!(seq2 > seq1);
@@ -167,7 +181,7 @@ fn event_handle_read_by_sequence() {
     let (_, handle) = setup();
     let events = handle.events();
 
-    let seq = events.append("my-event", strata_core::value::Value::Int(42)).unwrap();
+    let seq = events.append("my-event", test_payload("value", Value::Int(42))).unwrap();
     let result = events.read(seq).unwrap();
 
     assert!(result.is_some());
@@ -278,8 +292,8 @@ fn run_handle_events_isolated() {
     let handle2 = RunHandle::new(db.clone(), run2);
 
     // Append events to run1
-    let seq1 = handle1.events().append("e1", strata_core::value::Value::Null).unwrap();
-    let _seq2 = handle1.events().append("e2", strata_core::value::Value::Null).unwrap();
+    let seq1 = handle1.events().append("e1", empty_payload()).unwrap();
+    let _seq2 = handle1.events().append("e2", empty_payload()).unwrap();
 
     // run1 can read the event
     let event_result = handle1.events().read(seq1).unwrap();
@@ -388,9 +402,9 @@ fn run_handle_multiple_primitive_operations() {
     let (_, handle) = setup();
 
     // Use multiple primitives through the same handle
-    handle.kv().put("key", strata_core::value::Value::Int(1)).unwrap();
-    let event_seq = handle.events().append("event", strata_core::value::Value::Null).unwrap();
-    handle.state().set("cell", strata_core::value::Value::Int(0)).unwrap();
+    handle.kv().put("key", Value::Int(1)).unwrap();
+    let event_seq = handle.events().append("event", empty_payload()).unwrap();
+    handle.state().set("cell", Value::Int(0)).unwrap();
 
     // All should exist
     assert!(handle.kv().exists("key").unwrap());
