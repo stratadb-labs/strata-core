@@ -52,8 +52,8 @@ mod kv_tests {
     fn test_kv_simple_set_get() {
         let db = StrataBuilder::new().in_memory().open_temp().unwrap();
 
-        // Level 1: Simple API
-        db.kv.set("key1", Value::String("value1".into())).unwrap();
+        // Level 1: Simple API - clean ergonomic syntax!
+        db.kv.set("key1", "value1").unwrap();
         let value = db.kv.get("key1").unwrap();
         assert!(value.is_some());
     }
@@ -66,9 +66,7 @@ mod kv_tests {
         let run = db.runs.create(None).unwrap();
 
         // Level 2: Run-scoped API
-        db.kv
-            .set_in(&run, "key1", Value::String("value1".into()))
-            .unwrap();
+        db.kv.set_in(&run, "key1", "value1").unwrap();
         let value = db.kv.get_in(&run, "key1").unwrap();
         assert!(value.is_some());
     }
@@ -80,10 +78,7 @@ mod kv_tests {
         let run = db.runs.create(None).unwrap();
 
         // Level 3: Full control API - returns Version
-        let _version = db
-            .kv
-            .put(&run, "key1", Value::String("value1".into()))
-            .unwrap();
+        let _version = db.kv.put(&run, "key1", "value1").unwrap();
 
         let versioned = db.kv.get_in(&run, "key1").unwrap();
         assert!(versioned.is_some());
@@ -93,13 +88,41 @@ mod kv_tests {
     fn test_kv_exists_and_delete() {
         let db = StrataBuilder::new().in_memory().open_temp().unwrap();
 
-        db.kv
-            .set("test_key", Value::String("test_value".into()))
-            .unwrap();
+        db.kv.set("test_key", "test_value").unwrap();
         assert!(db.kv.exists("test_key").unwrap());
 
         db.kv.delete("test_key").unwrap();
         assert!(!db.kv.exists("test_key").unwrap());
+    }
+
+    #[test]
+    fn test_kv_with_different_types() {
+        let db = StrataBuilder::new().in_memory().open_temp().unwrap();
+
+        // String
+        db.kv.set("string_key", "hello").unwrap();
+
+        // Integer
+        db.kv.set("int_key", 42i64).unwrap();
+
+        // Boolean
+        db.kv.set("bool_key", true).unwrap();
+
+        // Float
+        db.kv.set("float_key", 3.14f64).unwrap();
+
+        // Verify values
+        let s = db.kv.get("string_key").unwrap().unwrap();
+        assert_eq!(s.value.as_str(), Some("hello"));
+
+        let i = db.kv.get("int_key").unwrap().unwrap();
+        assert_eq!(i.value.as_int(), Some(42));
+
+        let b = db.kv.get("bool_key").unwrap().unwrap();
+        assert_eq!(b.value.as_bool(), Some(true));
+
+        let f = db.kv.get("float_key").unwrap().unwrap();
+        assert!((f.value.as_float().unwrap() - 3.14).abs() < 0.001);
     }
 }
 
@@ -242,9 +265,8 @@ mod state_tests {
     fn test_state_simple_set_get() {
         let db = StrataBuilder::new().in_memory().open_temp().unwrap();
 
-        db.state
-            .set("cell1", Value::String("active".into()))
-            .unwrap();
+        // Clean syntax with From impl
+        db.state.set("cell1", "active").unwrap();
         let state = db.state.get("cell1").unwrap();
         assert!(state.is_some());
     }
@@ -255,7 +277,7 @@ mod state_tests {
 
         let run = db.runs.create(None).unwrap();
 
-        db.state.set_in(&run, "cell1", Value::Int(0)).unwrap();
+        db.state.set_in(&run, "cell1", 0i64).unwrap();
         let state = db.state.get_in(&run, "cell1").unwrap();
         assert!(state.is_some());
     }
@@ -264,8 +286,8 @@ mod state_tests {
     fn test_state_set_multiple_times() {
         let db = StrataBuilder::new().in_memory().open_temp().unwrap();
 
-        db.state.set("counter", Value::Int(0)).unwrap();
-        db.state.set("counter", Value::Int(1)).unwrap();
+        db.state.set("counter", 0i64).unwrap();
+        db.state.set("counter", 1i64).unwrap();
 
         let state = db.state.get("counter").unwrap().unwrap();
         // State should be updated to the latest value
@@ -374,24 +396,20 @@ mod integration_tests {
         // Create a run to scope all operations
         let run = db.runs.create(None).unwrap();
 
-        // Use all primitives within the same run
-        db.kv
-            .set_in(&run, "config", Value::String("enabled".into()))
-            .unwrap();
+        // Use all primitives within the same run - clean syntax!
+        db.kv.set_in(&run, "config", "enabled").unwrap();
 
         let mut user_obj = std::collections::HashMap::new();
-        user_obj.insert("name".to_string(), Value::String("Test".into()));
-        db.json.set_in(&run, "user", Value::Object(user_obj)).unwrap();
+        user_obj.insert("name".to_string(), Value::from("Test"));
+        db.json.set_in(&run, "user", user_obj).unwrap();
 
         let mut event_obj = std::collections::HashMap::new();
-        event_obj.insert("action".to_string(), Value::String("create".into()));
+        event_obj.insert("action".to_string(), Value::from("create"));
         db.events
             .append_in(&run, "audit", Value::Object(event_obj))
             .unwrap();
 
-        db.state
-            .set_in(&run, "status", Value::String("running".into()))
-            .unwrap();
+        db.state.set_in(&run, "status", "running").unwrap();
 
         // Create vector collection and store
         db.vectors
@@ -420,9 +438,9 @@ mod integration_tests {
     fn test_metrics_access() {
         let db = StrataBuilder::new().in_memory().open_temp().unwrap();
 
-        // Do some operations to generate metrics
-        db.kv.set("k1", Value::String("v1".into())).unwrap();
-        db.kv.set("k2", Value::String("v2".into())).unwrap();
+        // Clean syntax - just pass the value directly
+        db.kv.set("k1", "v1").unwrap();
+        db.kv.set("k2", "v2").unwrap();
 
         let metrics = db.metrics();
         // Should have some operations recorded

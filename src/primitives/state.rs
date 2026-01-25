@@ -47,11 +47,12 @@ impl State {
     /// # Example
     ///
     /// ```ignore
-    /// db.state.set("task-status", Value::String("running".to_string()))?;
+    /// db.state.set("task-status", "running")?;
+    /// db.state.set("counter", 42)?;
     /// ```
-    pub fn set(&self, key: &str, value: Value) -> Result<Version> {
+    pub fn set(&self, key: &str, value: impl Into<Value>) -> Result<Version> {
         let run = ApiRunId::default();
-        Ok(self.substrate.state_set(&run, key, value)?)
+        Ok(self.substrate.state_set(&run, key, value.into())?)
     }
 
     // =========================================================================
@@ -65,9 +66,9 @@ impl State {
     }
 
     /// Set a state cell in a specific run.
-    pub fn set_in(&self, run: &RunId, key: &str, value: Value) -> Result<Version> {
+    pub fn set_in(&self, run: &RunId, key: &str, value: impl Into<Value>) -> Result<Version> {
         let api_run = run_id_to_api(run);
-        Ok(self.substrate.state_set(&api_run, key, value)?)
+        Ok(self.substrate.state_set(&api_run, key, value.into())?)
     }
 
     // =========================================================================
@@ -105,10 +106,10 @@ impl State {
         run: &RunId,
         key: &str,
         expected_counter: Option<u64>,
-        value: Value,
+        value: impl Into<Value>,
     ) -> Result<Option<Version>> {
         let api_run = run_id_to_api(run);
-        Ok(self.substrate.state_cas(&api_run, key, expected_counter, value)?)
+        Ok(self.substrate.state_cas(&api_run, key, expected_counter, value.into())?)
     }
 
     /// Delete a state cell.

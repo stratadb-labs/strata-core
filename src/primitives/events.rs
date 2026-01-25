@@ -33,11 +33,13 @@ impl Events {
     /// # Example
     ///
     /// ```ignore
-    /// db.events.append("activity", json!({"action": "login", "user": "alice"}).into())?;
+    /// let mut event = HashMap::new();
+    /// event.insert("action".to_string(), Value::from("login"));
+    /// db.events.append("activity", event)?;
     /// ```
-    pub fn append(&self, stream: &str, payload: Value) -> Result<Version> {
+    pub fn append(&self, stream: &str, payload: impl Into<Value>) -> Result<Version> {
         let run = ApiRunId::default();
-        Ok(self.substrate.event_append(&run, stream, payload)?)
+        Ok(self.substrate.event_append(&run, stream, payload.into())?)
     }
 
     /// Read events from a stream.
@@ -65,9 +67,9 @@ impl Events {
     // =========================================================================
 
     /// Append an event to a stream in a specific run.
-    pub fn append_in(&self, run: &RunId, stream: &str, payload: Value) -> Result<Version> {
+    pub fn append_in(&self, run: &RunId, stream: &str, payload: impl Into<Value>) -> Result<Version> {
         let api_run = run_id_to_api(run);
-        Ok(self.substrate.event_append(&api_run, stream, payload)?)
+        Ok(self.substrate.event_append(&api_run, stream, payload.into())?)
     }
 
     /// Read events from a stream in a specific run.

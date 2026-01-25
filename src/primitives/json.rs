@@ -35,11 +35,13 @@ impl Json {
     /// # Example
     ///
     /// ```ignore
-    /// db.json.set("profile", json!({"name": "Alice", "age": 30}).into())?;
+    /// let mut obj = HashMap::new();
+    /// obj.insert("name".to_string(), Value::from("Alice"));
+    /// db.json.set("profile", obj)?;
     /// ```
-    pub fn set(&self, key: &str, value: Value) -> Result<Version> {
+    pub fn set(&self, key: &str, value: impl Into<Value>) -> Result<Version> {
         let run = ApiRunId::default();
-        Ok(self.substrate.json_set(&run, key, "$", value)?)
+        Ok(self.substrate.json_set(&run, key, "$", value.into())?)
     }
 
     /// Get a JSON document.
@@ -75,9 +77,9 @@ impl Json {
     // =========================================================================
 
     /// Set a JSON document in a specific run.
-    pub fn set_in(&self, run: &RunId, key: &str, value: Value) -> Result<Version> {
+    pub fn set_in(&self, run: &RunId, key: &str, value: impl Into<Value>) -> Result<Version> {
         let api_run = run_id_to_api(run);
-        Ok(self.substrate.json_set(&api_run, key, "$", value)?)
+        Ok(self.substrate.json_set(&api_run, key, "$", value.into())?)
     }
 
     /// Get a JSON document from a specific run.
@@ -112,17 +114,17 @@ impl Json {
     /// # Example
     ///
     /// ```ignore
-    /// db.json.set_path(&run, "profile", "$.name", "Bob".into())?;
+    /// db.json.set_path(&run, "profile", "$.name", "Bob")?;
     /// ```
     pub fn set_path(
         &self,
         run: &RunId,
         key: &str,
         path: &str,
-        value: Value,
+        value: impl Into<Value>,
     ) -> Result<Version> {
         let api_run = run_id_to_api(run);
-        Ok(self.substrate.json_set(&api_run, key, path, value)?)
+        Ok(self.substrate.json_set(&api_run, key, path, value.into())?)
     }
 
     /// Delete a path within a document.
@@ -137,11 +139,13 @@ impl Json {
     ///
     /// ```ignore
     /// // Partial update: only update the "age" field
-    /// db.json.merge(&run, "profile", "$", json!({"age": 31}).into())?;
+    /// let mut patch = HashMap::new();
+    /// patch.insert("age".to_string(), Value::Int(31));
+    /// db.json.merge(&run, "profile", "$", patch)?;
     /// ```
-    pub fn merge(&self, run: &RunId, key: &str, path: &str, patch: Value) -> Result<Version> {
+    pub fn merge(&self, run: &RunId, key: &str, path: &str, patch: impl Into<Value>) -> Result<Version> {
         let api_run = run_id_to_api(run);
-        Ok(self.substrate.json_merge(&api_run, key, path, patch)?)
+        Ok(self.substrate.json_merge(&api_run, key, path, patch.into())?)
     }
 
     /// Check if a document exists.
