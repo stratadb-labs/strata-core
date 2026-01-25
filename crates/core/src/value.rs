@@ -5,7 +5,7 @@
 //!
 //! ## Canonical Value Model (Frozen)
 //!
-//! The Value enum has exactly 8 variants, matching the M11 contract:
+//! The Value enum has exactly 8 variants, matching the core contract:
 //! - Null, Bool, Int, Float, String, Bytes, Array, Object
 //!
 //! ### Type Rules (VAL-1 to VAL-5)

@@ -1,4 +1,4 @@
-//! Cross-Primitive Atomicity Integration Tests (Story #320)
+//! Cross-Primitive Atomicity Integration Tests
 //!
 //! These tests verify that transactions spanning multiple primitives (KV, JSON,
 //! Event, State, Run) are atomic - after crash recovery, you see either

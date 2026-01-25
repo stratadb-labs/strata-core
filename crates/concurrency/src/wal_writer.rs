@@ -140,7 +140,7 @@ impl<'a> TransactionWALWriter<'a> {
     }
 
     // ========================================================================
-    // Vector Operations (M8)
+    // Vector Operations
     // ========================================================================
 
     /// Write a VectorCollectionCreate entry

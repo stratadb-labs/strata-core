@@ -1,13 +1,13 @@
 //! Integration tests for Run Lifecycle (Epic 43)
 //!
 //! Tests for:
-//! - Story #310: RunStatus and RunMetadata types
-//! - Story #311: begin_run() WAL entries
-//! - Story #312: end_run() WAL entries
-//! - Story #313: RunIndex event offset tracking
-//! - Story #314: ReadOnlyView
-//! - Story #315: diff_runs() key-level comparison
-//! - Story #316: Orphaned run detection
+//! - RunStatus and RunMetadata types
+//! - begin_run() WAL entries
+//! - end_run() WAL entries
+//! - RunIndex event offset tracking
+//! - ReadOnlyView
+//! - diff_runs() key-level comparison
+//! - Orphaned run detection
 
 use strata_core::run_types::{RunMetadata, RunStatus};
 use strata_core::types::{Key, Namespace, RunId};
@@ -21,7 +21,7 @@ use strata_engine::{diff_views, DiffEntry, DiffPrimitiveKind, ReadOnlyView, RunD
 use tempfile::TempDir;
 
 // ============================================================================
-// Story #310: RunStatus and RunMetadata Tests
+// RunStatus and RunMetadata Tests
 // ============================================================================
 
 #[test]
@@ -98,7 +98,7 @@ fn test_run_metadata_orphaned() {
 }
 
 // ============================================================================
-// Story #311-312: WAL Entry Tests for Run Lifecycle
+// WAL Entry Tests for Run Lifecycle
 // ============================================================================
 
 #[test]
@@ -179,7 +179,7 @@ fn test_run_lifecycle_wal_sequence() {
 }
 
 // ============================================================================
-// Story #313: RunIndex Event Offset Tracking
+// RunIndex Event Offset Tracking
 // ============================================================================
 
 #[test]
@@ -259,7 +259,7 @@ fn test_run_index_multiple_runs() {
 }
 
 // ============================================================================
-// Story #314: ReadOnlyView Tests
+// ReadOnlyView Tests
 // ============================================================================
 
 fn test_namespace() -> Namespace {
@@ -346,7 +346,7 @@ fn test_read_only_view_operation_count() {
 }
 
 // ============================================================================
-// Story #315: diff_runs() Key-Level Comparison
+// diff_runs() Key-Level Comparison
 // ============================================================================
 
 #[test]
@@ -486,7 +486,7 @@ fn test_diff_summary() {
 }
 
 // ============================================================================
-// Story #316: Orphaned Run Detection
+// Orphaned Run Detection
 // ============================================================================
 
 #[test]

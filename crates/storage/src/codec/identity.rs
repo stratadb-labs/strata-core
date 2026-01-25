@@ -1,14 +1,14 @@
 //! Identity codec (no transformation).
 //!
-//! This is the default codec for M10. It performs no transformation on data,
+//! This is the default codec. It performs no transformation on data,
 //! simply passing bytes through unchanged. This establishes the codec seam
-//! for future encryption-at-rest without adding complexity to M10.
+//! for future encryption-at-rest without adding complexity.
 
 use super::traits::{CodecError, StorageCodec};
 
 /// Identity codec - no transformation.
 ///
-/// Bytes pass through unchanged. This is the default codec for M10.
+/// Bytes pass through unchanged. This is the default codec.
 ///
 /// # Example
 ///

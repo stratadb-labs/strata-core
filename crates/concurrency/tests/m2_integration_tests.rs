@@ -1165,7 +1165,7 @@ mod wal_writer_tests {
 }
 
 // ============================================================================
-// 9. M5 Cross-Primitive JSON Integration Tests (Story #286)
+// 9. M5 Cross-Primitive JSON Integration Tests
 // ============================================================================
 
 mod m5_cross_primitive_tests {

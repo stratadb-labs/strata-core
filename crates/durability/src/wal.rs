@@ -138,7 +138,7 @@ pub enum WALEntry {
     },
 
     // ========================================================================
-    // JSON Operations (M5) - Entry types 0x20-0x23
+    // JSON Operations - Entry types 0x20-0x23
     // ========================================================================
     /// Create new JSON document (0x20)
     ///
@@ -199,7 +199,7 @@ pub enum WALEntry {
     },
 
     // ========================================================================
-    // Vector Operations (M8) - Entry types 0x70-0x73
+    // Vector Operations - Entry types 0x70-0x73
     // ========================================================================
     /// Create vector collection (0x70)
     ///
@@ -288,12 +288,12 @@ impl WALEntry {
             WALEntry::CommitTxn { run_id, .. } => Some(*run_id),
             WALEntry::AbortTxn { run_id, .. } => Some(*run_id),
             WALEntry::Checkpoint { .. } => None, // Checkpoint tracks multiple runs
-            // JSON operations (M5)
+            // JSON operations
             WALEntry::JsonCreate { run_id, .. } => Some(*run_id),
             WALEntry::JsonSet { run_id, .. } => Some(*run_id),
             WALEntry::JsonDelete { run_id, .. } => Some(*run_id),
             WALEntry::JsonDestroy { run_id, .. } => Some(*run_id),
-            // Vector operations (M8)
+            // Vector operations
             WALEntry::VectorCollectionCreate { run_id, .. } => Some(*run_id),
             WALEntry::VectorCollectionDelete { run_id, .. } => Some(*run_id),
             WALEntry::VectorUpsert { run_id, .. } => Some(*run_id),
@@ -323,11 +323,11 @@ impl WALEntry {
             WALEntry::Write { version, .. } => Some(*version),
             WALEntry::Delete { version, .. } => Some(*version),
             WALEntry::Checkpoint { version, .. } => Some(*version),
-            // JSON operations with version (M5)
+            // JSON operations with version
             WALEntry::JsonCreate { version, .. } => Some(*version),
             WALEntry::JsonSet { version, .. } => Some(*version),
             WALEntry::JsonDelete { version, .. } => Some(*version),
-            // Vector operations with version (M8)
+            // Vector operations with version
             WALEntry::VectorCollectionCreate { version, .. } => Some(*version),
             WALEntry::VectorCollectionDelete { version, .. } => Some(*version),
             WALEntry::VectorUpsert { version, .. } => Some(*version),
@@ -368,14 +368,14 @@ impl WALEntry {
 /// - `Strict` - Maximum durability, fsync after every write (slow)
 /// - `Batched` - Balance of speed and safety (DEFAULT)
 /// - `Async` - Maximum speed, background fsync (may lose recent writes)
-/// - `InMemory` - No persistence (M4: fastest mode for dev/testing)
+/// - `InMemory` - No persistence (fastest mode for dev/testing)
 ///
 /// # Default
 ///
 /// The default mode is `Batched { interval_ms: 100, batch_size: 1000 }`,
 /// which fsyncs every 100ms or every 1000 writes, whichever comes first.
 ///
-/// # M4 Performance Targets
+/// # Performance Targets
 ///
 /// | Mode | Latency Target | Use Case |
 /// |------|----------------|----------|
@@ -384,13 +384,13 @@ impl WALEntry {
 /// | Strict | ~2ms | Checkpoints, audit logs |
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum DurabilityMode {
-    /// No persistence - all data lost on crash (M4: fastest mode)
+    /// No persistence - all data lost on crash (fastest mode)
     ///
     /// Bypasses WAL entirely. No fsync, no file I/O.
     /// Target latency: <3µs for engine/put_direct.
     /// Use case: Tests, caches, ephemeral data, development.
     ///
-    /// # M4 Performance
+    /// # Performance
     ///
     /// This mode enables 250K+ ops/sec by eliminating I/O entirely.
     InMemory,
@@ -668,7 +668,7 @@ impl WAL {
         // Handle durability mode
         match self.durability_mode {
             DurabilityMode::InMemory => {
-                // M4: No fsync for InMemory mode
+                // No fsync for InMemory mode
                 // Just flush buffer for consistency - in practice, engine should
                 // check requires_wal() and skip WAL entirely for InMemory mode
                 let mut writer = self.writer.lock();
@@ -1525,7 +1525,7 @@ mod tests {
     }
 
     // ========================================================================
-    // JSON Entry Type Tests (Story #278)
+    // JSON Entry Type Tests
     // ========================================================================
 
     use strata_core::json::JsonPath;

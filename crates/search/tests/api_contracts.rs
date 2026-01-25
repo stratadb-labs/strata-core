@@ -1,7 +1,7 @@
 //! M6 Search API Contract Tests
 //!
 //! Validates all search API contracts across primitives.
-//! Part of Epic 39: Validation & Non-Regression (Story #334)
+//! API contract tests
 //!
 //! See `docs/architecture/M6_ARCHITECTURE.md` for authoritative specification.
 

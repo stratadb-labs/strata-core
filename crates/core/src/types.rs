@@ -88,7 +88,7 @@ impl Namespace {
 
     /// Create a namespace for a run with default tenant/app/agent
     ///
-    /// This is a convenience method for M3 primitives that only need
+    /// This is a convenience method for primitives that only need
     /// run-level isolation. Uses "default" for tenant, app, and agent.
     pub fn for_run(run_id: RunId) -> Self {
         Self {
@@ -141,9 +141,9 @@ impl PartialOrd for Namespace {
 /// - Event = 0x02
 /// - State = 0x03
 /// - Run = 0x05
-/// - Vector = 0x10 (M8 vector metadata)
-/// - Json = 0x11 (M5 JSON primitive)
-/// - VectorConfig = 0x12 (M8 vector collection config)
+/// - Vector = 0x10 (vector metadata)
+/// - Json = 0x11 (JSON primitive)
+/// - VectorConfig = 0x12 (vector collection config)
 ///
 /// Note: 0x04 was formerly Trace (TraceStore was removed in 0.12.0)
 ///
@@ -155,18 +155,18 @@ pub enum TypeTag {
     KV = 0x01,
     /// Event log entries
     Event = 0x02,
-    /// State cell records (renamed from StateMachine in M3)
+    /// State cell records (renamed from StateMachine )
     State = 0x03,
     /// Reserved for backwards compatibility (TraceStore was removed)
     #[deprecated(since = "0.12.0", note = "TraceStore primitive was removed")]
     Trace = 0x04,
     /// Run index entries
     Run = 0x05,
-    /// Vector store entries (M8)
+    /// Vector store entries
     Vector = 0x10,
-    /// JSON document store entries (M5)
+    /// JSON document store entries
     Json = 0x11,
-    /// Vector collection configuration (M8)
+    /// Vector collection configuration
     VectorConfig = 0x12,
 }
 
@@ -910,7 +910,7 @@ mod tests {
 
     #[test]
     fn test_typetag_json_value() {
-        // M5: TypeTag::Json must be 0x11 per architecture spec
+        // TypeTag::Json must be 0x11 per architecture spec
         assert_eq!(TypeTag::Json as u8, 0x11);
         assert_eq!(TypeTag::from_byte(0x11), Some(TypeTag::Json));
     }
@@ -1348,7 +1348,7 @@ mod tests {
     }
 
     // ========================================
-    // JsonDocId Tests (M5)
+    // JsonDocId Tests
     // ========================================
 
     #[test]
@@ -1464,7 +1464,7 @@ mod tests {
     }
 
     // ========================================
-    // Key::new_json Tests (M5)
+    // Key::new_json Tests
     // ========================================
 
     #[test]

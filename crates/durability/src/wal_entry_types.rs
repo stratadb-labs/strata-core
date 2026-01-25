@@ -39,7 +39,7 @@ pub enum PrimitiveKind {
     State,
     /// Run index
     Run,
-    /// Vector store (M8)
+    /// Vector store
     Vector,
 }
 
@@ -79,7 +79,7 @@ impl PrimitiveKind {
 /// - 0x40-0x4F: State primitive
 /// - 0x50-0x5F: Reserved for future primitives
 /// - 0x60-0x6F: Run primitive
-/// - 0x70-0x7F: Reserved for Vector (M8)
+/// - 0x70-0x7F: Reserved for Vector
 /// - 0x80-0xFF: Reserved for future primitives
 #[repr(u8)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -420,7 +420,7 @@ mod tests {
         assert_eq!(WalEntryType::RunEnd as u8, 0x62);
         assert_eq!(WalEntryType::RunBegin as u8, 0x63);
 
-        // Vector (M8)
+        // Vector
         assert_eq!(WalEntryType::VectorCollectionCreate as u8, 0x70);
         assert_eq!(WalEntryType::VectorCollectionDelete as u8, 0x71);
         assert_eq!(WalEntryType::VectorUpsert as u8, 0x72);

@@ -3,9 +3,9 @@
 //! This module provides the Transaction type that wraps TransactionContext
 //! and implements the TransactionOps trait for unified primitive access.
 //!
-//! # Story #474: KV Operations in TransactionOps
-//! # Story #475: Event Operations in TransactionOps
-//! # Story #476: State Operations in TransactionOps
+//! # KV Operations in TransactionOps
+//! # Event Operations in TransactionOps
+//! # State Operations in TransactionOps
 //!
 //! This implementation provides:
 //! - Read-your-writes semantics (check write set first)
@@ -146,7 +146,7 @@ impl<'a> Transaction<'a> {
 
 impl<'a> TransactionOps for Transaction<'a> {
     // =========================================================================
-    // KV Operations (Phase 2 - Story #474)
+    // KV Operations (Phase 2)
     // =========================================================================
 
     fn kv_get(&self, key: &str) -> Result<Option<Versioned<Value>>, StrataError> {
@@ -239,7 +239,7 @@ impl<'a> TransactionOps for Transaction<'a> {
     }
 
     // =========================================================================
-    // Event Operations (Phase 2 - Story #475)
+    // Event Operations (Phase 2)
     // =========================================================================
 
     fn event_append(&mut self, event_type: &str, payload: Value) -> Result<Version, StrataError> {
@@ -325,7 +325,7 @@ impl<'a> TransactionOps for Transaction<'a> {
     }
 
     // =========================================================================
-    // State Operations (Phase 3 - Story #476)
+    // State Operations (Phase 3)
     // =========================================================================
 
     fn state_read(&self, name: &str) -> Result<Option<Versioned<State>>, StrataError> {
@@ -570,7 +570,7 @@ mod tests {
     }
 
     // =========================================================================
-    // KV Tests (Story #474)
+    // KV Tests
     // =========================================================================
 
     #[test]
@@ -659,7 +659,7 @@ mod tests {
     }
 
     // =========================================================================
-    // Event Tests (Story #475)
+    // Event Tests
     // =========================================================================
 
     #[test]
@@ -820,7 +820,7 @@ mod tests {
     }
 
     // =========================================================================
-    // State Tests (Story #476)
+    // State Tests
     // =========================================================================
 
     #[test]

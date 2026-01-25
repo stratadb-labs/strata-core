@@ -3,9 +3,9 @@
 //! This module defines configurable size limits that are enforced by the engine
 //! and wire decoding. Violations result in `ConstraintViolation` errors.
 //!
-//! ## M11 Contract
+//! ## Contract
 //!
-//! After M11, the default limits are FROZEN and cannot change without a major
+//! After stabilization, the default limits are FROZEN and cannot change without a major
 //! version bump. Custom limits can be set at database open time.
 
 use crate::Value;

@@ -5,10 +5,10 @@
 //! - TransactionManager: Atomic commit coordination
 //! - RecoveryCoordinator: Database recovery from WAL
 //! - Snapshot isolation via ClonedSnapshotView
-//! - Conflict detection at commit time (Story #83)
+//! - Conflict detection at commit time
 //! - Compare-and-swap (CAS) operations
 //! - WAL integration for durability
-//! - JSON region-based conflict detection (M5)
+//! - JSON region-based conflict detection
 
 #![warn(missing_docs)]
 #![warn(clippy::all)]
@@ -34,7 +34,7 @@ pub use validation::{
 };
 pub use wal_writer::TransactionWALWriter;
 
-// JSON conflict detection (M5)
+// JSON conflict detection
 pub use conflict::{
     check_all_conflicts, check_read_write_conflicts, check_version_conflicts,
     check_write_write_conflicts, find_first_read_write_conflict, find_first_version_conflict,

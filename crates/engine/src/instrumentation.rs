@@ -1,4 +1,4 @@
-//! Performance instrumentation for M4 optimization
+//! Performance instrumentation for optimization
 //!
 //! Feature-gated to avoid overhead in production.
 //! Enable with: cargo build --features perf-trace

@@ -7,7 +7,7 @@
 //! - WAL durability
 //! - Recovery
 //!
-//! Per spec Section 4: These tests validate M1 compatibility and M2 transaction semantics.
+//! Per spec Section 4: These tests validate legacy compatibility and transaction semantics.
 
 use strata_core::error::Error;
 use strata_core::traits::Storage;
@@ -528,7 +528,7 @@ fn test_recovery_with_deletes() {
 }
 
 // ============================================================================
-// M1 Compatibility Tests
+// Legacy Compatibility Tests
 // ============================================================================
 
 #[test]
@@ -540,7 +540,7 @@ fn test_m1_api_compatibility() {
     let ns = create_ns(run_id);
     let key = Key::new_kv(ns, "m1_key");
 
-    // M1-style operations
+    // legacy-style operations
     db.put(run_id, key.clone(), Value::String("value1".to_string()))
         .unwrap();
     let val = db.get(&key).unwrap().unwrap();

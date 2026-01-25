@@ -1,4 +1,4 @@
-//! M4 Transaction Pooling Verification Tests
+//! Transaction Pooling Verification Tests
 //!
 //! Validates that the transaction pooling system achieves zero-allocation
 //! performance after warmup. These tests verify:
@@ -6,7 +6,7 @@
 //! - Capacity is preserved across resets
 //! - Pool size remains stable during steady-state operation
 //!
-//! Per M4 spec: Hot path must have zero allocations after warmup.
+//! Per specification: Hot path must have zero allocations after warmup.
 
 use strata_core::types::{Key, Namespace, RunId, TypeTag};
 use strata_core::value::Value;

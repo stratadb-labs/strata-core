@@ -1,22 +1,22 @@
 //! Storage layer for Strata
 //!
 //! This crate implements the unified storage backend with:
-//! - UnifiedStore: BTreeMap-based storage with RwLock (M3)
-//! - ShardedStore: DashMap + HashMap for M4 performance
+//! - UnifiedStore: BTreeMap-based storage with RwLock
+//! - ShardedStore: DashMap + HashMap performance
 //! - Secondary indices (run_index, type_index)
 //! - TTL index for expiration
 //! - TTL cleaner background task
 //! - Version management with AtomicU64
 //! - ClonedSnapshotView implementation
 //!
-//! # M4 Performance
+//!
 //!
 //! The `ShardedStore` provides improved concurrency:
 //! - Lock-free reads via DashMap
 //! - Per-RunId sharding (no cross-run contention)
 //! - FxHashMap for O(1) lookups
 //!
-//! # M10 Disk Storage
+//! # Disk Storage
 //!
 //! The storage layer includes disk-based persistence:
 //! - **WAL**: Write-ahead log with durability modes and segment rotation
@@ -28,7 +28,7 @@
 #![warn(missing_docs)]
 #![warn(clippy::all)]
 
-// In-memory storage (M3/M4)
+// In-memory storage 
 pub mod cleaner;
 pub mod index;
 pub mod primitive_ext;
@@ -39,7 +39,7 @@ pub mod stored_value;
 pub mod ttl;
 pub mod unified;
 
-// Disk storage (M10)
+// Disk storage
 pub mod codec;
 pub mod compaction;
 pub mod database;
@@ -63,7 +63,7 @@ pub use snapshot::ClonedSnapshotView;
 pub use ttl::TTLIndex;
 pub use unified::UnifiedStore;
 
-// Disk storage re-exports (M10)
+// Disk storage re-exports
 pub use codec::{get_codec, CodecError, IdentityCodec, StorageCodec};
 pub use database::{
     export_database, import_database, ConfigError, DatabaseConfig, DatabaseHandle,

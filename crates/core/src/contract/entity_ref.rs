@@ -298,7 +298,7 @@ impl std::fmt::Display for EntityRef {
 
 /// Alias for EntityRef
 ///
-/// DocRef was the original name used in M6 search types.
+/// DocRef was the original name used in search types.
 /// New code should use EntityRef directly.
 pub type DocRef = EntityRef;
 

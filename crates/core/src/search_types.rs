@@ -1,13 +1,13 @@
-//! Core search types for M6 Retrieval Surfaces
+//! Core search types for Retrieval Surfaces
 //!
-//! This module defines the foundational search types used throughout M6:
+//! This module defines the foundational search types used throughout the system:
 //! - SearchRequest: Universal request type for all search APIs
 //! - SearchBudget: Time and candidate limits for search execution
 //! - SearchResponse: Results from any search operation
 //! - SearchHit: Individual search result with score and rank
 //! - SearchStats: Execution statistics for debugging/monitoring
 //!
-//! ## M9 Migration
+//! ## Migration
 //!
 //! - `DocRef` is now `EntityRef` (re-exported from contract module)
 //! - `PrimitiveKind` is now `PrimitiveType` (re-exported from contract module)
@@ -15,24 +15,24 @@
 //! Import from crate root: `use strata_core::{EntityRef, DocRef, PrimitiveType};`
 //!
 //! These types define the interface contracts for search operations.
-//! See `docs/architecture/M6_ARCHITECTURE.md` for authoritative specification.
+//! See `the architecture documentation` for authoritative specification.
 
 use crate::contract::EntityRef;
 use crate::types::RunId;
 use std::collections::HashMap;
 
-// Re-export contract types for backwards compatibility with M6 code
+// Re-export contract types for backwards compatibility with legacy code
 pub use crate::contract::EntityRef as DocRef;
 pub use crate::contract::PrimitiveType;
 
 /// Backwards compatibility alias for PrimitiveType
 ///
-/// M6 code used PrimitiveKind. New code should use PrimitiveType.
+/// Legacy code used PrimitiveKind. New code should use PrimitiveType.
 #[deprecated(since = "0.9.0", note = "Use PrimitiveType instead")]
 pub type PrimitiveKind = PrimitiveType;
 
 // ============================================================================
-// SearchBudget (Story #303)
+// SearchBudget
 // ============================================================================
 
 /// Limits on search execution
@@ -98,26 +98,26 @@ impl SearchBudget {
 }
 
 // ============================================================================
-// SearchMode (Story #302)
+// SearchMode
 // ============================================================================
 
 /// Search mode - determines the search strategy
 ///
-/// M6 implements Keyword mode. Vector and Hybrid are reserved
-/// for future milestones (M9+).
+/// Currently implements Keyword mode. Vector and Hybrid are reserved
+/// for future enhancements.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum SearchMode {
-    /// Keyword-based search using BM25-lite (M6 default)
+    /// Keyword-based search using BM25-lite (default)
     #[default]
     Keyword,
-    /// Reserved for future vector search (M9)
+    /// Reserved for future vector search
     Vector,
     /// Reserved for future hybrid search (keyword + vector)
     Hybrid,
 }
 
 // ============================================================================
-// SearchRequest (Story #302)
+// SearchRequest
 // ============================================================================
 
 /// Request for search across primitives
@@ -240,7 +240,7 @@ impl SearchRequest {
 }
 
 // ============================================================================
-// SearchHit (Story #305)
+// SearchHit
 // ============================================================================
 
 /// A single search result
@@ -281,7 +281,7 @@ impl SearchHit {
 }
 
 // ============================================================================
-// SearchStats (Story #305)
+// SearchStats
 // ============================================================================
 
 /// Execution statistics for a search
@@ -328,7 +328,7 @@ impl SearchStats {
 }
 
 // ============================================================================
-// SearchResponse (Story #304)
+// SearchResponse
 // ============================================================================
 
 /// Search results

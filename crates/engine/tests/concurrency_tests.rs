@@ -1,7 +1,7 @@
 //! Multi-Threaded OCC Conflict Tests
 //!
-//! Story #106: Validates optimistic concurrency control behavior
-//! with 2-thread scenarios per M2_TRANSACTION_SEMANTICS.md.
+//! Validates optimistic concurrency control behavior
+//! with 2-thread scenarios per transaction semantics documentation.
 
 use strata_core::types::{Key, Namespace, RunId};
 use strata_core::value::Value;
@@ -145,7 +145,7 @@ fn test_blind_writes_no_conflict() {
     let r1 = h1.join().unwrap();
     let r2 = h2.join().unwrap();
 
-    // Both should succeed (blind writes don't conflict per M2 spec)
+    // Both should succeed (blind writes don't conflict )
     assert!(r1.is_ok(), "Blind write T1 should succeed");
     assert!(r2.is_ok(), "Blind write T2 should succeed");
 }

@@ -3,7 +3,7 @@
 //! This crate orchestrates all lower layers:
 //! - Database: Main database struct with open/close
 //! - Run lifecycle: begin_run, end_run, fork_run (Epic 5)
-//! - Transaction coordination (M2)
+//! - Transaction coordination
 //! - Recovery integration
 //! - Background tasks (snapshots, TTL cleanup)
 //!
@@ -12,7 +12,7 @@
 //! - Cross-layer coordination (storage + WAL + recovery)
 //! - Replay logic
 //!
-//! # M4 Performance Instrumentation
+//! # Performance Instrumentation
 //!
 //! Enable the `perf-trace` feature for per-operation timing:
 //!
@@ -28,9 +28,9 @@ pub mod database;
 pub mod durability;
 pub mod instrumentation;
 pub mod recovery_participant;
-pub mod replay; // Story #311-316: Run Lifecycle & Replay
+pub mod replay; // Run Lifecycle & Replay
 pub mod transaction;
-pub mod transaction_ops; // Story #473: TransactionOps Trait Definition
+pub mod transaction_ops; // TransactionOps Trait Definition
 
 pub use coordinator::{TransactionCoordinator, TransactionMetrics};
 pub use database::{Database, DatabaseBuilder, PersistenceMode, RetryConfig};

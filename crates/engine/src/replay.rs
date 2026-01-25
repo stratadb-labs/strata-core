@@ -18,12 +18,12 @@
 //!
 //! ## Stories Implemented
 //!
-//! - Story #311: begin_run() - Creates run metadata, writes WAL entry
-//! - Story #312: end_run() - Marks run completed, writes WAL entry
-//! - Story #313: RunIndex - Event offset tracking for O(run size) replay
-//! - Story #314: replay_run() - Returns ReadOnlyView
-//! - Story #315: diff_runs() - Key-level comparison
-//! - Story #316: Orphaned run detection
+//! - begin_run() - Creates run metadata, writes WAL entry
+//! - end_run() - Marks run completed, writes WAL entry
+//! - RunIndex - Event offset tracking for O(run size) replay
+//! - replay_run() - Returns ReadOnlyView
+//! - diff_runs() - Key-level comparison
+//! - Orphaned run detection
 
 use strata_core::run_types::{RunEventOffsets, RunMetadata, RunStatus};
 use strata_core::types::{Key, RunId};
@@ -66,7 +66,7 @@ impl From<strata_core::error::Error> for RunError {
     }
 }
 
-// M9: Conversion to StrataError
+// Conversion to StrataError
 impl From<RunError> for StrataError {
     fn from(e: RunError) -> Self {
         match e {
@@ -92,7 +92,7 @@ impl From<RunError> for StrataError {
 }
 
 // ============================================================================
-// Run Index (Story #313)
+// Run Index
 // ============================================================================
 
 /// Run index for tracking runs and their events
@@ -198,7 +198,7 @@ impl RunIndex {
 }
 
 // ============================================================================
-// Read-Only View (Story #314)
+// Read-Only View
 // ============================================================================
 
 /// Read-only view from replay
@@ -300,7 +300,7 @@ impl ReadOnlyView {
 }
 
 // ============================================================================
-// Run Diff (Story #315)
+// Run Diff
 // ============================================================================
 
 /// Primitive kind for diff entries
@@ -540,7 +540,7 @@ mod tests {
         Namespace::for_run(RunId::new())
     }
 
-    // ========== RunIndex Tests (Story #313) ==========
+    // ========== RunIndex Tests ==========
 
     #[test]
     fn test_run_index_new() {
@@ -633,7 +633,7 @@ mod tests {
         assert_eq!(index.status(run2), RunStatus::Active);
     }
 
-    // ========== ReadOnlyView Tests (Story #314) ==========
+    // ========== ReadOnlyView Tests ==========
 
     #[test]
     fn test_read_only_view_new() {
@@ -683,7 +683,7 @@ mod tests {
         assert_eq!(view.events()[1].0, "UserUpdated");
     }
 
-    // ========== RunDiff Tests (Story #315) ==========
+    // ========== RunDiff Tests ==========
 
     #[test]
     fn test_run_diff_empty() {
@@ -780,7 +780,7 @@ mod tests {
         assert_eq!(diff.summary(), "+1 -2 ~1 (total: 4)");
     }
 
-    // ========== Orphaned Run Detection Tests (Story #316) ==========
+    // ========== Orphaned Run Detection Tests ==========
 
     #[test]
     fn test_orphaned_detection() {

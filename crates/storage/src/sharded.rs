@@ -1,4 +1,4 @@
-//! Sharded storage for M4 performance
+//! Sharded storage performance
 //!
 //! Replaces RwLock + BTreeMap with DashMap + HashMap.
 //! Lock-free reads, sharded writes, O(1) lookups.
@@ -47,7 +47,7 @@ use crate::stored_value::StoredValue;
 /// Versions are stored in descending order (newest first) for efficient
 /// snapshot reads - we typically want the most recent version <= snapshot_version.
 ///
-/// # Performance (M4 Fix)
+/// # Performance
 ///
 /// Uses VecDeque for O(1) push_front instead of SmallVec's O(n) insert(0, ...).
 /// This is critical for workloads that repeatedly update the same key (like CAS).
@@ -288,7 +288,7 @@ impl ShardedStore {
     }
 
     // ========================================================================
-    // Get/Put/Delete Operations (Story #228)
+    // Get/Put/Delete Operations
     // ========================================================================
 
     // NOTE: `get()` is provided by the Storage trait implementation,
@@ -367,7 +367,7 @@ impl ShardedStore {
     ///
     /// * `Ok(())` - Always succeeds (for API compatibility with UnifiedStore)
     ///
-    /// # Performance (M4 Fix)
+    /// # Performance
     ///
     /// Captures timestamp once per batch instead of per-write to avoid
     /// repeated syscalls. All writes in a transaction share the same timestamp.
@@ -379,7 +379,7 @@ impl ShardedStore {
     ) -> strata_core::error::Result<()> {
         use std::sync::atomic::Ordering;
 
-        // Capture timestamp once for entire batch (M4 optimization)
+        // Capture timestamp once for entire batch
         let timestamp = Timestamp::now();
 
         // Apply writes
@@ -414,7 +414,7 @@ impl ShardedStore {
     }
 
     // ========================================================================
-    // List Operations (Story #229)
+    // List Operations
     // ========================================================================
 
     /// List all entries for a run
@@ -550,7 +550,7 @@ impl ShardedStore {
     }
 
     // ========================================================================
-    // Snapshot Acquisition (Story #230)
+    // Snapshot Acquisition
     // ========================================================================
 
     /// Create a snapshot of the current store state
@@ -633,7 +633,7 @@ impl std::fmt::Debug for ShardedStore {
 }
 
 // ============================================================================
-// ShardedSnapshot (Story #230)
+// ShardedSnapshot
 // ============================================================================
 
 /// Snapshot of ShardedStore at a point in time
@@ -756,7 +756,7 @@ impl std::fmt::Debug for ShardedSnapshot {
 }
 
 // ============================================================================
-// Storage Trait Implementation (Story #231)
+// Storage Trait Implementation
 // ============================================================================
 
 use strata_core::error::Result;
@@ -947,7 +947,7 @@ impl Storage for ShardedStore {
 }
 
 // ============================================================================
-// SnapshotView Trait Implementation (Story #231)
+// SnapshotView Trait Implementation
 // ============================================================================
 
 use strata_core::traits::SnapshotView;
@@ -1107,7 +1107,7 @@ mod tests {
     }
 
     // ========================================================================
-    // Story #228: Get/Put Operations Tests
+    // Get/Put Operations Tests
     // ========================================================================
 
     fn create_test_key(run_id: RunId, name: &str) -> Key {
@@ -1307,7 +1307,7 @@ mod tests {
     }
 
     // ========================================================================
-    // Story #229: List Operations Tests
+    // List Operations Tests
     // ========================================================================
 
     #[test]
@@ -1581,7 +1581,7 @@ mod tests {
     }
 
     // ========================================================================
-    // Story #230: Snapshot Acquisition Tests
+    // Snapshot Acquisition Tests
     // ========================================================================
 
     #[test]
@@ -1795,7 +1795,7 @@ mod tests {
     }
 
     // ========================================================================
-    // Story #231: Storage Trait Implementation Tests
+    // Storage Trait Implementation Tests
     // ========================================================================
 
     #[test]

@@ -9,7 +9,7 @@
 //! - Audit logs and compliance data
 //! - Checkpoints and metadata
 //! - Any data where loss is unacceptable
-//! - M3 backwards compatibility (this was the default)
+//! - backwards compatibility (this was the default)
 //!
 //! # Performance Contract
 //!
@@ -28,7 +28,7 @@ use std::sync::Arc;
 ///
 /// This mode provides maximum durability by ensuring every transaction
 /// is persisted to disk (via fsync) before commit returns. It matches
-/// the M3 behavior and is appropriate for data where any loss is
+/// the strict behavior and is appropriate for data where any loss is
 /// unacceptable.
 ///
 /// # Thread Safety

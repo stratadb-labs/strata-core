@@ -14,7 +14,7 @@
 //! - #601: Recovery crashes on invariant violation
 //! - #602: Incomplete WAL entry detection
 //!
-//! Note: #591 (Version type confusion) is M11-specific and tracked in M11_CONTRACT
+//! Note: #591 (Version type confusion) is version-specific and tracked separately
 
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Barrier};
@@ -433,7 +433,7 @@ fn test_issue_602_incomplete_entry_detection() {
 
 #[test]
 fn test_all_critical_issues_documented() {
-    // Note: #591 (Version type confusion) is M11-specific, tracked in M11_CONTRACT
+    // Note: #591 (Version type confusion) is version-specific, tracked separately
     let critical_issues = [
         ("594", "TOCTOU race condition"),
         ("595", "Silent data loss in durability"),
@@ -452,5 +452,5 @@ fn test_all_critical_issues_documented() {
         println!("  #{}: {}", issue, description);
     }
     println!("\n9 critical issues have test coverage.");
-    println!("(#591 Version type confusion is M11-specific)");
+    println!("(#591 Version type confusion is version-specific)");
 }

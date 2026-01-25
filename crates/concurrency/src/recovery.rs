@@ -643,7 +643,7 @@ mod tests {
     }
 
     // ========================================
-    // Crash Scenario Tests (Story #96)
+    // Crash Scenario Tests
     // ========================================
     //
     // Per spec Section 5.5:
@@ -1266,7 +1266,7 @@ mod tests {
     }
 
     // ========================================
-    // Integration Tests (Story #97)
+    // Integration Tests
     // ========================================
 
     /// Full database lifecycle with recovery

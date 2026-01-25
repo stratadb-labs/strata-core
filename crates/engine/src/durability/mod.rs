@@ -1,4 +1,4 @@
-//! Durability modes for M4 performance optimization
+//! Durability modes for performance optimization
 //!
 //! This module provides the durability abstraction layer that enables
 //! trading off latency vs durability guarantees.

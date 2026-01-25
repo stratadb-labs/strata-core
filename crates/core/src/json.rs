@@ -1,4 +1,4 @@
-//! JSON types for M5 JSON primitive
+//! JSON types for JSON primitive
 //!
 //! This module defines types for the JSON document storage system:
 //! - JsonValue: Newtype wrapper around serde_json::Value
@@ -8,7 +8,7 @@
 //!
 //! # Document Size Limits
 //!
-//! M5 enforces the following limits to prevent memory issues:
+//! This module enforces the following limits to prevent memory issues:
 //!
 //! | Limit | Value | Constant |
 //! |-------|-------|----------|
@@ -448,7 +448,7 @@ impl fmt::Display for PathSegment {
 /// - Array index access: `[0]`
 /// - Nested paths: `.user.address.city` or `.items[0].name`
 ///
-/// # Path Syntax (M5 Subset)
+/// # Path Syntax (Subset)
 ///
 /// | Syntax | Meaning | Example |
 /// |--------|---------|---------|
@@ -768,32 +768,32 @@ impl fmt::Display for JsonPath {
 /// - Transaction tracking
 /// - Conflict detection
 ///
-/// # M5 Subset (Not Full RFC 6902)
+/// # Subset (Not Full RFC 6902)
 ///
-/// **Important**: This is an M5-specific subset of JSON Patch operations, NOT full
-/// RFC 6902 compliance. M5 implements only the operations needed for path-based
+/// **Important**: This is a minimal subset of JSON Patch operations, NOT full
+/// RFC 6902 compliance. This implements only the operations needed for path-based
 /// mutation semantics.
 ///
-/// ## Supported Operations (M5)
+/// ## Supported Operations
 ///
 /// - [`Set`](JsonPatch::Set): Replace/create value at path (similar to RFC 6902 `replace`)
 /// - [`Delete`](JsonPatch::Delete): Remove value at path (RFC 6902 `remove`)
 ///
-/// ## NOT Supported in M5 (RFC 6902 operations)
+/// ## NOT Supported (RFC 6902 operations)
 ///
-/// The following RFC 6902 operations are **not implemented** in M5:
+/// The following RFC 6902 operations are **not implemented** currently:
 ///
 /// - `add`: Insert at path (differs from `replace` for arrays and missing keys)
 /// - `test`: Conditional patch execution (verify value before applying)
 /// - `move`: Move value from one path to another
 /// - `copy`: Copy value from one path to another
 ///
-/// These operations are reserved for future milestones (M6+) if needed. The WAL entry
+/// These operations are reserved for future enhancements if needed. The WAL entry
 /// type 0x24 (`JsonPatch`) is reserved for future RFC 6902 support.
 ///
-/// ## M5 Design Rationale
+/// ## Design Rationale
 ///
-/// M5 prioritizes **semantic lock-in** over feature completeness. The `Set` and `Delete`
+/// The implementation prioritizes **semantic lock-in** over feature completeness. The `Set` and `Delete`
 /// operations cover the core mutation semantics needed for path-based JSON documents.
 /// Complex transformations (move, copy) can be composed from these primitives via
 /// read-modify-write patterns.
@@ -960,7 +960,7 @@ pub enum JsonPathError {
 }
 
 // =============================================================================
-// Path Operations (Story #268)
+// Path Operations
 // =============================================================================
 
 /// Get value at path within a JSON document
@@ -1090,7 +1090,7 @@ pub fn get_at_path_mut<'a>(value: &'a mut JsonValue, path: &JsonPath) -> Option<
 }
 
 // =============================================================================
-// Path Mutation (Story #269)
+// Path Mutation
 // =============================================================================
 
 /// Set value at path within a JSON document
@@ -1247,7 +1247,7 @@ fn value_type_name(value: &serde_json::Value) -> &'static str {
 }
 
 // =============================================================================
-// Path Deletion (Story #270)
+// Path Deletion
 // =============================================================================
 
 /// Delete value at path within a JSON document
@@ -1338,7 +1338,7 @@ pub fn delete_at_path(
 }
 
 // =============================================================================
-// Patch Application (Story #271)
+// Patch Application
 // =============================================================================
 
 /// Apply multiple patches to a JSON document
@@ -1701,7 +1701,7 @@ mod tests {
     }
 
     // ========================================
-    // JsonPath Tests (M5)
+    // JsonPath Tests
     // ========================================
 
     #[test]
@@ -2107,7 +2107,7 @@ mod tests {
     }
 
     // ========================================
-    // JsonPatch Tests (M5)
+    // JsonPatch Tests
     // ========================================
 
     #[test]
@@ -2259,7 +2259,7 @@ mod tests {
     }
 
     // ========================================
-    // Document Size Limits Tests (M5)
+    // Document Size Limits Tests
     // ========================================
 
     #[test]
@@ -2425,7 +2425,7 @@ mod tests {
     }
 
     // =========================================================================
-    // Path Operations Tests (Story #268)
+    // Path Operations Tests
     // =========================================================================
 
     #[test]
@@ -2595,7 +2595,7 @@ mod tests {
     }
 
     // =========================================================================
-    // Set at Path Tests (Story #269)
+    // Set at Path Tests
     // =========================================================================
 
     #[test]
@@ -2737,7 +2737,7 @@ mod tests {
     }
 
     // =========================================================================
-    // Delete at Path Tests (Story #270)
+    // Delete at Path Tests
     // =========================================================================
 
     #[test]
@@ -2869,7 +2869,7 @@ mod tests {
     }
 
     // =========================================================================
-    // Apply Patches Tests (Story #271)
+    // Apply Patches Tests
     // =========================================================================
 
     #[test]

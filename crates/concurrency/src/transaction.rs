@@ -55,7 +55,7 @@ impl std::fmt::Display for CommitError {
 
 impl std::error::Error for CommitError {}
 
-// M9: Conversion to StrataError
+// Conversion to StrataError
 impl From<CommitError> for StrataError {
     fn from(e: CommitError) -> Self {
         match e {
@@ -971,7 +971,7 @@ impl TransactionContext {
     ///
     /// Per spec:
     /// - Aborted transactions write nothing to storage
-    /// - Aborted transactions write nothing to WAL (M2)
+    /// - Aborted transactions write nothing to WAL
     /// - All buffered operations are discarded
     ///
     /// Can be called from `Active` (user abort) or `Validating` (conflict detected).
@@ -1044,8 +1044,8 @@ impl TransactionContext {
     ///
     /// # Note
     /// This method performs validation and state transitions only.
-    /// Actual write application is handled separately in Story #89.
-    /// Full atomic commit with WAL is implemented in Story #91.
+    /// Actual write application is handled separately in .
+    /// Full atomic commit with WAL is implemented in .
     ///
     /// # Spec Reference
     /// - Section 3.1: When conflicts occur
@@ -1237,7 +1237,7 @@ impl TransactionContext {
     }
 
     // ========================================================================
-    // Pooling Support (M4 Story #232)
+    // Pooling Support (M4 )
     // ========================================================================
 
     /// Reset context for reuse (M4 pooling optimization)
@@ -2650,7 +2650,7 @@ mod tests {
             assert!(result1.is_ok());
             assert!(txn1.is_committed());
 
-            // Simulate T1's write being applied (will be proper in Story #89)
+            // Simulate T1's write being applied (will be proper in )
             store
                 .put(key.clone(), Value::String("from_t1".into()), None)
                 .expect("put failed");
@@ -3641,7 +3641,7 @@ mod tests {
     }
 
     // ========================================================================
-    // JSON Transaction Types Tests (Story #282)
+    // JSON Transaction Types Tests
     // ========================================================================
 
     mod json_types_tests {
@@ -3755,7 +3755,7 @@ mod tests {
             assert_eq!(entry.resulting_version, cloned.resulting_version);
         }
 
-        // === Lazy JSON Fields Tests (Story #283) ===
+        // === Lazy JSON Fields Tests ===
 
         #[test]
         fn test_json_fields_lazy_allocation() {
@@ -3897,7 +3897,7 @@ mod tests {
             assert!(txn.has_json_ops());
         }
 
-        // === JsonStoreExt Read-Your-Writes Tests (Story #284) ===
+        // === JsonStoreExt Read-Your-Writes Tests ===
 
         #[test]
         fn test_json_set_records_write() {

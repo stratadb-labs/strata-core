@@ -12,7 +12,7 @@ use crate::tokenizer::tokenize;
 use std::collections::HashMap;
 
 // ============================================================================
-// SearchDoc (Story #316)
+// SearchDoc
 // ============================================================================
 
 /// Internal representation of a document for scoring
@@ -75,7 +75,7 @@ impl SearchDoc {
 }
 
 // ============================================================================
-// ScorerContext (Story #317)
+// ScorerContext
 // ============================================================================
 
 /// Context for scoring operations
@@ -103,7 +103,7 @@ pub struct ScorerContext {
     pub now_micros: u64,
 
     /// Extension point for future scoring signals
-    /// M6: unused. Reserved for future scorer requirements.
+    /// Current version: unused. Reserved for future scorer requirements.
     pub extensions: HashMap<String, serde_json::Value>,
 }
 
@@ -152,7 +152,7 @@ impl Default for ScorerContext {
 }
 
 // ============================================================================
-// Scorer Trait (Story #316)
+// Scorer Trait
 // ============================================================================
 
 /// Pluggable scoring interface
@@ -164,7 +164,7 @@ impl Default for ScorerContext {
 ///
 /// Scorers must be Send + Sync for concurrent search operations.
 ///
-/// # M6 Implementation
+/// # Implementation Notes
 ///
 /// M6 ships with BM25LiteScorer. Future milestones can swap in
 /// vector similarity, learned scorers, etc.
@@ -180,7 +180,7 @@ pub trait Scorer: Send + Sync {
 }
 
 // ============================================================================
-// BM25LiteScorer (Story #318)
+// BM25LiteScorer
 // ============================================================================
 
 /// BM25-Lite: Simple BM25-inspired scorer for M6

@@ -1,4 +1,4 @@
-//! Replay Invariant Tests (Story #328)
+//! Replay Invariant Tests
 //!
 //! These tests validate the replay invariants (P1-P6):
 //!

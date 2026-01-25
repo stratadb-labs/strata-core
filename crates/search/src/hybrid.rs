@@ -25,7 +25,7 @@ use std::sync::Arc;
 use std::time::Instant;
 
 // ============================================================================
-// HybridSearch (Story #320)
+// HybridSearch
 // ============================================================================
 
 /// Composite search orchestrator
@@ -107,7 +107,7 @@ impl HybridSearch {
     }
 
     // ========================================================================
-    // Search Orchestration (Story #324)
+    // Search Orchestration
     // ========================================================================
 
     /// Search across all (or filtered) primitives
@@ -128,7 +128,7 @@ impl HybridSearch {
     pub fn search(&self, req: &SearchRequest) -> Result<SearchResponse> {
         let start = Instant::now();
 
-        // 1. Select primitives (Story #322)
+        // 1. Select primitives
         let primitives = self.select_primitives(req);
 
         if primitives.is_empty() {
@@ -139,7 +139,7 @@ impl HybridSearch {
             });
         }
 
-        // 2. Allocate budgets (Story #323)
+        // 2. Allocate budgets
         let budgets = self.allocate_budgets(req, primitives.len());
 
         // 3. Execute searches
@@ -182,7 +182,7 @@ impl HybridSearch {
     }
 
     // ========================================================================
-    // Primitive Selection (Story #322)
+    // Primitive Selection
     // ========================================================================
 
     /// Select which primitives to search based on request filters
@@ -194,7 +194,7 @@ impl HybridSearch {
     }
 
     // ========================================================================
-    // Budget Allocation (Story #323)
+    // Budget Allocation
     // ========================================================================
 
     /// Allocate budget across primitives

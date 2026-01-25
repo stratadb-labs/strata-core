@@ -39,7 +39,7 @@ pub use scorer::{BM25LiteScorer, Scorer, ScorerContext, SearchDoc};
 pub use tokenizer::{tokenize, tokenize_unique};
 
 // ============================================================================
-// Database Extension (Story #321)
+// Database Extension
 // ============================================================================
 
 /// Extension trait for Database to provide search functionality

@@ -1,4 +1,4 @@
-//! Integration tests for incomplete transaction handling (Story #24)
+//! Integration tests for incomplete transaction handling
 //!
 //! These tests verify that:
 //! 1. Incomplete transactions (BeginTxn without CommitTxn) are discarded

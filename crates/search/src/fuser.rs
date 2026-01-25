@@ -3,7 +3,7 @@
 //! This module provides:
 //! - Fuser trait for pluggable fusion algorithms
 //! - SimpleFuser: basic concatenation + sort (M6 default)
-//! - RRFFuser: Reciprocal Rank Fusion (Epic 37)
+//! - RRFFuser: Reciprocal Rank Fusion (advanced fusion)
 //!
 //! See `docs/architecture/M6_ARCHITECTURE.md` for authoritative specification.
 
@@ -43,9 +43,9 @@ impl FusedResult {
 ///
 /// Fusers must be Send + Sync for concurrent search operations.
 ///
-/// # M6 Implementation
+/// # Implementation Notes
 ///
-/// M6 ships with SimpleFuser (sort by score). Epic 37 adds RRFFuser
+/// SimpleFuser is the default (sort by score). advanced fusion adds RRFFuser
 /// which uses Reciprocal Rank Fusion.
 pub trait Fuser: Send + Sync {
     /// Fuse results from multiple primitives
@@ -114,7 +114,7 @@ impl Fuser for SimpleFuser {
 }
 
 // ============================================================================
-// RRFFuser (Epic 37)
+// RRFFuser (advanced fusion)
 // ============================================================================
 
 /// Reciprocal Rank Fusion (RRF)

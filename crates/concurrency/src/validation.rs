@@ -348,7 +348,7 @@ pub fn validate_json_paths(
 /// 1. Validates read-set: detects read-write conflicts (first-committer-wins)
 /// 2. Validates write-set: currently no-op (blind writes don't conflict)
 /// 3. Validates CAS-set: ensures expected versions still match
-/// 4. Validates JSON-set: ensures JSON document versions haven't changed (M5)
+/// 4. Validates JSON-set: ensures JSON document versions haven't changed
 /// 5. Validates JSON paths: ensures no overlapping writes within transaction (M5 Epic 31)
 ///
 /// **Per spec Section 3.2 Scenario 3**: Read-only transactions ALWAYS succeed.
@@ -367,7 +367,7 @@ pub fn validate_json_paths(
 /// - Section 3.1: When conflicts occur
 /// - Section 3.2: Conflict scenarios (including read-only transaction rule)
 /// - Section 3.3: First-committer-wins rule
-/// - M5: JSON document-level conflict detection
+/// - JSON document-level conflict detection
 pub fn validate_transaction<S: Storage>(txn: &TransactionContext, store: &S) -> ValidationResult {
     // Per spec Section 3.2 Scenario 3: Read-only transactions ALWAYS commit.
     // "Read-Only Transaction: T1 only reads keys, never writes any → ALWAYS COMMITS"
@@ -1183,7 +1183,7 @@ mod tests {
         }
     }
 
-    // === JSON Validation Tests (M5 Story #285) ===
+    // === JSON Validation Tests (M5 ) ===
     mod json_validation_tests {
         use super::*;
         use strata_core::types::TypeTag;

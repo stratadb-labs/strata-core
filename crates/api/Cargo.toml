@@ -23,8 +23,8 @@ base64 = "0.22"
 [features]
 default = ["embedded"]
 embedded = []
-rpc = ["tokio"]  # M7: RPC server
-mcp = ["tokio"]  # M8: MCP integration
+rpc = ["tokio"]
+mcp = ["tokio"]
 
 [dev-dependencies]
 tempfile = { workspace = true }

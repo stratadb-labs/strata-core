@@ -8,25 +8,25 @@
 //! - Value: Unified value enum for all data types
 //! - Error: Error type hierarchy
 //! - Traits: Core trait definitions (Storage, SnapshotView)
-//! - JSON types (M5): JsonValue, JsonPath, JsonPatch, JsonDocId
-//! - JSON limits (M5): MAX_DOCUMENT_SIZE, MAX_NESTING_DEPTH, MAX_PATH_LENGTH, MAX_ARRAY_SIZE
-//! - Search types (M6): SearchRequest, SearchResponse, SearchHit, DocRef, PrimitiveKind
-//! - Contract types (M9): EntityRef, Versioned<T>, Version, Timestamp, PrimitiveType, RunName
+//! - JSON types: JsonValue, JsonPath, JsonPatch, JsonDocId
+//! - JSON limits: MAX_DOCUMENT_SIZE, MAX_NESTING_DEPTH, MAX_PATH_LENGTH, MAX_ARRAY_SIZE
+//! - Search types: SearchRequest, SearchResponse, SearchHit, DocRef, PrimitiveKind
+//! - Contract types: EntityRef, Versioned<T>, Version, Timestamp, PrimitiveType, RunName
 
 #![warn(missing_docs)]
 #![warn(clippy::all)]
 
 // Module declarations
 pub mod api_error; // API-level error types for wire encoding
-pub mod contract; // M9 contract types
-pub mod error; // Story #10
-pub mod json; // M5 JSON types
-pub mod primitives; // M9 primitive types (Event, State, Vector types)
+pub mod contract; // contract types
+pub mod error;
+pub mod json; // JSON types
+pub mod primitives; // primitive types (Event, State, Vector types)
 pub mod run_types; // Run lifecycle types
-pub mod search_types; // M6 search types
-pub mod traits; // Story #11
-pub mod types; // Story #7, #8
-pub mod value; // Story #9
+pub mod search_types; // search types
+pub mod traits;
+pub mod types;
+pub mod value;
 
 // Re-export commonly used types and traits
 pub use api_error::{ApiError, WireError};

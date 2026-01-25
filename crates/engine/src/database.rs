@@ -4,7 +4,7 @@
 //! - Storage initialization
 //! - WAL opening
 //! - Automatic recovery on startup
-//! - Transaction API (M2)
+//! - Transaction API
 //!
 //! ## Transaction API
 //!
@@ -17,7 +17,7 @@
 //! 2. **Manual API**: `begin_transaction()` + `commit_transaction()`
 //!    - For cases requiring external control over commit timing
 //!
-//! Per spec Section 4: Implicit transactions wrap M1-style operations.
+//! Per spec Section 4: Implicit transactions wrap legacy-style operations.
 
 use crate::coordinator::{TransactionCoordinator, TransactionMetrics};
 use crate::transaction::TransactionPool;
@@ -117,7 +117,7 @@ impl RetryConfig {
 }
 
 // ============================================================================
-// Persistence Mode (M13: Storage/Durability Split)
+// Persistence Mode (Storage/Durability Split)
 // ============================================================================
 
 /// Controls where data is stored (orthogonal to durability)
@@ -167,10 +167,10 @@ impl Default for PersistenceMode {
 }
 
 // ============================================================================
-// M4: Database Builder Pattern
+// Database Builder Pattern
 // ============================================================================
 
-/// Builder for Database configuration (M4)
+/// Builder for Database configuration
 ///
 /// Provides a fluent API for configuring and opening databases with
 /// different durability modes.
@@ -211,7 +211,7 @@ impl Default for PersistenceMode {
 ///     .open()?;
 /// ```
 ///
-/// # M4 Performance Targets
+/// # Performance Targets
 ///
 /// | Mode | Target Latency | Throughput |
 /// |------|----------------|------------|
@@ -235,7 +235,7 @@ impl DatabaseBuilder {
     pub fn new() -> Self {
         Self {
             path: None,
-            durability: DurabilityMode::Strict, // M3 default for backwards compatibility
+            durability: DurabilityMode::Strict, // default for backwards compatibility
             persistence: PersistenceMode::Disk,
         }
     }
@@ -284,7 +284,7 @@ impl DatabaseBuilder {
         self
     }
 
-    /// Use Buffered mode with defaults (M4: balanced)
+    /// Use Buffered mode with defaults (balanced)
     ///
     /// # Default Parameters
     ///
@@ -330,7 +330,7 @@ impl DatabaseBuilder {
         self
     }
 
-    /// Use Strict mode (M3 default, safest)
+    /// Use Strict mode (default, safest)
     ///
     /// fsync on every commit. Zero data loss on crash.
     /// Slowest mode - use for checkpoints, metadata, audit logs.
@@ -389,7 +389,7 @@ impl Default for DatabaseBuilder {
 /// Orchestrates storage, WAL, recovery, and transactions.
 /// Create a database by calling `Database::open()`.
 ///
-/// # Transaction Support (M2)
+/// # Transaction Support
 ///
 /// The Database provides transaction APIs per spec Section 4:
 /// - `transaction()`: Execute a closure within a transaction
@@ -440,7 +440,7 @@ pub struct Database {
     /// Per spec Section 3.3: First-committer-wins requires atomic validate-and-commit.
     commit_locks: DashMap<RunId, ParkingMutex<()>>,
 
-    /// Current durability mode (M4)
+    /// Current durability mode
     durability_mode: DurabilityMode,
 
     /// Flag to track if database is accepting new transactions
@@ -458,7 +458,7 @@ pub struct Database {
 }
 
 impl Database {
-    /// Create a new database builder (M4)
+    /// Create a new database builder
     ///
     /// Returns a `DatabaseBuilder` for configuring the database before opening.
     ///
@@ -690,7 +690,7 @@ impl Database {
     }
 
     // ========================================================================
-    // Extension API (M8)
+    // Extension API
     // ========================================================================
 
     /// Get or create a typed extension bound to this Database
@@ -738,7 +738,7 @@ impl Database {
     }
 
     // ========================================================================
-    // Transaction API (M2)
+    // Transaction API
     // ========================================================================
 
     /// Execute a transaction with the given closure
@@ -798,7 +798,7 @@ impl Database {
         }
     }
 
-    /// Execute a transaction and return both the result and commit version (M9)
+    /// Execute a transaction and return both the result and commit version
     ///
     /// Like `transaction()` but also returns the commit version assigned to all writes.
     /// Use this when you need to know the version created by write operations.
@@ -1097,7 +1097,7 @@ impl Database {
     /// - `TransactionConflict` - Read-write or CAS conflict detected
     /// - `InvalidState` - Transaction not in Active state
     ///
-    /// # M9 Contract
+    /// # Contract
     /// Returns the commit version (u64) assigned to all writes in this transaction.
     pub fn commit_transaction(&self, txn: &mut TransactionContext) -> Result<u64> {
         // Acquire per-run commit lock to serialize validate → WAL → storage sequence
@@ -1177,7 +1177,7 @@ impl Database {
         txn.mark_committed()?;
         self.coordinator.record_commit();
 
-        // M9: Return commit version for versioned API
+        // Return commit version for versioned API
         Ok(commit_version)
     }
 
@@ -1196,16 +1196,16 @@ impl Database {
         self.coordinator.metrics()
     }
 
-    /// Get the current durability mode (M4)
+    /// Get the current durability mode
     pub fn durability_mode(&self) -> DurabilityMode {
         self.durability_mode
     }
 
     // ========================================================================
-    // Per-Operation Durability Override (Story #225)
+    // Per-Operation Durability Override
     // ========================================================================
 
-    /// Execute transaction with durability override (M4)
+    /// Execute transaction with durability override
     ///
     /// Use this for critical writes in non-strict mode. For example,
     /// force fsync for metadata even when running in Buffered mode.
@@ -1349,7 +1349,7 @@ impl Database {
     }
 
     // ========================================================================
-    // Graceful Shutdown (Story #226)
+    // Graceful Shutdown
     // ========================================================================
 
     /// Graceful shutdown - ensures all data is persisted
@@ -1404,13 +1404,13 @@ impl Database {
     }
 
     // ========================================================================
-    // Implicit Transactions (M1 Compatibility)
+    // Implicit Transactions (Legacy Compatibility)
     // ========================================================================
 
-    /// Put a key-value pair (M1 compatibility)
+    /// Put a key-value pair (legacy compatibility)
     ///
     /// Per spec Section 4.2: Wraps in implicit transaction, commits immediately.
-    /// This provides backwards compatibility with M1-style operations.
+    /// This provides backwards compatibility with legacy-style operations.
     ///
     /// # Arguments
     /// * `run_id` - RunId for namespace isolation
@@ -1432,10 +1432,10 @@ impl Database {
         })
     }
 
-    /// Get a value by key (M1 compatibility)
+    /// Get a value by key (legacy compatibility)
     ///
     /// Per spec Section 4.2: Read-only, always succeeds.
-    /// This provides backwards compatibility with M1-style operations.
+    /// This provides backwards compatibility with legacy-style operations.
     ///
     /// Unlike writes, reads don't need a full transaction.
     /// We read directly from storage for O(log n) performance.
@@ -1460,10 +1460,10 @@ impl Database {
         Storage::get(self.storage.as_ref(), key)
     }
 
-    /// Delete a key (M1 compatibility)
+    /// Delete a key (legacy compatibility)
     ///
     /// Per spec Section 4.2: Wraps in implicit transaction, commits immediately.
-    /// This provides backwards compatibility with M1-style operations.
+    /// This provides backwards compatibility with legacy-style operations.
     ///
     /// # Arguments
     /// * `run_id` - RunId for namespace isolation
@@ -1484,7 +1484,7 @@ impl Database {
         })
     }
 
-    /// Compare-and-swap (M1 compatibility with explicit version)
+    /// Compare-and-swap (legacy compatibility with explicit version)
     ///
     /// Per spec Section 3.4: CAS validates expected_version before write.
     /// The operation succeeds only if the current version matches expected_version.
@@ -1520,12 +1520,12 @@ impl Database {
     }
 
     // ========================================================================
-    // Replay API (M7 - Stories #314, #315)
+    // Replay API 
     // ========================================================================
 
     /// Replay a run and return a read-only view
     ///
-    /// Per M7 Architecture Rule 3: Replay is side-effect free.
+    /// Per Architecture Rule 3: Replay is side-effect free.
     /// The returned view is derived, NOT authoritative.
     ///
     /// This is a STABLE API per DURABILITY_REPLAY_CONTRACT.md.
@@ -1619,7 +1619,7 @@ impl Database {
 
     /// Compare two runs and return a key-level diff
     ///
-    /// Per M7 Architecture: Key-level diff (not path-level for JSON).
+    /// Per Architecture: Key-level diff (not path-level for JSON).
     ///
     /// This is a STABLE API per DURABILITY_REPLAY_CONTRACT.md.
     ///
@@ -1671,7 +1671,7 @@ impl Database {
     }
 }
 
-/// Automatic graceful shutdown on drop (Story #226)
+/// Automatic graceful shutdown on drop
 impl Drop for Database {
     fn drop(&mut self) {
         // Only attempt shutdown if still open
@@ -1953,7 +1953,7 @@ mod tests {
     }
 
     // ========================================================================
-    // Transaction API Tests (M2 Story #98)
+    // Transaction API Tests
     // ========================================================================
 
     fn create_test_namespace(run_id: RunId) -> Namespace {
@@ -2256,7 +2256,7 @@ mod tests {
     }
 
     // ========================================================================
-    // Implicit Transaction Tests (M1 Compatibility - Story #100)
+    // Implicit Transaction Tests (Legacy Compatibility)
     // ========================================================================
 
     #[test]
@@ -2268,7 +2268,7 @@ mod tests {
         let ns = create_test_namespace(run_id);
         let key = Key::new_kv(ns, "implicit_put");
 
-        // M1-style put
+        // legacy-style put
         db.put(run_id, key.clone(), Value::Int(42)).unwrap();
 
         // Verify stored
@@ -2288,7 +2288,7 @@ mod tests {
         // Pre-populate using put
         db.put(run_id, key.clone(), Value::Int(100)).unwrap();
 
-        // M1-style get
+        // legacy-style get
         let result = db.get(&key).unwrap();
         assert!(result.is_some());
         assert_eq!(result.unwrap().value, Value::Int(100));
@@ -2303,7 +2303,7 @@ mod tests {
         let ns = create_test_namespace(run_id);
         let key = Key::new_kv(ns, "nonexistent");
 
-        // M1-style get for nonexistent key
+        // legacy-style get for nonexistent key
         let result = db.get(&key).unwrap();
         assert!(result.is_none());
     }
@@ -2321,7 +2321,7 @@ mod tests {
         db.put(run_id, key.clone(), Value::Int(1)).unwrap();
         assert!(db.get(&key).unwrap().is_some());
 
-        // M1-style delete
+        // legacy-style delete
         db.delete(run_id, key.clone()).unwrap();
 
         // Verify deleted
@@ -2446,7 +2446,7 @@ mod tests {
     }
 
     // ========================================================================
-    // Retry Tests (Story #101)
+    // Retry Tests
     // ========================================================================
 
     #[test]
@@ -2697,7 +2697,7 @@ mod tests {
     }
 
     // ========================================================================
-    // Timeout Tests (Story #102)
+    // Timeout Tests
     // ========================================================================
 
     #[test]
@@ -2825,7 +2825,7 @@ mod tests {
     }
 
     // ========================================================================
-    // M4: DatabaseBuilder Tests
+    // DatabaseBuilder Tests
     // ========================================================================
 
     #[test]
@@ -2936,7 +2936,7 @@ mod tests {
     }
 
     // ========================================================================
-    // M4: Per-Operation Durability Override Tests (Story #225)
+    // Per-Operation Durability Override Tests
     // ========================================================================
 
     #[test]
@@ -3017,7 +3017,7 @@ mod tests {
     }
 
     // ========================================================================
-    // M4: Graceful Shutdown Tests (Story #226)
+    // Graceful Shutdown Tests
     // ========================================================================
 
     #[test]

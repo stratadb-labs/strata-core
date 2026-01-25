@@ -1,4 +1,4 @@
-//! Recovery Invariant Tests (Story #327)
+//! Recovery Invariant Tests
 //!
 //! These tests validate the recovery invariants (R1-R6):
 //!

@@ -5,7 +5,7 @@
 
 /// Tokenize text into searchable terms
 ///
-/// This is a simple tokenizer for M6:
+/// This is a simple tokenizer for Initial version:
 /// - Lowercase
 /// - Split on non-alphanumeric characters
 /// - Filter tokens shorter than 2 characters

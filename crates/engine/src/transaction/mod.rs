@@ -1,9 +1,9 @@
-//! Transaction management for M4 performance and M9 TransactionOps
+//! Transaction management for performance and TransactionOps
 //!
 //! This module provides:
 //! - Thread-local transaction pooling (zero allocations after warmup)
 //! - Pool management utilities
-//! - Transaction wrapper implementing TransactionOps (M9)
+//! - Transaction wrapper implementing TransactionOps
 //!
 //! # Architecture
 //!
@@ -12,7 +12,7 @@
 //! - Contexts are reset (not reallocated) when reused
 //! - HashMap/HashSet capacity is preserved across reuse
 //!
-//! # M9 TransactionOps
+//! # TransactionOps
 //!
 //! The Transaction type wraps TransactionContext and implements the
 //! TransactionOps trait for unified primitive access within transactions.

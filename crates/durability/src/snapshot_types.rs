@@ -64,7 +64,7 @@ pub mod primitive_ids {
     pub const STATE: u8 = 4;
     /// Run Index primitive (ID 5 was formerly TRACE, skipped for compatibility)
     pub const RUN: u8 = 6;
-    /// Vector primitive (M8)
+    /// Vector primitive
     pub const VECTOR: u8 = 7;
 
     /// Get name for primitive type ID

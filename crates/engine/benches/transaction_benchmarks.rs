@@ -1,6 +1,6 @@
 //! Transaction Performance Benchmarks
 //!
-//! Story #107: Measures transaction throughput for M2 validation.
+//! Measures transaction throughput for validation.
 //! Targets:
 //! - Single-threaded: >5K txns/sec
 //! - Multi-threaded (no conflict): >10K txns/sec
@@ -249,7 +249,7 @@ fn bench_read_only_transactions(c: &mut Criterion) {
     group.finish();
 }
 
-/// Benchmark: Direct put/get (M1 API)
+/// Benchmark: Direct put/get (Legacy API)
 fn bench_direct_operations(c: &mut Criterion) {
     let temp_dir = TempDir::new().unwrap();
     let db = Database::open(temp_dir.path().join("db")).unwrap();

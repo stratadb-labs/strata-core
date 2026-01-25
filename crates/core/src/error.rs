@@ -441,7 +441,7 @@ pub enum Error {
     #[error("Invalid operation: {0}")]
     InvalidOperation(String),
 
-    /// Transaction aborted due to conflict (M2)
+    /// Transaction aborted due to conflict
     #[error("Transaction aborted for run {0:?}")]
     TransactionAborted(RunId),
 
@@ -449,15 +449,15 @@ pub enum Error {
     #[error("Storage error: {0}")]
     StorageError(String),
 
-    /// Invalid state transition (M2 transactions)
+    /// Invalid state transition (transactions)
     #[error("Invalid state: {0}")]
     InvalidState(String),
 
-    /// Transaction conflict detected during commit (M2)
+    /// Transaction conflict detected during commit
     #[error("Transaction conflict: {0}")]
     TransactionConflict(String),
 
-    /// Transaction exceeded timeout (M2)
+    /// Transaction exceeded timeout
     #[error("Transaction timeout: {0}")]
     TransactionTimeout(String),
 
@@ -2189,7 +2189,7 @@ mod strata_error_tests {
         }
     }
 
-    // === Wire Encoding Tests (Story #653) ===
+    // === Wire Encoding Tests ===
 
     #[test]
     fn test_error_code_mapping_not_found() {
@@ -2277,7 +2277,7 @@ mod strata_error_tests {
 }
 
 // =============================================================================
-// ErrorCode Tests (Story #652)
+// ErrorCode Tests
 // =============================================================================
 
 #[cfg(test)]
@@ -2359,7 +2359,7 @@ mod error_code_tests {
 }
 
 // =============================================================================
-// ConstraintReason Tests (Story #654)
+// ConstraintReason Tests
 // =============================================================================
 
 #[cfg(test)]
@@ -2455,7 +2455,7 @@ mod constraint_reason_tests {
 }
 
 // =============================================================================
-// ErrorDetails Tests (Story #656)
+// ErrorDetails Tests
 // =============================================================================
 
 #[cfg(test)]

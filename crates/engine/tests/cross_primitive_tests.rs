@@ -1,6 +1,6 @@
 //! Cross-Primitive Transaction Tests
 //!
-//! Per M2_REVISED_PLAN.md Story #54 and GitHub Issue #99:
+//! Per architecture documentation GitHub Issue #99:
 //! Validates that transactions atomically operate across different
 //! Key types (KV and Event) in a single transaction.
 

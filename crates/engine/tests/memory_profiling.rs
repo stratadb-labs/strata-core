@@ -1,6 +1,6 @@
 //! Memory Usage Profiling Tests
 //!
-//! Story #108: Documents ClonedSnapshotView memory overhead
+//! Documents ClonedSnapshotView memory overhead
 //! and TransactionContext footprint.
 
 use strata_core::types::{Key, Namespace, RunId};
@@ -244,7 +244,7 @@ fn test_large_value_memory() {
 /// Document: Memory characteristics
 #[test]
 fn document_memory_characteristics() {
-    println!("\n=== M2 Memory Characteristics ===\n");
+    println!("\n=== Memory Characteristics ===\n");
 
     println!("ClonedSnapshotView:");
     println!("  - Creates full clone of BTreeMap at transaction start");
@@ -270,7 +270,7 @@ fn document_memory_characteristics() {
     println!("  - Transaction duration: < 1 second");
     println!();
 
-    println!("Future Optimization (M3+):");
+    println!("Future Optimization:");
     println!("  - LazySnapshotView: O(1) snapshot creation");
     println!("  - Version-bounded reads from live storage");
     println!("  - No cloning overhead");

@@ -1,4 +1,4 @@
-//! Thread-local transaction pool for M4 performance
+//! Thread-local transaction pool for performance
 //!
 //! Eliminates allocation overhead by reusing TransactionContext objects.
 //! Each thread maintains its own pool of up to MAX_POOL_SIZE contexts.

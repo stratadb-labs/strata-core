@@ -318,7 +318,7 @@ struct WalReplayResult {
 /// Type alias for committed transactions (TxId + WAL entries)
 pub type CommittedTransactions = Vec<(TxId, Vec<WalEntry>)>;
 
-/// Public WAL replay result (Story #319)
+/// Public WAL replay result
 #[derive(Debug, Default, Clone)]
 pub struct WalReplayResultPublic {
     /// Total entries read from WAL
@@ -1092,7 +1092,7 @@ mod tests {
     }
 
     // ========================================================================
-    // Story #319: Recovery Respects Transaction Boundaries
+    // Recovery Respects Transaction Boundaries
     // ========================================================================
 
     #[test]

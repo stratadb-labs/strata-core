@@ -264,7 +264,7 @@ impl WalWriter {
         Ok(tx_id)
     }
 
-    /// Commit a Transaction atomically (Story #318)
+    /// Commit a Transaction atomically
     ///
     /// This is the primary method for atomic cross-primitive commits.
     /// All entries in the transaction are written followed by a commit marker.
@@ -742,7 +742,7 @@ mod tests {
     }
 
     // ========================================================================
-    // Story #318: Atomic Commit Tests
+    // Atomic Commit Tests
     // ========================================================================
 
     #[test]

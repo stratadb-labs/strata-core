@@ -3,9 +3,9 @@
 //! This module defines key validation rules that are enforced by all API layers.
 //! Keys are Unicode strings with specific constraints.
 //!
-//! ## M11 Contract
+//! ## Contract
 //!
-//! After M11, these validation rules are FROZEN:
+//! After stabilization, these validation rules are FROZEN:
 //! - Keys must be valid UTF-8 (guaranteed by Rust's &str type)
 //! - Keys must not be empty
 //! - Keys must not contain NUL bytes (\0)

@@ -88,12 +88,12 @@ pub fn encode_entry(entry: &WALEntry) -> Result<Vec<u8>> {
         WALEntry::CommitTxn { .. } => TYPE_COMMIT_TXN,
         WALEntry::AbortTxn { .. } => TYPE_ABORT_TXN,
         WALEntry::Checkpoint { .. } => TYPE_CHECKPOINT,
-        // JSON operations (M5)
+        // JSON operations
         WALEntry::JsonCreate { .. } => TYPE_JSON_CREATE,
         WALEntry::JsonSet { .. } => TYPE_JSON_SET,
         WALEntry::JsonDelete { .. } => TYPE_JSON_DELETE,
         WALEntry::JsonDestroy { .. } => TYPE_JSON_DESTROY,
-        // Vector operations (M8)
+        // Vector operations
         WALEntry::VectorCollectionCreate { .. } => TYPE_VECTOR_COLLECTION_CREATE,
         WALEntry::VectorCollectionDelete { .. } => TYPE_VECTOR_COLLECTION_DELETE,
         WALEntry::VectorUpsert { .. } => TYPE_VECTOR_UPSERT,
@@ -248,12 +248,12 @@ pub fn decode_entry(buf: &[u8], offset: u64) -> Result<(WALEntry, usize)> {
         WALEntry::CommitTxn { .. } => TYPE_COMMIT_TXN,
         WALEntry::AbortTxn { .. } => TYPE_ABORT_TXN,
         WALEntry::Checkpoint { .. } => TYPE_CHECKPOINT,
-        // JSON operations (M5)
+        // JSON operations
         WALEntry::JsonCreate { .. } => TYPE_JSON_CREATE,
         WALEntry::JsonSet { .. } => TYPE_JSON_SET,
         WALEntry::JsonDelete { .. } => TYPE_JSON_DELETE,
         WALEntry::JsonDestroy { .. } => TYPE_JSON_DESTROY,
-        // Vector operations (M8)
+        // Vector operations
         WALEntry::VectorCollectionCreate { .. } => TYPE_VECTOR_COLLECTION_CREATE,
         WALEntry::VectorCollectionDelete { .. } => TYPE_VECTOR_COLLECTION_DELETE,
         WALEntry::VectorUpsert { .. } => TYPE_VECTOR_UPSERT,
@@ -538,7 +538,7 @@ mod tests {
     }
 
     // ========================================================================
-    // JSON Entry Encoding Tests (Story #279)
+    // JSON Entry Encoding Tests
     // ========================================================================
 
     use strata_core::json::JsonPath;

@@ -4,9 +4,9 @@
 //! compression. All bytes passing through the storage layer go through the
 //! codec for encode/decode operations.
 //!
-//! # M10 Implementation
 //!
-//! M10 uses `IdentityCodec` which performs no transformation. This establishes
+//!
+//! Uses `IdentityCodec` which performs no transformation. This establishes
 //! the codec seam without adding complexity. Future milestones can add:
 //!
 //! - `AesGcmCodec`: AES-256-GCM encryption at rest

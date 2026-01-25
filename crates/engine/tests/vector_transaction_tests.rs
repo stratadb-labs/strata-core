@@ -1,4 +1,4 @@
-//! Vector Transaction and Durability Tests (Epic 55 Story #361)
+//! Vector Transaction and Durability Tests 
 //!
 //! Tests that verify vector operations are durable and survive crash/recovery.
 //! These tests validate:

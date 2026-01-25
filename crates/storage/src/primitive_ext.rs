@@ -14,7 +14,7 @@
 //!
 //! NO changes to WAL format, Snapshot format, or Recovery engine required.
 //!
-//! ## Example: M8 Vector Primitive
+//! ## Example: Vector Primitive
 //!
 //! ```rust,ignore
 //! impl PrimitiveStorageExt for VectorStore {
@@ -102,7 +102,7 @@ pub enum PrimitiveExtError {
 /// | Event | 0x30-0x3F | FROZEN |
 /// | State | 0x40-0x4F | FROZEN |
 /// | Run | 0x60-0x6F | FROZEN |
-/// | Vector | 0x70-0x7F | RESERVED (M8) |
+/// | Vector | 0x70-0x7F | RESERVED |
 /// | Future | 0x80-0xFF | AVAILABLE |
 ///
 /// ## Primitive Type IDs (for Snapshots)
@@ -114,12 +114,12 @@ pub enum PrimitiveExtError {
 /// | Event | 3 |
 /// | State | 4 |
 /// | Run | 6 |
-/// | Vector | 7 (M8) |
+/// | Vector | 7 |
 pub trait PrimitiveStorageExt: Send + Sync {
     /// Unique identifier for this primitive type
     ///
     /// Used in snapshot sections. Must be unique and stable.
-    /// Core primitives use 1-6. Vector (M8) will use 7.
+    /// Core primitives use 1-6. Vector will use 7.
     fn primitive_type_id(&self) -> u8;
 
     /// WAL entry types this primitive uses (from its allocated range)
@@ -182,7 +182,7 @@ pub mod primitive_type_ids {
     pub const STATE: u8 = 4;
     /// Run Index
     pub const RUN: u8 = 6;
-    /// Vector Store (M8 - reserved)
+    /// Vector Store (reserved)
     pub const VECTOR: u8 = 7;
 }
 
@@ -221,7 +221,7 @@ pub mod wal_ranges {
     /// Run primitive end
     pub const RUN_END: u8 = 0x6F;
 
-    /// Vector primitive - RESERVED for M8 (0x70-0x7F)
+    /// Vector primitive - RESERVED (0x70-0x7F)
     pub const VECTOR_START: u8 = 0x70;
     /// Vector primitive end
     pub const VECTOR_END: u8 = 0x7F;
@@ -254,7 +254,7 @@ pub fn is_future_wal_type(wal_type: u8) -> bool {
     wal_type >= wal_ranges::FUTURE_START
 }
 
-/// Check if a WAL entry type is in the Vector (M8) range
+/// Check if a WAL entry type is in the Vector range
 pub fn is_vector_wal_type(wal_type: u8) -> bool {
     (wal_ranges::VECTOR_START..=wal_ranges::VECTOR_END).contains(&wal_type)
 }
@@ -288,7 +288,7 @@ mod tests {
         assert_eq!(primitive_for_wal_type(0x60), Some("run"));
         assert_eq!(primitive_for_wal_type(0x63), Some("run"));
 
-        // Vector (M8)
+        // Vector
         assert_eq!(primitive_for_wal_type(0x70), Some("vector"));
         assert_eq!(primitive_for_wal_type(0x7F), Some("vector"));
 

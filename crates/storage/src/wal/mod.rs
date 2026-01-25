@@ -1,6 +1,6 @@
 //! Write-Ahead Log (WAL) module.
 //!
-//! This module provides the WAL infrastructure for M10 storage:
+//! This module provides the WAL infrastructure storage:
 //!
 //! - **Segment-based storage**: WAL is split into segments (`wal-NNNNNN.seg`)
 //! - **Self-delimiting records**: Each record has length prefix and CRC32 checksum
@@ -17,7 +17,7 @@
 //! └── wal-000003.seg   (active, writable)
 //! ```
 //!
-//! # Key Invariants (from M10 Architecture)
+//! # Key Invariants 
 //!
 //! - **S1**: WAL is append-only - records can only be appended, never modified
 //! - **S2**: WAL segments are immutable once closed - only active segment is writable

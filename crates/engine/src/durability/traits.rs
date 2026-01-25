@@ -1,4 +1,4 @@
-//! Durability abstraction for M4 performance modes
+//! Durability abstraction for performance modes
 //!
 //! This module defines the `Durability` trait that abstracts over different
 //! persistence strategies. Each mode implements this trait:
@@ -20,7 +20,7 @@
 //!   5. Mark committed
 //! ```
 //!
-//! # Performance Targets (M4)
+//! # Performance Targets
 //!
 //! | Mode | Target Latency | Use Case |
 //! |------|----------------|----------|

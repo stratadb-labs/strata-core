@@ -1,7 +1,7 @@
 //! M6 Determinism and Consistency Tests
 //!
 //! Validates that search operations are deterministic and consistent.
-//! Part of Epic 39: Validation & Non-Regression (Story #336)
+//! Determinism tests
 //!
 //! See `docs/architecture/M6_ARCHITECTURE.md` for authoritative specification.
 

@@ -58,7 +58,7 @@ pub struct ReplayStats {
     pub orphaned_entries: usize,
     /// Number of transactions skipped by filter
     pub txns_filtered: usize,
-    // JSON operations (M5)
+    // JSON operations
     /// Number of JSON Create operations applied
     pub json_creates_applied: usize,
     /// Number of JSON Set operations applied
@@ -69,7 +69,7 @@ pub struct ReplayStats {
     pub json_destroys_applied: usize,
 }
 
-/// JSON document structure for recovery (M5)
+/// JSON document structure for recovery
 ///
 /// This mirrors the JsonDoc struct in primitives but is defined here to avoid
 /// circular dependencies. Uses msgpack serialization for compatibility.
@@ -299,7 +299,7 @@ pub fn validate_transactions(entries: &[WALEntry]) -> ValidationResult {
             | WALEntry::JsonSet { run_id, .. }
             | WALEntry::JsonDelete { run_id, .. }
             | WALEntry::JsonDestroy { run_id, .. }
-            // Vector operations (M8)
+            // Vector operations
             | WALEntry::VectorCollectionCreate { run_id, .. }
             | WALEntry::VectorCollectionDelete { run_id, .. }
             | WALEntry::VectorUpsert { run_id, .. }
@@ -496,7 +496,7 @@ pub fn replay_wal_with_options<S: Storage + ?Sized>(
             | WALEntry::JsonSet { run_id, .. }
             | WALEntry::JsonDelete { run_id, .. }
             | WALEntry::JsonDestroy { run_id, .. }
-            // Vector operations (M8)
+            // Vector operations
             | WALEntry::VectorCollectionCreate { run_id, .. }
             | WALEntry::VectorCollectionDelete { run_id, .. }
             | WALEntry::VectorUpsert { run_id, .. }
@@ -682,7 +682,7 @@ fn apply_transaction<S: Storage + ?Sized>(
             }
 
             // ================================================================
-            // JSON Operations (M5)
+            // JSON Operations
             // ================================================================
             WALEntry::JsonCreate {
                 run_id,
@@ -1900,7 +1900,7 @@ mod tests {
     }
 
     // ========================================
-    // Transaction Recovery Tests (Story #95)
+    // Transaction Recovery Tests
     // ========================================
 
     #[test]
@@ -2310,7 +2310,7 @@ mod tests {
     }
 
     // ========================================================================
-    // JSON Crash Recovery Tests (Story #281)
+    // JSON Crash Recovery Tests
     // ========================================================================
 
     use strata_core::json::{JsonPath, JsonValue};
