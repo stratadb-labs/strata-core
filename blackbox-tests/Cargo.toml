@@ -1,0 +1,15 @@
+[package]
+name = "stratadb-blackbox-tests"
+version = "0.1.0"
+edition = "2021"
+
+# Keep this out of the main workspace - simulates external user
+[workspace]
+
+[dependencies]
+# Use path dependency for local testing
+stratadb = { path = ".." }
+tempfile = "3"
+
+[dev-dependencies]
+# No internal crates allowed - black box only!
