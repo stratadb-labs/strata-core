@@ -1,6 +1,6 @@
-//! Primitive Performance Benchmarks (Story #200)
+//! Primitive Performance Benchmarks
 //!
-//! Performance targets from M3_ARCHITECTURE.md Section 14:
+//! Performance targets from architecture documentation:
 //! - KV put: >10K ops/sec
 //! - KV get: >20K ops/sec
 //! - EventLog append: >5K ops/sec

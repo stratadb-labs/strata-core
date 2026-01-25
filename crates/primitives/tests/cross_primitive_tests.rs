@@ -1,4 +1,4 @@
-//! Cross-Primitive Transaction Tests (Story #197)
+//! Cross-Primitive Transaction Tests
 //!
 //! Tests verifying that multiple primitives can participate in atomic transactions.
 

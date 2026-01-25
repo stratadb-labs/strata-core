@@ -9,9 +9,9 @@
 //!    and respects transaction ordering. The vector replayer does NOT need to check
 //!    transaction boundaries.
 //!
-//! 2. **Embedding Storage**: TEMPORARY M8 FORMAT - Full embeddings are stored in WAL
-//!    payloads. This bloats WAL size (~3KB per 768-dim vector) but is correct for M8.
-//!    M9 may optimize with external embedding storage or delta encoding.
+//! 2. **Embedding Storage**: TEMPORARY FORMAT - Full embeddings are stored in WAL
+//!    payloads. This bloats WAL size (~3KB per 768-dim vector) but is correct.
+//!    future versions may optimize with external embedding storage or delta encoding.
 //!
 //! 3. **Replay vs Normal Operations**: replay_* methods do NOT write to WAL (they are
 //!    replaying from WAL). Normal operations use the VectorStore methods which write WAL.
@@ -50,14 +50,14 @@ pub struct WalVectorCollectionDelete {
 
 /// WAL payload for vector upsert
 ///
-/// WARNING: TEMPORARY M8 FORMAT
+/// WARNING: TEMPORARY FORMAT
 /// This payload contains the full embedding, which:
 /// - Bloats WAL size significantly (~3KB per 768-dim vector)
 /// - Slows down recovery proportionally
 ///
-/// This is acceptable for M8 (correctness over performance).
+/// This is acceptable (correctness over performance).
 ///
-/// M9 MAY change this to:
+/// Future versions may change this to:
 /// - Store embeddings in separate segment
 /// - Use delta encoding for updates
 /// - Reference external embedding storage
@@ -256,7 +256,7 @@ pub fn create_wal_delete(
 }
 
 // ============================================================================
-// VectorWalReplayer (Story #360)
+// VectorWalReplayer
 // ============================================================================
 
 use crate::vector::{DistanceMetric, VectorStore};

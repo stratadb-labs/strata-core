@@ -1,4 +1,4 @@
-//! Primitive Recovery Tests (Story #199)
+//! Primitive Recovery Tests
 //!
 //! Tests verifying that ALL primitives survive crash + WAL replay.
 //! The recovery contract ensures:

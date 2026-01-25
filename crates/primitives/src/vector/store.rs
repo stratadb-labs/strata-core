@@ -137,14 +137,14 @@ impl VectorStore {
         self.db.extension::<VectorBackendState>()
     }
 
-    /// Get the backend factory (hardcoded for M8, configurable in M9)
+    /// Get the backend factory (hardcoded currently, configurable in future versions)
     fn backend_factory(&self) -> IndexBackendFactory {
-        // M8: Hardcoded to BruteForce. M9 will make this configurable.
+        // Hardcoded to BruteForce. future versions may make this configurable.
         IndexBackendFactory::default()
     }
 
     // ========================================================================
-    // WAL Writing (Epic 55 - M8)
+    // WAL Writing
     // ========================================================================
 
     /// Check if WAL writing is required (not InMemory mode)
@@ -173,7 +173,7 @@ impl VectorStore {
     }
 
     // ========================================================================
-    // WAL Recovery (Epic 55 - M8 Story #424)
+    // WAL Recovery
     // ========================================================================
 
     /// Recover vector state from WAL
@@ -181,7 +181,7 @@ impl VectorStore {
     /// This method reads the WAL and replays all committed Vector entries.
     /// It should be called after VectorStore is created to restore durability.
     ///
-    /// CRITICAL: This is part of Story #424 (Vector Recovery Implementation)
+    /// CRITICAL: Vector recovery implementation
     /// The recovery process:
     /// 1. Read all WAL entries
     /// 2. For transactional entries: group by transaction, only replay committed
@@ -382,7 +382,7 @@ impl VectorStore {
     }
 
     // ========================================================================
-    // Collection Management (Epic 53)
+    // Collection Management
     // ========================================================================
 
     /// Create a new collection
@@ -438,7 +438,7 @@ impl VectorStore {
         // Initialize in-memory backend
         self.init_backend(&collection_id, &config);
 
-        // Write WAL entry for durability (M8 Epic 55)
+        // Write WAL entry for durability
         self.write_wal_entry(WALEntry::VectorCollectionCreate {
             run_id,
             collection: name.to_string(),
@@ -495,7 +495,7 @@ impl VectorStore {
             state.backends.write().remove(&collection_id);
         }
 
-        // Write WAL entry for durability (M8 Epic 55)
+        // Write WAL entry for durability
         self.write_wal_entry(WALEntry::VectorCollectionDelete {
             run_id,
             collection: name.to_string(),
@@ -622,7 +622,7 @@ impl VectorStore {
     }
 
     // ========================================================================
-    // Vector Operations (Epic 54)
+    // Vector Operations
     // ========================================================================
 
     /// Insert a vector (upsert semantics)
@@ -715,7 +715,7 @@ impl VectorStore {
             })
             .map_err(|e| VectorError::Storage(e.to_string()))?;
 
-        // Write WAL entry for durability (M8 Epic 55)
+        // Write WAL entry for durability
         self.write_wal_entry(WALEntry::VectorUpsert {
             run_id,
             collection: collection.to_string(),
@@ -833,7 +833,7 @@ impl VectorStore {
             })
             .map_err(|e| VectorError::Storage(e.to_string()))?;
 
-        // Write WAL entry for durability (M8 Epic 55)
+        // Write WAL entry for durability
         self.write_wal_entry(WALEntry::VectorUpsert {
             run_id,
             collection: collection.to_string(),
@@ -1050,7 +1050,7 @@ impl VectorStore {
             .transaction(run_id, |txn| txn.delete(kv_key.clone()))
             .map_err(|e| VectorError::Storage(e.to_string()))?;
 
-        // Write WAL entry for durability (M8 Epic 55)
+        // Write WAL entry for durability
         self.write_wal_entry(WALEntry::VectorDelete {
             run_id,
             collection: collection.to_string(),
@@ -1455,7 +1455,7 @@ impl VectorStore {
         Ok(matches)
     }
 
-    /// Search returning M6-compatible SearchResponse
+    /// Search returning SearchResponse
     ///
     /// Converts vector results to SearchResponse for hybrid search integration.
     pub fn search_response(
@@ -1485,7 +1485,7 @@ impl VectorStore {
 
     /// Budget-aware search (Issue #451)
     ///
-    /// Respects the M6 SearchBudget time and candidate limits.
+    /// Respects SearchBudget time and candidate limits.
     /// Returns (results, truncated) where truncated is true if budget was exhausted.
     ///
     /// Budget checks are performed:
@@ -2031,7 +2031,7 @@ impl VectorStore {
 
     /// Get key and metadata for a VectorId by scanning KV
     ///
-    /// This is O(n) in M8. M9 can add a reverse index for O(1) lookup.
+    /// This is O(n) currently. future versions can add a reverse index for O(1) lookup.
     pub fn get_key_and_metadata(
         &self,
         run_id: RunId,
@@ -2086,7 +2086,7 @@ impl VectorStore {
     /// Similar to `get_key_and_metadata` but also returns source_ref and version.
     /// Used by `search_with_sources`.
     ///
-    /// This is O(n) in M8. M9 can add a reverse index for O(1) lookup.
+    /// This is O(n) currently. future versions can add a reverse index for O(1) lookup.
     pub fn get_key_metadata_source(
         &self,
         run_id: RunId,
@@ -2252,13 +2252,13 @@ impl VectorStore {
         // Initialize backend
         self.init_backend(&collection_id, &config);
 
-        // Note: Loading vectors into backend happens in Epic 55 (recovery)
+        // Note: Loading vectors into backend happens during recovery
 
         Ok(())
     }
 
     // ========================================================================
-    // WAL Replay Methods (Epic 55 Story #358)
+    // WAL Replay Methods
     // ========================================================================
 
     /// Replay collection creation from WAL (no WAL write)
@@ -2419,12 +2419,12 @@ impl VectorStore {
     }
 }
 
-// ========== Searchable Trait Implementation (M6 Integration, Issue #436) ==========
+// ========== Searchable Trait Implementation ==========
 
 impl crate::searchable::Searchable for VectorStore {
-    /// Vector search via M6 interface
+    /// Vector search via search interface
     ///
-    /// NOTE: Per M8_ARCHITECTURE.md Section 12.3:
+    /// NOTE: Per architecture documentation:
     /// - For SearchMode::Keyword, Vector returns empty results
     /// - Vector does not attempt to do keyword matching on metadata
     /// - For SearchMode::Vector or SearchMode::Hybrid, the caller must
@@ -2541,11 +2541,11 @@ impl strata_storage::PrimitiveStorageExt for VectorStore {
 
     /// Rebuild indexes after recovery
     ///
-    /// For M8 BruteForce backend, no indexes need rebuilding.
-    /// M9 HNSW may need to rebuild graph structure here.
+    /// For BruteForce backend, no indexes need rebuilding.
+    /// HNSW backend may need to rebuild graph structure here.
     fn rebuild_indexes(&mut self) -> Result<(), strata_storage::PrimitiveExtError> {
         // BruteForce backend has no derived indexes to rebuild.
-        // HNSW (M9) would rebuild the graph here.
+        // HNSW would rebuild the graph here.
         Ok(())
     }
 }
@@ -2562,7 +2562,7 @@ fn now_micros() -> u64 {
 }
 
 // =============================================================================
-// VectorStoreExt Implementation (Story #477)
+// VectorStoreExt Implementation
 // =============================================================================
 //
 // Extension trait implementation for cross-primitive transactions.
@@ -2913,7 +2913,7 @@ mod tests {
     }
 
     // ========================================
-    // Vector Insert/Get/Delete Tests (Epic 54)
+    // Vector Insert/Get/Delete Tests
     // ========================================
 
     #[test]
@@ -3048,7 +3048,7 @@ mod tests {
     }
 
     // ========================================
-    // Vector Search Tests (Epic 54)
+    // Vector Search Tests
     // ========================================
 
     #[test]
@@ -3200,7 +3200,7 @@ mod tests {
     }
 
     // ========================================
-    // WAL Replay Tests (Epic 55 Story #358)
+    // WAL Replay Tests
     // ========================================
 
     #[test]

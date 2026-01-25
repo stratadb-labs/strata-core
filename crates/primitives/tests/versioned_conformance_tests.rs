@@ -1,4 +1,4 @@
-//! M9 Conformance Tests: Verifying All 6 Primitives Against All 7 Invariants
+//! Conformance Tests: Verifying All 6 Primitives Against All 7 Invariants
 //!
 //! This test suite verifies that all primitives conform to the Seven Invariants
 //! defined in PRIMITIVE_CONTRACT.md:

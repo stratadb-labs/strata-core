@@ -46,7 +46,7 @@ pub mod event_log;
 pub mod extensions;
 pub mod json_store;
 pub mod kv;
-pub mod run_handle; // Story #478: RunHandle Pattern Implementation
+pub mod run_handle;
 pub mod run_index;
 pub mod searchable;
 pub mod state_cell;

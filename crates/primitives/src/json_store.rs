@@ -23,9 +23,9 @@
 //! - **Fast Path Reads**: `get`, `exists`, `get_doc`
 //!   Use SnapshotView directly for read-only access.
 //!
-//! ## M5 Architectural Rules
+//! ## Architectural Rules
 //!
-//! This implementation follows the six M5 architectural rules:
+//! This implementation follows the architectural rules:
 //! 1. JSON lives in ShardedStore via Key::new_json()
 //! 2. JsonStore is stateless (Arc<Database> only)
 //! 3. JSON extends TransactionContext (no separate type)
@@ -193,7 +193,7 @@ impl JsonStore {
     }
 
     // ========================================================================
-    // Serialization (Story #273)
+    // Serialization
     // ========================================================================
 
     /// Serialize document for storage
@@ -217,7 +217,7 @@ impl JsonStore {
     }
 
     // ========================================================================
-    // Document Operations (Story #274+)
+    // Document Operations
     // ========================================================================
 
     /// Create a new JSON document
@@ -265,7 +265,7 @@ impl JsonStore {
     }
 
     // ========================================================================
-    // Fast Path Reads (Story #275)
+    // Fast Path Reads
     // ========================================================================
 
     /// Get value at path in a document (FAST PATH)
@@ -475,7 +475,7 @@ impl JsonStore {
     }
 
     // ========================================================================
-    // Mutations (Story #276+)
+    // Mutations
     // ========================================================================
 
     /// Set value at path in a document
@@ -617,7 +617,7 @@ impl JsonStore {
     }
 
     // ========================================================================
-    // Atomic Merge (M11B)
+    // Atomic Merge
     // ========================================================================
 
     /// Atomically merge a patch into a document using RFC 7396 JSON Merge Patch
@@ -720,7 +720,7 @@ impl JsonStore {
     }
 
     // ========================================================================
-    // Compare-and-Swap (M11B)
+    // Compare-and-Swap
     // ========================================================================
 
     /// Compare-and-swap: atomically update if version matches
@@ -802,7 +802,7 @@ impl JsonStore {
     }
 
     // ========================================================================
-    // Introspection (M11B)
+    // Introspection
     // ========================================================================
 
     /// List documents in the store with cursor-based pagination
@@ -1077,7 +1077,7 @@ impl JsonStore {
     }
 
     // ========================================================================
-    // Array Operations (M11B Tier 3)
+    // Array Operations
     // ========================================================================
 
     /// Atomically push values to an array at path
@@ -1429,7 +1429,7 @@ impl JsonStore {
     }
 
     // ========================================================================
-    // Search API (M6)
+    // Search API
     // ========================================================================
 
     /// Search JSON documents
@@ -1564,7 +1564,7 @@ impl JsonStore {
     }
 }
 
-// ========== Searchable Trait Implementation (M6) ==========
+// ========== Searchable Trait Implementation ==========
 
 impl crate::searchable::Searchable for JsonStore {
     fn search(
@@ -1580,7 +1580,7 @@ impl crate::searchable::Searchable for JsonStore {
 }
 
 // =============================================================================
-// JsonStoreExt Implementation (Story #477)
+// JsonStoreExt Implementation
 // =============================================================================
 //
 // Extension trait implementation for cross-primitive transactions.
@@ -1752,7 +1752,7 @@ mod tests {
     }
 
     // ========================================
-    // JsonDoc Tests (Story #273)
+    // JsonDoc Tests
     // ========================================
 
     #[test]
@@ -1801,7 +1801,7 @@ mod tests {
     }
 
     // ========================================
-    // Serialization Tests (Story #273)
+    // Serialization Tests
     // ========================================
 
     #[test]
@@ -1890,7 +1890,7 @@ mod tests {
     }
 
     // ========================================
-    // Create Tests (Story #274)
+    // Create Tests
     // ========================================
 
     #[test]
@@ -2007,7 +2007,7 @@ mod tests {
     }
 
     // ========================================
-    // Get Tests (Story #275)
+    // Get Tests
     // ========================================
 
     #[test]
@@ -2220,7 +2220,7 @@ mod tests {
     }
 
     // ========================================
-    // Set Tests (Story #276)
+    // Set Tests
     // ========================================
 
     #[test]
@@ -2401,7 +2401,7 @@ mod tests {
     }
 
     // ========================================
-    // Delete at Path Tests (Story #277)
+    // Delete at Path Tests
     // ========================================
 
     #[test]
@@ -2566,7 +2566,7 @@ mod tests {
     }
 
     // ========================================
-    // Destroy Tests (Story #277)
+    // Destroy Tests
     // ========================================
 
     #[test]

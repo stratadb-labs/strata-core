@@ -25,7 +25,7 @@
 //! })?;
 //! ```
 //!
-//! ## Story #478: RunHandle Pattern Implementation
+//! ## RunHandle Pattern Implementation
 
 use crate::extensions::{
     EventLogExt, JsonStoreExt, KVStoreExt, StateCellExt, VectorStoreExt,

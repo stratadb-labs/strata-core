@@ -29,7 +29,7 @@
 //! 2. **Critical State**: next_id and free_slots MUST be persisted and restored
 //!    to maintain VectorId uniqueness across restarts (Invariant T4).
 //!
-//! 3. **Embedding Format**: Raw f32 LE for efficiency. No compression in M8.
+//! 3. **Embedding Format**: Raw f32 LE for efficiency. No compression currently.
 
 use crate::vector::{
     CollectionId, DistanceMetric, IndexBackendFactory, StorageDtype, VectorConfig, VectorError,
@@ -254,7 +254,7 @@ impl VectorStore {
                 })
                 .map_err(|e| VectorError::Database(e.to_string()))?;
 
-            // Create backend using factory (M8: hardcoded to BruteForce)
+            // Create backend using factory (hardcoded to BruteForce)
             let factory = IndexBackendFactory::default();
             let mut backend = factory.create(&config);
 

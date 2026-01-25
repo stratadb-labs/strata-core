@@ -59,7 +59,7 @@ fn global_namespace() -> Namespace {
     Namespace::for_run(global_run_id())
 }
 
-// ========== RunStatus Enum (Story #191) ==========
+// ========== RunStatus Enum ==========
 
 /// Run lifecycle status
 ///
@@ -140,7 +140,7 @@ impl RunStatus {
     }
 }
 
-// ========== RunMetadata Struct (Story #191) ==========
+// ========== RunMetadata Struct ==========
 
 /// Metadata about a run
 ///
@@ -245,7 +245,7 @@ fn from_stored_value<T: for<'de> Deserialize<'de>>(
     }
 }
 
-// ========== RunIndex Core (Story #191) ==========
+// ========== RunIndex Core ==========
 
 /// Run lifecycle management primitive
 ///
@@ -302,7 +302,7 @@ impl RunIndex {
         Key::new_run_with_id(global_namespace(), run_id)
     }
 
-    // ========== Create & Get Operations (Story #192) ==========
+    // ========== Create & Get Operations ==========
 
     /// Create a new run
     ///
@@ -418,7 +418,7 @@ impl RunIndex {
         Ok(self.list_runs()?.len())
     }
 
-    // ========== Status Update & Transitions (Story #193) ==========
+    // ========== Status Update & Transitions ==========
 
     /// Update run status with transition validation
     ///
@@ -524,7 +524,7 @@ impl RunIndex {
         self.update_status(run_id, RunStatus::Cancelled)
     }
 
-    // ========== Secondary Indices (Story #194) ==========
+    // ========== Secondary Indices ==========
 
     /// Write secondary indices for a run
     fn write_indices_internal(txn: &mut TransactionContext, meta: &RunMetadata) -> Result<()> {
@@ -618,7 +618,7 @@ impl RunIndex {
         Ok(runs)
     }
 
-    // ========== Delete & Archive Operations (Story #195) ==========
+    // ========== Delete & Archive Operations ==========
 
     /// Archive a run (soft delete - status change to Archived)
     ///
@@ -825,7 +825,7 @@ impl RunIndex {
         })
     }
 
-    // ========== Search API (M6) ==========
+    // ========== Search API ==========
 
     /// Search runs
     ///
@@ -1459,7 +1459,7 @@ fn json_to_value(json: &serde_json::Value) -> Value {
     }
 }
 
-// ========== Searchable Trait Implementation (M6) ==========
+// ========== Searchable Trait Implementation ==========
 
 impl crate::searchable::Searchable for RunIndex {
     fn search(
@@ -1492,7 +1492,7 @@ mod tests {
         Value::Object(std::collections::HashMap::new())
     }
 
-    // ========== Story #191 Tests: RunStatus ==========
+    // ========== Tests: RunStatus ==========
 
     #[test]
     fn test_status_active_can_go_anywhere() {
@@ -1563,7 +1563,7 @@ mod tests {
         assert_eq!(status, restored);
     }
 
-    // ========== Story #191 Tests: RunMetadata ==========
+    // ========== Tests: RunMetadata ==========
 
     #[test]
     fn test_run_metadata_creation() {
@@ -1587,7 +1587,7 @@ mod tests {
         assert_eq!(meta, restored);
     }
 
-    // ========== Story #191 Tests: RunIndex Core ==========
+    // ========== Tests: RunIndex Core ==========
 
     #[test]
     fn test_runindex_new() {
@@ -1596,7 +1596,7 @@ mod tests {
         assert!(Arc::ptr_eq(ri.database(), &db));
     }
 
-    // ========== Story #192 Tests: Create & Get ==========
+    // ========== Tests: Create & Get ==========
 
     #[test]
     fn test_create_run() {
@@ -1736,7 +1736,7 @@ mod tests {
         assert_eq!(ri.count().unwrap(), 2);
     }
 
-    // ========== Story #193 Tests: Status Transitions ==========
+    // ========== Tests: Status Transitions ==========
 
     #[test]
     fn test_complete_run() {
@@ -1815,7 +1815,7 @@ mod tests {
         assert!(result.is_err());
     }
 
-    // ========== Story #194 Tests: Query Operations ==========
+    // ========== Tests: Query Operations ==========
 
     #[test]
     fn test_query_by_status() {
@@ -1873,7 +1873,7 @@ mod tests {
         assert_eq!(children.len(), 2);
     }
 
-    // ========== Story #195 Tests: Delete & Archive ==========
+    // ========== Tests: Delete & Archive ==========
 
     #[test]
     fn test_archive_run() {
@@ -2018,7 +2018,7 @@ mod tests {
             .is_err());
     }
 
-    // ========== Story #196 Tests: Integration ==========
+    // ========== Tests: Integration ==========
 
     mod integration_tests {
         use super::*;
@@ -2081,7 +2081,7 @@ mod tests {
                 .unwrap();
 
             // Verify isolation
-            // M9: get() returns Versioned<Value>
+            // get() returns Versioned<Value>
             assert_eq!(
                 kv.get(&run_id1, "key").unwrap().map(|v| v.value),
                 Some(Value::String("run1-value".into()))

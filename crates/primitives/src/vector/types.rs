@@ -18,7 +18,7 @@ pub use strata_core::EntityRef;
 pub use strata_core::types::RunId;
 
 // ============================================================================
-// Story #339: VectorRecord and CollectionRecord (Implementation types)
+// VectorRecord and CollectionRecord (Implementation types)
 // ============================================================================
 
 use serde::{Deserialize, Serialize};

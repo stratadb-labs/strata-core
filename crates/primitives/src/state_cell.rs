@@ -8,8 +8,8 @@
 //!
 //! ## Naming Note
 //!
-//! This is "StateCell" not "StateMachine". In M3, this is a simple CAS cell.
-//! Full state machine semantics (transitions, guards) may come in M5+.
+//! This is "StateCell" not "StateMachine". Currently, this is a simple CAS cell.
+//! Full state machine semantics (transitions, guards) may come in future versions.
 //!
 //! ## Purity Requirement
 //!
@@ -116,14 +116,14 @@ impl StateCell {
         Key::new_state(self.namespace_for_run(run_id), name)
     }
 
-    // ========== Read/Init/Delete Operations (Story #181, #468) ==========
+    // ========== Read/Init/Delete Operations ==========
 
     /// Initialize a cell with a value (only if it doesn't exist)
     ///
     /// Returns `Versioned<u64>` containing the version number with metadata.
-    /// The version uses `Version::Counter` type per M9 spec.
+    /// The version uses `Version::Counter` type.
     ///
-    /// # Story #468: StateCell Versioned Returns
+    /// # StateCell Versioned Returns
     pub fn init(&self, run_id: &RunId, name: &str, value: Value) -> Result<Versioned<u64>> {
         self.db.transaction(*run_id, |txn| {
             let key = self.key_for(run_id, name);
@@ -148,9 +148,9 @@ impl StateCell {
     /// Bypasses full transaction overhead for read-only access.
     /// Uses direct snapshot read which maintains snapshot isolation.
     ///
-    /// Returns `Versioned<State>` with `Version::Counter` type per M9 spec.
+    /// Returns `Versioned<State>` with `Version::Counter` type.
     ///
-    /// # Story #468: StateCell Versioned Returns
+    /// # StateCell Versioned Returns
     pub fn read(&self, run_id: &RunId, name: &str) -> Result<Option<Versioned<State>>> {
         use strata_core::traits::SnapshotView;
 
@@ -173,7 +173,7 @@ impl StateCell {
     ///
     /// Use this when you need transaction semantics.
     ///
-    /// # Story #468: StateCell Versioned Returns
+    /// # StateCell Versioned Returns
     pub fn read_in_transaction(&self, run_id: &RunId, name: &str) -> Result<Option<Versioned<State>>> {
         self.db.transaction(*run_id, |txn| {
             let key = self.key_for(run_id, name);
@@ -304,14 +304,14 @@ impl StateCell {
         Ok(results)
     }
 
-    // ========== CAS & Set Operations (Story #182, #468) ==========
+    // ========== CAS & Set Operations ==========
 
     /// Compare-and-swap: Update only if version matches
     ///
     /// Returns `Versioned<u64>` containing new version on success.
-    /// Uses `Version::Counter` type per M9 spec.
+    /// Uses `Version::Counter` type.
     ///
-    /// # Story #468: StateCell Versioned Returns
+    /// # StateCell Versioned Returns
     pub fn cas(
         &self,
         run_id: &RunId,
@@ -356,7 +356,7 @@ impl StateCell {
     /// Always succeeds, overwrites any existing value.
     /// Creates the cell if it doesn't exist.
     ///
-    /// # Story #468: StateCell Versioned Returns
+    /// # StateCell Versioned Returns
     pub fn set(&self, run_id: &RunId, name: &str, value: Value) -> Result<Versioned<u64>> {
         self.db.transaction(*run_id, |txn| {
             let key = self.key_for(run_id, name);
@@ -382,7 +382,7 @@ impl StateCell {
         })
     }
 
-    // ========== Transition Closure Pattern (Story #183, #468) ==========
+    // ========== Transition Closure Pattern ==========
 
     /// Apply a transition function with automatic retry on conflict
     ///
@@ -413,7 +413,7 @@ impl StateCell {
     /// })?;
     /// ```
     ///
-    /// # Story #468: StateCell Versioned Returns
+    /// # StateCell Versioned Returns
     pub fn transition<F, T>(&self, run_id: &RunId, name: &str, f: F) -> Result<(T, Versioned<u64>)>
     where
         F: Fn(&State) -> Result<(Value, T)>,
@@ -469,7 +469,7 @@ impl StateCell {
     ///
     /// Returns `(user_result, Versioned<u64>)` tuple.
     ///
-    /// # Story #468: StateCell Versioned Returns
+    /// # StateCell Versioned Returns
     pub fn transition_or_init<F, T>(
         &self,
         run_id: &RunId,
@@ -487,7 +487,7 @@ impl StateCell {
         self.transition(run_id, name, f)
     }
 
-    // ========== Search API (M6) ==========
+    // ========== Search API ==========
 
     /// Search state cells
     ///
@@ -575,7 +575,7 @@ impl StateCell {
     }
 }
 
-// ========== Searchable Trait Implementation (M6) ==========
+// ========== Searchable Trait Implementation ==========
 
 impl crate::searchable::Searchable for StateCell {
     fn search(
@@ -590,7 +590,7 @@ impl crate::searchable::Searchable for StateCell {
     }
 }
 
-// ========== StateCellExt Implementation (Story #184) ==========
+// ========== StateCellExt Implementation ==========
 
 impl StateCellExt for TransactionContext {
     fn state_read(&mut self, name: &str) -> Result<Option<Value>> {
@@ -675,7 +675,7 @@ mod tests {
         (temp_dir, db, sc)
     }
 
-    // ========== Story #180: Core & State Structure Tests ==========
+    // ========== Core & State Structure Tests ==========
 
     #[test]
     fn test_state_creation() {
@@ -713,7 +713,7 @@ mod tests {
         assert_send_sync::<StateCell>();
     }
 
-    // ========== Story #181, #468: Read/Init/Delete Tests ==========
+    // ========== Read/Init/Delete Tests ==========
 
     #[test]
     fn test_init_and_read() {
@@ -813,7 +813,7 @@ mod tests {
         assert_eq!(state2.value.value, Value::Int(2));
     }
 
-    // ========== Story #182, #468: CAS & Set Tests ==========
+    // ========== CAS & Set Tests ==========
 
     #[test]
     fn test_cas_success() {
@@ -897,7 +897,7 @@ mod tests {
         assert_eq!(state.value.version, 11);
     }
 
-    // ========== Story #183, #468: Transition Tests ==========
+    // ========== Transition Tests ==========
 
     #[test]
     fn test_transition_increment() {
@@ -1003,7 +1003,7 @@ mod tests {
         assert_eq!(state.value.version, 6);
     }
 
-    // ========== Story #184: StateCellExt Tests ==========
+    // ========== StateCellExt Tests ==========
 
     #[test]
     fn test_statecell_ext_read() {
@@ -1092,7 +1092,7 @@ mod tests {
         assert_eq!(state.value.value, Value::Int(1));
     }
 
-    // ========== Fast Path Tests (Story #238, #468) ==========
+    // ========== Fast Path Tests ==========
 
     #[test]
     fn test_fast_read_returns_correct_value() {
@@ -1160,7 +1160,7 @@ mod tests {
         assert_eq!(state2.value.value, Value::Int(2));
     }
 
-    // ========== Story #468: Versioned Returns Tests ==========
+    // ========== Versioned Returns Tests ==========
 
     #[test]
     fn test_versioned_init_has_counter_version() {

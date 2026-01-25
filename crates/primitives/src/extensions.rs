@@ -45,7 +45,7 @@ use strata_core::{Result, Value};
 
 /// KV operations within a transaction
 ///
-/// Implemented in `kv.rs` (Story #173)
+/// Implemented in `kv.rs`
 pub trait KVStoreExt {
     /// Get a value by key
     fn kv_get(&mut self, key: &str) -> Result<Option<Value>>;
@@ -59,7 +59,7 @@ pub trait KVStoreExt {
 
 /// Event log operations within a transaction
 ///
-/// Implemented in `event_log.rs` (Story #179)
+/// Implemented in `event_log.rs`
 pub trait EventLogExt {
     /// Append an event and return sequence number
     fn event_append(&mut self, event_type: &str, payload: Value) -> Result<u64>;
@@ -70,7 +70,7 @@ pub trait EventLogExt {
 
 /// State cell operations within a transaction
 ///
-/// Implemented in `state_cell.rs` (Story #184)
+/// Implemented in `state_cell.rs`
 pub trait StateCellExt {
     /// Read current state
     fn state_read(&mut self, name: &str) -> Result<Option<Value>>;
@@ -84,7 +84,7 @@ pub trait StateCellExt {
 
 /// JSON store operations within a transaction
 ///
-/// Implemented in `json_store.rs` (Story #477)
+/// Implemented in `json_store.rs`
 pub trait JsonStoreExt {
     /// Get value at path in a document
     fn json_get(&mut self, doc_id: &str, path: &JsonPath) -> Result<Option<JsonValue>>;
@@ -102,7 +102,7 @@ pub trait JsonStoreExt {
 /// the backend state management complexity. Only basic read/write ops
 /// are supported.
 ///
-/// Implemented in `vector/store.rs` (Story #477)
+/// Implemented in `vector/store.rs`
 pub trait VectorStoreExt {
     /// Get a vector by key
     fn vector_get(&mut self, collection: &str, key: &str) -> Result<Option<Vec<f32>>>;

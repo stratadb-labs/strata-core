@@ -1,4 +1,4 @@
-//! M4 Fast Path Observational Equivalence Tests
+//! Fast Path Observational Equivalence Tests
 //!
 //! Verifies that fast-path reads are observationally equivalent
 //! to transaction-based reads. This is a CRITICAL invariant:

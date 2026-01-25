@@ -135,7 +135,7 @@ impl VectorError {
 pub type VectorResult<T> = Result<T, VectorError>;
 
 // =============================================================================
-// Conversion to StrataError (M9)
+// Conversion to StrataError
 // =============================================================================
 
 impl From<VectorError> for StrataError {

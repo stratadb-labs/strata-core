@@ -1,19 +1,19 @@
 //! Vector Index Backend trait
 //!
 //! Defines the interface for swappable vector index implementations.
-//! M8: BruteForceBackend (O(n) search)
-//! M9: HnswBackend (O(log n) search) - reserved
+//! BruteForceBackend (O(n) search)
+//! HnswBackend (O(log n) search) - reserved
 
 use crate::vector::{DistanceMetric, VectorConfig, VectorError, VectorId};
 
 /// Trait for swappable vector index implementations
 ///
-/// M8: BruteForceBackend (O(n) search)
-/// M9: HnswBackend (O(log n) search)
+/// BruteForceBackend (O(n) search)
+/// HnswBackend (O(log n) search)
 ///
 /// IMPORTANT: This trait is designed to work for BOTH brute-force and HNSW.
 /// Do NOT add methods that assume brute-force semantics (like get_all_vectors).
-/// See Evolution Warning A in M8_ARCHITECTURE.md.
+/// See Evolution Warning A in architecture documentation.
 pub trait VectorIndexBackend: Send + Sync {
     /// Allocate a new VectorId (monotonically increasing, per-collection)
     ///
@@ -75,7 +75,7 @@ pub trait VectorIndexBackend: Send + Sync {
     fn contains(&self, id: VectorId) -> bool;
 
     // ========================================================================
-    // Snapshot Methods (Epic 55 Story #359)
+    // Snapshot Methods
     // ========================================================================
 
     /// Get all VectorIds in deterministic order
@@ -99,14 +99,14 @@ pub trait VectorIndexBackend: Send + Sync {
 
 /// Factory for creating index backends
 ///
-/// This abstraction allows switching between BruteForce (M8) and HNSW (M9)
+/// This abstraction allows switching between BruteForce and HNSW
 /// without changing the VectorStore code.
 #[derive(Clone, Default)]
 pub enum IndexBackendFactory {
     /// Brute-force O(n) search
     #[default]
     BruteForce,
-    // Hnsw(HnswConfig),  // Reserved for M9
+    // Hnsw(HnswConfig),  // Reserved for future use
 }
 
 impl IndexBackendFactory {

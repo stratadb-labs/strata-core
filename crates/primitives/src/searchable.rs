@@ -1,7 +1,7 @@
 //! Searchable trait for primitives that support search
 //!
 //! This module defines the `Searchable` trait and search support structures
-//! used by all primitives in M6 Retrieval Surfaces.
+//! used by all primitives for retrieval operations.
 
 use strata_core::error::Result;
 use strata_core::search_types::{
@@ -53,10 +53,10 @@ impl SearchCandidate {
     }
 }
 
-/// Simple keyword matcher/scorer for M6
+/// Simple keyword matcher/scorer for search
 ///
 /// BM25-lite implementation: scores based on term frequency and document length.
-/// This is a simplified version - Epic 35 will implement the full Scorer trait.
+/// This is a simplified version - Future versions will implement the full Scorer trait.
 pub struct SimpleScorer;
 
 impl SimpleScorer {

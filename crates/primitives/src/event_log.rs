@@ -320,7 +320,7 @@ impl EventLog {
         Namespace::for_run(*run_id)
     }
 
-    // ========== Append Operation (Story #175) ==========
+    // ========== Append Operation ==========
 
     /// Append a new event to the log
     ///
@@ -532,7 +532,7 @@ impl EventLog {
             })
     }
 
-    // ========== Read Operations (Story #176) ==========
+    // ========== Read Operations ==========
 
     /// Read a single event by sequence number (FAST PATH)
     ///
@@ -714,7 +714,7 @@ impl EventLog {
         Ok(self.len(run_id)? == 0)
     }
 
-    // ========== Chain Verification (Story #177) ==========
+    // ========== Chain Verification ==========
 
     /// Verify chain integrity from start to end
     ///
@@ -889,7 +889,7 @@ impl EventLog {
         Ok(meta.streams.keys().cloned().collect())
     }
 
-    // ========== Query by Type (Story #178) ==========
+    // ========== Query by Type ==========
 
     /// Read events filtered by type
     ///
@@ -951,7 +951,7 @@ impl EventLog {
         })
     }
 
-    // ========== Search API (M6) ==========
+    // ========== Search API ==========
 
     /// Search events
     ///
@@ -1050,7 +1050,7 @@ impl EventLog {
     }
 }
 
-// ========== Searchable Trait Implementation (M6) ==========
+// ========== Searchable Trait Implementation ==========
 
 impl crate::searchable::Searchable for EventLog {
     fn search(
@@ -1065,7 +1065,7 @@ impl crate::searchable::Searchable for EventLog {
     }
 }
 
-// ========== EventLogExt Implementation (Story #179) ==========
+// ========== EventLogExt Implementation ==========
 
 impl EventLogExt for TransactionContext {
     fn event_append(&mut self, event_type: &str, payload: Value) -> Result<u64> {
@@ -1168,7 +1168,7 @@ mod tests {
         payload_with("value", Value::Int(v))
     }
 
-    // ========== Core Structure Tests (Story #174) ==========
+    // ========== Core Structure Tests ==========
 
     #[test]
     fn test_event_serialization() {
@@ -1304,7 +1304,7 @@ mod tests {
         assert!(result.is_ok());
     }
 
-    // ========== Append Tests (Story #175) ==========
+    // ========== Append Tests ==========
 
     #[test]
     fn test_append_first_event() {
@@ -1382,7 +1382,7 @@ mod tests {
         assert_eq!(run2_events[0].value.event_type, "run2_event");
     }
 
-    // ========== Read Tests (Story #176) ==========
+    // ========== Read Tests ==========
 
     #[test]
     fn test_read_single_event() {
@@ -1464,7 +1464,7 @@ mod tests {
         assert_eq!(log.len(&run_id).unwrap(), 3);
     }
 
-    // ========== Chain Verification Tests (Story #177) ==========
+    // ========== Chain Verification Tests ==========
 
     #[test]
     fn test_verify_empty_chain() {
@@ -1645,7 +1645,7 @@ mod tests {
         assert!(non_zero_after_8 > 0, "SHA-256 should use all 32 bytes");
     }
 
-    // ========== Query by Type Tests (Story #178) ==========
+    // ========== Query by Type Tests ==========
 
     #[test]
     fn test_read_by_type() {
@@ -1688,7 +1688,7 @@ mod tests {
         assert!(types.contains(&"type_c".to_string()));
     }
 
-    // ========== EventLogExt Tests (Story #179) ==========
+    // ========== EventLogExt Tests ==========
 
     #[test]
     fn test_eventlog_ext_append() {
@@ -1978,7 +1978,7 @@ mod tests {
         }
     }
 
-    // ========== Fast Path Tests (Story #238) ==========
+    // ========== Fast Path Tests ==========
 
     #[test]
     fn test_fast_read_returns_correct_value() {

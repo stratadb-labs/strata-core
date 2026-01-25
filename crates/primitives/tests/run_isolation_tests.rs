@@ -1,4 +1,4 @@
-//! Run Isolation Integration Tests (Story #198)
+//! Run Isolation Integration Tests
 //!
 //! Tests verifying that different runs are completely isolated from each other.
 //! Each run has its own namespace and cannot see or affect other runs' data.

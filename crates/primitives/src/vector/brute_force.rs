@@ -1,10 +1,10 @@
 //! Brute-Force Vector Search Backend
 //!
-//! Simple O(n) implementation for M8.
+//! Simple O(n) brute-force implementation.
 //! Sufficient for datasets < 10K vectors.
 //! Performance degrades linearly with dataset size.
 //!
-//! Switch threshold: P95 > 100ms at 50K vectors triggers M9/HNSW priority.
+//! Switch threshold: P95 > 100ms at 50K vectors triggers HNSW priority.
 
 use std::cmp::Ordering;
 
@@ -13,11 +13,11 @@ use crate::vector::{DistanceMetric, VectorConfig, VectorError, VectorHeap, Vecto
 
 /// Brute-force vector search backend
 ///
-/// Simple O(n) implementation for M8.
+/// Simple O(n) brute-force implementation.
 /// Sufficient for datasets < 10K vectors.
 /// Performance degrades linearly with dataset size.
 ///
-/// Switch threshold: P95 > 100ms at 50K vectors triggers M9/HNSW priority.
+/// Switch threshold: P95 > 100ms at 50K vectors triggers HNSW priority.
 pub struct BruteForceBackend {
     /// Vector heap (contiguous storage)
     heap: VectorHeap,
