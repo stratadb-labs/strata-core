@@ -262,9 +262,18 @@ impl ShardedStore {
     }
 
     /// Increment version and return new value
+    ///
+    /// Uses wrapping arithmetic to prevent panic at u64::MAX.
+    /// In practice, overflow is extremely unlikely (~584 years at 1B versions/sec).
     #[inline]
     pub fn next_version(&self) -> u64 {
-        self.version.fetch_add(1, Ordering::AcqRel) + 1
+        // Use fetch_update with wrapping_add to prevent overflow panic in debug mode
+        self.version
+            .fetch_update(Ordering::AcqRel, Ordering::Acquire, |v| {
+                Some(v.wrapping_add(1))
+            })
+            .unwrap() // fetch_update with Some always succeeds
+            .wrapping_add(1)
     }
 
     /// Set version (used during recovery)
@@ -324,21 +333,58 @@ impl ShardedStore {
         }
     }
 
-    /// Delete a key
+    /// Delete a key by adding a tombstone
     ///
-    /// Removes all versions of the key. For MVCC correctness, this should
-    /// only be called when no active snapshots could reference the key.
+    /// MVCC-safe delete: adds a tombstone (Value::Null) at a new version
+    /// instead of removing all versions. This preserves old versions for
+    /// snapshots that may still need them.
     ///
     /// # Arguments
     ///
     /// * `key` - Key to delete (contains RunId)
+    ///
+    /// # Returns
+    /// The previous value if it existed and wasn't already deleted
     #[inline]
     pub fn delete(&self, key: &Key) -> Option<VersionedValue> {
+        let delete_version = self.next_version();
+        // delete_with_version always succeeds, unwrap is safe
+        self.delete_with_version(key, delete_version).unwrap()
+    }
+
+    /// Delete a key with a specific version (for batched deletes)
+    ///
+    /// Adds a tombstone at the specified version. Old versions are preserved
+    /// for MVCC snapshot isolation.
+    #[inline]
+    pub fn delete_with_version(&self, key: &Key, version: u64) -> Result<Option<VersionedValue>> {
+        use strata_core::value::Value;
+        use strata_core::Version;
+
         let run_id = key.namespace.run_id;
-        self.shards
-            .get_mut(&run_id)
-            .and_then(|mut shard| shard.data.remove(key))
-            .and_then(|chain| chain.latest().map(|sv| sv.versioned().clone()))
+
+        // Get the previous value before adding tombstone
+        let previous = self
+            .shards
+            .get(&run_id)
+            .and_then(|shard| {
+                shard.data.get(key).and_then(|chain| {
+                    chain.latest().and_then(|sv| {
+                        // Don't return tombstones as "previous value"
+                        if sv.versioned().value.is_null() {
+                            None
+                        } else {
+                            Some(sv.versioned().clone())
+                        }
+                    })
+                })
+            });
+
+        // Add tombstone to version chain
+        let tombstone = StoredValue::new(Value::Null, Version::txn(version), None);
+        self.put(key.clone(), tombstone);
+
+        Ok(previous)
     }
 
     /// Check if a key exists
@@ -393,9 +439,9 @@ impl ShardedStore {
             self.put(key.clone(), stored);
         }
 
-        // Apply deletes
+        // Apply deletes with the specified version
         for key in deletes {
-            self.delete(key);
+            let _ = self.delete_with_version(key, version);
         }
 
         // Update global version to be at least this version
@@ -767,13 +813,14 @@ use std::time::Duration;
 impl Storage for ShardedStore {
     /// Get current value for key (latest version)
     ///
-    /// Returns None if key doesn't exist or is expired.
+    /// Returns None if key doesn't exist, is expired, or is a tombstone.
     fn get(&self, key: &Key) -> Result<Option<VersionedValue>> {
         let run_id = key.namespace.run_id;
         Ok(self.shards.get(&run_id).and_then(|shard| {
             shard.data.get(key).and_then(|chain| {
                 chain.latest().and_then(|sv| {
-                    if !sv.is_expired() {
+                    // Filter out expired values and tombstones
+                    if !sv.is_expired() && !sv.versioned().value.is_null() {
                         Some(sv.versioned().clone())
                     } else {
                         None
@@ -785,13 +832,14 @@ impl Storage for ShardedStore {
 
     /// Get value at or before specified version (for snapshot isolation)
     ///
-    /// Returns the value if version <= max_version and not expired.
+    /// Returns the value if version <= max_version, not expired, and not a tombstone.
     fn get_versioned(&self, key: &Key, max_version: u64) -> Result<Option<VersionedValue>> {
         let run_id = key.namespace.run_id;
         Ok(self.shards.get(&run_id).and_then(|shard| {
             shard.data.get(key).and_then(|chain| {
                 chain.get_at_version(max_version).and_then(|sv| {
-                    if !sv.is_expired() {
+                    // Filter out expired values and tombstones
+                    if !sv.is_expired() && !sv.versioned().value.is_null() {
                         Some(sv.versioned().clone())
                     } else {
                         None
@@ -866,7 +914,8 @@ impl Storage for ShardedStore {
                             return None;
                         }
                         chain.get_at_version(max_version).and_then(|sv| {
-                            if !sv.is_expired() {
+                            // Filter out expired values and tombstones
+                            if !sv.is_expired() && !sv.versioned().value.is_null() {
                                 Some((k.clone(), sv.versioned().clone()))
                             } else {
                                 None
@@ -894,7 +943,8 @@ impl Storage for ShardedStore {
                     .iter()
                     .filter_map(|(k, chain)| {
                         chain.get_at_version(max_version).and_then(|sv| {
-                            if !sv.is_expired() {
+                            // Filter out expired values and tombstones
+                            if !sv.is_expired() && !sv.versioned().value.is_null() {
                                 Some((k.clone(), sv.versioned().clone()))
                             } else {
                                 None
@@ -935,14 +985,16 @@ impl Storage for ShardedStore {
         Ok(())
     }
 
-    /// Delete a key with a specific version (creates tombstone conceptually)
+    /// Delete a key with a specific version (creates tombstone)
     ///
     /// Used by transaction commit to apply deletes.
-    fn delete_with_version(&self, key: &Key, _version: u64) -> Result<Option<VersionedValue>> {
-        // For ShardedStore, we actually remove the key entirely
-        // (tombstones would require storing deleted markers)
-        // Use the inherent delete method
-        Ok(ShardedStore::delete(self, key))
+    fn delete_with_version(&self, key: &Key, version: u64) -> Result<Option<VersionedValue>> {
+        let result = ShardedStore::delete_with_version(self, key, version);
+
+        // Update global version to be at least this version
+        self.version.fetch_max(version, Ordering::AcqRel);
+
+        result
     }
 }
 
@@ -972,7 +1024,8 @@ impl SnapshotView for ShardedSnapshot {
         let result = self.store.shards.get(&run_id).and_then(|shard| {
             shard.data.get(key).and_then(|chain| {
                 chain.get_at_version(self.version).and_then(|sv| {
-                    if !sv.is_expired() {
+                    // Filter out expired values and tombstones
+                    if !sv.is_expired() && !sv.versioned().value.is_null() {
                         Some(sv.versioned().clone())
                     } else {
                         None
@@ -1008,7 +1061,8 @@ impl SnapshotView for ShardedSnapshot {
                             return None;
                         }
                         chain.get_at_version(self.version).and_then(|sv| {
-                            if !sv.is_expired() {
+                            // Filter out expired values and tombstones
+                            if !sv.is_expired() && !sv.versioned().value.is_null() {
                                 Some((k.clone(), sv.versioned().clone()))
                             } else {
                                 None
@@ -2349,16 +2403,12 @@ mod tests {
     // These tests probe edge cases and potential bugs.
     // ========================================================================
 
-    /// BUG HUNT: Delete removes all versions, breaking MVCC for uncached reads
+    /// MVCC delete with tombstones preserves snapshot isolation
     ///
-    /// The snapshot cache provides isolation for keys that were READ before delete.
-    /// However, if a snapshot never read the key before it was deleted, the
-    /// snapshot cannot see the value that SHOULD be visible at its version.
-    ///
-    /// This test demonstrates the actual bug: delete removes all versions,
-    /// so a snapshot that never cached the value loses access to it.
+    /// Delete now creates a tombstone at a new version instead of removing all versions.
+    /// This ensures snapshots taken before the delete can still see the value.
     #[test]
-    fn test_delete_breaks_mvcc_for_uncached_reads() {
+    fn test_delete_uses_tombstone_preserving_mvcc() {
         use strata_core::traits::{SnapshotView, Storage};
         use strata_core::value::Value;
 
@@ -2374,20 +2424,22 @@ mod tests {
         assert_eq!(snapshot.version(), 1);
 
         // Delete the key BEFORE the snapshot reads it
+        // This creates a tombstone at version 2
         Storage::delete(&*store, &key).unwrap();
 
-        // Now try to read from snapshot - it should see version 1
-        // but delete removed ALL versions so there's nothing to see
+        // Now read from snapshot - it should see version 1 (before the tombstone)
         let result = SnapshotView::get(&snapshot, &key).unwrap();
 
-        // BUG CONFIRMED: The snapshot should see the value at version 1,
-        // but delete() removed all versions including the one the snapshot needs.
-        // The correct behavior would be for delete to create a tombstone at version 2,
-        // leaving version 1 intact for older snapshots.
+        // FIX VERIFIED: The snapshot sees the value at version 1 because
+        // delete() creates a tombstone at version 2, leaving version 1 intact.
         assert!(
-            result.is_none(),
-            "BUG CONFIRMED: Delete breaks MVCC - snapshot lost access to value at version 1. \
-             Delete should create a tombstone, not remove all versions."
+            result.is_some(),
+            "Snapshot should see value at version 1 - tombstone is at version 2"
+        );
+        assert_eq!(
+            result.unwrap().value,
+            Value::Int(100),
+            "Snapshot should see the original value"
         );
     }
 
@@ -2425,37 +2477,36 @@ mod tests {
         assert_eq!(after.unwrap().value, Value::Int(100));
     }
 
-    /// BUG HUNT: Version counter behavior at u64::MAX boundary
+    /// Version counter wraps at u64::MAX boundary (fixed)
     ///
-    /// The version counter uses AtomicU64::fetch_add(1) which wraps at MAX.
-    /// In debug mode, Rust panics on overflow. In release mode, it wraps to 0.
-    /// Either way, this breaks the version monotonicity invariant.
-    ///
-    /// BUG DOCUMENTED: No protection against overflow - would panic in debug
-    /// or wrap silently in release mode. At ~584 years of continuous operation
-    /// at 1 billion versions/second, this is unlikely but should be handled.
+    /// The version counter now uses wrapping arithmetic to prevent panic.
+    /// At ~584 years of continuous operation at 1 billion versions/second,
+    /// overflow is extremely unlikely but now handled gracefully.
     #[test]
-    fn test_version_counter_near_max_boundary() {
+    fn test_version_counter_wraps_at_max_boundary() {
         let store = ShardedStore::new();
 
-        // Set version close to MAX (but leave room to not overflow)
-        store.set_version(u64::MAX - 5);
-        assert_eq!(store.version(), u64::MAX - 5);
+        // Set version close to MAX
+        store.set_version(u64::MAX - 2);
+        assert_eq!(store.version(), u64::MAX - 2);
 
-        // Allocate a few versions - should work fine
+        // Allocate versions up to MAX
         let v1 = store.next_version();
-        assert_eq!(v1, u64::MAX - 4);
+        assert_eq!(v1, u64::MAX - 1);
 
         let v2 = store.next_version();
-        assert_eq!(v2, u64::MAX - 3);
+        assert_eq!(v2, u64::MAX);
 
-        // Verify monotonicity holds before boundary
-        assert!(v2 > v1, "Versions should be monotonically increasing");
+        // Cross the boundary - should wrap to 0 without panic
+        let v3 = store.next_version();
+        assert_eq!(v3, 0, "Version should wrap to 0 at u64::MAX");
 
-        // BUG DOCUMENTED: If we call next_version() 4 more times, we hit u64::MAX
-        // and the next call would panic (debug) or wrap to 0 (release).
-        // This test intentionally does NOT cross the boundary to avoid panic.
-        // A production fix should use wrapping_add or saturating_add with error.
+        // Continue allocating
+        let v4 = store.next_version();
+        assert_eq!(v4, 1);
+
+        // Note: After wrapping, versions are no longer monotonically increasing.
+        // This is documented behavior for the extremely unlikely overflow case.
     }
 
     /// BUG HUNT: TTL expiration with clock going backward
