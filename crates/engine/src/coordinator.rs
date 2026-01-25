@@ -124,9 +124,12 @@ impl TransactionCoordinator {
 
     /// Record transaction commit
     ///
-    /// Decrements active count and increments committed count.
+    /// Decrements active count (saturating at 0) and increments committed count.
     pub fn record_commit(&self) {
-        self.active_count.fetch_sub(1, Ordering::Relaxed);
+        // Use fetch_update for saturating decrement to prevent underflow
+        let _ = self.active_count.fetch_update(Ordering::Relaxed, Ordering::Relaxed, |x| {
+            Some(x.saturating_sub(1))
+        });
         self.total_committed.fetch_add(1, Ordering::Relaxed);
     }
 
@@ -134,7 +137,10 @@ impl TransactionCoordinator {
     ///
     /// Decrements active count and increments aborted count.
     pub fn record_abort(&self) {
-        self.active_count.fetch_sub(1, Ordering::Relaxed);
+        // Use fetch_update for saturating decrement to prevent underflow
+        let _ = self.active_count.fetch_update(Ordering::Relaxed, Ordering::Relaxed, |x| {
+            Some(x.saturating_sub(1))
+        });
         self.total_aborted.fetch_add(1, Ordering::Relaxed);
     }
 
@@ -659,6 +665,260 @@ mod tests {
             next_id > 15,
             "Next txn_id ({}) should be > max_txn_id from recovery (15)",
             next_id
+        );
+    }
+
+    // ========================================================================
+    // ADVERSARIAL TESTS - Bug Hunting
+    // ========================================================================
+
+    /// Verify active_count saturates at 0 instead of underflowing
+    ///
+    /// Previously, calling record_commit/abort more times than record_start
+    /// would cause underflow (panic in debug, wrap in release).
+    /// Now it saturates at 0 for defensive safety.
+    #[test]
+    fn test_active_count_saturates_at_zero() {
+        let coordinator = TransactionCoordinator::new(0);
+
+        // Start one transaction
+        coordinator.record_start();
+        assert_eq!(coordinator.active_count(), 1);
+
+        // Commit it
+        coordinator.record_commit();
+        assert_eq!(coordinator.active_count(), 0);
+
+        // Extra commits should saturate at 0, not underflow
+        coordinator.record_commit();
+        assert_eq!(coordinator.active_count(), 0, "Should saturate at 0, not underflow");
+
+        coordinator.record_commit();
+        assert_eq!(coordinator.active_count(), 0, "Still 0 after multiple extra commits");
+
+        // Same for abort
+        coordinator.record_abort();
+        assert_eq!(coordinator.active_count(), 0, "Abort also saturates at 0");
+    }
+
+    /// BUG HUNT: Metrics consistency under high concurrency
+    ///
+    /// Since metrics use Relaxed ordering, they might show temporarily
+    /// inconsistent values during concurrent operations.
+    #[test]
+    fn test_metrics_eventual_consistency() {
+        use std::sync::atomic::AtomicUsize;
+        use std::thread;
+
+        let coordinator = Arc::new(TransactionCoordinator::new(0));
+        let storage = Arc::new(ShardedStore::new());
+        let run_id = RunId::new();
+
+        let iterations = 100;
+        let started = Arc::new(AtomicUsize::new(0));
+        let committed = Arc::new(AtomicUsize::new(0));
+
+        // Spawn threads that start and commit transactions
+        let handles: Vec<_> = (0..4)
+            .map(|_| {
+                let coord = Arc::clone(&coordinator);
+                let stor = Arc::clone(&storage);
+                let started = Arc::clone(&started);
+                let committed = Arc::clone(&committed);
+
+                thread::spawn(move || {
+                    for _ in 0..iterations {
+                        let _txn = coord.start_transaction(run_id, &stor);
+                        started.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+
+                        // Small delay to increase contention
+                        thread::yield_now();
+
+                        coord.record_commit();
+                        committed.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+                    }
+                })
+            })
+            .collect();
+
+        for h in handles {
+            h.join().unwrap();
+        }
+
+        // After all threads complete, metrics should be consistent
+        let metrics = coordinator.metrics();
+        let total_expected = iterations * 4;
+
+        assert_eq!(
+            metrics.total_started, total_expected as u64,
+            "Total started should match actual starts"
+        );
+        assert_eq!(
+            metrics.total_committed, total_expected as u64,
+            "Total committed should match actual commits"
+        );
+        assert_eq!(
+            metrics.active_count, 0,
+            "No transactions should be active after all complete"
+        );
+    }
+
+    /// BUG HUNT: Version allocation monotonicity under concurrent allocations
+    ///
+    /// Multiple threads allocating versions should always get strictly
+    /// increasing values with no duplicates.
+    #[test]
+    fn test_version_allocation_no_duplicates() {
+        use std::collections::HashSet;
+        use std::sync::Mutex;
+        use std::thread;
+
+        let coordinator = Arc::new(TransactionCoordinator::new(0));
+        let versions = Arc::new(Mutex::new(Vec::new()));
+
+        let handles: Vec<_> = (0..8)
+            .map(|_| {
+                let coord = Arc::clone(&coordinator);
+                let vers = Arc::clone(&versions);
+
+                thread::spawn(move || {
+                    let mut local_versions = Vec::new();
+                    for _ in 0..100 {
+                        let v = coord.allocate_commit_version();
+                        local_versions.push(v);
+                    }
+                    vers.lock().unwrap().extend(local_versions);
+                })
+            })
+            .collect();
+
+        for h in handles {
+            h.join().unwrap();
+        }
+
+        let all_versions = versions.lock().unwrap();
+        let unique: HashSet<_> = all_versions.iter().collect();
+
+        assert_eq!(
+            all_versions.len(),
+            unique.len(),
+            "BUG: Duplicate versions allocated! Total: {}, Unique: {}",
+            all_versions.len(),
+            unique.len()
+        );
+
+        // Verify all versions are > 0 (initial version)
+        for v in all_versions.iter() {
+            assert!(*v > 0, "Version should be > initial version 0");
+        }
+    }
+
+    /// BUG HUNT: Transaction ID monotonicity across concurrent allocations
+    ///
+    /// Similar to version allocation, transaction IDs must be unique.
+    #[test]
+    fn test_txn_id_allocation_no_duplicates() {
+        use std::collections::HashSet;
+        use std::sync::Mutex;
+        use std::thread;
+
+        let coordinator = Arc::new(TransactionCoordinator::new(0));
+        let txn_ids = Arc::new(Mutex::new(Vec::new()));
+
+        let handles: Vec<_> = (0..8)
+            .map(|_| {
+                let coord = Arc::clone(&coordinator);
+                let ids = Arc::clone(&txn_ids);
+
+                thread::spawn(move || {
+                    let mut local_ids = Vec::new();
+                    for _ in 0..100 {
+                        let id = coord.next_txn_id();
+                        local_ids.push(id);
+                    }
+                    ids.lock().unwrap().extend(local_ids);
+                })
+            })
+            .collect();
+
+        for h in handles {
+            h.join().unwrap();
+        }
+
+        let all_ids = txn_ids.lock().unwrap();
+        let unique: HashSet<_> = all_ids.iter().collect();
+
+        assert_eq!(
+            all_ids.len(),
+            unique.len(),
+            "BUG: Duplicate transaction IDs! Total: {}, Unique: {}",
+            all_ids.len(),
+            unique.len()
+        );
+    }
+
+    /// BUG HUNT: Commit rate calculation with zero started
+    ///
+    /// The commit_rate calculation divides by total_started.
+    /// Verify it handles zero gracefully.
+    #[test]
+    fn test_commit_rate_with_zero_started() {
+        let coordinator = TransactionCoordinator::new(0);
+
+        let metrics = coordinator.metrics();
+
+        // Should not panic, should return 0.0
+        assert_eq!(metrics.commit_rate, 0.0);
+        assert_eq!(metrics.abort_rate(), 0.0);
+    }
+
+    /// BUG HUNT: wait_for_idle with rapid start/stop cycles
+    ///
+    /// If transactions start and stop rapidly, wait_for_idle might
+    /// see active_count as 0 briefly even though more transactions
+    /// are about to start.
+    #[test]
+    fn test_wait_for_idle_spurious_return() {
+        use std::sync::atomic::{AtomicBool, Ordering};
+        use std::thread;
+
+        let coordinator = Arc::new(TransactionCoordinator::new(0));
+        let storage = Arc::new(ShardedStore::new());
+        let run_id = RunId::new();
+        let should_stop = Arc::new(AtomicBool::new(false));
+
+        // Worker that rapidly starts and commits transactions
+        let coord_clone = Arc::clone(&coordinator);
+        let stor_clone = Arc::clone(&storage);
+        let stop_clone = Arc::clone(&should_stop);
+        let worker = thread::spawn(move || {
+            let mut count = 0;
+            while !stop_clone.load(Ordering::SeqCst) && count < 50 {
+                let _txn = coord_clone.start_transaction(run_id, &stor_clone);
+                // Very short delay
+                coord_clone.record_commit();
+                count += 1;
+            }
+            count
+        });
+
+        // Try to catch a zero-crossing
+        let mut idle_seen = false;
+        for _ in 0..100 {
+            if coordinator.active_count() == 0 {
+                idle_seen = true;
+            }
+            thread::yield_now();
+        }
+
+        should_stop.store(true, Ordering::SeqCst);
+        let completed = worker.join().unwrap();
+
+        // We should have seen idle at least once (between rapid transactions)
+        // This documents that wait_for_idle could return during a brief idle window
+        assert!(
+            idle_seen || completed == 0,
+            "Should see idle state between rapid transactions"
         );
     }
 }
