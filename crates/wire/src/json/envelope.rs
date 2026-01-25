@@ -134,7 +134,13 @@ pub fn encode_response(response: &Response) -> String {
             encode_json(response.result.as_ref().unwrap_or(&Value::Null)),
         )
     } else {
-        let error = response.error.as_ref().unwrap();
+        // Default error for malformed responses (ok=false but no error provided)
+        let default_error = ApiError {
+            code: "Internal".to_string(),
+            message: "Unknown error".to_string(),
+            details: None,
+        };
+        let error = response.error.as_ref().unwrap_or(&default_error);
         format!(
             r#"{{"id":{},"ok":false,"error":{{"code":{},"message":{},"details":{}}}}}"#,
             encode_string(&response.id),
