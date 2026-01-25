@@ -2151,6 +2151,124 @@ mod tests {
     }
 
     // ========================================================================
+    // VersionChain::get_at_version() Tests (MVCC)
+    // ========================================================================
+
+    #[test]
+    fn test_version_chain_get_at_version_single() {
+        use strata_core::value::Value;
+
+        let chain = VersionChain::new(create_stored_value(Value::Int(42), 5));
+
+        // Exact version match
+        let result = chain.get_at_version(5);
+        assert!(result.is_some());
+        assert_eq!(result.unwrap().version().as_u64(), 5);
+
+        // Higher version should still return the value (latest <= max_version)
+        let result = chain.get_at_version(10);
+        assert!(result.is_some());
+        assert_eq!(result.unwrap().version().as_u64(), 5);
+
+        // Lower version should return None
+        let result = chain.get_at_version(4);
+        assert!(result.is_none());
+    }
+
+    #[test]
+    fn test_version_chain_get_at_version_multiple() {
+        use strata_core::value::Value;
+
+        // Create chain with versions 1, 2, 3 (newest first after pushes)
+        let mut chain = VersionChain::new(create_stored_value(Value::Int(100), 1));
+        chain.push(create_stored_value(Value::Int(200), 2));
+        chain.push(create_stored_value(Value::Int(300), 3));
+
+        // Chain should have 3 versions
+        assert_eq!(chain.version_count(), 3);
+
+        // Query at version 3 should return version 3
+        let result = chain.get_at_version(3);
+        assert!(result.is_some());
+        assert_eq!(result.unwrap().version().as_u64(), 3);
+        assert_eq!(result.unwrap().versioned().value, Value::Int(300));
+
+        // Query at version 2 should return version 2
+        let result = chain.get_at_version(2);
+        assert!(result.is_some());
+        assert_eq!(result.unwrap().version().as_u64(), 2);
+        assert_eq!(result.unwrap().versioned().value, Value::Int(200));
+
+        // Query at version 1 should return version 1
+        let result = chain.get_at_version(1);
+        assert!(result.is_some());
+        assert_eq!(result.unwrap().version().as_u64(), 1);
+        assert_eq!(result.unwrap().versioned().value, Value::Int(100));
+
+        // Query at version 0 should return None
+        let result = chain.get_at_version(0);
+        assert!(result.is_none());
+
+        // Query at version 100 should return latest (version 3)
+        let result = chain.get_at_version(100);
+        assert!(result.is_some());
+        assert_eq!(result.unwrap().version().as_u64(), 3);
+    }
+
+    #[test]
+    fn test_version_chain_get_at_version_between_versions() {
+        use strata_core::value::Value;
+
+        // Create chain with versions 10, 20, 30 (sparse)
+        let mut chain = VersionChain::new(create_stored_value(Value::Int(1), 10));
+        chain.push(create_stored_value(Value::Int(2), 20));
+        chain.push(create_stored_value(Value::Int(3), 30));
+
+        // Query at version 25 should return version 20 (latest <= 25)
+        let result = chain.get_at_version(25);
+        assert!(result.is_some());
+        assert_eq!(result.unwrap().version().as_u64(), 20);
+
+        // Query at version 15 should return version 10
+        let result = chain.get_at_version(15);
+        assert!(result.is_some());
+        assert_eq!(result.unwrap().version().as_u64(), 10);
+
+        // Query at version 5 should return None (no version <= 5)
+        let result = chain.get_at_version(5);
+        assert!(result.is_none());
+    }
+
+    #[test]
+    fn test_version_chain_get_at_version_snapshot_isolation() {
+        use strata_core::value::Value;
+
+        // Simulates snapshot isolation: reader sees consistent view
+        let mut chain = VersionChain::new(create_stored_value(Value::String("v1".into()), 1));
+
+        // Snapshot taken at version 1
+        let snapshot_version = 1;
+
+        // Writer adds new versions
+        chain.push(create_stored_value(Value::String("v2".into()), 2));
+        chain.push(create_stored_value(Value::String("v3".into()), 3));
+
+        // Snapshot reader should still see version 1
+        let result = chain.get_at_version(snapshot_version);
+        assert!(result.is_some());
+        assert_eq!(result.unwrap().version().as_u64(), 1);
+        assert_eq!(
+            result.unwrap().versioned().value,
+            Value::String("v1".into())
+        );
+
+        // Current reader sees version 3
+        let result = chain.get_at_version(u64::MAX);
+        assert!(result.is_some());
+        assert_eq!(result.unwrap().version().as_u64(), 3);
+    }
+
+    // ========================================================================
     // Storage::get_history() Tests
     // ========================================================================
 

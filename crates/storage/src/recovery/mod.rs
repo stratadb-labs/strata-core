@@ -572,4 +572,166 @@ mod tests {
         // All recoveries should produce same results
         assert!(results.windows(2).all(|w| w[0] == w[1]));
     }
+
+    #[test]
+    fn test_recover_corrupted_snapshot_crc_mismatch() {
+        let dir = tempdir().unwrap();
+        let db_dir = dir.path().to_path_buf();
+
+        // Setup manifest with snapshot reference
+        let mut manager =
+            ManifestManager::create(db_dir.join("MANIFEST"), test_uuid(), "identity".to_string())
+                .unwrap();
+        manager.set_snapshot_watermark(1, 50).unwrap();
+
+        // Create valid snapshot first
+        setup_snapshot(&db_dir, 1, 50);
+
+        // Now corrupt the snapshot by modifying section data (not header/codec)
+        let snap_path = crate::format::snapshot_path(&db_dir.join("SNAPSHOTS"), 1);
+        let mut data = std::fs::read(&snap_path).unwrap();
+        // Corrupt data in the section area (after header and codec ID)
+        // Header is 64 bytes, codec "identity" is 8 bytes, section header is 9 bytes
+        // So section data starts around byte 81
+        if data.len() > 82 {
+            data[82] ^= 0xFF;
+        }
+        std::fs::write(&snap_path, &data).unwrap();
+
+        // Setup WAL with some records
+        let records: Vec<_> = (51..=60)
+            .map(|i| WalRecord::new(i, test_uuid(), i * 1000, vec![i as u8]))
+            .collect();
+        setup_wal(&db_dir, &records);
+
+        // Try to recover - should fail with Snapshot error
+        let coordinator = RecoveryCoordinator::new(db_dir, make_codec());
+        let result = coordinator.recover(|_| Ok(()), |_| Ok(()));
+
+        assert!(
+            matches!(result, Err(RecoveryError::Snapshot(_))),
+            "Expected Snapshot error for corrupted snapshot, got: {:?}",
+            result
+        );
+
+        // Verify the underlying error is CRC mismatch
+        if let Err(RecoveryError::Snapshot(snapshot_err)) = result {
+            let msg = snapshot_err.to_string();
+            assert!(
+                msg.contains("CRC") || msg.contains("crc"),
+                "Expected CRC error message, got: {}",
+                msg
+            );
+        }
+    }
+
+    #[test]
+    fn test_recover_missing_snapshot_file() {
+        let dir = tempdir().unwrap();
+        let db_dir = dir.path().to_path_buf();
+
+        // Setup manifest with snapshot reference (but don't create the snapshot)
+        let mut manager =
+            ManifestManager::create(db_dir.join("MANIFEST"), test_uuid(), "identity".to_string())
+                .unwrap();
+        manager.set_snapshot_watermark(1, 50).unwrap();
+
+        // Create SNAPSHOTS directory but don't put the snapshot file there
+        std::fs::create_dir_all(db_dir.join("SNAPSHOTS")).unwrap();
+
+        // Setup WAL
+        let records: Vec<_> = (51..=60)
+            .map(|i| WalRecord::new(i, test_uuid(), i * 1000, vec![i as u8]))
+            .collect();
+        setup_wal(&db_dir, &records);
+
+        // Try to recover - should fail with Snapshot error (file not found)
+        let coordinator = RecoveryCoordinator::new(db_dir, make_codec());
+        let result = coordinator.recover(|_| Ok(()), |_| Ok(()));
+
+        assert!(
+            matches!(result, Err(RecoveryError::Snapshot(_))),
+            "Expected Snapshot error for missing snapshot file, got: {:?}",
+            result
+        );
+    }
+
+    #[test]
+    fn test_recover_corrupted_snapshot_invalid_magic() {
+        let dir = tempdir().unwrap();
+        let db_dir = dir.path().to_path_buf();
+
+        // Setup manifest with snapshot reference
+        let mut manager =
+            ManifestManager::create(db_dir.join("MANIFEST"), test_uuid(), "identity".to_string())
+                .unwrap();
+        manager.set_snapshot_watermark(1, 50).unwrap();
+
+        // Create valid snapshot first
+        setup_snapshot(&db_dir, 1, 50);
+
+        // Corrupt the magic bytes at the beginning
+        let snap_path = crate::format::snapshot_path(&db_dir.join("SNAPSHOTS"), 1);
+        let mut data = std::fs::read(&snap_path).unwrap();
+        data[0..4].copy_from_slice(b"BADM"); // Invalid magic
+        std::fs::write(&snap_path, &data).unwrap();
+
+        // Setup WAL
+        let records: Vec<_> = (51..=60)
+            .map(|i| WalRecord::new(i, test_uuid(), i * 1000, vec![i as u8]))
+            .collect();
+        setup_wal(&db_dir, &records);
+
+        // Try to recover - should fail with Snapshot error
+        let coordinator = RecoveryCoordinator::new(db_dir, make_codec());
+        let result = coordinator.recover(|_| Ok(()), |_| Ok(()));
+
+        assert!(
+            matches!(result, Err(RecoveryError::Snapshot(_))),
+            "Expected Snapshot error for invalid magic, got: {:?}",
+            result
+        );
+
+        // Verify the underlying error mentions magic
+        if let Err(RecoveryError::Snapshot(snapshot_err)) = result {
+            let msg = snapshot_err.to_string();
+            assert!(
+                msg.contains("magic") || msg.contains("Magic"),
+                "Expected magic-related error message, got: {}",
+                msg
+            );
+        }
+    }
+
+    #[test]
+    fn test_recover_callback_error_propagated() {
+        let dir = tempdir().unwrap();
+        let db_dir = dir.path().to_path_buf();
+
+        setup_manifest(&db_dir);
+
+        let records: Vec<_> = (1..=5)
+            .map(|i| WalRecord::new(i, test_uuid(), i * 1000, vec![i as u8]))
+            .collect();
+        setup_wal(&db_dir, &records);
+
+        // Recovery with callback that returns error
+        let coordinator = RecoveryCoordinator::new(db_dir, make_codec());
+        let result = coordinator.recover(
+            |_| Ok(()),
+            |record| {
+                if record.txn_id == 3 {
+                    Err(RecoveryError::apply("simulated failure at txn 3"))
+                } else {
+                    Ok(())
+                }
+            },
+        );
+
+        assert!(
+            matches!(result, Err(RecoveryError::Replay(_))),
+            "Expected Replay error when callback fails, got: {:?}",
+            result
+        );
+    }
 }

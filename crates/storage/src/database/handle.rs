@@ -482,7 +482,35 @@ mod tests {
         let result = DatabaseHandle::open(&db_path, config);
 
         // Config validation fails before we can check codec mismatch
-        assert!(result.is_err());
+        assert!(
+            matches!(&result, Err(DatabaseHandleError::Config(_))),
+            "Expected Config error for invalid codec"
+        );
+
+        // Verify the error message mentions the codec
+        if let Err(DatabaseHandleError::Config(config_err)) = result {
+            let msg = config_err.to_string();
+            assert!(
+                msg.contains("codec") || msg.contains("Codec"),
+                "Error should mention codec: {}",
+                msg
+            );
+        }
+    }
+
+    #[test]
+    fn test_create_with_invalid_codec() {
+        let dir = tempdir().unwrap();
+        let db_path = dir.path().join("test.db");
+
+        // Try to create with invalid codec
+        let config = DatabaseConfig::for_testing().with_codec("aes256_not_implemented");
+        let result = DatabaseHandle::create(&db_path, config);
+
+        assert!(
+            matches!(&result, Err(DatabaseHandleError::Config(_))),
+            "Expected Config error for invalid codec"
+        );
     }
 
     #[test]

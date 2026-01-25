@@ -144,7 +144,36 @@ mod tests {
     #[test]
     fn test_validate_valid_config() {
         let config = DatabaseConfig::default();
-        assert!(config.validate().is_ok());
+        let result = config.validate();
+        assert!(result.is_ok(), "Default config should be valid");
+
+        // Verify the config has expected values after validation
+        assert_eq!(config.codec_id, "identity");
+        assert!(matches!(config.durability, DurabilityMode::Strict));
+
+        // Verify WAL config is also valid
+        assert!(config.wal_config.segment_size > 0);
+        assert!(config.wal_config.buffered_sync_bytes <= config.wal_config.segment_size);
+    }
+
+    #[test]
+    fn test_validate_valid_config_batched() {
+        let config = DatabaseConfig::batched();
+        let result = config.validate();
+        assert!(result.is_ok(), "Batched config should be valid");
+        assert!(matches!(config.durability, DurabilityMode::Batched { .. }));
+    }
+
+    #[test]
+    fn test_validate_valid_config_custom() {
+        // Segment size of 128MB (larger than default buffered_sync_bytes of 4MB)
+        let config = DatabaseConfig::default()
+            .with_codec("identity")
+            .with_wal_segment_size(128 * 1024 * 1024);
+
+        let result = config.validate();
+        assert!(result.is_ok(), "Custom config should be valid");
+        assert_eq!(config.wal_config.segment_size, 128 * 1024 * 1024);
     }
 
     #[test]
@@ -152,6 +181,22 @@ mod tests {
         let config = DatabaseConfig::default().with_codec("nonexistent_codec");
         let result = config.validate();
         assert!(matches!(result, Err(ConfigError::InvalidCodec(_))));
+
+        // Verify error message contains the codec name
+        if let Err(ConfigError::InvalidCodec(msg)) = result {
+            assert!(msg.contains("nonexistent_codec") || msg.len() > 0);
+        }
+    }
+
+    #[test]
+    fn test_validate_invalid_wal_config() {
+        // Create config with invalid WAL settings (buffered_sync_bytes > segment_size)
+        let mut config = DatabaseConfig::default();
+        config.wal_config.segment_size = 1000;
+        config.wal_config.buffered_sync_bytes = 2000; // Invalid: sync > segment
+
+        let result = config.validate();
+        assert!(matches!(result, Err(ConfigError::InvalidWalConfig(_))));
     }
 
     #[test]

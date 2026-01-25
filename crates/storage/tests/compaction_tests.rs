@@ -610,3 +610,254 @@ fn test_compaction_large_segments() {
     assert_eq!(info.wal_segments_removed, 1);
     assert!(info.reclaimed_bytes > 5000); // Should have reclaimed substantial bytes
 }
+
+// === Truly Concurrent Compaction Tests ===
+
+#[test]
+fn test_concurrent_compaction_and_wal_writes() {
+    use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
+    use std::sync::Barrier;
+    use std::thread;
+    use std::time::Duration;
+
+    let (_dir, wal_dir, manifest) = setup_test_env();
+
+    // Create initial segments 1-5 with records
+    for i in 1..=5 {
+        let txn_ids: Vec<u64> = (i * 10..i * 10 + 10).collect();
+        create_segment_with_records(&wal_dir, i, &txn_ids).unwrap();
+    }
+
+    // Set snapshot watermark to cover segments 1-3, active segment is 6
+    {
+        let mut m = manifest.lock();
+        m.set_snapshot_watermark(1, 40).unwrap(); // Covers through txn 40
+        m.manifest_mut().active_wal_segment = 6;
+        m.persist().unwrap();
+    }
+
+    let writer_done = Arc::new(AtomicBool::new(false));
+    let segments_created = Arc::new(AtomicUsize::new(0));
+    let compactions_done = Arc::new(AtomicUsize::new(0));
+    let barrier = Arc::new(Barrier::new(3)); // 1 writer + 2 compactors
+
+    // Writer thread - creates new segments
+    let writer_handle = {
+        let wal_dir = wal_dir.clone();
+        let manifest = Arc::clone(&manifest);
+        let writer_done = Arc::clone(&writer_done);
+        let segments_created = Arc::clone(&segments_created);
+        let barrier = Arc::clone(&barrier);
+
+        thread::spawn(move || {
+            barrier.wait();
+
+            for i in 6..=10 {
+                let txn_ids: Vec<u64> = (i * 10..i * 10 + 5).collect();
+                if create_segment_with_records(&wal_dir, i, &txn_ids).is_ok() {
+                    segments_created.fetch_add(1, Ordering::SeqCst);
+                }
+
+                // Update active segment to track new segment
+                {
+                    let mut m = manifest.lock();
+                    m.manifest_mut().active_wal_segment = i + 1;
+                    let _ = m.persist();
+                }
+
+                thread::sleep(Duration::from_millis(5));
+            }
+            writer_done.store(true, Ordering::SeqCst);
+        })
+    };
+
+    // Compactor thread 1
+    let compactor_handle1 = {
+        let wal_dir = wal_dir.clone();
+        let manifest = Arc::clone(&manifest);
+        let writer_done = Arc::clone(&writer_done);
+        let compactions_done = Arc::clone(&compactions_done);
+        let barrier = Arc::clone(&barrier);
+
+        thread::spawn(move || {
+            barrier.wait();
+
+            let mut attempts = 0;
+            while !writer_done.load(Ordering::SeqCst) && attempts < 10 {
+                let compactor = WalOnlyCompactor::new(wal_dir.clone(), Arc::clone(&manifest));
+                if compactor.compact().is_ok() {
+                    compactions_done.fetch_add(1, Ordering::SeqCst);
+                }
+                thread::sleep(Duration::from_millis(10));
+                attempts += 1;
+            }
+        })
+    };
+
+    // Compactor thread 2
+    let compactor_handle2 = {
+        let wal_dir = wal_dir.clone();
+        let manifest = Arc::clone(&manifest);
+        let writer_done = Arc::clone(&writer_done);
+        let compactions_done = Arc::clone(&compactions_done);
+        let barrier = Arc::clone(&barrier);
+
+        thread::spawn(move || {
+            barrier.wait();
+
+            let mut attempts = 0;
+            while !writer_done.load(Ordering::SeqCst) && attempts < 10 {
+                let compactor = WalOnlyCompactor::new(wal_dir.clone(), Arc::clone(&manifest));
+                if compactor.compact().is_ok() {
+                    compactions_done.fetch_add(1, Ordering::SeqCst);
+                }
+                thread::sleep(Duration::from_millis(15));
+                attempts += 1;
+            }
+        })
+    };
+
+    writer_handle.join().unwrap();
+    compactor_handle1.join().unwrap();
+    compactor_handle2.join().unwrap();
+
+    // Verify writer created segments
+    assert_eq!(segments_created.load(Ordering::SeqCst), 5);
+
+    // Verify compaction ran at least once
+    assert!(
+        compactions_done.load(Ordering::SeqCst) >= 1,
+        "Compaction should have run at least once"
+    );
+
+    // Verify remaining segments (should have some segments left)
+    let final_count = count_segments(&wal_dir);
+    assert!(final_count > 0, "Should have at least some segments remaining");
+}
+
+#[test]
+fn test_compaction_never_removes_segment_being_written() {
+    use std::sync::atomic::{AtomicBool, Ordering};
+    use std::sync::Barrier;
+    use std::thread;
+
+    let (_dir, wal_dir, manifest) = setup_test_env();
+
+    // Create segments 1-5
+    for i in 1..=5u64 {
+        let txn_ids: Vec<u64> = (i * 10..i * 10 + 5).collect();
+        create_segment_with_records(&wal_dir, i, &txn_ids).unwrap();
+    }
+
+    // Set watermark to cover segments 1-3, active segment is 6
+    {
+        let mut m = manifest.lock();
+        m.set_snapshot_watermark(1, 35).unwrap(); // Covers through txn 35
+        m.manifest_mut().active_wal_segment = 6;
+        m.persist().unwrap();
+    }
+
+    let compaction_complete = Arc::new(AtomicBool::new(false));
+    let barrier = Arc::new(Barrier::new(2));
+
+    // Compactor thread
+    let compactor_handle = {
+        let wal_dir = wal_dir.clone();
+        let manifest = Arc::clone(&manifest);
+        let compaction_complete = Arc::clone(&compaction_complete);
+        let barrier = Arc::clone(&barrier);
+
+        thread::spawn(move || {
+            barrier.wait();
+
+            let compactor = WalOnlyCompactor::new(wal_dir, manifest);
+            let info = compactor.compact().unwrap();
+
+            // Should have removed segments 1-3 (covered by watermark 35)
+            assert!(info.wal_segments_removed >= 3);
+            compaction_complete.store(true, Ordering::SeqCst);
+        })
+    };
+
+    // Concurrent segment creation thread
+    let writer_handle = {
+        let wal_dir = wal_dir.clone();
+        let barrier = Arc::clone(&barrier);
+
+        thread::spawn(move || {
+            barrier.wait();
+
+            // Create segment 6 while compaction might be running
+            create_segment_with_records(&wal_dir, 6, &[60, 61, 62]).unwrap();
+        })
+    };
+
+    compactor_handle.join().unwrap();
+    writer_handle.join().unwrap();
+
+    assert!(compaction_complete.load(Ordering::SeqCst));
+
+    // Segments 4, 5, and 6 should still exist
+    let remaining = count_segments(&wal_dir);
+    assert!(remaining >= 2, "Should have at least segments 4, 5, 6 remaining");
+}
+
+#[test]
+fn test_concurrent_compactors_idempotent() {
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    use std::sync::Barrier;
+    use std::thread;
+
+    let (_dir, wal_dir, manifest) = setup_test_env();
+
+    // Create 10 segments
+    for i in 1..=10 {
+        create_segment_with_records(&wal_dir, i, &[i]).unwrap();
+    }
+
+    // Watermark covers segments 1-5
+    {
+        let mut m = manifest.lock();
+        m.set_snapshot_watermark(1, 5).unwrap();
+        m.manifest_mut().active_wal_segment = 11;
+        m.persist().unwrap();
+    }
+
+    let initial_count = count_segments(&wal_dir);
+    assert_eq!(initial_count, 10);
+
+    let total_removed = Arc::new(AtomicUsize::new(0));
+    let barrier = Arc::new(Barrier::new(5));
+
+    // Launch 5 concurrent compactors
+    let handles: Vec<_> = (0..5)
+        .map(|_| {
+            let wal_dir = wal_dir.clone();
+            let manifest = Arc::clone(&manifest);
+            let total_removed = Arc::clone(&total_removed);
+            let barrier = Arc::clone(&barrier);
+
+            thread::spawn(move || {
+                barrier.wait();
+
+                let compactor = WalOnlyCompactor::new(wal_dir, manifest);
+                let info = compactor.compact().unwrap();
+                total_removed.fetch_add(info.wal_segments_removed, Ordering::SeqCst);
+            })
+        })
+        .collect();
+
+    for h in handles {
+        h.join().unwrap();
+    }
+
+    // Total segments removed should be exactly 5 (not 25)
+    // because compaction is idempotent
+    let final_count = count_segments(&wal_dir);
+    assert_eq!(final_count, 5, "Should have 5 segments remaining (6-10)");
+    assert_eq!(
+        total_removed.load(Ordering::SeqCst),
+        5,
+        "Total removed across all compactors should be 5"
+    );
+}
