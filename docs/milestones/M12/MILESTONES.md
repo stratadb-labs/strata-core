@@ -646,14 +646,79 @@ If Strata becomes successful, people will build servers on top of it. But the va
 
 ---
 
-## Milestone 13: Server & Wire Protocol
-**Goal**: Add server deployment mode for multi-process and multi-language access
+## Milestone 13: Command Execution Layer (strata-executor)
+**Goal**: Create a standardized command execution layer between all external APIs and the core database engine
 
-**Deliverable**: `strata-server` binary that exposes the unified API over the network, plus a Rust client library
+**Deliverable**: `strata-executor` crate with `Command` enum, `Output` enum, `Error` enum, and `Executor` struct
 
 **Status**: Not Started (blocked on M12 completion)
 
-**Philosophy**: M13 adds a **deployment mode**, not a new product. Strata remains an embedded library; the server is a thin adapter for cases requiring multi-process sharing or language-agnostic clients. The server adds no new semantics—`request → core API → response`. If the server is adding logic beyond transport, something is wrong. This is the SQLite/rqlite pattern, not the Redis pattern.
+**Philosophy**: The Command Execution Layer is the **semantic instruction set** of Strata. Every operation becomes a `Command` that is executed by a single `Executor` to produce a `Result`. This is NOT a wire protocol—it is a deterministic, in-process execution boundary that enforces all invariants exactly once. All API surfaces (Rust, Python, Node, CLI, MCP) compile user intent into Commands.
+
+**Why This Matters**:
+- **Single Source of Truth**: Invariants enforced once, not reimplemented per SDK
+- **Determinism**: Same commands + same initial state = same results (enables replay)
+- **Black-Box Testing**: Test the engine by feeding command sequences
+- **Thin SDKs**: Python/Node/CLI become trivial wrappers that build Commands
+- **RunBundle Integration**: Commands provide the semantic log for export/import
+
+**Success Criteria**:
+
+### Gate 1: Core Types
+- [ ] `Command` enum with all 48+ variants (KV, JSON, Events, State, Vectors, Runs, Database)
+- [ ] `Output` enum with all result variants (Value, Versioned, Values, Version, Bool, Int, etc.)
+- [ ] `Error` enum with all error cases (KeyNotFound, WrongType, VersionConflict, etc.)
+- [ ] All types implement `Serialize`/`Deserialize`
+- [ ] Round-trip serialization tests pass
+
+### Gate 2: Executor Implementation
+- [ ] `Executor::new(engine)` creates executor wrapping database
+- [ ] `Executor::execute(cmd)` dispatches to appropriate primitive
+- [ ] All KV commands implemented (12 variants)
+- [ ] All JSON commands implemented (6 variants)
+- [ ] All Event commands implemented (7 variants)
+- [ ] All State commands implemented (5 variants)
+- [ ] All Vector commands implemented (7 variants)
+- [ ] All Run commands implemented (7 variants)
+- [ ] All Database commands implemented (4 variants)
+
+### Gate 3: Error Mapping
+- [ ] Internal errors converted to `Error` enum
+- [ ] Error messages are user-friendly
+- [ ] Error details preserved where useful
+- [ ] No internal types leak through errors
+
+### Gate 4: JSON Utilities
+- [ ] `Value` → JSON encoding for CLI/MCP output
+- [ ] Special wrappers (`$bytes`, `$f64`) for non-JSON types
+- [ ] `Output` → JSON for human-readable output
+- [ ] `Error` → JSON for error reporting
+
+### Gate 5: Integration
+- [ ] `strata-executor` added to workspace
+- [ ] Executor can be used standalone
+- [ ] Integration tests for full command flows
+- [ ] Every command variant has execution tests
+
+**Risk**: Large enum can become unwieldy. Mitigated by grouping by primitive and comprehensive docs.
+
+**Non-Goals for M13**:
+- Transaction batching (`execute_atomic`) - future enhancement
+- Command middleware - future enhancement
+- Async execution - future enhancement
+
+**Architecture Doc**: [M13_EXECUTOR.md](M13_EXECUTOR.md)
+
+---
+
+## Milestone 14: Server & Network Protocol
+**Goal**: Add server deployment mode for multi-process and multi-language access
+
+**Deliverable**: `strata-server` binary that exposes the Command Execution Layer over the network, plus a Rust client library
+
+**Status**: Not Started (blocked on M13 completion)
+
+**Philosophy**: M14 adds a **deployment mode**, not a new product. Strata remains an embedded library; the server is a thin adapter for cases requiring multi-process sharing or language-agnostic clients. The server adds no new semantics—`Command → Executor → Output`. If the server is adding logic beyond transport, something is wrong. This is the SQLite/rqlite pattern, not the Redis pattern.
 
 **Success Criteria**:
 
@@ -664,16 +729,15 @@ If Strata becomes successful, people will build servers on top of it. But the va
 - [ ] Graceful shutdown (SIGTERM/SIGINT)
 - [ ] Startup banner with version and config
 
-### Gate 2: Wire Protocol
-- [ ] JSON wire protocol from M11 contract implemented
+### Gate 2: Network Protocol
+- [ ] JSON serialization of Commands from M13
 - [ ] Request/response framing with length prefix
-- [ ] All Facade and Substrate operations supported
-- [ ] Transaction support (begin, execute, commit, rollback)
+- [ ] All Commands supported through network
 - [ ] Error responses with structured error codes
 
 ### Gate 3: Connection Management
 - [ ] Accept multiple concurrent connections
-- [ ] Per-connection transaction state
+- [ ] Per-connection state (current run, etc.)
 - [ ] Connection timeout handling
 - [ ] Clean disconnect handling
 
@@ -681,34 +745,33 @@ If Strata becomes successful, people will build servers on top of it. But the va
 - [ ] `strata-client` crate with same API shape as embedded
 - [ ] Connect to server via TCP
 - [ ] All primitive operations work through client
-- [ ] Transaction support through client
 - [ ] Connection pooling (basic)
 
 ### Gate 5: Validation
 - [ ] Embedded and client APIs are interchangeable (same trait)
 - [ ] All existing tests pass through client (not just embedded)
 - [ ] Round-trip latency < 1ms for simple operations (localhost)
-- [ ] Basic load test: 10K ops/sec through wire protocol
+- [ ] Basic load test: 10K ops/sec through network
 
 **Risk**: Protocol design can over-engineer. Start minimal (no auth, no TLS, no multiplexing). Add features in later milestones.
 
-**Non-Goals for M13**:
-- Authentication/authorization (M16)
-- TLS encryption (M16)
+**Non-Goals for M14**:
+- Authentication/authorization (M17)
+- TLS encryption (M17)
 - Connection multiplexing
 - Clustering/replication
 - Admin commands beyond basic health
 
 ---
 
-## Milestone 14: Performance & Indexing
+## Milestone 15: Performance & Indexing
 **Goal**: Optimize hot paths and add secondary indexing capabilities
 
 **Deliverable**: Faster queries, better scaling, and indexing infrastructure for all primitives
 
 **Status**: Not Started
 
-**Philosophy**: M14 is the "make it fast" milestone. By now we have real workloads from M7/M8, a stable API from M9/M12, storage from M10, and a server from M13. Optimize based on data, not speculation. HNSW refinement belongs here if not completed in M8.
+**Philosophy**: M15 is the "make it fast" milestone. By now we have real workloads from M7/M8, a stable API from M9/M12, storage from M10, executor from M13, and a server from M14. Optimize based on data, not speculation. HNSW refinement belongs here if not completed in M8.
 
 **Success Criteria**:
 
@@ -736,14 +799,14 @@ If Strata becomes successful, people will build servers on top of it. But the va
 
 ---
 
-## Milestone 15: Python Client
+## Milestone 16: Python Client
 **Goal**: First-class Python client for AI agent developers
 
 **Deliverable**: Python SDK with ergonomic API, async support, and comprehensive documentation
 
 **Status**: Not Started
 
-**Philosophy**: Python dominates AI/ML tooling. A clean Python client unlocks the majority of agent developers. This is the MVP client library. Requires unified API from M12 and server from M13.
+**Philosophy**: Python dominates AI/ML tooling. A clean Python client unlocks the majority of agent developers. This is the MVP client library. Requires unified API from M12, executor from M13, and server from M14.
 
 **Success Criteria**:
 
@@ -771,7 +834,7 @@ If Strata becomes successful, people will build servers on top of it. But the va
 
 ---
 
-## Milestone 16: Security & Multi-Tenancy
+## Milestone 17: Security & Multi-Tenancy
 **Goal**: Production security features and tenant isolation
 
 **Deliverable**: Authentication, authorization, and multi-tenant support
@@ -798,7 +861,7 @@ If Strata becomes successful, people will build servers on top of it. But the va
 - [ ] Tenant-aware routing
 
 ### Gate 4: Security Hardening
-- [ ] TLS encryption for wire protocol
+- [ ] TLS encryption for network protocol
 - [ ] Encryption at rest (optional)
 - [ ] Audit logging
 - [ ] Security review and penetration testing
@@ -807,14 +870,14 @@ If Strata becomes successful, people will build servers on top of it. But the va
 
 ---
 
-## Milestone 17: Production Readiness
+## Milestone 18: Production Readiness
 **Goal**: Operational excellence for production deployment
 
 **Deliverable**: Observable, maintainable, deployable system
 
 **Status**: Not Started
 
-**Philosophy**: M17 is the capstone milestone. Everything needed to run in production with confidence: monitoring, deployment, documentation.
+**Philosophy**: M18 is the capstone milestone. Everything needed to run in production with confidence: monitoring, deployment, documentation.
 
 **Success Criteria**:
 
@@ -924,7 +987,7 @@ These APIs transform Strata from "agent storage" into "a substrate for reasoning
 
 ## MVP Definition
 
-**MVP = Milestones 1-17 Complete**
+**MVP = Milestones 1-18 Complete**
 
 At MVP completion, the system should:
 1. Store agent state in 7 primitives (KV, Events, StateCell, Trace, RunIndex, JSON, **Vector**)
@@ -937,16 +1000,17 @@ At MVP completion, the system should:
 8. **Portable database artifacts (SQLite-like copy portability)**
 9. **Frozen public API contract with two-layer model (Facade + Substrate)**
 10. **Unified API surface with single entry point and clean naming**
-11. **Run as standalone server with wire protocol access**
-12. Scale near-linearly for disjoint keys (multi-thread)
-13. Have >90% test coverage
-14. **JSON primitive with path-level mutations and region-based conflict detection**
-15. **Retrieval surface with primitive-native search and composite hybrid search**
-16. **Vector primitive with semantic search and hybrid retrieval (keyword + vector)**
-17. **Stable, universal API with documented invariants and consistent patterns**
-18. **Python client library for AI agent developers**
-19. **Security: authentication, authorization, multi-tenancy**
-20. **Production-ready: observability, deployment, documentation**
+11. **Command Execution Layer as single source of truth for all operations**
+12. **Run as standalone server with network protocol access**
+13. Scale near-linearly for disjoint keys (multi-thread)
+14. Have >90% test coverage
+15. **JSON primitive with path-level mutations and region-based conflict detection**
+16. **Retrieval surface with primitive-native search and composite hybrid search**
+17. **Vector primitive with semantic search and hybrid retrieval (keyword + vector)**
+18. **Stable, universal API with documented invariants and consistent patterns**
+19. **Python client library for AI agent developers**
+20. **Security: authentication, authorization, multi-tenancy**
+21. **Production-ready: observability, deployment, documentation**
 
 **Not in MVP**:
 - JSON structural optimization (post-MVP enhancement)
@@ -980,11 +1044,12 @@ Current:
 Remaining:
 - M11b (Consumer Surfaces: CLI, SDK)
 - M12 (Unified API Surface)
-- M13 (Server & Wire Protocol)
-- M14 (Performance & Indexing)
-- M15 (Python Client)
-- M16 (Security & Multi-Tenancy)
-- M17 (Production Readiness)
+- M13 (Command Execution Layer)
+- M14 (Server & Network Protocol)
+- M15 (Performance & Indexing)
+- M16 (Python Client)
+- M17 (Security & Multi-Tenancy)
+- M18 (Production Readiness)
 ```
 
 ---
@@ -1018,15 +1083,17 @@ M11b (Consumer Surfaces: CLI, SDK)
   ↓
 M12 (Unified API Surface)
   ↓
-M13 (Server & Wire Protocol)
+M13 (Command Execution Layer)
   ↓
-M14 (Performance & Indexing)
+M14 (Server & Network Protocol)
   ↓
-M15 (Python Client)
+M15 (Performance & Indexing)
   ↓
-M16 (Security & Multi-Tenancy)
+M16 (Python Client)
   ↓
-M17 (Production Readiness)
+M17 (Security & Multi-Tenancy)
+  ↓
+M18 (Production Readiness)
 ```
 
 **Notes**:
@@ -1040,9 +1107,10 @@ M17 (Production Readiness)
 - **M11a freezes the core contract: value model, wire encoding, error model, and two-layer API (Facade + Substrate).**
 - **M11b builds consumer surfaces: CLI, Rust SDK, Python/JS mappings, and complete validation suite.**
 - **M12 unifies the API: transforms Facade + Substrate into single clean `strata` crate with progressive disclosure.**
-- **M13 makes Strata a server. External clients can connect over the network.**
-- M14 optimizes based on real workloads with stable API, storage, and server. HNSW refinement if needed.
-- M15 Python client connects to strata-server - requires M12 unified API and M13 server.
+- **M13 creates the Command Execution Layer: single source of truth for all operations, enables thin SDKs and deterministic replay.**
+- **M14 makes Strata a server. External clients can connect over the network using Commands.**
+- M15 optimizes based on real workloads with stable API, storage, executor, and server. HNSW refinement if needed.
+- M16 Python client connects to strata-server - requires M12 unified API, M13 executor, and M14 server.
 
 ---
 
@@ -1066,7 +1134,7 @@ M17 (Production Readiness)
 3. **Retrieval scope creep (M6)**: Risk of building full search engine ✅ Mitigated
    - Mitigation: Six architectural rules; M6 validates surface only, not relevance
 4. **Vector complexity (M8)**: HNSW can be complex ✅ Mitigated
-   - Mitigation: Start with brute-force, add HNSW when needed; defer refinement to M13
+   - Mitigation: Start with brute-force, add HNSW when needed; defer refinement to M15
 5. **API over-specification (M9)**: Risk of freezing too much too early ✅ Mitigated
    - Mitigation: Separate invariants (constitutional) from API shape (stable) from product surfaces (evolving)
 6. **Storage data loss (M10)**: Retention and compaction bugs can lose data ✅ Mitigated
@@ -1075,9 +1143,11 @@ M17 (Production Readiness)
    - Mitigation: Explicit "What M11 Does NOT Freeze" section; focus on essential semantics
 8. **API unification (M12)**: Breaking changes can disrupt users
    - Mitigation: Deprecation path (old API works with warnings); comprehensive migration guide
-9. **Protocol over-engineering (M13)**: Wire protocol can grow unbounded
-   - Mitigation: Start minimal (no auth, no TLS); add features in M16
-10. **Security scope creep (M16)**: Security features can expand infinitely
+9. **Executor scope creep (M13)**: Command enum can grow unbounded
+   - Mitigation: Group by primitive; comprehensive docs; start with core operations only
+10. **Protocol over-engineering (M14)**: Network protocol can grow unbounded
+   - Mitigation: Start minimal (no auth, no TLS); add features in M17
+11. **Security scope creep (M17)**: Security features can expand infinitely
    - Mitigation: Scope to essential production needs; iterate post-MVP
 
 ### Low-Risk Areas
@@ -1086,9 +1156,10 @@ M17 (Production Readiness)
 3. **JSON API (M5)**: Follows established primitive patterns ✅ Complete
 4. **Public contract (M11)**: Builds on M9 stabilization; main risk is scope creep
 5. **API unification (M12)**: Clear design with deprecation path
-6. **Server implementation (M13)**: Well-understood; main risk is scope creep
-7. **Python client (M15)**: Well-understood; main risk is API bike-shedding; mitigated by unified API from M12
-8. **Production readiness (M17)**: Standard practices; just needs execution
+6. **Executor (M13)**: Well-defined scope (48 commands); main risk is scope creep
+7. **Server implementation (M14)**: Well-understood; main risk is scope creep
+8. **Python client (M16)**: Well-understood; main risk is API bike-shedding; mitigated by unified API from M12
+9. **Production readiness (M18)**: Standard practices; just needs execution
 
 ---
 
@@ -1127,3 +1198,4 @@ M17 (Production Readiness)
 | 13.0 | 2026-01-21 | M10 Storage Backend complete. Inserted M11 (Public API & SDK Contract) based on M11_CONTRACT.md; renumbered M11→M12, M12→M13, M13→M14, M14→M15, M15→M16. MVP now 16 milestones (M1-M16). |
 | 14.0 | 2026-01-21 | Split M11 into M11a (Core Contract & API) and M11b (Consumer Surfaces). M11a: Value Model, Wire Encoding, Error Model, Facade API, Substrate API, Core Validation. M11b: CLI, SDK Foundation, Full Validation. |
 | 15.0 | 2026-01-24 | Inserted M12 (Unified API Surface) based on comprehensive API audit. Created architecture docs: UNIFIED_API_DESIGN.md, API_AUDIT_REPORT.md, CAPABILITIES_AUDIT.md, API_ENCAPSULATION.md. Renumbered M12→M13, M13→M14, M14→M15, M15→M16, M16→M17. MVP now 17 milestones (M1-M17). |
+| 16.0 | 2026-01-25 | Inserted M13 (Command Execution Layer / strata-executor). Removed strata-wire crate. Renumbered M13→M14, M14→M15, M15→M16, M16→M17, M17→M18. MVP now 18 milestones (M1-M18). Created M13_EXECUTOR.md architecture doc. |

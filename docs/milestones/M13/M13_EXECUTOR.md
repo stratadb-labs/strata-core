@@ -56,10 +56,20 @@ This leads to:
 
 A single **Command Execution Layer** that:
 - Defines what can happen in Strata (the "instruction set")
-- Enforces all invariants exactly once
 - Provides a stable, language-agnostic execution model
 - Enables true black-box testing
 - Makes replay, diffing, and export first-class concepts
+
+#### Invariant Enforcement Boundary
+
+**Clarification**: The executor enforces *public behavior invariants* by being the only execution gateway. Semantic invariants (run scoping, isolation, versioning, retention) are enforced by the primitives/engine.
+
+| Layer | Enforces |
+|-------|----------|
+| **Executor** | Commands are self-contained, serializable, typed, deterministic, no panics, no lossy conversions |
+| **Primitives/Engine** | Run scoping, isolation, version correctness, retention rules, constraint violations |
+
+The executor does NOT duplicate primitive logic. It is a dispatch layer that ensures all public behavior flows through typed Commands.
 
 ---
 
@@ -110,6 +120,40 @@ Commands do not assume:
 - Authentication
 
 Transport is a future concern. Semantics are defined now.
+
+### 5. Canonical JSON Encoding
+
+For RunBundle hashing, diffing, and deterministic replay:
+
+**Requirement**: Semantically identical Values MUST serialize to identical JSON.
+
+| Rule | Example |
+|------|---------|
+| Object keys sorted | `{"a":1,"b":2}` not `{"b":2,"a":1}` |
+| No trailing zeros | `1.5` not `1.50` |
+| No whitespace | Minified output |
+| Consistent null | `null` not `"null"` |
+| Bytes as base64 | `{"$bytes":"AAFF"}` |
+
+**Implementation**: Use `serde_json` with deterministic map ordering.
+
+### 6. Version Compatibility
+
+Commands are versioned implicitly by schema. Compatibility stance:
+
+| Scenario | Behavior |
+|----------|----------|
+| Newer executor, older commands | **Must work** - backwards compatible |
+| Older executor, newer commands | **Fail gracefully** - unknown variant error |
+
+**Rule**: New command variants may be added. Existing variants are immutable once released.
+
+This means:
+- Adding a new field with a default is OK
+- Removing a field is NOT OK
+- Renaming a variant is NOT OK
+
+Explicit version tags may be added later if needed, but initial release assumes schema stability.
 
 ---
 
@@ -790,8 +834,217 @@ pub struct RunBundle {
 |------|------------|
 | Large enum becomes unwieldy | Group by primitive, good docs |
 | Performance overhead | Measure; dispatch is cheap |
-| Breaking existing code | Executor is additive; old API unchanged |
+| Breaking existing code | Executor is additive; old API unchanged in M13 |
 | Missing edge cases | Comprehensive test coverage |
+
+---
+
+## Migration Strategy: Two-Step Landing
+
+**M13 is additive.** The old strata-api remains functional. This de-risks the milestone.
+
+### M13 (This Milestone)
+- Executor exists alongside strata-api
+- Parity tests verify executor matches substrate behavior
+- Internal callers can migrate incrementally
+- No breaking changes
+
+### M13.1 or M14 (Future Milestone)
+- Delete strata-api once executor has soaked
+- Port all substrate tests to executor tests
+- Executor becomes sole API surface
+- Python/MCP/CLI built on executor
+
+**Rationale**: Turning an "abstraction milestone" into a "big bang migration milestone" is where schedules die. Two-step landing allows validation before commitment.
+
+---
+
+## Command Set Policy
+
+### Semantic Operations vs SDK Helpers
+
+To prevent command set bloat, we distinguish:
+
+| Category | Definition | Example |
+|----------|------------|---------|
+| **Commands** | Semantic operations (minimal stable core) | `KvPut`, `StateCas`, `EventAppend` |
+| **SDK Helpers** | Ergonomic compositions (non-semantic sugar) | `state_transition()` retry loop, `kv_get_or_default()` |
+
+**Rule**: If it can be composed from existing commands without loss of atomicity guarantees, it is an SDK helper, not a command.
+
+**Excluded from Commands** (by design):
+- Closure-based operations (`state_transition`, `state_get_or_init`)
+- Language-specific conveniences
+- Retry/backoff logic
+
+These are implemented as client-side patterns, documented below.
+
+---
+
+## Client-Side Transaction Patterns
+
+Since closure-based methods cannot be commands (closures don't serialize), clients must compose commands. These patterns MUST be shipped as blessed helpers in every SDK to prevent semantic drift.
+
+### Pattern 1: Optimistic State Transition
+
+```python
+# Python SDK helper (MUST be included in SDK, not left to users)
+def state_transition(executor, run, cell, transform_fn, max_retries=10):
+    """
+    Atomically transform a state cell value.
+
+    Args:
+        transform_fn: Function that takes current value, returns new value
+        max_retries: Maximum CAS retry attempts (prevents thundering herd)
+
+    Returns:
+        (new_value, version) on success
+
+    Raises:
+        ConflictError if max_retries exceeded
+    """
+    for attempt in range(max_retries):
+        # 1. Read current state
+        result = executor.execute({"StateGet": {"run": run, "cell": cell}})
+
+        if result is None:
+            raise CellNotFoundError(cell)
+
+        current_value = result["value"]
+        current_counter = result["version"]["Counter"]
+
+        # 2. Apply transformation (client-side logic)
+        new_value = transform_fn(current_value)
+
+        # 3. Attempt CAS
+        cas_result = executor.execute({
+            "StateCas": {
+                "run": run,
+                "cell": cell,
+                "expected_counter": current_counter,
+                "value": new_value
+            }
+        })
+
+        if cas_result is not None:  # CAS succeeded
+            return (new_value, cas_result)
+
+        # 4. CAS failed - exponential backoff before retry
+        if attempt < max_retries - 1:
+            time.sleep(0.001 * (2 ** attempt))  # 1ms, 2ms, 4ms...
+
+    raise ConflictError(f"Failed to update {cell} after {max_retries} attempts")
+```
+
+### Pattern 2: Get Or Initialize
+
+```python
+def state_get_or_init(executor, run, cell, default_fn):
+    """
+    Get cell value, initializing with default if not exists.
+
+    Args:
+        default_fn: Function that returns default value (called lazily)
+    """
+    result = executor.execute({"StateGet": {"run": run, "cell": cell}})
+
+    if result is not None:
+        return result
+
+    # Cell doesn't exist - initialize
+    default_value = default_fn()
+    version = executor.execute({
+        "StateInit": {"run": run, "cell": cell, "value": default_value}
+    })
+
+    return {"value": default_value, "version": version}
+```
+
+### Pattern 3: Idempotent Replay
+
+For replay scenarios, commands should be idempotent where possible:
+
+```python
+def idempotent_kv_put(executor, run, key, value, expected_version=None):
+    """
+    Put that can be safely replayed.
+
+    If expected_version is provided, only writes if version matches
+    (prevents duplicate writes during replay).
+    """
+    if expected_version is not None:
+        # Use CAS for idempotency
+        return executor.execute({
+            "KvCasVersion": {
+                "run": run,
+                "key": key,
+                "expected_version": expected_version,
+                "new_value": value
+            }
+        })
+    else:
+        return executor.execute({
+            "KvPut": {"run": run, "key": key, "value": value}
+        })
+```
+
+### Thundering Herd Prevention
+
+When multiple clients retry simultaneously, add jitter:
+
+```python
+import random
+
+def retry_with_jitter(attempt, base_ms=1, max_ms=1000):
+    """Exponential backoff with jitter to prevent thundering herd."""
+    delay = min(base_ms * (2 ** attempt), max_ms)
+    jitter = random.uniform(0, delay * 0.1)  # 10% jitter
+    return delay + jitter
+```
+
+---
+
+## Rust Typed Wrapper
+
+While the executor is canonical, Rust users should not be forced to work with Command/Output enums directly. Ship a **zero-cost typed veneer**:
+
+```rust
+// Idiomatic Rust API (thin wrapper over executor)
+pub struct Strata {
+    executor: Executor,
+}
+
+impl Strata {
+    pub fn kv_put(&self, run: &RunId, key: &str, value: Value) -> Result<Version, Error> {
+        match self.executor.execute(Command::KvPut {
+            run: run.clone(),
+            key: key.into(),
+            value,
+        })? {
+            Output::Version(v) => Ok(v),
+            _ => unreachable!("KvPut always returns Version"),
+        }
+    }
+
+    pub fn kv_get(&self, run: &RunId, key: &str) -> Result<Option<Versioned<Value>>, Error> {
+        match self.executor.execute(Command::KvGet {
+            run: run.clone(),
+            key: key.into(),
+        })? {
+            Output::MaybeVersioned(v) => Ok(v),
+            _ => unreachable!("KvGet always returns MaybeVersioned"),
+        }
+    }
+
+    // ... all other methods
+}
+```
+
+This wrapper:
+- Compiles down to direct command construction (no JSON in Rust)
+- Provides idiomatic Rust API with proper return types
+- Hides the enum matching from normal users
+- Still allows direct executor access for power users
 
 ---
 
