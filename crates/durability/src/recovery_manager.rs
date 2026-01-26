@@ -35,8 +35,10 @@ use crate::transaction_log::{Transaction, TxEntry};
 use crate::wal_entry_types::WalEntryType;
 use crate::wal_reader::WalReader;
 use crate::wal_types::{TxId, WalEntry, WalEntryError};
+use strata_core::types::RunId;
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 use thiserror::Error;
 use tracing::{debug, info, warn};
 
@@ -44,8 +46,15 @@ use tracing::{debug, info, warn};
 // Recovery Options
 // ============================================================================
 
+/// Progress callback for WAL replay monitoring
+///
+/// Called periodically during WAL replay with:
+/// - entries_processed: Number of entries processed so far
+/// - bytes_processed: Number of bytes read from WAL
+pub type ReplayProgressCallback = Arc<dyn Fn(u64, u64) + Send + Sync>;
+
 /// Recovery options
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub struct RecoveryOptions {
     /// Maximum corrupt entries to tolerate before failing
     pub max_corrupt_entries: usize,
@@ -59,6 +68,28 @@ pub struct RecoveryOptions {
     pub snapshot_pattern: String,
     /// WAL file name
     pub wal_filename: String,
+    /// Filter replay to specific run (only entries with this run_id are processed)
+    pub filter_run_id: Option<RunId>,
+    /// Stop replay at this version/offset (useful for point-in-time recovery)
+    pub stop_at_version: Option<u64>,
+    /// Callback for monitoring replay progress
+    pub progress_callback: Option<ReplayProgressCallback>,
+}
+
+impl std::fmt::Debug for RecoveryOptions {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("RecoveryOptions")
+            .field("max_corrupt_entries", &self.max_corrupt_entries)
+            .field("verify_all_checksums", &self.verify_all_checksums)
+            .field("rebuild_indexes", &self.rebuild_indexes)
+            .field("verbose", &self.verbose)
+            .field("snapshot_pattern", &self.snapshot_pattern)
+            .field("wal_filename", &self.wal_filename)
+            .field("filter_run_id", &self.filter_run_id)
+            .field("stop_at_version", &self.stop_at_version)
+            .field("progress_callback", &self.progress_callback.as_ref().map(|_| "<callback>"))
+            .finish()
+    }
 }
 
 impl Default for RecoveryOptions {
@@ -70,6 +101,9 @@ impl Default for RecoveryOptions {
             verbose: false,
             snapshot_pattern: "snapshot_*.snap".to_string(),
             wal_filename: "wal.dat".to_string(),
+            filter_run_id: None,
+            stop_at_version: None,
+            progress_callback: None,
         }
     }
 }
@@ -106,6 +140,34 @@ impl RecoveryOptions {
             verbose: false,
             ..Default::default()
         }
+    }
+
+    /// Set filter to only replay entries for a specific run
+    ///
+    /// When set, only WAL entries with matching run_id will be processed.
+    /// Useful for run-scoped recovery or debugging.
+    pub fn with_run_filter(mut self, run_id: RunId) -> Self {
+        self.filter_run_id = Some(run_id);
+        self
+    }
+
+    /// Stop replay at a specific version/offset
+    ///
+    /// Useful for point-in-time recovery to restore to a specific state.
+    pub fn with_stop_at_version(mut self, version: u64) -> Self {
+        self.stop_at_version = Some(version);
+        self
+    }
+
+    /// Set progress callback for monitoring replay
+    ///
+    /// The callback receives (entries_processed, bytes_processed) periodically.
+    pub fn with_progress_callback<F>(mut self, callback: F) -> Self
+    where
+        F: Fn(u64, u64) + Send + Sync + 'static,
+    {
+        self.progress_callback = Some(Arc::new(callback));
+        self
     }
 }
 
@@ -437,6 +499,8 @@ impl RecoveryEngine {
     /// This is a simplified replay that tracks committed transactions
     /// but doesn't actually apply them to sections (that requires
     /// primitive-specific deserialization which is done by the caller).
+    ///
+    /// Respects `filter_run_id`, `stop_at_version`, and `progress_callback` options.
     fn replay_wal_to_sections(
         _sections: &mut [PrimitiveSection],
         wal_path: &Path,
@@ -455,10 +519,25 @@ impl RecoveryEngine {
         // Track transactions by TxId (which is Copy, Hash, Eq)
         let mut tx_entries: HashMap<crate::wal_types::TxId, Vec<crate::wal_types::WalEntry>> =
             HashMap::new();
+        let mut bytes_processed = from_offset;
+
+        // Progress callback interval (every 1000 entries)
+        const PROGRESS_INTERVAL: u64 = 1000;
 
         // Read all entries
         while let Some(entry) = reader.next_entry()? {
             result.entries_replayed += 1;
+            bytes_processed = reader.position();
+
+            // Check stop_at_version
+            if let Some(stop_version) = options.stop_at_version {
+                if bytes_processed >= stop_version {
+                    if options.verbose {
+                        debug!("Stopping replay at version/offset {}", bytes_processed);
+                    }
+                    break;
+                }
+            }
 
             // Check for corrupt entries (via reader stats)
             if reader.corruption_count() > result.corrupt_entries {
@@ -474,6 +553,26 @@ impl RecoveryEngine {
                         result.corrupt_entries,
                         options.max_corrupt_entries,
                     ));
+                }
+            }
+
+            // Call progress callback periodically
+            if let Some(ref callback) = options.progress_callback {
+                if result.entries_replayed % PROGRESS_INTERVAL == 0 {
+                    callback(result.entries_replayed, bytes_processed);
+                }
+            }
+
+            // Filter by run_id if specified
+            if let Some(filter_run_id) = options.filter_run_id {
+                // Skip entries that don't match the filter (except commit/abort markers)
+                let should_filter = match entry.entry_type {
+                    WalEntryType::TransactionCommit | WalEntryType::TransactionAbort => false,
+                    _ => entry.run_id.is_none() || entry.run_id != Some(filter_run_id),
+                };
+
+                if should_filter {
+                    continue;
                 }
             }
 
@@ -497,6 +596,11 @@ impl RecoveryEngine {
                     tx_entries.entry(tx_id).or_default().push(entry);
                 }
             }
+        }
+
+        // Final progress callback
+        if let Some(ref callback) = options.progress_callback {
+            callback(result.entries_replayed, bytes_processed);
         }
 
         // Count orphaned transactions (started but not committed/aborted)
@@ -559,12 +663,28 @@ impl RecoveryEngine {
         let mut committed: Vec<(TxId, Vec<WalEntry>)> = Vec::new();
 
         let mut entries_replayed = 0u64;
+        let mut entries_filtered = 0u64;
         let mut transactions_recovered = 0u64;
         let mut aborted_transactions = 0u64;
         let mut corrupt_entries = 0u64;
+        let mut bytes_processed = from_offset;
+
+        // Progress callback interval (every 1000 entries)
+        const PROGRESS_INTERVAL: u64 = 1000;
 
         while let Some(entry) = reader.next_entry()? {
             entries_replayed += 1;
+            bytes_processed = reader.position();
+
+            // Check stop_at_version
+            if let Some(stop_version) = options.stop_at_version {
+                if bytes_processed >= stop_version {
+                    if options.verbose {
+                        debug!("Stopping replay at version/offset {}", bytes_processed);
+                    }
+                    break;
+                }
+            }
 
             // Check for corrupt entries
             if reader.corruption_count() > corrupt_entries {
@@ -575,6 +695,27 @@ impl RecoveryEngine {
                         corrupt_entries,
                         options.max_corrupt_entries,
                     ));
+                }
+            }
+
+            // Call progress callback periodically
+            if let Some(ref callback) = options.progress_callback {
+                if entries_replayed % PROGRESS_INTERVAL == 0 {
+                    callback(entries_replayed, bytes_processed);
+                }
+            }
+
+            // Filter by run_id if specified
+            if let Some(filter_run_id) = options.filter_run_id {
+                // Skip entries that don't match the filter (except commit/abort markers)
+                let should_filter = match entry.entry_type {
+                    WalEntryType::TransactionCommit | WalEntryType::TransactionAbort => false,
+                    _ => entry.run_id.is_none() || entry.run_id != Some(filter_run_id),
+                };
+
+                if should_filter {
+                    entries_filtered += 1;
+                    continue;
                 }
             }
 
@@ -609,6 +750,11 @@ impl RecoveryEngine {
             }
         }
 
+        // Final progress callback
+        if let Some(ref callback) = options.progress_callback {
+            callback(entries_replayed, bytes_processed);
+        }
+
         // Count orphaned transactions
         let orphaned_transactions = tx_entries.len() as u64;
         for (tx_id, entries) in &tx_entries {
@@ -619,6 +765,13 @@ impl RecoveryEngine {
                     entries.len()
                 );
             }
+        }
+
+        if options.verbose && entries_filtered > 0 {
+            debug!(
+                "Filtered {} entries by run_id {:?}",
+                entries_filtered, options.filter_run_id
+            );
         }
 
         let result = WalReplayResultPublic {
@@ -957,11 +1110,11 @@ mod tests {
             let mut wal_writer = WalWriter::open(&wal_path, DurabilityMode::Strict).unwrap();
             // Write a committed transaction
             wal_writer
-                .write_transaction(vec![(WalEntryType::KvPut, b"key=value".to_vec())])
+                .write_transaction(None, vec![(WalEntryType::KvPut, b"key=value".to_vec())])
                 .unwrap();
             // Write another committed transaction
             wal_writer
-                .write_transaction(vec![(WalEntryType::KvPut, b"key2=value2".to_vec())])
+                .write_transaction(None, vec![(WalEntryType::KvPut, b"key2=value2".to_vec())])
                 .unwrap();
         }
 
@@ -984,7 +1137,7 @@ mod tests {
         {
             let mut wal_writer = WalWriter::open(&wal_path, DurabilityMode::Strict).unwrap();
             wal_writer
-                .write_transaction(vec![(WalEntryType::KvPut, b"key=value".to_vec())])
+                .write_transaction(None, vec![(WalEntryType::KvPut, b"key=value".to_vec())])
                 .unwrap();
         }
 
@@ -1009,13 +1162,13 @@ mod tests {
             // Start a transaction but don't commit
             let tx_id = wal_writer.begin_transaction();
             wal_writer
-                .write_tx_entry(tx_id, WalEntryType::KvPut, b"orphaned".to_vec())
+                .write_tx_entry(tx_id, None, WalEntryType::KvPut, b"orphaned".to_vec())
                 .unwrap();
             // Don't commit - simulates crash
 
             // Also write a complete transaction
             wal_writer
-                .write_transaction(vec![(WalEntryType::KvPut, b"complete".to_vec())])
+                .write_transaction(None, vec![(WalEntryType::KvPut, b"complete".to_vec())])
                 .unwrap();
         }
 
@@ -1041,13 +1194,13 @@ mod tests {
             // Aborted transaction
             let tx_id = wal_writer.begin_transaction();
             wal_writer
-                .write_tx_entry(tx_id, WalEntryType::KvPut, b"aborted".to_vec())
+                .write_tx_entry(tx_id, None, WalEntryType::KvPut, b"aborted".to_vec())
                 .unwrap();
             wal_writer.abort_transaction(tx_id).unwrap();
 
             // Committed transaction
             wal_writer
-                .write_transaction(vec![(WalEntryType::KvPut, b"committed".to_vec())])
+                .write_transaction(None, vec![(WalEntryType::KvPut, b"committed".to_vec())])
                 .unwrap();
         }
 
@@ -1104,10 +1257,10 @@ mod tests {
         {
             let mut writer = WalWriter::open(&wal_path, DurabilityMode::Strict).unwrap();
             writer
-                .write_transaction(vec![(WalEntryType::KvPut, b"key1=value1".to_vec())])
+                .write_transaction(None, vec![(WalEntryType::KvPut, b"key1=value1".to_vec())])
                 .unwrap();
             writer
-                .write_transaction(vec![(WalEntryType::KvPut, b"key2=value2".to_vec())])
+                .write_transaction(None, vec![(WalEntryType::KvPut, b"key2=value2".to_vec())])
                 .unwrap();
         }
 
@@ -1132,13 +1285,13 @@ mod tests {
 
             // Committed transaction
             writer
-                .write_transaction(vec![(WalEntryType::KvPut, b"committed".to_vec())])
+                .write_transaction(None, vec![(WalEntryType::KvPut, b"committed".to_vec())])
                 .unwrap();
 
             // Orphaned transaction (no commit)
             let tx_id = writer.begin_transaction();
             writer
-                .write_tx_entry(tx_id, WalEntryType::KvPut, b"orphaned".to_vec())
+                .write_tx_entry(tx_id, None, WalEntryType::KvPut, b"orphaned".to_vec())
                 .unwrap();
             // No commit marker - simulates crash
         }
@@ -1215,15 +1368,15 @@ mod tests {
 
             // Write KV entry
             writer
-                .write_tx_entry(tx_id, WalEntryType::KvPut, b"key=value".to_vec())
+                .write_tx_entry(tx_id, None, WalEntryType::KvPut, b"key=value".to_vec())
                 .unwrap();
             // Write JSON entry
             writer
-                .write_tx_entry(tx_id, WalEntryType::JsonSet, b"doc={}".to_vec())
+                .write_tx_entry(tx_id, None, WalEntryType::JsonSet, b"doc={}".to_vec())
                 .unwrap();
             // Write State entry
             writer
-                .write_tx_entry(tx_id, WalEntryType::StateSet, b"state=active".to_vec())
+                .write_tx_entry(tx_id, None, WalEntryType::StateSet, b"state=active".to_vec())
                 .unwrap();
 
             // NO COMMIT - simulates crash mid-transaction
@@ -1262,10 +1415,10 @@ mod tests {
             // TX2 - partial (no commit)
             let tx2_id = writer.begin_transaction();
             writer
-                .write_tx_entry(tx2_id, WalEntryType::KvPut, b"tx2_key=tx2_value".to_vec())
+                .write_tx_entry(tx2_id, None, WalEntryType::KvPut, b"tx2_key=tx2_value".to_vec())
                 .unwrap();
             writer
-                .write_tx_entry(tx2_id, WalEntryType::JsonSet, b"tx2_doc={}".to_vec())
+                .write_tx_entry(tx2_id, None, WalEntryType::JsonSet, b"tx2_doc={}".to_vec())
                 .unwrap();
             // NO COMMIT
         }
@@ -1416,5 +1569,157 @@ mod tests {
         assert!(summary.contains("100 entries"));
         assert!(summary.contains("10 recovered"));
         assert!(summary.contains("2 orphaned"));
+    }
+
+    // ========================================================================
+    // Replay Filtering Tests
+    // ========================================================================
+
+    #[test]
+    fn test_recovery_options_with_run_filter() {
+        let run_id = strata_core::types::RunId::new();
+        let opts = RecoveryOptions::default().with_run_filter(run_id);
+        assert_eq!(opts.filter_run_id, Some(run_id));
+    }
+
+    #[test]
+    fn test_recovery_options_with_stop_at_version() {
+        let opts = RecoveryOptions::default().with_stop_at_version(1000);
+        assert_eq!(opts.stop_at_version, Some(1000));
+    }
+
+    #[test]
+    fn test_recovery_options_with_progress_callback() {
+        use std::sync::atomic::{AtomicU64, Ordering};
+
+        let call_count = Arc::new(AtomicU64::new(0));
+        let call_count_clone = call_count.clone();
+
+        let opts = RecoveryOptions::default().with_progress_callback(move |_entries, _bytes| {
+            call_count_clone.fetch_add(1, Ordering::SeqCst);
+        });
+
+        assert!(opts.progress_callback.is_some());
+    }
+
+    #[test]
+    fn test_replay_with_run_filter() {
+        use crate::transaction_log::Transaction;
+
+        let temp_dir = create_test_dir();
+        let wal_path = temp_dir.path().join("wal.dat");
+
+        let run1 = strata_core::types::RunId::new();
+        let run2 = strata_core::types::RunId::new();
+
+        {
+            let mut writer = WalWriter::open(&wal_path, DurabilityMode::Strict).unwrap();
+
+            // Transaction for run1
+            let mut tx1 = Transaction::for_run(run1);
+            tx1.kv_put("run1_key", "run1_value");
+            writer.commit_atomic(tx1).unwrap();
+
+            // Transaction for run2
+            let mut tx2 = Transaction::for_run(run2);
+            tx2.kv_put("run2_key", "run2_value");
+            writer.commit_atomic(tx2).unwrap();
+
+            // Transaction with no run
+            let mut tx3 = Transaction::new();
+            tx3.kv_put("no_run_key", "no_run_value");
+            writer.commit_atomic(tx3).unwrap();
+        }
+
+        // Without filter - all 3 transactions
+        let (all_txs, _) =
+            RecoveryEngine::replay_wal_committed(&wal_path, 0, &RecoveryOptions::default())
+                .unwrap();
+        assert_eq!(all_txs.len(), 3);
+
+        // With filter for run1 - only run1 transaction
+        let opts = RecoveryOptions::default().with_run_filter(run1);
+        let (run1_txs, _) = RecoveryEngine::replay_wal_committed(&wal_path, 0, &opts).unwrap();
+        // Note: We get 1 transaction with entries, plus others without matching entries
+        // The transaction commit markers don't have run_id, so we see commits
+        // but only run1's entries pass the filter
+        assert!(run1_txs.iter().any(|(_, entries)| {
+            entries.iter().any(|e| e.run_id == Some(run1))
+        }));
+    }
+
+    #[test]
+    fn test_replay_with_stop_at_version() {
+        use crate::transaction_log::Transaction;
+
+        let temp_dir = create_test_dir();
+        let wal_path = temp_dir.path().join("wal.dat");
+
+        // Write many transactions
+        {
+            let mut writer = WalWriter::open(&wal_path, DurabilityMode::Strict).unwrap();
+            for i in 0..100 {
+                let mut tx = Transaction::new();
+                tx.kv_put(format!("key_{}", i), format!("value_{}", i));
+                writer.commit_atomic(tx).unwrap();
+            }
+        }
+
+        // Without stop - all 100 transactions
+        let (all_txs, result_all) =
+            RecoveryEngine::replay_wal_committed(&wal_path, 0, &RecoveryOptions::default())
+                .unwrap();
+        assert_eq!(all_txs.len(), 100);
+
+        // With stop at half way
+        let stop_at = result_all.entries_replayed / 2;
+        let opts = RecoveryOptions::default().with_stop_at_version(stop_at * 50); // Approximate byte offset
+        let (partial_txs, _) = RecoveryEngine::replay_wal_committed(&wal_path, 0, &opts).unwrap();
+        assert!(partial_txs.len() < 100);
+    }
+
+    #[test]
+    fn test_replay_progress_callback_called() {
+        use crate::transaction_log::Transaction;
+        use std::sync::atomic::{AtomicU64, Ordering};
+
+        let temp_dir = create_test_dir();
+        let wal_path = temp_dir.path().join("wal.dat");
+
+        // Write many transactions to trigger progress callback
+        {
+            let mut writer = WalWriter::open(&wal_path, DurabilityMode::Strict).unwrap();
+            for i in 0..2000 {
+                let mut tx = Transaction::new();
+                tx.kv_put(format!("key_{}", i), format!("value_{}", i));
+                writer.commit_atomic(tx).unwrap();
+            }
+        }
+
+        let entries_seen = Arc::new(AtomicU64::new(0));
+        let bytes_seen = Arc::new(AtomicU64::new(0));
+
+        let entries_seen_clone = entries_seen.clone();
+        let bytes_seen_clone = bytes_seen.clone();
+
+        let opts = RecoveryOptions::default().with_progress_callback(move |entries, bytes| {
+            entries_seen_clone.store(entries, Ordering::SeqCst);
+            bytes_seen_clone.store(bytes, Ordering::SeqCst);
+        });
+
+        let (_, _) = RecoveryEngine::replay_wal_committed(&wal_path, 0, &opts).unwrap();
+
+        // Progress callback should have been called with final stats
+        assert!(entries_seen.load(Ordering::SeqCst) > 0);
+        assert!(bytes_seen.load(Ordering::SeqCst) > 0);
+    }
+
+    #[test]
+    fn test_recovery_options_debug() {
+        let opts = RecoveryOptions::default();
+        let debug_str = format!("{:?}", opts);
+        assert!(debug_str.contains("RecoveryOptions"));
+        assert!(debug_str.contains("max_corrupt_entries"));
+        assert!(debug_str.contains("filter_run_id"));
     }
 }

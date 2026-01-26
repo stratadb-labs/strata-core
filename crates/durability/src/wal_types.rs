@@ -36,6 +36,7 @@
 use crate::wal_entry_types::{WalEntryType, WalEntryTypeError};
 use crc32fast::Hasher;
 use serde::{Deserialize, Serialize};
+use strata_core::types::RunId;
 use std::io::Write;
 use thiserror::Error;
 use uuid::Uuid;
@@ -176,8 +177,8 @@ pub enum WalEntryError {
 /// Maximum WAL entry size (16 MB)
 pub const MAX_WAL_ENTRY_SIZE: usize = 16 * 1024 * 1024;
 
-/// Minimum valid entry size: type(1) + version(1) + txid(16) + crc(4) = 22 bytes
-pub const MIN_WAL_ENTRY_SIZE: usize = 1 + 1 + 16 + 4;
+/// Minimum valid entry size: type(1) + version(1) + txid(16) + has_run_id(1) + crc(4) = 23 bytes
+pub const MIN_WAL_ENTRY_SIZE: usize = 1 + 1 + 16 + 1 + 4;
 
 /// Current format version for WAL entries
 pub const WAL_FORMAT_VERSION: u8 = 1;
@@ -188,6 +189,7 @@ pub const WAL_FORMAT_VERSION: u8 = 1;
 /// - Entry type identifies the operation
 /// - Version enables format evolution
 /// - TxId groups entries for atomic recovery
+/// - RunId scopes entries to a specific run
 /// - Payload contains operation-specific data
 /// - CRC32 ensures integrity
 #[derive(Debug, Clone, PartialEq)]
@@ -201,19 +203,28 @@ pub struct WalEntry {
     /// Transaction ID (nil for non-transactional entries like snapshot markers)
     pub tx_id: TxId,
 
+    /// Run ID for run-scoped operations (None for control entries)
+    pub run_id: Option<RunId>,
+
     /// Payload (type-specific serialized data)
     pub payload: Vec<u8>,
 }
 
 impl WalEntry {
-    /// Create a new WAL entry
-    pub fn new(entry_type: WalEntryType, tx_id: TxId, payload: Vec<u8>) -> Self {
+    /// Create a new WAL entry with run_id
+    pub fn new(entry_type: WalEntryType, tx_id: TxId, run_id: Option<RunId>, payload: Vec<u8>) -> Self {
         WalEntry {
             entry_type,
             version: WAL_FORMAT_VERSION,
             tx_id,
+            run_id,
             payload,
         }
+    }
+
+    /// Create a new WAL entry for a specific run
+    pub fn for_run(entry_type: WalEntryType, tx_id: TxId, run_id: RunId, payload: Vec<u8>) -> Self {
+        Self::new(entry_type, tx_id, Some(run_id), payload)
     }
 
     /// Create a transaction commit marker
@@ -222,6 +233,7 @@ impl WalEntry {
             entry_type: WalEntryType::TransactionCommit,
             version: WAL_FORMAT_VERSION,
             tx_id,
+            run_id: None,
             payload: vec![],
         }
     }
@@ -232,6 +244,7 @@ impl WalEntry {
             entry_type: WalEntryType::TransactionAbort,
             version: WAL_FORMAT_VERSION,
             tx_id,
+            run_id: None,
             payload: vec![],
         }
     }
@@ -246,6 +259,7 @@ impl WalEntry {
             entry_type: WalEntryType::SnapshotMarker,
             version: WAL_FORMAT_VERSION,
             tx_id: TxId::nil(),
+            run_id: None,
             payload,
         }
     }
@@ -264,16 +278,31 @@ impl WalEntry {
     ///
     /// Format:
     /// ```text
-    /// [length: u32][type: u8][version: u8][tx_id: 16][payload: N][crc32: u32]
+    /// [length: u32][type: u8][version: u8][tx_id: 16][has_run_id: u8][run_id?: 16][payload: N][crc32: u32]
     /// ```
     ///
-    /// CRC32 is computed over [type][version][tx_id][payload].
+    /// CRC32 is computed over everything between length and crc.
     pub fn serialize(&self) -> Result<Vec<u8>, WalEntryError> {
+        // Calculate run_id serialization size
+        let run_id_size = if self.run_id.is_some() { 17 } else { 1 }; // 1 flag + 16 uuid if present
+
         // Build content (everything that CRC covers)
-        let mut content = Vec::with_capacity(1 + 1 + 16 + self.payload.len());
+        let mut content = Vec::with_capacity(1 + 1 + 16 + run_id_size + self.payload.len());
         content.push(self.entry_type as u8);
         content.push(self.version);
         content.extend_from_slice(&self.tx_id.to_bytes());
+
+        // Serialize run_id
+        match &self.run_id {
+            Some(run_id) => {
+                content.push(1u8); // has_run_id = true
+                content.extend_from_slice(run_id.as_bytes());
+            }
+            None => {
+                content.push(0u8); // has_run_id = false
+            }
+        }
+
         content.extend_from_slice(&self.payload);
 
         // Compute CRC32
@@ -375,9 +404,8 @@ impl WalEntry {
             });
         }
 
-        // Parse content
-        if content.len() < 18 {
-            // type(1) + version(1) + tx_id(16)
+        // Parse content: type(1) + version(1) + tx_id(16) + has_run_id(1) = 19 bytes minimum
+        if content.len() < 19 {
             return Err(WalEntryError::Deserialization {
                 offset,
                 message: format!("Content too short: {} bytes", content.len()),
@@ -391,13 +419,30 @@ impl WalEntry {
         tx_id_bytes.copy_from_slice(&content[2..18]);
         let tx_id = TxId::from_bytes(tx_id_bytes);
 
-        let payload = content[18..].to_vec();
+        let has_run_id = content[18];
+        let (run_id, payload_start) = if has_run_id != 0 {
+            // Need 16 more bytes for run_id
+            if content.len() < 35 {
+                return Err(WalEntryError::Deserialization {
+                    offset,
+                    message: format!("Content too short for run_id: {} bytes", content.len()),
+                });
+            }
+            let mut run_id_bytes = [0u8; 16];
+            run_id_bytes.copy_from_slice(&content[19..35]);
+            (Some(RunId::from_bytes(run_id_bytes)), 35)
+        } else {
+            (None, 19)
+        };
+
+        let payload = content[payload_start..].to_vec();
 
         Ok((
             WalEntry {
                 entry_type,
                 version,
                 tx_id,
+                run_id,
                 payload,
             },
             total_bytes,
@@ -406,8 +451,9 @@ impl WalEntry {
 
     /// Get the serialized size of this entry
     pub fn serialized_size(&self) -> usize {
-        // length(4) + type(1) + version(1) + tx_id(16) + payload + crc(4)
-        4 + 1 + 1 + 16 + self.payload.len() + 4
+        // length(4) + type(1) + version(1) + tx_id(16) + has_run_id(1) + [run_id(16)?] + payload + crc(4)
+        let run_id_size = if self.run_id.is_some() { 17 } else { 1 };
+        4 + 1 + 1 + 16 + run_id_size + self.payload.len() + 4
     }
 }
 
@@ -449,7 +495,8 @@ mod tests {
     #[test]
     fn test_wal_entry_serialize_roundtrip() {
         let tx_id = TxId::new();
-        let entry = WalEntry::new(WalEntryType::KvPut, tx_id, b"test payload".to_vec());
+        let run_id = RunId::new();
+        let entry = WalEntry::for_run(WalEntryType::KvPut, tx_id, run_id, b"test payload".to_vec());
 
         let serialized = entry.serialize().unwrap();
         let (deserialized, consumed) = WalEntry::deserialize(&serialized, 0).unwrap();
@@ -459,9 +506,22 @@ mod tests {
     }
 
     #[test]
+    fn test_wal_entry_serialize_without_run_id() {
+        let tx_id = TxId::new();
+        let entry = WalEntry::new(WalEntryType::KvPut, tx_id, None, b"test payload".to_vec());
+
+        let serialized = entry.serialize().unwrap();
+        let (deserialized, consumed) = WalEntry::deserialize(&serialized, 0).unwrap();
+
+        assert_eq!(entry, deserialized);
+        assert!(deserialized.run_id.is_none());
+        assert_eq!(consumed, serialized.len());
+    }
+
+    #[test]
     fn test_wal_entry_crc_validation() {
         let tx_id = TxId::new();
-        let entry = WalEntry::new(WalEntryType::KvPut, tx_id, b"test payload".to_vec());
+        let entry = WalEntry::new(WalEntryType::KvPut, tx_id, None, b"test payload".to_vec());
 
         let mut serialized = entry.serialize().unwrap();
 
@@ -549,6 +609,7 @@ mod tests {
     #[test]
     fn test_wal_entry_all_entry_types() {
         let tx_id = TxId::new();
+        let run_id = RunId::new();
 
         // Test each entry type
         let entry_types = [
@@ -576,7 +637,7 @@ mod tests {
         ];
 
         for entry_type in entry_types {
-            let entry = WalEntry::new(entry_type, tx_id, vec![1, 2, 3, 4]);
+            let entry = WalEntry::for_run(entry_type, tx_id, run_id, vec![1, 2, 3, 4]);
             let serialized = entry.serialize().unwrap();
             let (deserialized, consumed) = WalEntry::deserialize(&serialized, 0).unwrap();
 
@@ -588,7 +649,7 @@ mod tests {
     #[test]
     fn test_wal_entry_empty_payload() {
         let tx_id = TxId::new();
-        let entry = WalEntry::new(WalEntryType::KvDelete, tx_id, vec![]);
+        let entry = WalEntry::new(WalEntryType::KvDelete, tx_id, None, vec![]);
 
         let serialized = entry.serialize().unwrap();
         let (deserialized, _) = WalEntry::deserialize(&serialized, 0).unwrap();
@@ -600,8 +661,9 @@ mod tests {
     #[test]
     fn test_wal_entry_large_payload() {
         let tx_id = TxId::new();
+        let run_id = RunId::new();
         let large_payload = vec![0xAB; 1024 * 1024]; // 1 MB payload
-        let entry = WalEntry::new(WalEntryType::KvPut, tx_id, large_payload.clone());
+        let entry = WalEntry::for_run(WalEntryType::KvPut, tx_id, run_id, large_payload.clone());
 
         let serialized = entry.serialize().unwrap();
         let (deserialized, _) = WalEntry::deserialize(&serialized, 0).unwrap();
@@ -613,9 +675,25 @@ mod tests {
     fn test_wal_entry_serialized_size() {
         let tx_id = TxId::new();
         let payload = vec![1, 2, 3, 4, 5];
-        let entry = WalEntry::new(WalEntryType::KvPut, tx_id, payload);
+        let entry = WalEntry::new(WalEntryType::KvPut, tx_id, None, payload);
 
-        let expected_size = 4 + 1 + 1 + 16 + 5 + 4; // length + type + version + txid + payload + crc
+        // length(4) + type(1) + version(1) + txid(16) + has_run_id(1) + payload(5) + crc(4) = 32
+        let expected_size = 4 + 1 + 1 + 16 + 1 + 5 + 4;
+        assert_eq!(entry.serialized_size(), expected_size);
+
+        let serialized = entry.serialize().unwrap();
+        assert_eq!(serialized.len(), expected_size);
+    }
+
+    #[test]
+    fn test_wal_entry_serialized_size_with_run_id() {
+        let tx_id = TxId::new();
+        let run_id = RunId::new();
+        let payload = vec![1, 2, 3, 4, 5];
+        let entry = WalEntry::for_run(WalEntryType::KvPut, tx_id, run_id, payload);
+
+        // length(4) + type(1) + version(1) + txid(16) + has_run_id(1) + run_id(16) + payload(5) + crc(4) = 48
+        let expected_size = 4 + 1 + 1 + 16 + 1 + 16 + 5 + 4;
         assert_eq!(entry.serialized_size(), expected_size);
 
         let serialized = entry.serialize().unwrap();
@@ -625,8 +703,9 @@ mod tests {
     #[test]
     fn test_wal_entry_multiple_in_buffer() {
         let tx_id = TxId::new();
-        let entry1 = WalEntry::new(WalEntryType::KvPut, tx_id, b"key1=value1".to_vec());
-        let entry2 = WalEntry::new(WalEntryType::KvPut, tx_id, b"key2=value2".to_vec());
+        let run_id = RunId::new();
+        let entry1 = WalEntry::for_run(WalEntryType::KvPut, tx_id, run_id, b"key1=value1".to_vec());
+        let entry2 = WalEntry::for_run(WalEntryType::KvPut, tx_id, run_id, b"key2=value2".to_vec());
         let entry3 = WalEntry::commit_marker(tx_id);
 
         // Concatenate entries
@@ -659,7 +738,7 @@ mod tests {
     #[test]
     fn test_wal_entry_version_field() {
         let tx_id = TxId::new();
-        let entry = WalEntry::new(WalEntryType::KvPut, tx_id, vec![]);
+        let entry = WalEntry::new(WalEntryType::KvPut, tx_id, None, vec![]);
 
         assert_eq!(entry.version, WAL_FORMAT_VERSION);
 
@@ -667,6 +746,20 @@ mod tests {
         let (deserialized, _) = WalEntry::deserialize(&serialized, 0).unwrap();
 
         assert_eq!(deserialized.version, WAL_FORMAT_VERSION);
+    }
+
+    #[test]
+    fn test_wal_entry_run_id_roundtrip() {
+        let tx_id = TxId::new();
+        let run_id = RunId::new();
+        let entry = WalEntry::for_run(WalEntryType::KvPut, tx_id, run_id, b"test".to_vec());
+
+        assert_eq!(entry.run_id, Some(run_id));
+
+        let serialized = entry.serialize().unwrap();
+        let (deserialized, _) = WalEntry::deserialize(&serialized, 0).unwrap();
+
+        assert_eq!(deserialized.run_id, Some(run_id));
     }
 
     #[test]

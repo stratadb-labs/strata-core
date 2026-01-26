@@ -25,6 +25,7 @@
 
 use crate::wal_entry_types::WalEntryType;
 use crate::wal_types::{TxId, WalEntry};
+use strata_core::types::RunId;
 
 /// A transaction that can span multiple primitives
 ///
@@ -34,6 +35,8 @@ use crate::wal_types::{TxId, WalEntry};
 pub struct Transaction {
     /// Transaction ID shared by all entries
     id: TxId,
+    /// Run ID for run-scoped operations (optional for cross-run transactions)
+    run_id: Option<RunId>,
     /// Entries accumulated during transaction
     entries: Vec<TxEntry>,
 }
@@ -166,10 +169,20 @@ impl Default for Transaction {
 }
 
 impl Transaction {
-    /// Create a new transaction with a fresh tx_id
+    /// Create a new transaction with a fresh tx_id (no run_id)
     pub fn new() -> Self {
         Transaction {
             id: TxId::new(),
+            run_id: None,
+            entries: Vec::new(),
+        }
+    }
+
+    /// Create a new transaction for a specific run
+    pub fn for_run(run_id: RunId) -> Self {
+        Transaction {
+            id: TxId::new(),
+            run_id: Some(run_id),
             entries: Vec::new(),
         }
     }
@@ -178,6 +191,16 @@ impl Transaction {
     pub fn with_id(id: TxId) -> Self {
         Transaction {
             id,
+            run_id: None,
+            entries: Vec::new(),
+        }
+    }
+
+    /// Create a transaction with a specific tx_id and run_id (for testing/recovery)
+    pub fn with_id_and_run(id: TxId, run_id: RunId) -> Self {
+        Transaction {
+            id,
+            run_id: Some(run_id),
             entries: Vec::new(),
         }
     }
@@ -185,6 +208,11 @@ impl Transaction {
     /// Get the transaction ID
     pub fn id(&self) -> TxId {
         self.id
+    }
+
+    /// Get the run ID if set
+    pub fn run_id(&self) -> Option<RunId> {
+        self.run_id
     }
 
     /// Get the entries in this transaction
@@ -363,12 +391,13 @@ impl Transaction {
     /// marker - that should be written separately after all entries.
     pub fn into_wal_entries(self) -> (TxId, Vec<WalEntry>) {
         let tx_id = self.id;
+        let run_id = self.run_id;
         let entries = self
             .entries
             .into_iter()
             .map(|entry| {
                 let (entry_type, payload) = entry.to_wal_payload();
-                WalEntry::new(entry_type, tx_id, payload)
+                WalEntry::new(entry_type, tx_id, run_id, payload)
             })
             .collect();
 
@@ -378,12 +407,13 @@ impl Transaction {
     /// Convert to WAL entries without consuming the transaction
     pub fn to_wal_entries(&self) -> (TxId, Vec<WalEntry>) {
         let tx_id = self.id;
+        let run_id = self.run_id;
         let entries = self
             .entries
             .iter()
             .map(|entry| {
                 let (entry_type, payload) = entry.to_wal_payload();
-                WalEntry::new(entry_type, tx_id, payload)
+                WalEntry::new(entry_type, tx_id, run_id, payload)
             })
             .collect();
 

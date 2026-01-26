@@ -278,7 +278,7 @@ mod tests {
         {
             let mut writer = WalWriter::open(&wal_path, DurabilityMode::Strict).unwrap();
             writer
-                .write_transaction(vec![(WalEntryType::KvPut, b"key=value".to_vec())])
+                .write_transaction(None, vec![(WalEntryType::KvPut, b"key=value".to_vec())])
                 .unwrap();
         }
 
@@ -300,7 +300,7 @@ mod tests {
                 offsets.push(writer.position());
                 // Write larger payloads to ensure offsets exceed safety buffer
                 writer
-                    .write_transaction(vec![(
+                    .write_transaction(None, vec![(
                         WalEntryType::KvPut,
                         format!("key{:04}=value{:064}", i, i).into_bytes(),
                     )])
@@ -347,7 +347,7 @@ mod tests {
             let mut writer = WalWriter::open(&wal_path, DurabilityMode::Strict).unwrap();
             for i in 0..5 {
                 writer
-                    .write_transaction(vec![(
+                    .write_transaction(None, vec![(
                         WalEntryType::KvPut,
                         format!("key{}=value{}", i, i).into_bytes(),
                     )])
@@ -390,7 +390,7 @@ mod tests {
             let mut writer = WalWriter::open(&wal_path, DurabilityMode::Strict).unwrap();
             for i in 0..100 {
                 writer
-                    .write_transaction(vec![(
+                    .write_transaction(None, vec![(
                         WalEntryType::KvPut,
                         format!("key{}=value{}", i, i).into_bytes(),
                     )])
@@ -415,7 +415,7 @@ mod tests {
             let mut writer = WalWriter::open(&wal_path, DurabilityMode::Strict).unwrap();
             for i in 0..5 {
                 writer
-                    .write_transaction(vec![(
+                    .write_transaction(None, vec![(
                         WalEntryType::KvPut,
                         format!("key{}=value{}", i, i).into_bytes(),
                     )])
@@ -455,7 +455,7 @@ mod tests {
         {
             let mut writer = WalWriter::open(&wal_path, DurabilityMode::Strict).unwrap();
             writer
-                .write_transaction(vec![(WalEntryType::KvPut, b"key=value".to_vec())])
+                .write_transaction(None, vec![(WalEntryType::KvPut, b"key=value".to_vec())])
                 .unwrap();
         }
 

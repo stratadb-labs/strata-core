@@ -39,7 +39,7 @@ pub fn create_run_begin_entry(run_id: RunId, timestamp_micros: u64) -> WalEntry 
     payload.extend_from_slice(run_id.as_bytes());
     payload.extend_from_slice(&timestamp_micros.to_le_bytes());
 
-    WalEntry::new(WalEntryType::RunBegin, TxId::nil(), payload)
+    WalEntry::for_run(WalEntryType::RunBegin, TxId::nil(), run_id, payload)
 }
 
 /// Create a RunEnd WAL entry
@@ -54,7 +54,7 @@ pub fn create_run_end_entry(run_id: RunId, timestamp_micros: u64, event_count: u
     payload.extend_from_slice(&timestamp_micros.to_le_bytes());
     payload.extend_from_slice(&event_count.to_le_bytes());
 
-    WalEntry::new(WalEntryType::RunEnd, TxId::nil(), payload)
+    WalEntry::for_run(WalEntryType::RunEnd, TxId::nil(), run_id, payload)
 }
 
 /// Parsed RunBegin payload
@@ -158,6 +158,7 @@ mod tests {
         let entry = create_run_begin_entry(run_id, timestamp);
         assert_eq!(entry.entry_type, WalEntryType::RunBegin);
         assert!(entry.tx_id.is_nil());
+        assert_eq!(entry.run_id, Some(run_id));
         assert_eq!(entry.payload.len(), RUN_BEGIN_PAYLOAD_SIZE);
 
         let parsed = parse_run_begin_payload(&entry.payload).unwrap();
@@ -174,6 +175,7 @@ mod tests {
         let entry = create_run_end_entry(run_id, timestamp, event_count);
         assert_eq!(entry.entry_type, WalEntryType::RunEnd);
         assert!(entry.tx_id.is_nil());
+        assert_eq!(entry.run_id, Some(run_id));
         assert_eq!(entry.payload.len(), RUN_END_PAYLOAD_SIZE);
 
         let parsed = parse_run_end_payload(&entry.payload).unwrap();

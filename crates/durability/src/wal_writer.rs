@@ -26,6 +26,7 @@ use crate::transaction_log::Transaction;
 use crate::wal::DurabilityMode;
 use crate::wal_entry_types::WalEntryType;
 use crate::wal_types::{TxId, WalEntry, WalEntryError};
+use strata_core::types::RunId;
 use std::fs::{File, OpenOptions};
 use std::io::{BufWriter, Write};
 use std::path::{Path, PathBuf};
@@ -149,16 +150,31 @@ impl WalWriter {
     /// # Arguments
     ///
     /// * `tx_id` - Transaction ID from `begin_transaction()`
+    /// * `run_id` - Optional run ID for run-scoped operations
     /// * `entry_type` - Type of WAL entry
     /// * `payload` - Entry-specific data
     pub fn write_tx_entry(
         &mut self,
         tx_id: TxId,
+        run_id: Option<RunId>,
         entry_type: WalEntryType,
         payload: Vec<u8>,
     ) -> Result<u64, WalEntryError> {
-        let entry = WalEntry::new(entry_type, tx_id, payload);
+        let entry = WalEntry::new(entry_type, tx_id, run_id, payload);
         self.write_entry(&entry)
+    }
+
+    /// Write an entry for a specific run as part of a transaction
+    ///
+    /// Convenience method that takes run_id as required parameter.
+    pub fn write_tx_entry_for_run(
+        &mut self,
+        tx_id: TxId,
+        run_id: RunId,
+        entry_type: WalEntryType,
+        payload: Vec<u8>,
+    ) -> Result<u64, WalEntryError> {
+        self.write_tx_entry(tx_id, Some(run_id), entry_type, payload)
     }
 
     /// Commit a transaction
@@ -206,15 +222,17 @@ impl WalWriter {
     ///
     /// # Arguments
     ///
+    /// * `run_id` - Optional run ID for all entries
     /// * `entries` - List of (entry_type, payload) pairs
     pub fn write_transaction(
         &mut self,
+        run_id: Option<RunId>,
         entries: Vec<(WalEntryType, Vec<u8>)>,
     ) -> Result<TxId, WalEntryError> {
         let tx_id = self.begin_transaction();
 
         for (entry_type, payload) in entries {
-            self.write_tx_entry(tx_id, entry_type, payload)?;
+            self.write_tx_entry(tx_id, run_id, entry_type, payload)?;
         }
 
         self.commit_transaction(tx_id)?;
@@ -513,10 +531,10 @@ mod tests {
 
         let tx_id = writer.begin_transaction();
         writer
-            .write_tx_entry(tx_id, WalEntryType::KvPut, b"key1=value1".to_vec())
+            .write_tx_entry(tx_id, None, WalEntryType::KvPut, b"key1=value1".to_vec())
             .unwrap();
         writer
-            .write_tx_entry(tx_id, WalEntryType::KvPut, b"key2=value2".to_vec())
+            .write_tx_entry(tx_id, None, WalEntryType::KvPut, b"key2=value2".to_vec())
             .unwrap();
         writer.commit_transaction(tx_id).unwrap();
 
@@ -532,7 +550,7 @@ mod tests {
         let mut writer = WalWriter::open(&wal_path, DurabilityMode::Strict).unwrap();
 
         let tx_id = writer
-            .write_transaction(vec![
+            .write_transaction(None, vec![
                 (WalEntryType::KvPut, b"key1=value1".to_vec()),
                 (WalEntryType::KvPut, b"key2=value2".to_vec()),
             ])
@@ -551,7 +569,7 @@ mod tests {
 
         let tx_id = writer.begin_transaction();
         writer
-            .write_tx_entry(tx_id, WalEntryType::KvPut, b"key=value".to_vec())
+            .write_tx_entry(tx_id, None, WalEntryType::KvPut, b"key=value".to_vec())
             .unwrap();
         writer.abort_transaction(tx_id).unwrap();
 
@@ -584,7 +602,7 @@ mod tests {
         // Write 10 transactions
         for i in 0..10 {
             let tx_id = writer
-                .write_transaction(vec![(
+                .write_transaction(None, vec![(
                     WalEntryType::KvPut,
                     format!("key{}=value{}", i, i).into_bytes(),
                 )])
@@ -612,7 +630,7 @@ mod tests {
         // Write 5 transactions (should trigger batch fsync)
         for i in 0..5 {
             writer
-                .write_transaction(vec![(
+                .write_transaction(None, vec![(
                     WalEntryType::KvPut,
                     format!("key{}=value{}", i, i).into_bytes(),
                 )])
@@ -664,16 +682,16 @@ mod tests {
 
         // Interleave writes
         writer
-            .write_tx_entry(tx1, WalEntryType::KvPut, b"tx1_key1=value1".to_vec())
+            .write_tx_entry(tx1, None, WalEntryType::KvPut, b"tx1_key1=value1".to_vec())
             .unwrap();
         writer
-            .write_tx_entry(tx2, WalEntryType::KvPut, b"tx2_key1=value1".to_vec())
+            .write_tx_entry(tx2, None, WalEntryType::KvPut, b"tx2_key1=value1".to_vec())
             .unwrap();
         writer
-            .write_tx_entry(tx1, WalEntryType::KvPut, b"tx1_key2=value2".to_vec())
+            .write_tx_entry(tx1, None, WalEntryType::KvPut, b"tx1_key2=value2".to_vec())
             .unwrap();
         writer
-            .write_tx_entry(tx2, WalEntryType::KvPut, b"tx2_key2=value2".to_vec())
+            .write_tx_entry(tx2, None, WalEntryType::KvPut, b"tx2_key2=value2".to_vec())
             .unwrap();
 
         // Commit tx1, abort tx2

@@ -117,10 +117,10 @@ fn test_cross_primitive_rollback() {
         // Transaction that gets aborted
         let tx_id = writer.begin_transaction();
         writer
-            .write_tx_entry(tx_id, WalEntryType::KvPut, b"key1=value1".to_vec())
+            .write_tx_entry(tx_id, None, WalEntryType::KvPut, b"key1=value1".to_vec())
             .unwrap();
         writer
-            .write_tx_entry(tx_id, WalEntryType::JsonSet, b"doc1={}".to_vec())
+            .write_tx_entry(tx_id, None, WalEntryType::JsonSet, b"doc1={}".to_vec())
             .unwrap();
         writer.abort_transaction(tx_id).unwrap();
 
@@ -156,13 +156,13 @@ fn test_crash_mid_transaction() {
         // Write entries but don't commit
         let tx_id = writer.begin_transaction();
         writer
-            .write_tx_entry(tx_id, WalEntryType::KvPut, b"key1=value1".to_vec())
+            .write_tx_entry(tx_id, None, WalEntryType::KvPut, b"key1=value1".to_vec())
             .unwrap();
         writer
-            .write_tx_entry(tx_id, WalEntryType::JsonSet, b"doc1={}".to_vec())
+            .write_tx_entry(tx_id, None, WalEntryType::JsonSet, b"doc1={}".to_vec())
             .unwrap();
         writer
-            .write_tx_entry(tx_id, WalEntryType::StateSet, b"state1=active".to_vec())
+            .write_tx_entry(tx_id, None, WalEntryType::StateSet, b"state1=active".to_vec())
             .unwrap();
         // NO commit marker - simulating crash
     }
@@ -196,13 +196,13 @@ fn test_partial_transaction_not_visible() {
         // TX2 - partial (multiple primitives, no commit)
         let tx2_id = writer.begin_transaction();
         writer
-            .write_tx_entry(tx2_id, WalEntryType::KvPut, b"tx2_key=tx2_value".to_vec())
+            .write_tx_entry(tx2_id, None, WalEntryType::KvPut, b"tx2_key=tx2_value".to_vec())
             .unwrap();
         writer
-            .write_tx_entry(tx2_id, WalEntryType::JsonSet, b"tx2_doc={}".to_vec())
+            .write_tx_entry(tx2_id, None, WalEntryType::JsonSet, b"tx2_doc={}".to_vec())
             .unwrap();
         writer
-            .write_tx_entry(tx2_id, WalEntryType::StateSet, b"tx2_state=active".to_vec())
+            .write_tx_entry(tx2_id, None, WalEntryType::StateSet, b"tx2_state=active".to_vec())
             .unwrap();
         // NO commit - simulating crash
     }
@@ -281,7 +281,7 @@ fn test_mixed_committed_uncommitted() {
         // TX2 - uncommitted (orphaned)
         let tx2_id = writer.begin_transaction();
         writer
-            .write_tx_entry(tx2_id, WalEntryType::KvPut, b"tx2_key=value2".to_vec())
+            .write_tx_entry(tx2_id, None, WalEntryType::KvPut, b"tx2_key=value2".to_vec())
             .unwrap();
         // No commit
 
@@ -293,7 +293,7 @@ fn test_mixed_committed_uncommitted() {
         // TX4 - aborted
         let tx4_id = writer.begin_transaction();
         writer
-            .write_tx_entry(tx4_id, WalEntryType::KvPut, b"tx4_key=value4".to_vec())
+            .write_tx_entry(tx4_id, None, WalEntryType::KvPut, b"tx4_key=value4".to_vec())
             .unwrap();
         writer.abort_transaction(tx4_id).unwrap();
 

@@ -360,7 +360,7 @@ mod tests {
         {
             let mut writer = WalWriter::open(&wal_path, DurabilityMode::Strict).unwrap();
             writer
-                .write_transaction(vec![(WalEntryType::KvPut, b"key=value".to_vec())])
+                .write_transaction(None, vec![(WalEntryType::KvPut, b"key=value".to_vec())])
                 .unwrap();
         }
 
@@ -384,7 +384,7 @@ mod tests {
             let mut writer = WalWriter::open(&wal_path, DurabilityMode::Strict).unwrap();
             for i in 0..5 {
                 writer
-                    .write_transaction(vec![(
+                    .write_transaction(None, vec![(
                         WalEntryType::KvPut,
                         format!("key{}=value{}", i, i).into_bytes(),
                     )])
@@ -411,13 +411,13 @@ mod tests {
 
             // Committed transaction
             writer
-                .write_transaction(vec![(WalEntryType::KvPut, b"committed=yes".to_vec())])
+                .write_transaction(None, vec![(WalEntryType::KvPut, b"committed=yes".to_vec())])
                 .unwrap();
 
             // Uncommitted transaction (no commit marker)
             let tx_id = writer.begin_transaction();
             writer
-                .write_tx_entry(tx_id, WalEntryType::KvPut, b"uncommitted=no".to_vec())
+                .write_tx_entry(tx_id, None, WalEntryType::KvPut, b"uncommitted=no".to_vec())
                 .unwrap();
             // No commit
         }
@@ -442,13 +442,13 @@ mod tests {
 
             // Committed transaction
             writer
-                .write_transaction(vec![(WalEntryType::KvPut, b"committed=yes".to_vec())])
+                .write_transaction(None, vec![(WalEntryType::KvPut, b"committed=yes".to_vec())])
                 .unwrap();
 
             // Aborted transaction
             let tx_id = writer.begin_transaction();
             writer
-                .write_tx_entry(tx_id, WalEntryType::KvPut, b"aborted=no".to_vec())
+                .write_tx_entry(tx_id, None, WalEntryType::KvPut, b"aborted=no".to_vec())
                 .unwrap();
             writer.abort_transaction(tx_id).unwrap();
         }
@@ -471,7 +471,7 @@ mod tests {
         {
             let mut writer = WalWriter::open(&wal_path, DurabilityMode::Strict).unwrap();
             writer
-                .write_transaction(vec![(WalEntryType::KvPut, b"key=value".to_vec())])
+                .write_transaction(None, vec![(WalEntryType::KvPut, b"key=value".to_vec())])
                 .unwrap();
         }
 
@@ -508,7 +508,7 @@ mod tests {
             for i in 0..3 {
                 offsets.push(writer.position());
                 writer
-                    .write_transaction(vec![(
+                    .write_transaction(None, vec![(
                         WalEntryType::KvPut,
                         format!("key{}=value{}", i, i).into_bytes(),
                     )])
@@ -533,7 +533,7 @@ mod tests {
         {
             let mut writer = WalWriter::open(&wal_path, DurabilityMode::Strict).unwrap();
             writer
-                .write_transaction(vec![(WalEntryType::KvPut, b"key=value".to_vec())])
+                .write_transaction(None, vec![(WalEntryType::KvPut, b"key=value".to_vec())])
                 .unwrap();
         }
 
@@ -560,7 +560,7 @@ mod tests {
         {
             let mut writer = WalWriter::open(&wal_path, DurabilityMode::Strict).unwrap();
             writer
-                .write_transaction(vec![(WalEntryType::KvPut, b"key=value".to_vec())])
+                .write_transaction(None, vec![(WalEntryType::KvPut, b"key=value".to_vec())])
                 .unwrap();
         }
 
@@ -592,13 +592,13 @@ mod tests {
             let tx2 = writer.begin_transaction();
 
             writer
-                .write_tx_entry(tx1, WalEntryType::KvPut, b"tx1_key1".to_vec())
+                .write_tx_entry(tx1, None, WalEntryType::KvPut, b"tx1_key1".to_vec())
                 .unwrap();
             writer
-                .write_tx_entry(tx2, WalEntryType::KvPut, b"tx2_key1".to_vec())
+                .write_tx_entry(tx2, None, WalEntryType::KvPut, b"tx2_key1".to_vec())
                 .unwrap();
             writer
-                .write_tx_entry(tx1, WalEntryType::KvPut, b"tx1_key2".to_vec())
+                .write_tx_entry(tx1, None, WalEntryType::KvPut, b"tx1_key2".to_vec())
                 .unwrap();
 
             // Only commit tx1
