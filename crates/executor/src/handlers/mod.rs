@@ -14,14 +14,17 @@
 //! | `retention` | 3 | RetentionSubstrate |
 //! | `database` | 4 | Database-level |
 
-// TODO: Add handler modules in Phase 3
+pub mod kv;
+pub mod json;
+pub mod event;
+pub mod state;
+pub mod vector;
+pub mod run;
+
+// Transaction commands are deferred because the Executor is stateless by design.
+// Transactions require session state management which would need additional design work.
 //
-// pub mod kv;
-// pub mod json;
-// pub mod event;
-// pub mod state;
-// pub mod vector;
-// pub mod run;
-// pub mod transaction;
-// pub mod retention;
-// pub mod database;
+// Retention commands (RetentionApply, RetentionStats, RetentionPreview) are deferred
+// as they require additional infrastructure for garbage collection statistics.
+//
+// Database commands (Ping, Info, Flush, Compact) are implemented directly in executor.rs.
