@@ -80,6 +80,46 @@ Commands are in-process operations. They do not assume networking, async executi
 
 **FORBIDDEN**: Network-specific error handling, async requirements, authentication/authorization in commands.
 
+### Rule 9: No Executable Code in Commands
+
+Commands are pure data. They cannot contain closures, function pointers, or any executable code.
+
+**FORBIDDEN**: Closure parameters, `Fn` trait bounds, function pointers, `dyn` trait objects with methods.
+
+**RATIONALE**: Commands must be serializable for replay, logging, and thin SDK support. Executable code cannot be serialized.
+
+**IMPLICATION**: Substrate methods that take closures (e.g., `state_transition`) cannot have direct Command equivalents. Clients must compose multiple commands to achieve the same effect.
+
+---
+
+## Design Decisions
+
+### DD-1: Closure-Based Methods Excluded from Commands
+
+**Decision**: The 5 closure-based `StateCell` methods are not exposed as commands.
+
+**Affected Methods**:
+- `state_transition<F>(&self, run, cell, f: F) -> Result<(Value, Version)>`
+- `state_transition_or_init<F>(&self, run, cell, initial, f: F) -> Result<(Value, Version)>`
+- `state_get_or_init<F>(&self, run, cell, default: F) -> Result<Versioned<Value>>`
+
+**Rationale**:
+1. **Serialization**: Closures cannot be serialized to JSON
+2. **Determinism**: Closure behavior depends on captured state, breaking replay guarantees
+3. **Security**: Executing arbitrary code from deserialized commands is a security risk
+4. **Completeness**: The 8 non-closure State commands provide full functionality
+
+**Alternatives Considered**:
+
+| Alternative | Rejected Because |
+|-------------|------------------|
+| Expression DSL | Scope creep, complexity, limited expressiveness |
+| Named transforms (Incr, Append) | Already have `KvIncr`, `JsonArrayPush` for common cases |
+| WASM modules | Too heavy, deployment complexity |
+| Server-side scripting | Security concerns, not in M13 scope |
+
+**Mitigation**: Document client-side patterns that compose `StateGet` + `StateCas` to achieve equivalent semantics with optimistic concurrency retry loops.
+
 ---
 
 ## Core Invariants
@@ -243,7 +283,87 @@ From `StateCell` trait (excluding closure-based methods):
 | 50 | `StateInit` | `run, cell, value` | `Version` |
 | 51 | `StateList` | `run` | `Vec<String>` |
 
-**Note**: `state_transition`, `state_transition_or_init`, and `state_get_or_init` use closures and cannot be direct commands. Users must compose read+cas operations client-side.
+#### Closure-Based Methods (Not Commandable)
+
+The following `StateCell` methods use closures and **cannot be direct commands**:
+
+| Method | Signature | Purpose |
+|--------|-----------|---------|
+| `state_transition` | `fn(&Value) -> Result<Value>` | Apply transform with auto-retry |
+| `state_transition_or_init` | `fn(&Value) -> Result<Value>` | Transform or init with closure |
+| `state_get_or_init` | `fn() -> Value` | Lazy default initialization |
+
+**Why closures can't be commands**: Commands must be pure data structures that serialize to JSON. Closures contain executable code and captured state that cannot be serialized.
+
+**Client-Side Pattern**: Clients can implement equivalent functionality using the available commands:
+
+```rust
+// Equivalent of state_transition (optimistic concurrency with retry)
+fn client_state_transition(
+    executor: &Executor,
+    run: &RunId,
+    cell: &str,
+    transform: impl Fn(&Value) -> Value,
+) -> Result<(Value, Version), Error> {
+    loop {
+        // 1. Read current state
+        let current = executor.execute(StateGet { run, cell })?;
+
+        let (old_value, expected_counter) = match current {
+            Some(versioned) => {
+                let counter = match versioned.version {
+                    Version::Counter(c) => Some(c),
+                    _ => None,
+                };
+                (versioned.value, counter)
+            }
+            None => return Err(Error::CellNotFound { cell: cell.into() }),
+        };
+
+        // 2. Apply transformation (client-side logic)
+        let new_value = transform(&old_value);
+
+        // 3. Attempt CAS
+        let result = executor.execute(StateCas {
+            run,
+            cell,
+            expected_counter,
+            value: new_value.clone(),
+        })?;
+
+        // 4. Retry on conflict, return on success
+        if let Some(version) = result {
+            return Ok((new_value, version));
+        }
+        // CAS failed due to concurrent modification - retry
+    }
+}
+
+// Equivalent of state_get_or_init
+fn client_state_get_or_init(
+    executor: &Executor,
+    run: &RunId,
+    cell: &str,
+    default: impl FnOnce() -> Value,
+) -> Result<Versioned<Value>, Error> {
+    // Try to get existing value
+    if let Some(versioned) = executor.execute(StateGet { run, cell })? {
+        return Ok(versioned);
+    }
+
+    // Cell doesn't exist - initialize it
+    let initial_value = default();
+    let version = executor.execute(StateInit { run, cell, value: initial_value.clone() })?;
+
+    Ok(Versioned {
+        value: initial_value,
+        version,
+        timestamp: Timestamp::now(),
+    })
+}
+```
+
+This pattern preserves the optimistic concurrency semantics while keeping commands serializable.
 
 ### Vector Commands (19)
 From `VectorStore` trait:
