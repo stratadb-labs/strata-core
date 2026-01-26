@@ -521,6 +521,31 @@ pub struct WAL {
     writes_since_fsync: Arc<AtomicU64>,
 }
 
+/// Result of reading WAL entries with detailed information
+///
+/// This struct provides more information than just the entries,
+/// including whether corruption was detected.
+#[derive(Debug)]
+pub struct WalReadResult {
+    /// Successfully decoded entries
+    pub entries: Vec<WALEntry>,
+    /// Number of bytes successfully read
+    pub bytes_read: u64,
+    /// If corruption was detected, information about it
+    pub corruption: Option<WalCorruptionInfo>,
+}
+
+/// Information about WAL corruption detected during read
+#[derive(Debug, Clone)]
+pub struct WalCorruptionInfo {
+    /// Byte offset where corruption was detected
+    pub offset: u64,
+    /// Description of the corruption
+    pub message: String,
+    /// Number of entries successfully read before corruption
+    pub entries_before_corruption: usize,
+}
+
 impl WAL {
     /// Open existing WAL or create new one with specified durability mode
     ///
@@ -793,6 +818,95 @@ impl WAL {
         self.read_entries(0)
     }
 
+    /// Read entries with detailed corruption information
+    ///
+    /// Unlike `read_entries()` which just returns entries, this method returns
+    /// a `WalReadResult` that includes information about any corruption detected.
+    /// This is useful for recovery diagnostics.
+    ///
+    /// # Arguments
+    ///
+    /// * `start_offset` - Byte offset to start reading from
+    ///
+    /// # Returns
+    ///
+    /// * `Ok(WalReadResult)` - Detailed read result with entries and corruption info
+    /// * `Err` - If file operations fail (not corruption)
+    pub fn read_entries_detailed(&self, start_offset: u64) -> Result<WalReadResult> {
+        // Flush any buffered writes before reading
+        {
+            let mut writer = self.writer.lock();
+            if let Err(e) = writer.flush() {
+                error!(error = %e, "WAL flush before read failed");
+            }
+        }
+
+        // Open separate read handle
+        let file = File::open(&self.path)?;
+        let mut reader = BufReader::new(file);
+        reader.seek(SeekFrom::Start(start_offset))?;
+
+        let mut entries = Vec::new();
+        let mut file_offset = start_offset;
+        let mut buf = Vec::new();
+        let mut read_buf = vec![0u8; 64 * 1024];
+        let mut corruption: Option<WalCorruptionInfo> = None;
+
+        loop {
+            let bytes_read = reader.read(&mut read_buf)?;
+            if bytes_read == 0 {
+                break;
+            }
+
+            buf.extend_from_slice(&read_buf[..bytes_read]);
+
+            let mut offset_in_buf = 0;
+            while offset_in_buf < buf.len() {
+                match decode_entry(&buf[offset_in_buf..], file_offset) {
+                    Ok((entry, bytes_consumed)) => {
+                        entries.push(entry);
+                        offset_in_buf += bytes_consumed;
+                        file_offset += bytes_consumed as u64;
+                    }
+                    Err(StrataError::Storage { ref message, .. }) if message.contains("Incomplete entry") => {
+                        break;
+                    }
+                    Err(StrataError::Corruption { message }) => {
+                        corruption = Some(WalCorruptionInfo {
+                            offset: file_offset,
+                            message,
+                            entries_before_corruption: entries.len(),
+                        });
+                        // Stop reading on corruption
+                        buf.clear();
+                        break;
+                    }
+                    Err(_) => {
+                        break;
+                    }
+                }
+            }
+
+            if corruption.is_some() {
+                break;
+            }
+
+            if offset_in_buf > 0 {
+                buf.drain(..offset_in_buf);
+            }
+
+            if bytes_read < read_buf.len() && !buf.is_empty() {
+                break;
+            }
+        }
+
+        Ok(WalReadResult {
+            entries,
+            bytes_read: file_offset - start_offset,
+            corruption,
+        })
+    }
+
     /// Get current file size (offset for next write)
     pub fn size(&self) -> u64 {
         self.current_offset.load(Ordering::SeqCst)
@@ -806,6 +920,152 @@ impl WAL {
     /// Get durability mode
     pub fn durability_mode(&self) -> DurabilityMode {
         self.durability_mode
+    }
+
+    /// Truncate WAL to specified offset
+    ///
+    /// Removes all data after the given offset. This is used after a checkpoint
+    /// to reclaim disk space by removing entries that are no longer needed
+    /// (their state is captured in the snapshot).
+    ///
+    /// # Safety
+    ///
+    /// This operation is destructive and cannot be undone. Only truncate after:
+    /// 1. A snapshot has been successfully written and verified
+    /// 2. The snapshot contains all data up to the truncation point
+    ///
+    /// # Arguments
+    ///
+    /// * `offset` - Byte offset to truncate to (data after this offset is removed)
+    ///
+    /// # Returns
+    ///
+    /// * `Ok(())` - If truncation succeeded
+    /// * `Err` - If truncation fails (file system error, invalid offset, etc.)
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// use strata_durability::wal::{WAL, DurabilityMode};
+    ///
+    /// let mut wal = WAL::open("data/wal/segment.wal", DurabilityMode::default())?;
+    ///
+    /// // After creating a snapshot at offset 10000...
+    /// wal.truncate_to(10000)?;
+    /// assert_eq!(wal.size(), 10000);
+    /// ```
+    pub fn truncate_to(&mut self, offset: u64) -> Result<()> {
+        // Flush any pending writes first
+        self.flush()?;
+
+        // Validate offset
+        let current_size = self.current_offset.load(Ordering::SeqCst);
+        if offset > current_size {
+            return Err(StrataError::invalid_input(format!(
+                "Cannot truncate to offset {} - WAL size is only {}",
+                offset, current_size
+            )));
+        }
+
+        // Close current writer and truncate the file
+        {
+            let mut writer = self.writer.lock();
+            writer
+                .flush()
+                .map_err(|e| StrataError::storage(format!("Failed to flush before truncate: {}", e)))?;
+
+            // Get underlying file and truncate
+            let file = writer.get_mut();
+            file.set_len(offset)
+                .map_err(|e| StrataError::storage(format!("Failed to truncate WAL: {}", e)))?;
+
+            // Sync the truncation to disk
+            file.sync_all()
+                .map_err(|e| StrataError::storage(format!("Failed to sync after truncate: {}", e)))?;
+        }
+
+        // Update current offset
+        self.current_offset.store(offset, Ordering::SeqCst);
+
+        Ok(())
+    }
+
+    /// Find the last checkpoint in the WAL and return its offset
+    ///
+    /// Scans the WAL for Checkpoint entries and returns the byte offset
+    /// immediately after the last checkpoint. This offset can be used for
+    /// safe truncation after verifying the corresponding snapshot.
+    ///
+    /// # Returns
+    ///
+    /// * `Ok(Some((offset, snapshot_id, version)))` - Offset after checkpoint, snapshot ID, and version
+    /// * `Ok(None)` - No checkpoints found in WAL
+    /// * `Err` - If reading WAL fails
+    pub fn find_last_checkpoint(&self) -> Result<Option<(u64, uuid::Uuid, u64)>> {
+        // Flush any buffered writes before reading
+        {
+            let mut writer = self.writer.lock();
+            if let Err(e) = writer.flush() {
+                error!(error = %e, "WAL flush before checkpoint scan failed");
+            }
+        }
+
+        let mut last_checkpoint: Option<(uuid::Uuid, u64)> = None;
+        let mut offset: u64 = 0;
+        let mut last_checkpoint_end_offset: u64 = 0;
+
+        // Read WAL while tracking byte offsets
+        let file = std::fs::File::open(&self.path)?;
+        let mut reader = std::io::BufReader::new(file);
+        let mut buf = Vec::new();
+        let mut read_buf = vec![0u8; 64 * 1024];
+
+        loop {
+            let bytes_read = reader.read(&mut read_buf)?;
+            if bytes_read == 0 {
+                break;
+            }
+
+            buf.extend_from_slice(&read_buf[..bytes_read]);
+
+            let mut pos = 0;
+            while pos < buf.len() {
+                match crate::encoding::decode_entry(&buf[pos..], offset) {
+                    Ok((entry, consumed)) => {
+                        if let WALEntry::Checkpoint {
+                            snapshot_id,
+                            version,
+                            ..
+                        } = entry
+                        {
+                            last_checkpoint = Some((snapshot_id, version));
+                            last_checkpoint_end_offset = offset + consumed as u64;
+                        }
+                        pos += consumed;
+                        offset += consumed as u64;
+                    }
+                    Err(StrataError::Storage { ref message, .. }) if message.contains("Incomplete entry") => {
+                        // Need more data
+                        break;
+                    }
+                    Err(_) => {
+                        // Corruption or other error - stop scanning
+                        buf.clear();
+                        break;
+                    }
+                }
+            }
+
+            if pos > 0 {
+                buf.drain(..pos);
+            }
+
+            if bytes_read < read_buf.len() {
+                break;
+            }
+        }
+
+        Ok(last_checkpoint.map(|(id, ver)| (last_checkpoint_end_offset, id, ver)))
     }
 }
 
@@ -1578,5 +1838,189 @@ mod tests {
             let decoded: WALEntry = bincode::deserialize(&encoded).expect("deserialization failed");
             assert_eq!(entry, decoded);
         }
+    }
+
+    // ========================================================================
+    // WAL Truncation Tests
+    // ========================================================================
+
+    #[test]
+    fn test_truncate_to() {
+        let temp_dir = TempDir::new().unwrap();
+        let wal_path = temp_dir.path().join("truncate.wal");
+
+        let mut wal = WAL::open(&wal_path, DurabilityMode::default()).unwrap();
+
+        let run_id = RunId::new();
+        let entry1 = WALEntry::BeginTxn {
+            txn_id: 1,
+            run_id,
+            timestamp: now(),
+        };
+        let entry2 = WALEntry::CommitTxn { txn_id: 1, run_id };
+
+        // Append entries and get offsets
+        let offset1 = wal.append(&entry1).unwrap();
+        let offset2 = wal.append(&entry2).unwrap();
+        wal.flush().unwrap();
+
+        // Verify both entries are readable
+        let entries = wal.read_all().unwrap();
+        assert_eq!(entries.len(), 2);
+
+        // Truncate to after first entry
+        wal.truncate_to(offset2).unwrap();
+        assert_eq!(wal.size(), offset2);
+
+        // Read should only return first entry
+        let entries = wal.read_all().unwrap();
+        assert_eq!(entries.len(), 1);
+        assert_eq!(entries[0], entry1);
+
+        // Truncate to beginning
+        wal.truncate_to(0).unwrap();
+        assert_eq!(wal.size(), 0);
+
+        // Read should return empty
+        let entries = wal.read_all().unwrap();
+        assert_eq!(entries.len(), 0);
+    }
+
+    #[test]
+    fn test_truncate_invalid_offset() {
+        let temp_dir = TempDir::new().unwrap();
+        let wal_path = temp_dir.path().join("truncate_invalid.wal");
+
+        let mut wal = WAL::open(&wal_path, DurabilityMode::default()).unwrap();
+
+        // Try to truncate to offset beyond file size
+        let result = wal.truncate_to(1000);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_find_last_checkpoint() {
+        let temp_dir = TempDir::new().unwrap();
+        let wal_path = temp_dir.path().join("checkpoint.wal");
+
+        let mut wal = WAL::open(&wal_path, DurabilityMode::default()).unwrap();
+
+        let run_id = RunId::new();
+
+        // Append entries without checkpoint
+        wal.append(&WALEntry::BeginTxn {
+            txn_id: 1,
+            run_id,
+            timestamp: now(),
+        }).unwrap();
+
+        // No checkpoint yet
+        let result = wal.find_last_checkpoint().unwrap();
+        assert!(result.is_none());
+
+        // Add checkpoint
+        let snapshot_id = uuid::Uuid::new_v4();
+        wal.append(&WALEntry::Checkpoint {
+            snapshot_id,
+            version: 100,
+            active_runs: vec![run_id],
+        }).unwrap();
+
+        // More entries after checkpoint
+        wal.append(&WALEntry::CommitTxn { txn_id: 1, run_id }).unwrap();
+        wal.flush().unwrap();
+
+        // Find checkpoint
+        let result = wal.find_last_checkpoint().unwrap();
+        assert!(result.is_some());
+
+        let (offset, found_id, version) = result.unwrap();
+        assert_eq!(found_id, snapshot_id);
+        assert_eq!(version, 100);
+        assert!(offset > 0);
+    }
+
+    // ========================================================================
+    // Detailed Read Tests
+    // ========================================================================
+
+    #[test]
+    fn test_read_entries_detailed() {
+        let temp_dir = TempDir::new().unwrap();
+        let wal_path = temp_dir.path().join("detailed.wal");
+
+        let mut wal = WAL::open(&wal_path, DurabilityMode::default()).unwrap();
+
+        let run_id = RunId::new();
+        let entry1 = WALEntry::BeginTxn {
+            txn_id: 1,
+            run_id,
+            timestamp: now(),
+        };
+        let entry2 = WALEntry::CommitTxn { txn_id: 1, run_id };
+
+        wal.append(&entry1).unwrap();
+        wal.append(&entry2).unwrap();
+        wal.flush().unwrap();
+
+        // Read detailed result
+        let result = wal.read_entries_detailed(0).unwrap();
+
+        assert_eq!(result.entries.len(), 2);
+        assert!(result.bytes_read > 0);
+        assert!(result.corruption.is_none());
+    }
+
+    #[test]
+    fn test_read_entries_detailed_detects_corruption() {
+        let temp_dir = TempDir::new().unwrap();
+        let wal_path = temp_dir.path().join("corrupt_detailed.wal");
+
+        // Write entries and record entry boundaries
+        let mut entry_offsets = Vec::new();
+        {
+            let mut wal = WAL::open(&wal_path, DurabilityMode::Strict).unwrap();
+            let run_id = RunId::new();
+
+            for i in 0..5 {
+                let offset = wal.append(&WALEntry::BeginTxn {
+                    txn_id: i,
+                    run_id,
+                    timestamp: now(),
+                }).unwrap();
+                entry_offsets.push(offset);
+            }
+            wal.flush().unwrap();
+        }
+
+        // Corrupt the file AFTER the second entry (in the third entry)
+        // This ensures we can read at least 2 entries before hitting corruption
+        let corrupt_offset = entry_offsets[2] + 10; // 10 bytes into third entry
+        {
+            use std::io::Write;
+            let mut file = std::fs::OpenOptions::new()
+                .write(true)
+                .open(&wal_path)
+                .unwrap();
+            file.seek(SeekFrom::Start(corrupt_offset)).unwrap();
+            file.write_all(&[0xFF; 20]).unwrap(); // Write garbage
+            file.sync_all().unwrap();
+        }
+
+        // Read with detailed method
+        let wal = WAL::open(&wal_path, DurabilityMode::default()).unwrap();
+        let result = wal.read_entries_detailed(0).unwrap();
+
+        // Should have read exactly 2 entries before corruption
+        assert_eq!(result.entries.len(), 2, "Should read 2 entries before corruption");
+
+        // Corruption info should be present
+        assert!(result.corruption.is_some(), "Should detect corruption");
+        let corruption = result.corruption.unwrap();
+
+        // Corruption offset should be at the start of the third entry
+        assert_eq!(corruption.offset, entry_offsets[2], "Corruption offset should be at third entry");
+        assert!(!corruption.message.is_empty(), "Corruption message should not be empty");
+        assert_eq!(corruption.entries_before_corruption, 2, "Should report 2 entries before corruption");
     }
 }

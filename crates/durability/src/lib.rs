@@ -42,7 +42,7 @@ pub use snapshot_types::{
     now_micros, primitive_ids, PrimitiveSection, SnapshotEnvelope, SnapshotError, SnapshotHeader,
     SnapshotInfo, SNAPSHOT_HEADER_SIZE, SNAPSHOT_MAGIC, SNAPSHOT_VERSION_1,
 };
-pub use wal::{DurabilityMode, WALEntry, WAL};
+pub use wal::{DurabilityMode, WalCorruptionInfo, WalReadResult, WALEntry, WAL};
 pub use wal_entry_types::{WalEntryType, WalEntryTypeError};
 
 // RunBundle types

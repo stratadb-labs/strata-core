@@ -58,6 +58,12 @@ pub struct ReplayStats {
     pub orphaned_entries: usize,
     /// Number of transactions skipped by filter
     pub txns_filtered: usize,
+    /// Number of corrupted entries detected during WAL read
+    ///
+    /// When the WAL reader encounters CRC mismatches or deserialization failures,
+    /// it stops reading and records the count. This helps diagnose disk corruption
+    /// or partial write issues.
+    pub corrupted_entries: usize,
     // JSON operations
     /// Number of JSON Create operations applied
     pub json_creates_applied: usize,
