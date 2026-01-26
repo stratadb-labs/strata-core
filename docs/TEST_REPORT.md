@@ -29,7 +29,6 @@
 | strata-engine | 148 | 0 | ✅ |
 | strata-primitives | 424 | 4 | ⚠️ |
 | strata-search | 58 | 0 | ✅ |
-| strata-wire | 124 | 0 | ✅ |
 | strata-api | 85 | 1 | ⚠️ |
 
 ---

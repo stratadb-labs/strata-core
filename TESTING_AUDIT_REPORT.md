@@ -16,7 +16,6 @@ This document evaluates the quality of unit and integration tests across all cra
 | **strata-primitives** | **A** | **A** | ✅ **RESOLVED**: 56 adversarial + business logic tests added |
 | strata-api | C- | N/A | **CRITICAL**: 32.6% shallow tests, no facade behavioral tests |
 | strata-search | B | B | Missing BM25 formula verification, budget enforcement |
-| strata-wire | B | N/A | panic!() in tests instead of assertions |
 
 ---
 
@@ -539,53 +538,6 @@ These are enhancements, not gaps - current coverage is comprehensive for product
 - **Budget timeout handling** - Search stopping when budget exhausted
 - **Stats aggregation** - elapsed_micros, candidates_considered not verified
 - **Error handling in sub-searches** - Primitive-specific search failures
-
----
-
-## 9. strata-wire
-
-**Overall Grade: B**
-
-### Strengths
-- Comprehensive coverage of basic types (Null, Bool, Int, Float, String, Bytes, Array, Object)
-- Special float handling (NaN, +Inf, -Inf, -0.0) well-tested
-- Dedicated round-trip testing module
-- Wire protocol format verification (request/response structure)
-- Error path testing (invalid JSON, empty input, invalid base64)
-
-### Issues Found
-
-#### HIGH Priority
-
-| File | Test/Area | Issue |
-|------|-----------|-------|
-| decode.rs | 11 tests | Uses `panic!("Expected Float")` instead of proper assertions - makes debugging harder |
-| error.rs | All tests | Only use `assert!(json.contains(...))` - never parse and validate actual JSON structure |
-| envelope.rs | Missing tests | No test for decode_request/decode_response with missing required fields |
-| version.rs | Missing tests | No test for decode with missing "type" or "value" field |
-
-#### MEDIUM Priority
-
-| File | Test/Area | Issue |
-|------|-----------|-------|
-| decode.rs | Float tests | Inconsistent epsilon handling - uses `f64::EPSILON` (~2.2e-16) vs `1.0` tolerance |
-| encode.rs | Edge cases | Missing very large numbers, unicode escape sequences, surrogate pairs |
-| decode.rs | Edge cases | Missing trailing commas `[1,2,]`, duplicate keys, number overflow |
-| error.rs | Round-trip | No round-trip test (encode then decode) for error module |
-| envelope.rs | Error handling | No tests for malformed error structures or contradictory ok/error fields |
-
-#### LOW Priority
-
-| File | Test/Area | Issue |
-|------|-----------|-------|
-| encode.rs | Trivial tests | test_encode_null, test_encode_bool_true/false - obvious behavior |
-| encode.rs | Redundant tests | Three separate Int tests when parameterized approach would be cleaner |
-| envelope.rs | Format checks | test_success_response_ok_is_bool could use proper parsing |
-
-### Missing Coverage
-- **Malformed JSON variants** - trailing commas, duplicate keys, number overflow
-- **Unicode edge cases** - surrogate pairs, control characters
-- **Version decode errors** - missing fields, negative values, fractional parts
 
 ---
 

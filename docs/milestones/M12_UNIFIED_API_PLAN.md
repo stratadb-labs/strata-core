@@ -729,7 +729,6 @@ Crates to update:
 - `strata-concurrency`
 - `strata-durability`
 - `strata-search`
-- `strata-wire`
 
 #### 7.2 Add `#[doc(hidden)]`
 
