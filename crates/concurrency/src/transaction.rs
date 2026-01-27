@@ -1451,9 +1451,29 @@ impl JsonStoreExt for TransactionContext {
     fn json_exists(&mut self, key: &Key) -> Result<bool> {
         self.ensure_active()?;
 
-        // Check if document was deleted in this transaction
-        // (We track document deletes in json_writes as well)
-        // For now, check the snapshot
+        // Check write buffer first (read-your-writes)
+        // Look for root-level Set or Delete operations on this key
+        if let Some(writes) = &self.json_writes {
+            for entry in writes.iter().rev() {
+                if entry.key == *key {
+                    match &entry.patch {
+                        JsonPatch::Set { path, .. } if path.is_root() => {
+                            // Document was created/replaced in this transaction
+                            return Ok(true);
+                        }
+                        JsonPatch::Delete { path } if path.is_root() => {
+                            // Document was deleted in this transaction
+                            return Ok(false);
+                        }
+                        _ => {
+                            // Partial update - continue checking for root operations
+                        }
+                    }
+                }
+            }
+        }
+
+        // Fall back to snapshot
         let snapshot = self.snapshot.as_ref().ok_or_else(|| {
             StrataError::invalid_input("Transaction has no snapshot for reads".to_string())
         })?;

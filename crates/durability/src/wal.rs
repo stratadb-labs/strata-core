@@ -621,7 +621,12 @@ impl WAL {
     ///
     /// * `Ok(u64)` - Offset where entry was written
     /// * `Err` - If encoding or writing fails
-    pub fn append(&mut self, entry: &WALEntry) -> Result<u64> {
+    ///
+    /// # Thread Safety
+    ///
+    /// This method is thread-safe. Multiple threads can call append concurrently.
+    /// Internal locking ensures entries are written atomically.
+    pub fn append(&self, entry: &WALEntry) -> Result<u64> {
         let offset = self.current_offset.load(Ordering::SeqCst);
 
         // Encode entry
@@ -683,7 +688,11 @@ impl WAL {
     ///
     /// Note: This flushes to OS buffers, not necessarily to disk.
     /// For true durability, use fsync().
-    pub fn flush(&mut self) -> Result<()> {
+    ///
+    /// # Thread Safety
+    ///
+    /// This method is thread-safe.
+    pub fn flush(&self) -> Result<()> {
         let mut writer = self.writer.lock();
         writer
             .flush()

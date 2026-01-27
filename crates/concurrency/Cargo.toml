@@ -13,6 +13,7 @@ strata-core = { path = "../core" }
 strata-storage = { path = "../storage" }
 strata-durability = { path = "../durability" }
 chrono = { workspace = true }
+dashmap = { workspace = true }
 parking_lot = { workspace = true }
 rmp-serde = { workspace = true }
 serde = { workspace = true }

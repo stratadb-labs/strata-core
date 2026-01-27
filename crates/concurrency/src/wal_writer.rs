@@ -9,7 +9,7 @@
 //! ## Usage
 //!
 //! ```ignore
-//! let writer = TransactionWALWriter::new(&mut wal, txn_id, run_id);
+//! let writer = TransactionWALWriter::new(&wal, txn_id, run_id);
 //! writer.write_begin()?;
 //! // ... write operations via TransactionContext.write_to_wal() ...
 //! writer.write_commit()?;
@@ -31,8 +31,13 @@ use strata_durability::wal::{WALEntry, WAL};
 /// - BeginTxn: Written when transaction starts commit process
 /// - Write/Delete: Written for each operation in the transaction
 /// - CommitTxn: Written to mark transaction as durable (DURABILITY POINT)
+///
+/// # Thread Safety
+///
+/// TransactionWALWriter takes a shared reference to WAL because WAL is
+/// internally thread-safe. Multiple writers can operate concurrently.
 pub struct TransactionWALWriter<'a> {
-    wal: &'a mut WAL,
+    wal: &'a WAL,
     txn_id: u64,
     run_id: RunId,
 }
@@ -41,10 +46,10 @@ impl<'a> TransactionWALWriter<'a> {
     /// Create a new WAL writer for a transaction
     ///
     /// # Arguments
-    /// * `wal` - WAL to write to
+    /// * `wal` - WAL to write to (shared reference, WAL is internally thread-safe)
     /// * `txn_id` - Unique transaction ID
     /// * `run_id` - Run ID for this transaction
-    pub fn new(wal: &'a mut WAL, txn_id: u64, run_id: RunId) -> Self {
+    pub fn new(wal: &'a WAL, txn_id: u64, run_id: RunId) -> Self {
         TransactionWALWriter {
             wal,
             txn_id,
@@ -276,10 +281,10 @@ mod tests {
 
     #[test]
     fn test_write_begin_creates_begin_txn_entry() {
-        let (mut wal, _temp) = create_test_wal();
+        let (wal, _temp) = create_test_wal();
         let run_id = RunId::new();
 
-        let mut writer = TransactionWALWriter::new(&mut wal, 1, run_id);
+        let mut writer = TransactionWALWriter::new(&wal, 1, run_id);
         writer.write_begin().unwrap();
 
         let entries = wal.read_all().unwrap();
@@ -300,12 +305,12 @@ mod tests {
 
     #[test]
     fn test_write_put_creates_write_entry() {
-        let (mut wal, _temp) = create_test_wal();
+        let (wal, _temp) = create_test_wal();
         let run_id = RunId::new();
         let ns = create_test_namespace(run_id);
         let key = create_test_key(&ns, "test_key");
 
-        let mut writer = TransactionWALWriter::new(&mut wal, 1, run_id);
+        let mut writer = TransactionWALWriter::new(&wal, 1, run_id);
         writer.write_put(key.clone(), Value::Int(42), 100).unwrap();
 
         let entries = wal.read_all().unwrap();
@@ -329,12 +334,12 @@ mod tests {
 
     #[test]
     fn test_write_delete_creates_delete_entry() {
-        let (mut wal, _temp) = create_test_wal();
+        let (wal, _temp) = create_test_wal();
         let run_id = RunId::new();
         let ns = create_test_namespace(run_id);
         let key = create_test_key(&ns, "test_key");
 
-        let mut writer = TransactionWALWriter::new(&mut wal, 1, run_id);
+        let mut writer = TransactionWALWriter::new(&wal, 1, run_id);
         writer.write_delete(key.clone(), 100).unwrap();
 
         let entries = wal.read_all().unwrap();
@@ -356,10 +361,10 @@ mod tests {
 
     #[test]
     fn test_write_commit_creates_commit_txn_entry() {
-        let (mut wal, _temp) = create_test_wal();
+        let (wal, _temp) = create_test_wal();
         let run_id = RunId::new();
 
-        let mut writer = TransactionWALWriter::new(&mut wal, 1, run_id);
+        let mut writer = TransactionWALWriter::new(&wal, 1, run_id);
         writer.write_commit().unwrap();
 
         let entries = wal.read_all().unwrap();
@@ -379,10 +384,10 @@ mod tests {
 
     #[test]
     fn test_write_abort_creates_abort_txn_entry() {
-        let (mut wal, _temp) = create_test_wal();
+        let (wal, _temp) = create_test_wal();
         let run_id = RunId::new();
 
-        let mut writer = TransactionWALWriter::new(&mut wal, 1, run_id);
+        let mut writer = TransactionWALWriter::new(&wal, 1, run_id);
         writer.write_abort().unwrap();
 
         let entries = wal.read_all().unwrap();
@@ -402,13 +407,13 @@ mod tests {
 
     #[test]
     fn test_full_transaction_lifecycle() {
-        let (mut wal, _temp) = create_test_wal();
+        let (wal, _temp) = create_test_wal();
         let run_id = RunId::new();
         let ns = create_test_namespace(run_id);
         let key1 = create_test_key(&ns, "key1");
         let key2 = create_test_key(&ns, "key2");
 
-        let mut writer = TransactionWALWriter::new(&mut wal, 42, run_id);
+        let mut writer = TransactionWALWriter::new(&wal, 42, run_id);
 
         // Write transaction sequence
         writer.write_begin().unwrap();
@@ -439,10 +444,10 @@ mod tests {
 
     #[test]
     fn test_writer_accessors() {
-        let (mut wal, _temp) = create_test_wal();
+        let (wal, _temp) = create_test_wal();
         let run_id = RunId::new();
 
-        let writer = TransactionWALWriter::new(&mut wal, 123, run_id);
+        let writer = TransactionWALWriter::new(&wal, 123, run_id);
 
         assert_eq!(writer.txn_id(), 123);
         assert_eq!(writer.run_id(), run_id);
@@ -450,14 +455,14 @@ mod tests {
 
     #[test]
     fn test_multiple_transactions() {
-        let (mut wal, _temp) = create_test_wal();
+        let (wal, _temp) = create_test_wal();
         let run_id = RunId::new();
         let ns = create_test_namespace(run_id);
         let key = create_test_key(&ns, "key");
 
         // Transaction 1
         {
-            let mut writer = TransactionWALWriter::new(&mut wal, 1, run_id);
+            let mut writer = TransactionWALWriter::new(&wal, 1, run_id);
             writer.write_begin().unwrap();
             writer.write_put(key.clone(), Value::Int(10), 100).unwrap();
             writer.write_commit().unwrap();
@@ -465,7 +470,7 @@ mod tests {
 
         // Transaction 2
         {
-            let mut writer = TransactionWALWriter::new(&mut wal, 2, run_id);
+            let mut writer = TransactionWALWriter::new(&wal, 2, run_id);
             writer.write_begin().unwrap();
             writer.write_put(key.clone(), Value::Int(20), 101).unwrap();
             writer.write_commit().unwrap();

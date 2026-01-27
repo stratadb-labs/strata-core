@@ -248,7 +248,7 @@ mod tests {
 
         // Write committed transaction to WAL
         {
-            let mut wal = WAL::open(&wal_path, DurabilityMode::Strict).unwrap();
+            let wal = WAL::open(&wal_path, DurabilityMode::Strict).unwrap();
             wal.append(&WALEntry::BeginTxn {
                 txn_id: 1,
                 run_id,
@@ -296,7 +296,7 @@ mod tests {
 
         // Write incomplete transaction (crash scenario)
         {
-            let mut wal = WAL::open(&wal_path, DurabilityMode::Strict).unwrap();
+            let wal = WAL::open(&wal_path, DurabilityMode::Strict).unwrap();
             wal.append(&WALEntry::BeginTxn {
                 txn_id: 1,
                 run_id,
@@ -336,7 +336,7 @@ mod tests {
 
         // Write with non-sequential versions (like real usage)
         {
-            let mut wal = WAL::open(&wal_path, DurabilityMode::Strict).unwrap();
+            let wal = WAL::open(&wal_path, DurabilityMode::Strict).unwrap();
 
             // Transaction 1: version 100
             wal.append(&WALEntry::BeginTxn {
@@ -409,7 +409,7 @@ mod tests {
 
         // Create WAL with some transactions
         {
-            let mut wal = WAL::open(&wal_path, DurabilityMode::Strict).unwrap();
+            let wal = WAL::open(&wal_path, DurabilityMode::Strict).unwrap();
 
             for i in 1..=5u64 {
                 wal.append(&WALEntry::BeginTxn {
@@ -462,7 +462,7 @@ mod tests {
         let ns = create_test_namespace(run_id);
 
         {
-            let mut wal = WAL::open(&wal_path, DurabilityMode::Strict).unwrap();
+            let wal = WAL::open(&wal_path, DurabilityMode::Strict).unwrap();
 
             // Txn 1: Committed
             wal.append(&WALEntry::BeginTxn {
@@ -573,7 +573,7 @@ mod tests {
         let key = Key::new_kv(ns, "deleted_key");
 
         {
-            let mut wal = WAL::open(&wal_path, DurabilityMode::Strict).unwrap();
+            let wal = WAL::open(&wal_path, DurabilityMode::Strict).unwrap();
 
             // Write then delete in same transaction
             wal.append(&WALEntry::BeginTxn {
@@ -686,7 +686,7 @@ mod tests {
         let run_id = RunId::new();
 
         {
-            let mut wal = WAL::open(&wal_path, DurabilityMode::Strict).unwrap();
+            let wal = WAL::open(&wal_path, DurabilityMode::Strict).unwrap();
             wal.append(&WALEntry::BeginTxn {
                 txn_id: 1,
                 run_id,
@@ -715,7 +715,7 @@ mod tests {
         let ns = create_test_namespace(run_id);
 
         {
-            let mut wal = WAL::open(&wal_path, DurabilityMode::Strict).unwrap();
+            let wal = WAL::open(&wal_path, DurabilityMode::Strict).unwrap();
 
             wal.append(&WALEntry::BeginTxn {
                 txn_id: 1,
@@ -774,7 +774,7 @@ mod tests {
         let ns = create_test_namespace(run_id);
 
         {
-            let mut wal = WAL::open(&wal_path, DurabilityMode::Strict).unwrap();
+            let wal = WAL::open(&wal_path, DurabilityMode::Strict).unwrap();
 
             wal.append(&WALEntry::BeginTxn {
                 txn_id: 1,
@@ -822,7 +822,7 @@ mod tests {
         let ns = create_test_namespace(run_id);
 
         {
-            let mut wal = WAL::open(&wal_path, DurabilityMode::Strict).unwrap();
+            let wal = WAL::open(&wal_path, DurabilityMode::Strict).unwrap();
 
             wal.append(&WALEntry::BeginTxn {
                 txn_id: 1,
@@ -874,7 +874,7 @@ mod tests {
         let ns = create_test_namespace(run_id);
 
         {
-            let mut wal = WAL::open(&wal_path, DurabilityMode::Strict).unwrap();
+            let wal = WAL::open(&wal_path, DurabilityMode::Strict).unwrap();
 
             // Committed transaction
             wal.append(&WALEntry::BeginTxn {
@@ -943,7 +943,7 @@ mod tests {
         let ns_c = create_test_namespace(run_c);
 
         {
-            let mut wal = WAL::open(&wal_path, DurabilityMode::Strict).unwrap();
+            let wal = WAL::open(&wal_path, DurabilityMode::Strict).unwrap();
 
             // Three incomplete transactions from different runs
             wal.append(&WALEntry::BeginTxn {
@@ -1029,7 +1029,7 @@ mod tests {
         let ns = create_test_namespace(run_id);
 
         {
-            let mut wal = WAL::open(&wal_path, DurabilityMode::Strict).unwrap();
+            let wal = WAL::open(&wal_path, DurabilityMode::Strict).unwrap();
 
             wal.append(&WALEntry::BeginTxn {
                 txn_id: 1,
@@ -1086,7 +1086,7 @@ mod tests {
         let ns = create_test_namespace(run_id);
 
         {
-            let mut wal = WAL::open(&wal_path, DurabilityMode::Strict).unwrap();
+            let wal = WAL::open(&wal_path, DurabilityMode::Strict).unwrap();
 
             // Txn 1: Committed - write and delete
             wal.append(&WALEntry::BeginTxn {
@@ -1162,7 +1162,7 @@ mod tests {
         let ns_crash = create_test_namespace(run_crash);
 
         {
-            let mut wal = WAL::open(&wal_path, DurabilityMode::Strict).unwrap();
+            let wal = WAL::open(&wal_path, DurabilityMode::Strict).unwrap();
 
             // Interleaved operations from two runs
             wal.append(&WALEntry::BeginTxn {
@@ -1233,7 +1233,7 @@ mod tests {
         let ns = create_test_namespace(run_id);
 
         {
-            let mut wal = WAL::open(&wal_path, DurabilityMode::Strict).unwrap();
+            let wal = WAL::open(&wal_path, DurabilityMode::Strict).unwrap();
 
             // Create transaction with high version
             wal.append(&WALEntry::BeginTxn {
@@ -1281,7 +1281,7 @@ mod tests {
 
         // Phase 1: Normal operation - write 10 transactions
         {
-            let mut wal = WAL::open(&wal_path, DurabilityMode::Strict).unwrap();
+            let wal = WAL::open(&wal_path, DurabilityMode::Strict).unwrap();
             let storage = ShardedStore::new();
 
             for i in 1..=10u64 {
@@ -1349,7 +1349,7 @@ mod tests {
         let ns = create_test_namespace(run_id);
 
         {
-            let mut wal = WAL::open(&wal_path, DurabilityMode::Strict).unwrap();
+            let wal = WAL::open(&wal_path, DurabilityMode::Strict).unwrap();
 
             // Txn 1: Write key1
             wal.append(&WALEntry::BeginTxn {
@@ -1471,7 +1471,7 @@ mod tests {
         let ns = create_test_namespace(run_id);
 
         {
-            let mut wal = WAL::open(&wal_path, DurabilityMode::Strict).unwrap();
+            let wal = WAL::open(&wal_path, DurabilityMode::Strict).unwrap();
 
             // Write same key in multiple transactions
             for v in [100u64, 200, 300] {
@@ -1518,7 +1518,7 @@ mod tests {
 
         // Phase 1: Create initial state
         {
-            let mut wal = WAL::open(&wal_path, DurabilityMode::Strict).unwrap();
+            let wal = WAL::open(&wal_path, DurabilityMode::Strict).unwrap();
 
             wal.append(&WALEntry::BeginTxn {
                 txn_id: 1,
@@ -1564,7 +1564,7 @@ mod tests {
         let num_txns = 100;
 
         {
-            let mut wal = WAL::open(&wal_path, DurabilityMode::Strict).unwrap();
+            let wal = WAL::open(&wal_path, DurabilityMode::Strict).unwrap();
 
             for i in 1..=num_txns {
                 wal.append(&WALEntry::BeginTxn {
@@ -1612,7 +1612,7 @@ mod tests {
 
         // Create a representative WAL
         {
-            let mut wal = WAL::open(&wal_path, DurabilityMode::Strict).unwrap();
+            let wal = WAL::open(&wal_path, DurabilityMode::Strict).unwrap();
 
             // Committed transaction (version 100)
             wal.append(&WALEntry::BeginTxn {
