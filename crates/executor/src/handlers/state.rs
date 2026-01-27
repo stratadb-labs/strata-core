@@ -1,7 +1,7 @@
 //! State command handlers.
 //!
 //! This module implements handlers for the 8 serializable State commands.
-//! Note: state_transition, state_transition_or_init, and state_get_or_init
+//! Note: state_transition, state_transition_or_init, and state_read_or_init
 //! are excluded from the executor as they require closures.
 
 use std::sync::Arc;
@@ -30,8 +30,8 @@ pub fn state_set(
     Ok(Output::Version(bridge::extract_version(&versioned.version)))
 }
 
-/// Handle StateGet command.
-pub fn state_get(
+/// Handle StateRead command.
+pub fn state_read(
     p: &Arc<Primitives>,
     run: RunId,
     cell: String,

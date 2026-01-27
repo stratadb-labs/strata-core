@@ -68,7 +68,7 @@ fn test_command_compact() {
 #[test]
 fn test_command_kv_put() {
     test_command_round_trip(Command::KvPut {
-        run: RunId::from("default"),
+        run: Some(RunId::from("default")),
         key: "test-key".to_string(),
         value: Value::String("test-value".to_string()),
     });
@@ -77,7 +77,7 @@ fn test_command_kv_put() {
 #[test]
 fn test_command_kv_get() {
     test_command_round_trip(Command::KvGet {
-        run: RunId::from("default"),
+        run: Some(RunId::from("default")),
         key: "test-key".to_string(),
     });
 }
@@ -85,7 +85,7 @@ fn test_command_kv_get() {
 #[test]
 fn test_command_kv_delete() {
     test_command_round_trip(Command::KvDelete {
-        run: RunId::from("default"),
+        run: Some(RunId::from("default")),
         key: "test-key".to_string(),
     });
 }
@@ -93,7 +93,7 @@ fn test_command_kv_delete() {
 #[test]
 fn test_command_kv_exists() {
     test_command_round_trip(Command::KvExists {
-        run: RunId::from("default"),
+        run: Some(RunId::from("default")),
         key: "test-key".to_string(),
     });
 }
@@ -101,7 +101,7 @@ fn test_command_kv_exists() {
 #[test]
 fn test_command_kv_history() {
     test_command_round_trip(Command::KvHistory {
-        run: RunId::from("default"),
+        run: Some(RunId::from("default")),
         key: "test-key".to_string(),
         limit: Some(10),
         before: Some(100),
@@ -111,7 +111,7 @@ fn test_command_kv_history() {
 #[test]
 fn test_command_kv_incr() {
     test_command_round_trip(Command::KvIncr {
-        run: RunId::from("default"),
+        run: Some(RunId::from("default")),
         key: "counter".to_string(),
         delta: 5,
     });
@@ -120,7 +120,7 @@ fn test_command_kv_incr() {
 #[test]
 fn test_command_kv_cas_version() {
     test_command_round_trip(Command::KvCasVersion {
-        run: RunId::from("default"),
+        run: Some(RunId::from("default")),
         key: "test-key".to_string(),
         expected_version: Some(5),
         new_value: Value::Int(42),
@@ -130,7 +130,7 @@ fn test_command_kv_cas_version() {
 #[test]
 fn test_command_kv_mget() {
     test_command_round_trip(Command::KvMget {
-        run: RunId::from("default"),
+        run: Some(RunId::from("default")),
         keys: vec!["key1".to_string(), "key2".to_string()],
     });
 }
@@ -138,7 +138,7 @@ fn test_command_kv_mget() {
 #[test]
 fn test_command_kv_mput() {
     test_command_round_trip(Command::KvMput {
-        run: RunId::from("default"),
+        run: Some(RunId::from("default")),
         entries: vec![
             ("key1".to_string(), Value::Int(1)),
             ("key2".to_string(), Value::Int(2)),
@@ -153,7 +153,7 @@ fn test_command_kv_mput() {
 #[test]
 fn test_command_json_set() {
     test_command_round_trip(Command::JsonSet {
-        run: RunId::from("default"),
+        run: Some(RunId::from("default")),
         key: "doc1".to_string(),
         path: "$.name".to_string(),
         value: Value::String("Alice".to_string()),
@@ -163,7 +163,7 @@ fn test_command_json_set() {
 #[test]
 fn test_command_json_get() {
     test_command_round_trip(Command::JsonGet {
-        run: RunId::from("default"),
+        run: Some(RunId::from("default")),
         key: "doc1".to_string(),
         path: "$.name".to_string(),
     });
@@ -172,7 +172,7 @@ fn test_command_json_get() {
 #[test]
 fn test_command_json_search() {
     test_command_round_trip(Command::JsonSearch {
-        run: RunId::from("default"),
+        run: Some(RunId::from("default")),
         query: "alice".to_string(),
         k: 10,
     });
@@ -181,7 +181,7 @@ fn test_command_json_search() {
 #[test]
 fn test_command_json_array_push() {
     test_command_round_trip(Command::JsonArrayPush {
-        run: RunId::from("default"),
+        run: Some(RunId::from("default")),
         key: "doc1".to_string(),
         path: "$.items".to_string(),
         values: vec![Value::Int(1), Value::Int(2)],
@@ -195,7 +195,7 @@ fn test_command_json_array_push() {
 #[test]
 fn test_command_event_append() {
     test_command_round_trip(Command::EventAppend {
-        run: RunId::from("default"),
+        run: Some(RunId::from("default")),
         stream: "events".to_string(),
         payload: Value::Object(
             [("type".to_string(), Value::String("click".to_string()))]
@@ -208,7 +208,7 @@ fn test_command_event_append() {
 #[test]
 fn test_command_event_range() {
     test_command_round_trip(Command::EventRange {
-        run: RunId::from("default"),
+        run: Some(RunId::from("default")),
         stream: "events".to_string(),
         start: Some(0),
         end: Some(100),
@@ -219,7 +219,7 @@ fn test_command_event_range() {
 #[test]
 fn test_command_event_streams() {
     test_command_round_trip(Command::EventStreams {
-        run: RunId::from("default"),
+        run: Some(RunId::from("default")),
     });
 }
 
@@ -230,7 +230,7 @@ fn test_command_event_streams() {
 #[test]
 fn test_command_state_set() {
     test_command_round_trip(Command::StateSet {
-        run: RunId::from("default"),
+        run: Some(RunId::from("default")),
         cell: "counter".to_string(),
         value: Value::Int(42),
     });
@@ -239,7 +239,7 @@ fn test_command_state_set() {
 #[test]
 fn test_command_state_cas() {
     test_command_round_trip(Command::StateCas {
-        run: RunId::from("default"),
+        run: Some(RunId::from("default")),
         cell: "counter".to_string(),
         expected_counter: Some(5),
         value: Value::Int(6),
@@ -253,7 +253,7 @@ fn test_command_state_cas() {
 #[test]
 fn test_command_vector_upsert() {
     test_command_round_trip(Command::VectorUpsert {
-        run: RunId::from("default"),
+        run: Some(RunId::from("default")),
         collection: "embeddings".to_string(),
         key: "vec1".to_string(),
         vector: vec![0.1, 0.2, 0.3, 0.4],
@@ -268,7 +268,7 @@ fn test_command_vector_upsert() {
 #[test]
 fn test_command_vector_search() {
     test_command_round_trip(Command::VectorSearch {
-        run: RunId::from("default"),
+        run: Some(RunId::from("default")),
         collection: "embeddings".to_string(),
         query: vec![0.1, 0.2, 0.3, 0.4],
         k: 10,
@@ -280,7 +280,7 @@ fn test_command_vector_search() {
 #[test]
 fn test_command_vector_create_collection() {
     test_command_round_trip(Command::VectorCreateCollection {
-        run: RunId::from("default"),
+        run: Some(RunId::from("default")),
         collection: "embeddings".to_string(),
         dimension: 384,
         metric: DistanceMetric::Cosine,
@@ -472,8 +472,8 @@ fn test_output_vector_matches() {
 }
 
 #[test]
-fn test_output_vector_collection_info() {
-    test_output_round_trip(Output::VectorCollectionInfo(Some(CollectionInfo {
+fn test_output_vector_get_collection() {
+    test_output_round_trip(Output::VectorGetCollection(Some(CollectionInfo {
         name: "embeddings".to_string(),
         dimension: 384,
         metric: DistanceMetric::Cosine,
@@ -555,7 +555,7 @@ fn test_command_with_complex_value() {
     );
 
     test_command_round_trip(Command::KvPut {
-        run: RunId::from("default"),
+        run: Some(RunId::from("default")),
         key: "complex".to_string(),
         value: complex_value,
     });
@@ -564,8 +564,83 @@ fn test_command_with_complex_value() {
 #[test]
 fn test_command_with_bytes_value() {
     test_command_round_trip(Command::KvPut {
-        run: RunId::from("default"),
+        run: Some(RunId::from("default")),
         key: "binary".to_string(),
         value: Value::Bytes(vec![0, 1, 2, 255, 254, 253]),
     });
+}
+
+// =============================================================================
+// Optional Run Serialization Tests
+// =============================================================================
+
+#[test]
+fn test_command_with_run_none_round_trip() {
+    // Commands with run: None should serialize without a run field
+    // and deserialize back to run: None
+    let cmd = Command::KvPut {
+        run: None,
+        key: "test".to_string(),
+        value: Value::Int(42),
+    };
+    let json = serde_json::to_string(&cmd).unwrap();
+    assert!(!json.contains("run"), "run: None should be skipped in serialization");
+    let restored: Command = serde_json::from_str(&json).unwrap();
+    match restored {
+        Command::KvPut { run, key, value } => {
+            assert!(run.is_none(), "run should deserialize as None when omitted");
+            assert_eq!(key, "test");
+            assert_eq!(value, Value::Int(42));
+        }
+        _ => panic!("Wrong command variant"),
+    }
+}
+
+#[test]
+fn test_command_with_run_some_round_trip() {
+    // Commands with run: Some(...) should include the run field
+    let cmd = Command::KvGet {
+        run: Some(RunId::from("my-run")),
+        key: "test".to_string(),
+    };
+    let json = serde_json::to_string(&cmd).unwrap();
+    assert!(json.contains("run"), "run: Some should be included in serialization");
+    let restored: Command = serde_json::from_str(&json).unwrap();
+    match restored {
+        Command::KvGet { run, key } => {
+            assert_eq!(run, Some(RunId::from("my-run")));
+            assert_eq!(key, "test");
+        }
+        _ => panic!("Wrong command variant"),
+    }
+}
+
+#[test]
+fn test_command_json_omitted_run_deserializes() {
+    // Verify that JSON without a "run" field deserializes to run: None
+    let json = r#"{"KvPut":{"key":"foo","value":{"Int":42}}}"#;
+    let cmd: Command = serde_json::from_str(json).unwrap();
+    match cmd {
+        Command::KvPut { run, key, value } => {
+            assert!(run.is_none());
+            assert_eq!(key, "foo");
+            assert_eq!(value, Value::Int(42));
+        }
+        _ => panic!("Wrong command variant"),
+    }
+}
+
+#[test]
+fn test_command_json_explicit_run_deserializes() {
+    // Verify that JSON with "run": "default" still works
+    let json = r#"{"KvPut":{"run":"default","key":"foo","value":{"Int":42}}}"#;
+    let cmd: Command = serde_json::from_str(json).unwrap();
+    match cmd {
+        Command::KvPut { run, key, value } => {
+            assert_eq!(run, Some(RunId::from("default")));
+            assert_eq!(key, "foo");
+            assert_eq!(value, Value::Int(42));
+        }
+        _ => panic!("Wrong command variant"),
+    }
 }

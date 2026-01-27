@@ -158,8 +158,8 @@ pub fn vector_search(
     Ok(Output::VectorMatches(results?))
 }
 
-/// Handle VectorCollectionInfo command.
-pub fn vector_collection_info(
+/// Handle VectorGetCollection command.
+pub fn vector_get_collection(
     p: &Arc<Primitives>,
     run: RunId,
     collection: String,
@@ -168,7 +168,7 @@ pub fn vector_collection_info(
     convert_result(validate_not_internal_collection(&collection))?;
 
     let info = convert_vector_result(p.vector.get_collection(run_id, &collection))?;
-    Ok(Output::VectorCollectionInfo(info.map(|i| CollectionInfo {
+    Ok(Output::VectorGetCollection(info.map(|i| CollectionInfo {
         name: collection,
         dimension: i.value.config.dimension,
         metric: from_engine_metric(i.value.config.metric),
@@ -195,8 +195,8 @@ pub fn vector_create_collection(
     Ok(Output::Version(extract_version(&versioned.version)))
 }
 
-/// Handle VectorDropCollection command.
-pub fn vector_drop_collection(
+/// Handle VectorDeleteCollection command.
+pub fn vector_delete_collection(
     p: &Arc<Primitives>,
     run: RunId,
     collection: String,

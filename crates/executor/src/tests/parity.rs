@@ -32,7 +32,7 @@ fn test_kv_put_get_parity() {
 
     // Executor call to write key2
     let exec_result = executor.execute(Command::KvPut {
-        run: RunId::from("default"),
+        run: None,
         key: "key2".to_string(),
         value: Value::String("executor".into()),
     });
@@ -48,7 +48,7 @@ fn test_kv_put_get_parity() {
     // Now verify we can read back what was written via both methods
     let direct_value = p.kv.get(&run_id, "key1").unwrap();
     let exec_get = executor.execute(Command::KvGet {
-        run: RunId::from("default"),
+        run: None,
         key: "key2".to_string(),
     });
 
@@ -62,7 +62,7 @@ fn test_kv_put_get_parity() {
 
     // Cross-check: executor can read primitive write and vice versa
     let cross_read_exec = executor.execute(Command::KvGet {
-        run: RunId::from("default"),
+        run: None,
         key: "key1".to_string(),
     });
     match cross_read_exec {
@@ -86,7 +86,7 @@ fn test_kv_delete_parity() {
 
     // Delete via executor
     let result = executor.execute(Command::KvDelete {
-        run: RunId::from("default"),
+        run: None,
         key: "to-delete".to_string(),
     });
 
@@ -108,7 +108,7 @@ fn test_kv_exists_parity() {
 
     // Check via executor
     let result = executor.execute(Command::KvExists {
-        run: RunId::from("default"),
+        run: None,
         key: "exists-key".to_string(),
     });
 
@@ -119,7 +119,7 @@ fn test_kv_exists_parity() {
 
     // Check non-existent key
     let result2 = executor.execute(Command::KvExists {
-        run: RunId::from("default"),
+        run: None,
         key: "nonexistent".to_string(),
     });
 
@@ -139,7 +139,7 @@ fn test_kv_incr_parity() {
 
     // Increment via executor
     let result = executor.execute(Command::KvIncr {
-        run: RunId::from("default"),
+        run: None,
         key: "counter".to_string(),
         delta: 5,
     });
@@ -164,7 +164,7 @@ fn test_json_set_get_parity() {
 
     // Set via executor - use root path (empty string means root)
     let result = executor.execute(Command::JsonSet {
-        run: RunId::from("default"),
+        run: None,
         key: "doc1".to_string(),
         path: "".to_string(),  // Root path
         value: Value::Object(
@@ -182,7 +182,7 @@ fn test_json_set_get_parity() {
 
     // Get via executor - JsonGet returns MaybeVersioned
     let exec_get = executor.execute(Command::JsonGet {
-        run: RunId::from("default"),
+        run: None,
         key: "doc1".to_string(),
         path: ".name".to_string(),
     });
@@ -206,7 +206,7 @@ fn test_event_append_range_parity() {
 
     // Append via executor - EventAppend returns Version
     let result1 = executor.execute(Command::EventAppend {
-        run: RunId::from("default"),
+        run: None,
         stream: "events".to_string(),
         payload: Value::Object(
             [("type".to_string(), Value::String("click".into()))]
@@ -235,7 +235,7 @@ fn test_event_append_range_parity() {
 
     // Range query via executor
     let range_result = executor.execute(Command::EventRange {
-        run: RunId::from("default"),
+        run: None,
         stream: "events".to_string(),
         start: None,
         end: None,
@@ -261,7 +261,7 @@ fn test_state_set_get_parity() {
 
     // Set via executor
     let result = executor.execute(Command::StateSet {
-        run: RunId::from("default"),
+        run: None,
         cell: "cell1".to_string(),
         value: Value::Int(100),
     });
@@ -284,8 +284,8 @@ fn test_state_set_get_parity() {
     assert_eq!(bridge::extract_version(&versioned2.version), 1);
 
     // Get cell2 via executor
-    let exec_get = executor.execute(Command::StateGet {
-        run: RunId::from("default"),
+    let exec_get = executor.execute(Command::StateRead {
+        run: None,
         cell: "cell2".to_string(),
     });
 
@@ -308,7 +308,7 @@ fn test_vector_create_collection_parity() {
 
     // Create collection via executor
     let result = executor.execute(Command::VectorCreateCollection {
-        run: RunId::from("default"),
+        run: None,
         collection: "embeddings".to_string(),
         dimension: 4,
         metric: DistanceMetric::Cosine,
@@ -337,7 +337,7 @@ fn test_vector_upsert_search_parity() {
     // Upsert via executor
     executor
         .execute(Command::VectorUpsert {
-            run: RunId::from("default"),
+            run: None,
             collection: "vecs".to_string(),
             key: "v1".to_string(),
             vector: vec![1.0, 0.0, 0.0, 0.0],
@@ -358,7 +358,7 @@ fn test_vector_upsert_search_parity() {
 
     // Search via executor
     let search_result = executor.execute(Command::VectorSearch {
-        run: RunId::from("default"),
+        run: None,
         collection: "vecs".to_string(),
         query: vec![1.0, 0.0, 0.0, 0.0],
         k: 10,
@@ -486,7 +486,7 @@ fn test_run_isolation_parity() {
     // Write to run-a
     executor
         .execute(Command::KvPut {
-            run: RunId::from("550e8400-e29b-41d4-a716-446655440003"),
+            run: Some(RunId::from("550e8400-e29b-41d4-a716-446655440003")),
             key: "shared-key".to_string(),
             value: Value::String("from-a".into()),
         })
@@ -495,7 +495,7 @@ fn test_run_isolation_parity() {
     // Write to run-b
     executor
         .execute(Command::KvPut {
-            run: RunId::from("550e8400-e29b-41d4-a716-446655440004"),
+            run: Some(RunId::from("550e8400-e29b-41d4-a716-446655440004")),
             key: "shared-key".to_string(),
             value: Value::String("from-b".into()),
         })
@@ -503,7 +503,7 @@ fn test_run_isolation_parity() {
 
     // Read from run-a
     let result_a = executor.execute(Command::KvGet {
-        run: RunId::from("550e8400-e29b-41d4-a716-446655440003"),
+        run: Some(RunId::from("550e8400-e29b-41d4-a716-446655440003")),
         key: "shared-key".to_string(),
     });
 
@@ -516,7 +516,7 @@ fn test_run_isolation_parity() {
 
     // Read from run-b
     let result_b = executor.execute(Command::KvGet {
-        run: RunId::from("550e8400-e29b-41d4-a716-446655440004"),
+        run: Some(RunId::from("550e8400-e29b-41d4-a716-446655440004")),
         key: "shared-key".to_string(),
     });
 

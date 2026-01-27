@@ -80,8 +80,8 @@ pub fn event_range(
     Ok(Output::VersionedValues(filtered))
 }
 
-/// Handle EventGet command.
-pub fn event_get(
+/// Handle EventRead command.
+pub fn event_read(
     p: &Arc<Primitives>,
     run: RunId,
     stream: String,

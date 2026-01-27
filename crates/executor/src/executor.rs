@@ -27,18 +27,19 @@ use crate::{Command, Error, Output, Result};
 ///
 /// let executor = Executor::new(substrate);
 ///
-/// // Single command execution
+/// // Run is optional - omit it to use the default run
 /// let result = executor.execute(Command::KvPut {
-///     run: RunId::default(),
+///     run: None,
 ///     key: "foo".into(),
 ///     value: Value::Int(42),
 /// })?;
 ///
-/// // Batch execution
-/// let results = executor.execute_many(vec![
-///     Command::KvGet { run: RunId::default(), key: "foo".into() },
-///     Command::KvGet { run: RunId::default(), key: "bar".into() },
-/// ]);
+/// // Or provide an explicit run
+/// let result = executor.execute(Command::KvPut {
+///     run: Some(RunId::from("my-run")),
+///     key: "foo".into(),
+///     value: Value::Int(42),
+/// })?;
 /// ```
 pub struct Executor {
     primitives: Arc<Primitives>,
@@ -54,10 +55,13 @@ impl Executor {
 
     /// Execute a single command.
     ///
+    /// Resolves any `None` run fields to the default run before dispatch.
     /// Returns the command result or an error.
-    pub fn execute(&self, cmd: Command) -> Result<Output> {
+    pub fn execute(&self, mut cmd: Command) -> Result<Output> {
+        cmd.resolve_default_run();
+
         match cmd {
-            // Database commands (implemented as examples)
+            // Database commands
             Command::Ping => Ok(Output::Pong {
                 version: env!("CARGO_PKG_VERSION").to_string(),
             }),
@@ -81,18 +85,23 @@ impl Executor {
 
             // KV commands
             Command::KvPut { run, key, value } => {
+                let run = run.expect("resolved by resolve_default_run");
                 crate::handlers::kv::kv_put(&self.primitives, run, key, value)
             }
             Command::KvGet { run, key } => {
+                let run = run.expect("resolved by resolve_default_run");
                 crate::handlers::kv::kv_get(&self.primitives, run, key)
             }
             Command::KvGetAt { run, key, version } => {
+                let run = run.expect("resolved by resolve_default_run");
                 crate::handlers::kv::kv_get_at(&self.primitives, run, key, version)
             }
             Command::KvDelete { run, key } => {
+                let run = run.expect("resolved by resolve_default_run");
                 crate::handlers::kv::kv_delete(&self.primitives, run, key)
             }
             Command::KvExists { run, key } => {
+                let run = run.expect("resolved by resolve_default_run");
                 crate::handlers::kv::kv_exists(&self.primitives, run, key)
             }
             Command::KvHistory {
@@ -100,8 +109,12 @@ impl Executor {
                 key,
                 limit,
                 before,
-            } => crate::handlers::kv::kv_history(&self.primitives, run, key, limit, before),
+            } => {
+                let run = run.expect("resolved by resolve_default_run");
+                crate::handlers::kv::kv_history(&self.primitives, run, key, limit, before)
+            }
             Command::KvIncr { run, key, delta } => {
+                let run = run.expect("resolved by resolve_default_run");
                 crate::handlers::kv::kv_incr(&self.primitives, run, key, delta)
             }
             Command::KvCasVersion {
@@ -109,26 +122,33 @@ impl Executor {
                 key,
                 expected_version,
                 new_value,
-            } => crate::handlers::kv::kv_cas_version(
-                &self.primitives,
-                run,
-                key,
-                expected_version,
-                new_value,
-            ),
+            } => {
+                let run = run.expect("resolved by resolve_default_run");
+                crate::handlers::kv::kv_cas_version(
+                    &self.primitives,
+                    run,
+                    key,
+                    expected_version,
+                    new_value,
+                )
+            }
             Command::KvCasValue {
                 run,
                 key,
                 expected_value,
                 new_value,
-            } => crate::handlers::kv::kv_cas_value(
-                &self.primitives,
-                run,
-                key,
-                expected_value,
-                new_value,
-            ),
+            } => {
+                let run = run.expect("resolved by resolve_default_run");
+                crate::handlers::kv::kv_cas_value(
+                    &self.primitives,
+                    run,
+                    key,
+                    expected_value,
+                    new_value,
+                )
+            }
             Command::KvKeys { run, prefix, limit } => {
+                let run = run.expect("resolved by resolve_default_run");
                 crate::handlers::kv::kv_keys(&self.primitives, run, prefix, limit)
             }
             Command::KvScan {
@@ -136,17 +156,24 @@ impl Executor {
                 prefix,
                 limit,
                 cursor,
-            } => crate::handlers::kv::kv_scan(&self.primitives, run, prefix, limit, cursor),
+            } => {
+                let run = run.expect("resolved by resolve_default_run");
+                crate::handlers::kv::kv_scan(&self.primitives, run, prefix, limit, cursor)
+            }
             Command::KvMget { run, keys } => {
+                let run = run.expect("resolved by resolve_default_run");
                 crate::handlers::kv::kv_mget(&self.primitives, run, keys)
             }
             Command::KvMput { run, entries } => {
+                let run = run.expect("resolved by resolve_default_run");
                 crate::handlers::kv::kv_mput(&self.primitives, run, entries)
             }
             Command::KvMdelete { run, keys } => {
+                let run = run.expect("resolved by resolve_default_run");
                 crate::handlers::kv::kv_mdelete(&self.primitives, run, keys)
             }
             Command::KvMexists { run, keys } => {
+                let run = run.expect("resolved by resolve_default_run");
                 crate::handlers::kv::kv_mexists(&self.primitives, run, keys)
             }
 
@@ -156,11 +183,16 @@ impl Executor {
                 key,
                 path,
                 value,
-            } => crate::handlers::json::json_set(&self.primitives, run, key, path, value),
+            } => {
+                let run = run.expect("resolved by resolve_default_run");
+                crate::handlers::json::json_set(&self.primitives, run, key, path, value)
+            }
             Command::JsonGet { run, key, path } => {
+                let run = run.expect("resolved by resolve_default_run");
                 crate::handlers::json::json_get(&self.primitives, run, key, path)
             }
             Command::JsonDelete { run, key, path } => {
+                let run = run.expect("resolved by resolve_default_run");
                 crate::handlers::json::json_delete(&self.primitives, run, key, path)
             }
             Command::JsonMerge {
@@ -168,20 +200,29 @@ impl Executor {
                 key,
                 path,
                 patch,
-            } => crate::handlers::json::json_merge(&self.primitives, run, key, path, patch),
+            } => {
+                let run = run.expect("resolved by resolve_default_run");
+                crate::handlers::json::json_merge(&self.primitives, run, key, path, patch)
+            }
             Command::JsonHistory {
                 run,
                 key,
                 limit,
                 before,
-            } => crate::handlers::json::json_history(&self.primitives, run, key, limit, before),
+            } => {
+                let run = run.expect("resolved by resolve_default_run");
+                crate::handlers::json::json_history(&self.primitives, run, key, limit, before)
+            }
             Command::JsonExists { run, key } => {
+                let run = run.expect("resolved by resolve_default_run");
                 crate::handlers::json::json_exists(&self.primitives, run, key)
             }
             Command::JsonGetVersion { run, key } => {
+                let run = run.expect("resolved by resolve_default_run");
                 crate::handlers::json::json_get_version(&self.primitives, run, key)
             }
             Command::JsonSearch { run, query, k } => {
+                let run = run.expect("resolved by resolve_default_run");
                 crate::handlers::json::json_search(&self.primitives, run, query, k)
             }
             Command::JsonList {
@@ -189,34 +230,46 @@ impl Executor {
                 prefix,
                 cursor,
                 limit,
-            } => crate::handlers::json::json_list(&self.primitives, run, prefix, cursor, limit),
+            } => {
+                let run = run.expect("resolved by resolve_default_run");
+                crate::handlers::json::json_list(&self.primitives, run, prefix, cursor, limit)
+            }
             Command::JsonCas {
                 run,
                 key,
                 expected_version,
                 path,
                 value,
-            } => crate::handlers::json::json_cas(
-                &self.primitives,
-                run,
-                key,
-                expected_version,
-                path,
-                value,
-            ),
+            } => {
+                let run = run.expect("resolved by resolve_default_run");
+                crate::handlers::json::json_cas(
+                    &self.primitives,
+                    run,
+                    key,
+                    expected_version,
+                    path,
+                    value,
+                )
+            }
             Command::JsonQuery {
                 run,
                 path,
                 value,
                 limit,
-            } => crate::handlers::json::json_query(&self.primitives, run, path, value, limit),
+            } => {
+                let run = run.expect("resolved by resolve_default_run");
+                crate::handlers::json::json_query(&self.primitives, run, path, value, limit)
+            }
             Command::JsonCount { run } => {
+                let run = run.expect("resolved by resolve_default_run");
                 crate::handlers::json::json_count(&self.primitives, run)
             }
             Command::JsonBatchGet { run, keys } => {
+                let run = run.expect("resolved by resolve_default_run");
                 crate::handlers::json::json_batch_get(&self.primitives, run, keys)
             }
             Command::JsonBatchCreate { run, docs } => {
+                let run = run.expect("resolved by resolve_default_run");
                 crate::handlers::json::json_batch_create(&self.primitives, run, docs)
             }
             Command::JsonArrayPush {
@@ -224,14 +277,21 @@ impl Executor {
                 key,
                 path,
                 values,
-            } => crate::handlers::json::json_array_push(&self.primitives, run, key, path, values),
+            } => {
+                let run = run.expect("resolved by resolve_default_run");
+                crate::handlers::json::json_array_push(&self.primitives, run, key, path, values)
+            }
             Command::JsonIncrement {
                 run,
                 key,
                 path,
                 delta,
-            } => crate::handlers::json::json_increment(&self.primitives, run, key, path, delta),
+            } => {
+                let run = run.expect("resolved by resolve_default_run");
+                crate::handlers::json::json_increment(&self.primitives, run, key, path, delta)
+            }
             Command::JsonArrayPop { run, key, path } => {
+                let run = run.expect("resolved by resolve_default_run");
                 crate::handlers::json::json_array_pop(&self.primitives, run, key, path)
             }
 
@@ -240,8 +300,12 @@ impl Executor {
                 run,
                 stream,
                 payload,
-            } => crate::handlers::event::event_append(&self.primitives, run, stream, payload),
+            } => {
+                let run = run.expect("resolved by resolve_default_run");
+                crate::handlers::event::event_append(&self.primitives, run, stream, payload)
+            }
             Command::EventAppendBatch { run, events } => {
+                let run = run.expect("resolved by resolve_default_run");
                 crate::handlers::event::event_append_batch(&self.primitives, run, events)
             }
             Command::EventRange {
@@ -250,19 +314,28 @@ impl Executor {
                 start,
                 end,
                 limit,
-            } => crate::handlers::event::event_range(&self.primitives, run, stream, start, end, limit),
-            Command::EventGet {
+            } => {
+                let run = run.expect("resolved by resolve_default_run");
+                crate::handlers::event::event_range(&self.primitives, run, stream, start, end, limit)
+            }
+            Command::EventRead {
                 run,
                 stream,
                 sequence,
-            } => crate::handlers::event::event_get(&self.primitives, run, stream, sequence),
+            } => {
+                let run = run.expect("resolved by resolve_default_run");
+                crate::handlers::event::event_read(&self.primitives, run, stream, sequence)
+            }
             Command::EventLen { run, stream } => {
+                let run = run.expect("resolved by resolve_default_run");
                 crate::handlers::event::event_len(&self.primitives, run, stream)
             }
             Command::EventLatestSequence { run, stream } => {
+                let run = run.expect("resolved by resolve_default_run");
                 crate::handlers::event::event_latest_sequence(&self.primitives, run, stream)
             }
             Command::EventStreamInfo { run, stream } => {
+                let run = run.expect("resolved by resolve_default_run");
                 crate::handlers::event::event_stream_info(&self.primitives, run, stream)
             }
             Command::EventRevRange {
@@ -271,34 +344,47 @@ impl Executor {
                 start,
                 end,
                 limit,
-            } => crate::handlers::event::event_rev_range(&self.primitives, run, stream, start, end, limit),
+            } => {
+                let run = run.expect("resolved by resolve_default_run");
+                crate::handlers::event::event_rev_range(&self.primitives, run, stream, start, end, limit)
+            }
             Command::EventStreams { run } => {
+                let run = run.expect("resolved by resolve_default_run");
                 crate::handlers::event::event_streams(&self.primitives, run)
             }
             Command::EventHead { run, stream } => {
+                let run = run.expect("resolved by resolve_default_run");
                 crate::handlers::event::event_head(&self.primitives, run, stream)
             }
             Command::EventVerifyChain { run } => {
+                let run = run.expect("resolved by resolve_default_run");
                 crate::handlers::event::event_verify_chain(&self.primitives, run)
             }
 
             // State commands
             Command::StateSet { run, cell, value } => {
+                let run = run.expect("resolved by resolve_default_run");
                 crate::handlers::state::state_set(&self.primitives, run, cell, value)
             }
-            Command::StateGet { run, cell } => {
-                crate::handlers::state::state_get(&self.primitives, run, cell)
+            Command::StateRead { run, cell } => {
+                let run = run.expect("resolved by resolve_default_run");
+                crate::handlers::state::state_read(&self.primitives, run, cell)
             }
             Command::StateCas {
                 run,
                 cell,
                 expected_counter,
                 value,
-            } => crate::handlers::state::state_cas(&self.primitives, run, cell, expected_counter, value),
+            } => {
+                let run = run.expect("resolved by resolve_default_run");
+                crate::handlers::state::state_cas(&self.primitives, run, cell, expected_counter, value)
+            }
             Command::StateDelete { run, cell } => {
+                let run = run.expect("resolved by resolve_default_run");
                 crate::handlers::state::state_delete(&self.primitives, run, cell)
             }
             Command::StateExists { run, cell } => {
+                let run = run.expect("resolved by resolve_default_run");
                 crate::handlers::state::state_exists(&self.primitives, run, cell)
             }
             Command::StateHistory {
@@ -306,11 +392,16 @@ impl Executor {
                 cell,
                 limit,
                 before,
-            } => crate::handlers::state::state_history(&self.primitives, run, cell, limit, before),
+            } => {
+                let run = run.expect("resolved by resolve_default_run");
+                crate::handlers::state::state_history(&self.primitives, run, cell, limit, before)
+            }
             Command::StateInit { run, cell, value } => {
+                let run = run.expect("resolved by resolve_default_run");
                 crate::handlers::state::state_init(&self.primitives, run, cell, value)
             }
             Command::StateList { run } => {
+                let run = run.expect("resolved by resolve_default_run");
                 crate::handlers::state::state_list(&self.primitives, run)
             }
 
@@ -321,24 +412,33 @@ impl Executor {
                 key,
                 vector,
                 metadata,
-            } => crate::handlers::vector::vector_upsert(
-                &self.primitives,
-                run,
-                collection,
-                key,
-                vector,
-                metadata,
-            ),
+            } => {
+                let run = run.expect("resolved by resolve_default_run");
+                crate::handlers::vector::vector_upsert(
+                    &self.primitives,
+                    run,
+                    collection,
+                    key,
+                    vector,
+                    metadata,
+                )
+            }
             Command::VectorGet {
                 run,
                 collection,
                 key,
-            } => crate::handlers::vector::vector_get(&self.primitives, run, collection, key),
+            } => {
+                let run = run.expect("resolved by resolve_default_run");
+                crate::handlers::vector::vector_get(&self.primitives, run, collection, key)
+            }
             Command::VectorDelete {
                 run,
                 collection,
                 key,
-            } => crate::handlers::vector::vector_delete(&self.primitives, run, collection, key),
+            } => {
+                let run = run.expect("resolved by resolve_default_run");
+                crate::handlers::vector::vector_delete(&self.primitives, run, collection, key)
+            }
             Command::VectorSearch {
                 run,
                 collection,
@@ -346,89 +446,121 @@ impl Executor {
                 k,
                 filter,
                 metric,
-            } => crate::handlers::vector::vector_search(
-                &self.primitives,
-                run,
-                collection,
-                query,
-                k,
-                filter,
-                metric,
-            ),
-            Command::VectorCollectionInfo { run, collection } => {
-                crate::handlers::vector::vector_collection_info(&self.primitives, run, collection)
+            } => {
+                let run = run.expect("resolved by resolve_default_run");
+                crate::handlers::vector::vector_search(
+                    &self.primitives,
+                    run,
+                    collection,
+                    query,
+                    k,
+                    filter,
+                    metric,
+                )
+            }
+            Command::VectorGetCollection { run, collection } => {
+                let run = run.expect("resolved by resolve_default_run");
+                crate::handlers::vector::vector_get_collection(&self.primitives, run, collection)
             }
             Command::VectorCreateCollection {
                 run,
                 collection,
                 dimension,
                 metric,
-            } => crate::handlers::vector::vector_create_collection(
-                &self.primitives,
-                run,
-                collection,
-                dimension,
-                metric,
-            ),
-            Command::VectorDropCollection { run, collection } => {
-                crate::handlers::vector::vector_drop_collection(&self.primitives, run, collection)
+            } => {
+                let run = run.expect("resolved by resolve_default_run");
+                crate::handlers::vector::vector_create_collection(
+                    &self.primitives,
+                    run,
+                    collection,
+                    dimension,
+                    metric,
+                )
+            }
+            Command::VectorDeleteCollection { run, collection } => {
+                let run = run.expect("resolved by resolve_default_run");
+                crate::handlers::vector::vector_delete_collection(&self.primitives, run, collection)
             }
             Command::VectorListCollections { run } => {
+                let run = run.expect("resolved by resolve_default_run");
                 crate::handlers::vector::vector_list_collections(&self.primitives, run)
             }
             Command::VectorCollectionExists { run, collection } => {
+                let run = run.expect("resolved by resolve_default_run");
                 crate::handlers::vector::vector_collection_exists(&self.primitives, run, collection)
             }
             Command::VectorCount { run, collection } => {
+                let run = run.expect("resolved by resolve_default_run");
                 crate::handlers::vector::vector_count(&self.primitives, run, collection)
             }
             Command::VectorUpsertBatch {
                 run,
                 collection,
                 vectors,
-            } => crate::handlers::vector::vector_upsert_batch(&self.primitives, run, collection, vectors),
+            } => {
+                let run = run.expect("resolved by resolve_default_run");
+                crate::handlers::vector::vector_upsert_batch(&self.primitives, run, collection, vectors)
+            }
             Command::VectorGetBatch {
                 run,
                 collection,
                 keys,
-            } => crate::handlers::vector::vector_get_batch(&self.primitives, run, collection, keys),
+            } => {
+                let run = run.expect("resolved by resolve_default_run");
+                crate::handlers::vector::vector_get_batch(&self.primitives, run, collection, keys)
+            }
             Command::VectorDeleteBatch {
                 run,
                 collection,
                 keys,
-            } => crate::handlers::vector::vector_delete_batch(&self.primitives, run, collection, keys),
+            } => {
+                let run = run.expect("resolved by resolve_default_run");
+                crate::handlers::vector::vector_delete_batch(&self.primitives, run, collection, keys)
+            }
             Command::VectorHistory {
                 run,
                 collection,
                 key,
                 limit,
                 before_version,
-            } => crate::handlers::vector::vector_history(
-                &self.primitives,
-                run,
-                collection,
-                key,
-                limit,
-                before_version,
-            ),
+            } => {
+                let run = run.expect("resolved by resolve_default_run");
+                crate::handlers::vector::vector_history(
+                    &self.primitives,
+                    run,
+                    collection,
+                    key,
+                    limit,
+                    before_version,
+                )
+            }
             Command::VectorGetAt {
                 run,
                 collection,
                 key,
                 version,
-            } => crate::handlers::vector::vector_get_at(&self.primitives, run, collection, key, version),
+            } => {
+                let run = run.expect("resolved by resolve_default_run");
+                crate::handlers::vector::vector_get_at(&self.primitives, run, collection, key, version)
+            }
             Command::VectorListKeys {
                 run,
                 collection,
                 limit,
                 cursor,
-            } => crate::handlers::vector::vector_list_keys(&self.primitives, run, collection, limit, cursor),
+            } => {
+                let run = run.expect("resolved by resolve_default_run");
+                crate::handlers::vector::vector_list_keys(&self.primitives, run, collection, limit, cursor)
+            }
             Command::VectorScan {
                 run,
                 collection,
                 limit,
                 cursor,
-            } => crate::handlers::vector::vector_scan(&self.primitives, run, collection, limit, cursor),
+            } => {
+                let run = run.expect("resolved by resolve_default_run");
+                crate::handlers::vector::vector_scan(&self.primitives, run, collection, limit, cursor)
+            }
 
             // Run commands
             Command::RunCreate { run_id, metadata } => {
@@ -440,7 +572,7 @@ impl Executor {
                 limit,
                 offset,
             } => crate::handlers::run::run_list(&self.primitives, state, limit, offset),
-            Command::RunClose { run } => crate::handlers::run::run_close(&self.primitives, run),
+            Command::RunComplete { run } => crate::handlers::run::run_complete(&self.primitives, run),
             Command::RunUpdateMetadata { run, metadata } => {
                 crate::handlers::run::run_update_metadata(&self.primitives, run, metadata)
             }
@@ -514,13 +646,6 @@ impl Executor {
     ///
     /// Returns all results in the same order as the input commands.
     /// Execution continues even if some commands fail.
-    ///
-    /// # Example
-    ///
-    /// ```ignore
-    /// let results = executor.execute_many(vec![cmd1, cmd2, cmd3]);
-    /// // results[0] corresponds to cmd1, etc.
-    /// ```
     pub fn execute_many(&self, cmds: Vec<Command>) -> Vec<Result<Output>> {
         cmds.into_iter().map(|cmd| self.execute(cmd)).collect()
     }

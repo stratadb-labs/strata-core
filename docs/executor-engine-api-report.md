@@ -30,6 +30,7 @@ is exposed, what is covered, and what gaps exist.
    - 4.2 [Engine → Executor (Reverse)](#42-engine--executor-reverse)
 5. [Gap Analysis](#5-gap-analysis)
 6. [Validation Rules](#6-validation-rules)
+7. [Naming Consistency Audit](#7-naming-consistency-audit)
 
 ---
 
@@ -63,6 +64,12 @@ all parameters needed for execution. The `bridge::Primitives` struct holds
 `Arc<Database>` plus the six engine primitive structs and provides validation,
 RunId conversion, and type conversion between executor types and engine types.
 
+**Run resolution**: Data-scoped commands (KV, JSON, Event, State, Vector, Retention)
+carry `run: Option<RunId>`. When `None`, the executor resolves it to the default
+run (`RunId::default()` = nil UUID) via `Command::resolve_default_run()` at the
+top of `Executor::execute()`. Run lifecycle commands (RunGet, RunClose, etc.)
+still require `run: RunId` since they explicitly target a specific run.
+
 ---
 
 ## 2. Executor Public Interface
@@ -73,21 +80,21 @@ RunId conversion, and type conversion between executor types and engine types.
 
 | # | Command | Fields | Returns |
 |---|---------|--------|---------|
-| 1 | `KvPut` | `run: RunId, key: String, value: Value` | `Version(u64)` |
-| 2 | `KvGet` | `run: RunId, key: String` | `MaybeVersioned(Option<VersionedValue>)` |
-| 3 | `KvGetAt` | `run: RunId, key: String, version: u64` | `Versioned(VersionedValue)` |
-| 4 | `KvDelete` | `run: RunId, key: String` | `Bool(bool)` |
-| 5 | `KvExists` | `run: RunId, key: String` | `Bool(bool)` |
-| 6 | `KvHistory` | `run: RunId, key: String, limit: Option<u64>, before: Option<u64>` | `VersionedValues(Vec<VersionedValue>)` |
-| 7 | `KvIncr` | `run: RunId, key: String, delta: i64` | `Int(i64)` |
-| 8 | `KvCasVersion` | `run: RunId, key: String, expected_version: Option<u64>, new_value: Value` | `Bool(bool)` |
-| 9 | `KvCasValue` | `run: RunId, key: String, expected_value: Option<Value>, new_value: Value` | `Bool(bool)` |
-| 10 | `KvKeys` | `run: RunId, prefix: String, limit: Option<u64>` | `Keys(Vec<String>)` |
-| 11 | `KvScan` | `run: RunId, prefix: String, limit: u64, cursor: Option<String>` | `KvScanResult { entries, cursor }` |
-| 12 | `KvMget` | `run: RunId, keys: Vec<String>` | `Values(Vec<Option<VersionedValue>>)` |
-| 13 | `KvMput` | `run: RunId, entries: Vec<(String, Value)>` | `Version(u64)` |
-| 14 | `KvMdelete` | `run: RunId, keys: Vec<String>` | `Uint(u64)` |
-| 15 | `KvMexists` | `run: RunId, keys: Vec<String>` | `Uint(u64)` |
+| 1 | `KvPut` | `run: Option<RunId>, key: String, value: Value` | `Version(u64)` |
+| 2 | `KvGet` | `run: Option<RunId>, key: String` | `MaybeVersioned(Option<VersionedValue>)` |
+| 3 | `KvGetAt` | `run: Option<RunId>, key: String, version: u64` | `Versioned(VersionedValue)` |
+| 4 | `KvDelete` | `run: Option<RunId>, key: String` | `Bool(bool)` |
+| 5 | `KvExists` | `run: Option<RunId>, key: String` | `Bool(bool)` |
+| 6 | `KvHistory` | `run: Option<RunId>, key: String, limit: Option<u64>, before: Option<u64>` | `VersionedValues(Vec<VersionedValue>)` |
+| 7 | `KvIncr` | `run: Option<RunId>, key: String, delta: i64` | `Int(i64)` |
+| 8 | `KvCasVersion` | `run: Option<RunId>, key: String, expected_version: Option<u64>, new_value: Value` | `Bool(bool)` |
+| 9 | `KvCasValue` | `run: Option<RunId>, key: String, expected_value: Option<Value>, new_value: Value` | `Bool(bool)` |
+| 10 | `KvKeys` | `run: Option<RunId>, prefix: String, limit: Option<u64>` | `Keys(Vec<String>)` |
+| 11 | `KvScan` | `run: Option<RunId>, prefix: String, limit: u64, cursor: Option<String>` | `KvScanResult { entries, cursor }` |
+| 12 | `KvMget` | `run: Option<RunId>, keys: Vec<String>` | `Values(Vec<Option<VersionedValue>>)` |
+| 13 | `KvMput` | `run: Option<RunId>, entries: Vec<(String, Value)>` | `Version(u64)` |
+| 14 | `KvMdelete` | `run: Option<RunId>, keys: Vec<String>` | `Uint(u64)` |
+| 15 | `KvMexists` | `run: Option<RunId>, keys: Vec<String>` | `Uint(u64)` |
 
 > **Note**: `KvMput` is currently **disabled** pending engine `transaction_with_version` API.
 
@@ -95,74 +102,74 @@ RunId conversion, and type conversion between executor types and engine types.
 
 | # | Command | Fields | Returns |
 |---|---------|--------|---------|
-| 16 | `JsonSet` | `run: RunId, key: String, path: String, value: Value` | `Version(u64)` |
-| 17 | `JsonGet` | `run: RunId, key: String, path: String` | `MaybeVersioned(Option<VersionedValue>)` |
-| 18 | `JsonDelete` | `run: RunId, key: String, path: String` | `Uint(u64)` |
-| 19 | `JsonMerge` | `run: RunId, key: String, path: String, patch: Value` | `Version(u64)` |
-| 20 | `JsonHistory` | `run: RunId, key: String, limit: Option<u64>, before: Option<u64>` | `VersionedValues(Vec<VersionedValue>)` |
-| 21 | `JsonExists` | `run: RunId, key: String` | `Bool(bool)` |
-| 22 | `JsonGetVersion` | `run: RunId, key: String` | `MaybeVersion(Option<u64>)` |
-| 23 | `JsonSearch` | `run: RunId, query: String, k: u64` | `JsonSearchHits(Vec<JsonSearchHit>)` |
-| 24 | `JsonList` | `run: RunId, prefix: Option<String>, cursor: Option<String>, limit: u64` | `JsonListResult { keys, cursor }` |
-| 25 | `JsonCas` | `run: RunId, key: String, expected_version: u64, path: String, value: Value` | `Version(u64)` |
-| 26 | `JsonQuery` | `run: RunId, path: String, value: Value, limit: u64` | `Keys(Vec<String>)` |
-| 27 | `JsonCount` | `run: RunId` | `Uint(u64)` |
-| 28 | `JsonBatchGet` | `run: RunId, keys: Vec<String>` | `Values(Vec<Option<VersionedValue>>)` |
-| 29 | `JsonBatchCreate` | `run: RunId, docs: Vec<(String, Value)>` | `Versions(Vec<u64>)` |
-| 30 | `JsonArrayPush` | `run: RunId, key: String, path: String, values: Vec<Value>` | `Uint(u64)` |
-| 31 | `JsonIncrement` | `run: RunId, key: String, path: String, delta: f64` | `Float(f64)` |
-| 32 | `JsonArrayPop` | `run: RunId, key: String, path: String` | `Maybe(Option<Value>)` |
+| 16 | `JsonSet` | `run: Option<RunId>, key: String, path: String, value: Value` | `Version(u64)` |
+| 17 | `JsonGet` | `run: Option<RunId>, key: String, path: String` | `MaybeVersioned(Option<VersionedValue>)` |
+| 18 | `JsonDelete` | `run: Option<RunId>, key: String, path: String` | `Uint(u64)` |
+| 19 | `JsonMerge` | `run: Option<RunId>, key: String, path: String, patch: Value` | `Version(u64)` |
+| 20 | `JsonHistory` | `run: Option<RunId>, key: String, limit: Option<u64>, before: Option<u64>` | `VersionedValues(Vec<VersionedValue>)` |
+| 21 | `JsonExists` | `run: Option<RunId>, key: String` | `Bool(bool)` |
+| 22 | `JsonGetVersion` | `run: Option<RunId>, key: String` | `MaybeVersion(Option<u64>)` |
+| 23 | `JsonSearch` | `run: Option<RunId>, query: String, k: u64` | `JsonSearchHits(Vec<JsonSearchHit>)` |
+| 24 | `JsonList` | `run: Option<RunId>, prefix: Option<String>, cursor: Option<String>, limit: u64` | `JsonListResult { keys, cursor }` |
+| 25 | `JsonCas` | `run: Option<RunId>, key: String, expected_version: u64, path: String, value: Value` | `Version(u64)` |
+| 26 | `JsonQuery` | `run: Option<RunId>, path: String, value: Value, limit: u64` | `Keys(Vec<String>)` |
+| 27 | `JsonCount` | `run: Option<RunId>` | `Uint(u64)` |
+| 28 | `JsonBatchGet` | `run: Option<RunId>, keys: Vec<String>` | `Values(Vec<Option<VersionedValue>>)` |
+| 29 | `JsonBatchCreate` | `run: Option<RunId>, docs: Vec<(String, Value)>` | `Versions(Vec<u64>)` |
+| 30 | `JsonArrayPush` | `run: Option<RunId>, key: String, path: String, values: Vec<Value>` | `Uint(u64)` |
+| 31 | `JsonIncrement` | `run: Option<RunId>, key: String, path: String, delta: f64` | `Float(f64)` |
+| 32 | `JsonArrayPop` | `run: Option<RunId>, key: String, path: String` | `Maybe(Option<Value>)` |
 
 #### Event Commands (11)
 
 | # | Command | Fields | Returns |
 |---|---------|--------|---------|
-| 33 | `EventAppend` | `run: RunId, stream: String, payload: Value` | `Version(u64)` |
-| 34 | `EventAppendBatch` | `run: RunId, events: Vec<(String, Value)>` | `Versions(Vec<u64>)` |
-| 35 | `EventRange` | `run: RunId, stream: String, start: Option<u64>, end: Option<u64>, limit: Option<u64>` | `VersionedValues(Vec<VersionedValue>)` |
-| 36 | `EventGet` | `run: RunId, stream: String, sequence: u64` | `MaybeVersioned(Option<VersionedValue>)` |
-| 37 | `EventLen` | `run: RunId, stream: String` | `Uint(u64)` |
-| 38 | `EventLatestSequence` | `run: RunId, stream: String` | `MaybeVersion(Option<u64>)` |
-| 39 | `EventStreamInfo` | `run: RunId, stream: String` | `StreamInfo(StreamInfo)` |
-| 40 | `EventRevRange` | `run: RunId, stream: String, start: Option<u64>, end: Option<u64>, limit: Option<u64>` | `VersionedValues(Vec<VersionedValue>)` |
-| 41 | `EventStreams` | `run: RunId` | `Strings(Vec<String>)` |
-| 42 | `EventHead` | `run: RunId, stream: String` | `MaybeVersioned(Option<VersionedValue>)` |
-| 43 | `EventVerifyChain` | `run: RunId` | `ChainVerification(ChainVerificationResult)` |
+| 33 | `EventAppend` | `run: Option<RunId>, stream: String, payload: Value` | `Version(u64)` |
+| 34 | `EventAppendBatch` | `run: Option<RunId>, events: Vec<(String, Value)>` | `Versions(Vec<u64>)` |
+| 35 | `EventRange` | `run: Option<RunId>, stream: String, start: Option<u64>, end: Option<u64>, limit: Option<u64>` | `VersionedValues(Vec<VersionedValue>)` |
+| 36 | `EventRead` | `run: Option<RunId>, stream: String, sequence: u64` | `MaybeVersioned(Option<VersionedValue>)` |
+| 37 | `EventLen` | `run: Option<RunId>, stream: String` | `Uint(u64)` |
+| 38 | `EventLatestSequence` | `run: Option<RunId>, stream: String` | `MaybeVersion(Option<u64>)` |
+| 39 | `EventStreamInfo` | `run: Option<RunId>, stream: String` | `StreamInfo(StreamInfo)` |
+| 40 | `EventRevRange` | `run: Option<RunId>, stream: String, start: Option<u64>, end: Option<u64>, limit: Option<u64>` | `VersionedValues(Vec<VersionedValue>)` |
+| 41 | `EventStreams` | `run: Option<RunId>` | `Strings(Vec<String>)` |
+| 42 | `EventHead` | `run: Option<RunId>, stream: String` | `MaybeVersioned(Option<VersionedValue>)` |
+| 43 | `EventVerifyChain` | `run: Option<RunId>` | `ChainVerification(ChainVerificationResult)` |
 
 #### State Commands (8)
 
 | # | Command | Fields | Returns |
 |---|---------|--------|---------|
-| 44 | `StateSet` | `run: RunId, cell: String, value: Value` | `Version(u64)` |
-| 45 | `StateGet` | `run: RunId, cell: String` | `MaybeVersioned(Option<VersionedValue>)` |
-| 46 | `StateCas` | `run: RunId, cell: String, expected_counter: Option<u64>, value: Value` | `MaybeVersion(Option<u64>)` |
-| 47 | `StateDelete` | `run: RunId, cell: String` | `Bool(bool)` |
-| 48 | `StateExists` | `run: RunId, cell: String` | `Bool(bool)` |
-| 49 | `StateHistory` | `run: RunId, cell: String, limit: Option<u64>, before: Option<u64>` | `VersionedValues(Vec<VersionedValue>)` |
-| 50 | `StateInit` | `run: RunId, cell: String, value: Value` | `Version(u64)` |
-| 51 | `StateList` | `run: RunId` | `Strings(Vec<String>)` |
+| 44 | `StateSet` | `run: Option<RunId>, cell: String, value: Value` | `Version(u64)` |
+| 45 | `StateRead` | `run: Option<RunId>, cell: String` | `MaybeVersioned(Option<VersionedValue>)` |
+| 46 | `StateCas` | `run: Option<RunId>, cell: String, expected_counter: Option<u64>, value: Value` | `MaybeVersion(Option<u64>)` |
+| 47 | `StateDelete` | `run: Option<RunId>, cell: String` | `Bool(bool)` |
+| 48 | `StateExists` | `run: Option<RunId>, cell: String` | `Bool(bool)` |
+| 49 | `StateHistory` | `run: Option<RunId>, cell: String, limit: Option<u64>, before: Option<u64>` | `VersionedValues(Vec<VersionedValue>)` |
+| 50 | `StateInit` | `run: Option<RunId>, cell: String, value: Value` | `Version(u64)` |
+| 51 | `StateList` | `run: Option<RunId>` | `Strings(Vec<String>)` |
 
 #### Vector Commands (19)
 
 | # | Command | Fields | Returns |
 |---|---------|--------|---------|
-| 52 | `VectorUpsert` | `run: RunId, collection: String, key: String, vector: Vec<f32>, metadata: Option<Value>` | `Version(u64)` |
-| 53 | `VectorGet` | `run: RunId, collection: String, key: String` | `VectorData(Option<VersionedVectorData>)` |
-| 54 | `VectorDelete` | `run: RunId, collection: String, key: String` | `Bool(bool)` |
-| 55 | `VectorSearch` | `run: RunId, collection: String, query: Vec<f32>, k: u64, filter: Option<Vec<MetadataFilter>>, metric: Option<DistanceMetric>` | `VectorMatches(Vec<VectorMatch>)` |
-| 56 | `VectorCollectionInfo` | `run: RunId, collection: String` | `VectorCollectionInfo(Option<CollectionInfo>)` |
-| 57 | `VectorCreateCollection` | `run: RunId, collection: String, dimension: u64, metric: DistanceMetric` | `Version(u64)` |
-| 58 | `VectorDropCollection` | `run: RunId, collection: String` | `Bool(bool)` |
-| 59 | `VectorListCollections` | `run: RunId` | `VectorCollectionList(Vec<CollectionInfo>)` |
-| 60 | `VectorCollectionExists` | `run: RunId, collection: String` | `Bool(bool)` |
-| 61 | `VectorCount` | `run: RunId, collection: String` | `Uint(u64)` |
-| 62 | `VectorUpsertBatch` | `run: RunId, collection: String, vectors: Vec<VectorEntry>` | `VectorBatchResult(Vec<VectorBatchEntry>)` |
-| 63 | `VectorGetBatch` | `run: RunId, collection: String, keys: Vec<String>` | `VectorDataList(Vec<Option<VersionedVectorData>>)` |
-| 64 | `VectorDeleteBatch` | `run: RunId, collection: String, keys: Vec<String>` | `Bools(Vec<bool>)` |
-| 65 | `VectorHistory` | `run: RunId, collection: String, key: String, limit: Option<u64>, before_version: Option<u64>` | `VectorDataHistory(Vec<VersionedVectorData>)` |
-| 66 | `VectorGetAt` | `run: RunId, collection: String, key: String, version: u64` | `VectorData(Option<VersionedVectorData>)` |
-| 67 | `VectorListKeys` | `run: RunId, collection: String, limit: Option<u64>, cursor: Option<String>` | `Keys(Vec<String>)` |
-| 68 | `VectorScan` | `run: RunId, collection: String, limit: Option<u64>, cursor: Option<String>` | `VectorKeyValues(Vec<(String, VectorData)>)` |
+| 52 | `VectorUpsert` | `run: Option<RunId>, collection: String, key: String, vector: Vec<f32>, metadata: Option<Value>` | `Version(u64)` |
+| 53 | `VectorGet` | `run: Option<RunId>, collection: String, key: String` | `VectorData(Option<VersionedVectorData>)` |
+| 54 | `VectorDelete` | `run: Option<RunId>, collection: String, key: String` | `Bool(bool)` |
+| 55 | `VectorSearch` | `run: Option<RunId>, collection: String, query: Vec<f32>, k: u64, filter: Option<Vec<MetadataFilter>>, metric: Option<DistanceMetric>` | `VectorMatches(Vec<VectorMatch>)` |
+| 56 | `VectorGetCollection` | `run: Option<RunId>, collection: String` | `VectorCollectionInfo(Option<CollectionInfo>)` |
+| 57 | `VectorCreateCollection` | `run: Option<RunId>, collection: String, dimension: u64, metric: DistanceMetric` | `Version(u64)` |
+| 58 | `VectorDeleteCollection` | `run: Option<RunId>, collection: String` | `Bool(bool)` |
+| 59 | `VectorListCollections` | `run: Option<RunId>` | `VectorCollectionList(Vec<CollectionInfo>)` |
+| 60 | `VectorCollectionExists` | `run: Option<RunId>, collection: String` | `Bool(bool)` |
+| 61 | `VectorCount` | `run: Option<RunId>, collection: String` | `Uint(u64)` |
+| 62 | `VectorUpsertBatch` | `run: Option<RunId>, collection: String, vectors: Vec<VectorEntry>` | `VectorBatchResult(Vec<VectorBatchEntry>)` |
+| 63 | `VectorGetBatch` | `run: Option<RunId>, collection: String, keys: Vec<String>` | `VectorDataList(Vec<Option<VersionedVectorData>>)` |
+| 64 | `VectorDeleteBatch` | `run: Option<RunId>, collection: String, keys: Vec<String>` | `Bools(Vec<bool>)` |
+| 65 | `VectorHistory` | `run: Option<RunId>, collection: String, key: String, limit: Option<u64>, before_version: Option<u64>` | `VectorDataHistory(Vec<VersionedVectorData>)` |
+| 66 | `VectorGetAt` | `run: Option<RunId>, collection: String, key: String, version: u64` | `VectorData(Option<VersionedVectorData>)` |
+| 67 | `VectorListKeys` | `run: Option<RunId>, collection: String, limit: Option<u64>, cursor: Option<String>` | `Keys(Vec<String>)` |
+| 68 | `VectorScan` | `run: Option<RunId>, collection: String, limit: Option<u64>, cursor: Option<String>` | `VectorKeyValues(Vec<(String, VectorData)>)` |
 
 #### Run Commands (24)
 
@@ -171,7 +178,7 @@ RunId conversion, and type conversion between executor types and engine types.
 | 69 | `RunCreate` | `run_id: Option<String>, metadata: Option<Value>` | `RunWithVersion { info, version }` |
 | 70 | `RunGet` | `run: RunId` | `RunInfoVersioned(VersionedRunInfo)` |
 | 71 | `RunList` | `state: Option<RunStatus>, limit: Option<u64>, offset: Option<u64>` | `RunInfoList(Vec<VersionedRunInfo>)` |
-| 72 | `RunClose` | `run: RunId` | `Version(u64)` |
+| 72 | `RunComplete` | `run: RunId` | `Version(u64)` |
 | 73 | `RunUpdateMetadata` | `run: RunId, metadata: Value` | `Version(u64)` |
 | 74 | `RunExists` | `run: RunId` | `Bool(bool)` |
 | 75 | `RunPause` | `run: RunId` | `Version(u64)` |
@@ -209,9 +216,9 @@ RunId conversion, and type conversion between executor types and engine types.
 
 | # | Command | Fields | Returns |
 |---|---------|--------|---------|
-| 98 | `RetentionApply` | `run: RunId` | — |
-| 99 | `RetentionStats` | `run: RunId` | — |
-| 100 | `RetentionPreview` | `run: RunId` | — |
+| 98 | `RetentionApply` | `run: Option<RunId>` | — |
+| 99 | `RetentionStats` | `run: Option<RunId>` | — |
+| 100 | `RetentionPreview` | `run: Option<RunId>` | — |
 
 > Deferred: requires GC infrastructure not yet built.
 
@@ -735,7 +742,7 @@ How each executor command maps to engine method calls.
 | `EventAppend` | `EventLog::append()` | |
 | `EventAppendBatch` | `EventLog::append_batch()` | |
 | `EventRange` | `EventLog::read_by_type()` or `read_range()` | Filtered to stream |
-| `EventGet` | `EventLog::read()` | |
+| `EventRead` | `EventLog::read()` | |
 | `EventLen` | `EventLog::len_by_type()` | Per-stream, not global |
 | `EventLatestSequence` | `EventLog::latest_sequence_by_type()` | |
 | `EventStreamInfo` | `EventLog::stream_info()` | |
@@ -749,7 +756,7 @@ How each executor command maps to engine method calls.
 | Executor Command | Engine Call | Notes |
 |-----------------|------------|-------|
 | `StateSet` | `StateCell::set()` | |
-| `StateGet` | `StateCell::read()` | |
+| `StateRead` | `StateCell::read()` | |
 | `StateCas` | `StateCell::cas()` or `StateCell::init()` | `None` expected → init |
 | `StateDelete` | `StateCell::delete()` | |
 | `StateExists` | `StateCell::exists()` | |
@@ -765,9 +772,9 @@ How each executor command maps to engine method calls.
 | `VectorGet` | `VectorStore::get()` | |
 | `VectorDelete` | `VectorStore::delete()` | |
 | `VectorSearch` | `VectorStore::search()` | |
-| `VectorCollectionInfo` | `VectorStore::get_collection()` | |
+| `VectorGetCollection` | `VectorStore::get_collection()` | |
 | `VectorCreateCollection` | `VectorStore::create_collection()` | |
-| `VectorDropCollection` | `VectorStore::delete_collection()` | |
+| `VectorDeleteCollection` | `VectorStore::delete_collection()` | |
 | `VectorListCollections` | `VectorStore::list_collections()` | |
 | `VectorCollectionExists` | `VectorStore::collection_exists()` | |
 | `VectorCount` | `VectorStore::count()` | |
@@ -786,7 +793,7 @@ How each executor command maps to engine method calls.
 | `RunCreate` | `RunIndex::create_run_with_options()` | |
 | `RunGet` | `RunIndex::get_run()` | |
 | `RunList` | `RunIndex::list_runs()` + `get_run()` per ID | |
-| `RunClose` | `RunIndex::complete_run()` | |
+| `RunComplete` | `RunIndex::complete_run()` | |
 | `RunUpdateMetadata` | `RunIndex::update_metadata()` | |
 | `RunExists` | `RunIndex::exists()` | |
 | `RunPause` | `RunIndex::pause_run()` | |
@@ -894,7 +901,7 @@ Every engine method and whether it has a corresponding executor command.
 |--------------|-----------------|--------|
 | `append()` | `EventAppend` | Covered |
 | `append_batch()` | `EventAppendBatch` | Covered |
-| `read()` | `EventGet` | Covered |
+| `read()` | `EventRead` | Covered |
 | `read_in_transaction()` | — | Internal |
 | `read_range()` | `EventRange` | Covered |
 | `read_range_reverse()` | `EventRevRange` | Covered |
@@ -917,7 +924,7 @@ Every engine method and whether it has a corresponding executor command.
 |--------------|-----------------|--------|
 | `init()` | `StateInit` | Covered |
 | `set()` | `StateSet` | Covered |
-| `read()` | `StateGet` | Covered |
+| `read()` | `StateRead` | Covered |
 | `read_in_transaction()` | — | Internal |
 | `delete()` | `StateDelete` | Covered |
 | `exists()` | `StateExists` | Covered |
@@ -933,9 +940,9 @@ Every engine method and whether it has a corresponding executor command.
 | Engine Method | Executor Command | Status |
 |--------------|-----------------|--------|
 | `create_collection()` | `VectorCreateCollection` | Covered |
-| `delete_collection()` | `VectorDropCollection` | Covered |
+| `delete_collection()` | `VectorDeleteCollection` | Covered |
 | `list_collections()` | `VectorListCollections` | Covered |
-| `get_collection()` | `VectorCollectionInfo` | Covered |
+| `get_collection()` | `VectorGetCollection` | Covered |
 | `collection_exists()` | `VectorCollectionExists` | Covered |
 | `insert()` | `VectorUpsert` | Covered |
 | `insert_with_source()` | — | **Not exposed** |
@@ -974,7 +981,7 @@ Every engine method and whether it has a corresponding executor command.
 | `list_runs()` | `RunList` | Covered |
 | `count()` | `RunCount` | Covered |
 | `update_status()` | — | Covered by specific commands |
-| `complete_run()` | `RunClose` | Covered |
+| `complete_run()` | `RunComplete` | Covered |
 | `fail_run()` | `RunFail` | Covered |
 | `pause_run()` | `RunPause` | Covered |
 | `resume_run()` | `RunResume` | Covered |
@@ -1074,3 +1081,59 @@ methods. The engine does not perform these checks itself.
 - `executor::MetadataFilter` → `engine::MetadataFilter` (struct with `equals: HashMap<String, JsonScalar>`)
 - `executor::RunStatus` ↔ `engine::RunStatus`
 - `Versioned<T>` → `VersionedValue` (flattens version + value)
+
+---
+
+## 7. Naming Consistency Audit
+
+The executor's Command variants should mirror the engine's method names as closely as
+possible. This section documents the naming alignment between executor and engine.
+
+### Resolved Mismatches (renamed)
+
+These 5 commands were renamed to match their engine counterparts:
+
+| Executor Command | Engine Method | Previous Name |
+|-----------------|--------------|---------------|
+| `EventRead` | `EventLog::read()` | `EventGet` |
+| `StateRead` | `StateCell::read()` | `StateGet` |
+| `VectorDeleteCollection` | `VectorStore::delete_collection()` | `VectorDropCollection` |
+| `VectorGetCollection` | `VectorStore::get_collection()` | `VectorCollectionInfo` |
+| `RunComplete` | `RunIndex::complete_run()` | `RunClose` |
+
+### Intentional Divergences
+
+| Executor Command | Engine Method | Reason |
+|-----------------|--------------|--------|
+| `VectorUpsert` | `VectorStore::insert()` | Engine's `insert()` performs upsert semantics. Executor name is more honest about the behavior. |
+| `VectorUpsertBatch` | `VectorStore::insert_batch()` | Consistent with `VectorUpsert`. |
+
+### Confirmed Matches (no action needed)
+
+All other executor commands already match their engine counterparts:
+
+- **KV**: `KvPut`→`put()`, `KvGet`→`get()`, `KvGetAt`→`get_at()`, `KvDelete`→`delete()`,
+  `KvExists`→`exists()`, `KvHistory`→`history()`, `KvKeys`→`keys()`, `KvScan`→`scan()`,
+  `KvMget`→`get_many()`
+- **KV (composite)**: `KvIncr`, `KvCasVersion`, `KvCasValue`, `KvMdelete`, `KvMexists` —
+  no single engine method; these use transactions or loops. Names are fine.
+- **JSON**: All 17 commands match their engine method names exactly.
+- **Event**: `EventAppend`→`append()`, `EventAppendBatch`→`append_batch()`,
+  `EventRange`→`read_by_type()`/`read_range()`, `EventLen`→`len_by_type()`,
+  `EventLatestSequence`→`latest_sequence_by_type()`, `EventStreamInfo`→`stream_info()`,
+  `EventRevRange`→`read_range_reverse()`, `EventStreams`→`stream_names()`,
+  `EventHead`→`head_by_type()`, `EventVerifyChain`→`verify_chain()`
+- **State**: `StateSet`→`set()`, `StateCas`→`cas()`, `StateDelete`→`delete()`,
+  `StateExists`→`exists()`, `StateHistory`→`history()`, `StateInit`→`init()`,
+  `StateList`→`list()`
+- **Vector**: `VectorGet`→`get()`, `VectorDelete`→`delete()`, `VectorSearch`→`search()`,
+  `VectorCreateCollection`→`create_collection()`, `VectorListCollections`→`list_collections()`,
+  `VectorCollectionExists`→`collection_exists()`, `VectorCount`→`count()`,
+  `VectorGetBatch`→`get_batch()`, `VectorDeleteBatch`→`delete_batch()`,
+  `VectorHistory`→`history()`, `VectorGetAt`→`get_at()`, `VectorListKeys`→`list_keys()`,
+  `VectorScan`→`scan()`
+- **Run**: All 24 commands match their engine counterparts (except `RunComplete`, listed above).
+
+### Completed Renames
+
+All 5 naming mismatches have been resolved. The executor now mirrors engine method names.

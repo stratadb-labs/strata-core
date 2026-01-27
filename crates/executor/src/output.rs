@@ -125,7 +125,7 @@ pub enum Output {
     VectorBatchResult(Vec<VectorBatchEntry>),
 
     /// Vector collection info
-    VectorCollectionInfo(Option<CollectionInfo>),
+    VectorGetCollection(Option<CollectionInfo>),
 
     /// List of vector collections
     VectorCollectionList(Vec<CollectionInfo>),

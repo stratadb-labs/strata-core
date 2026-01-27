@@ -197,8 +197,8 @@ pub fn run_list(
     Ok(Output::RunInfoList(infos))
 }
 
-/// Handle RunClose command.
-pub fn run_close(p: &Arc<Primitives>, run: RunId) -> Result<Output> {
+/// Handle RunComplete command.
+pub fn run_complete(p: &Arc<Primitives>, run: RunId) -> Result<Output> {
     reject_default_run(&run, "close")?;
     let versioned = convert_result(p.run.complete_run(run.as_str()))?;
     Ok(Output::Version(extract_version(&versioned.version)))
