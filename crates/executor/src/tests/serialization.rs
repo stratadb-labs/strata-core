@@ -335,6 +335,7 @@ fn test_command_run_set_retention() {
 #[test]
 fn test_command_txn_begin() {
     test_command_round_trip(Command::TxnBegin {
+        run: None,
         options: Some(TxnOptions { read_only: true }),
     });
 }

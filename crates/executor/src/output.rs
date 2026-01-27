@@ -163,6 +163,15 @@ pub enum Output {
     /// Transaction info
     TxnInfo(Option<TransactionInfo>),
 
+    /// Transaction successfully begun
+    TxnBegun,
+
+    /// Transaction committed with version
+    TxnCommitted { version: u64 },
+
+    /// Transaction aborted
+    TxnAborted,
+
     // ==================== Retention-specific ====================
     /// Retention version info
     RetentionVersion(Option<RetentionVersionInfo>),

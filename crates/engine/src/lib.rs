@@ -48,6 +48,7 @@ pub use replay::{
 };
 // Note: Use strata_core::PrimitiveType for DiffEntry.primitive field
 pub use transaction::{Transaction, TransactionPool, MAX_POOL_SIZE};
+pub use strata_concurrency::TransactionContext;
 pub use transaction_ops::TransactionOps;
 
 pub mod primitives;

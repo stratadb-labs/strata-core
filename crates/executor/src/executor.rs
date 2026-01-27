@@ -620,7 +620,7 @@ impl Executor {
                 crate::handlers::run::run_get_retention(&self.primitives, run)
             }
 
-            // Transaction commands - will be implemented in Phase 3
+            // Transaction commands - handled by Session, not Executor
             Command::TxnBegin { .. }
             | Command::TxnCommit
             | Command::TxnRollback

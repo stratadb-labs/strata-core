@@ -840,8 +840,10 @@ pub enum Command {
 
     // ==================== Transaction (5) ====================
     /// Begin a new transaction.
-    /// Returns: `Output::TxnId`
+    /// Returns: `Output::TxnBegun`
     TxnBegin {
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        run: Option<RunId>,
         options: Option<TxnOptions>,
     },
 
@@ -991,7 +993,9 @@ impl Command {
             // Retention
             | Command::RetentionApply { run, .. }
             | Command::RetentionStats { run, .. }
-            | Command::RetentionPreview { run, .. } => {
+            | Command::RetentionPreview { run, .. }
+            // Transaction begin
+            | Command::TxnBegin { run, .. } => {
                 resolve!(run);
             }
 
@@ -1021,7 +1025,6 @@ impl Command {
             | Command::RunGetParent { .. }
             | Command::RunSetRetention { .. }
             | Command::RunGetRetention { .. }
-            | Command::TxnBegin { .. }
             | Command::TxnCommit
             | Command::TxnRollback
             | Command::TxnInfo

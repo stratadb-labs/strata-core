@@ -26,7 +26,7 @@ use strata_engine::Database;
 use strata_core::Value;
 
 use crate::types::*;
-use crate::{Command, Error, Executor, Output, Result};
+use crate::{Command, Error, Executor, Output, Result, Session};
 
 /// High-level typed wrapper for database operations.
 ///
@@ -51,6 +51,14 @@ impl Strata {
     /// Get the underlying executor.
     pub fn executor(&self) -> &Executor {
         &self.executor
+    }
+
+    /// Create a new [`Session`] for interactive transaction support.
+    ///
+    /// The returned session wraps a fresh executor and can manage an
+    /// optional open transaction across multiple `execute()` calls.
+    pub fn session(db: Arc<Database>) -> Session {
+        Session::new(db)
     }
 
     // =========================================================================

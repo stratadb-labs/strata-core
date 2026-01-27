@@ -66,6 +66,7 @@ mod error;
 mod executor;
 pub mod json;
 mod output;
+mod session;
 mod strata;
 mod types;
 
@@ -81,6 +82,7 @@ pub use command::Command;
 pub use error::Error;
 pub use executor::Executor;
 pub use output::Output;
+pub use session::Session;
 pub use strata::Strata;
 pub use types::*;
 
