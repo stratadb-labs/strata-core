@@ -67,7 +67,7 @@ mod executor;
 pub mod json;
 mod output;
 mod session;
-mod strata;
+mod api;
 mod types;
 
 // Handler modules
@@ -83,7 +83,7 @@ pub use error::Error;
 pub use executor::Executor;
 pub use output::Output;
 pub use session::Session;
-pub use strata::Strata;
+pub use api::Strata;
 pub use types::*;
 
 /// Result type for executor operations
