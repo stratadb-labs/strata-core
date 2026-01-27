@@ -601,15 +601,18 @@ impl TransactionContext {
         // Build result set with read-your-writes using BTreeMap for sorted output
         let mut results: BTreeMap<Key, Value> = BTreeMap::new();
 
-        // Add snapshot results (excluding deleted keys, tracking in read_set)
+        // Add snapshot results (excluding deleted keys from results, but tracking ALL in read_set)
         for (key, vv) in snapshot_results {
+            // Always track in read_set - we observed this key exists at this version.
+            // This is important for conflict detection: if another transaction modifies
+            // a key we observed during scan (even if we're deleting it), we should detect
+            // the conflict. Otherwise, our delete could overwrite concurrent updates.
+            self.read_set.insert(key.clone(), vv.version.as_u64());
+
             if !self.delete_set.contains(&key) {
-                // Track in read_set (as u64 for comparison)
-                self.read_set.insert(key.clone(), vv.version.as_u64());
+                // Only include non-deleted keys in the result set
                 results.insert(key, vv.value);
             }
-            // Note: Deleted keys are NOT tracked in read_set from scan
-            // because we're not "reading" them - they're excluded from results
         }
 
         // Add/overwrite with write_set entries matching prefix

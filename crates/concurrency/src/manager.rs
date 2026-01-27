@@ -503,5 +503,110 @@ mod tests {
         assert_eq!(sorted[0], 1);
         assert_eq!(sorted[num_threads - 1], num_threads as u64);
     }
+
+    /// Test that scan_prefix tracks deleted keys in read_set for conflict detection.
+    ///
+    /// When a key exists in snapshot but is in delete_set, scan_prefix should
+    /// still track it in read_set. This ensures that if another transaction
+    /// modifies the key, the conflict is detected and the delete doesn't
+    /// silently overwrite concurrent updates.
+    #[test]
+    fn test_scan_prefix_deleted_key_conflict_detection() {
+        let temp_dir = TempDir::new().unwrap();
+        let wal_path = temp_dir.path().join("scan_delete.wal");
+        let wal = Arc::new(WAL::open(&wal_path, DurabilityMode::Strict).unwrap());
+        let store = Arc::new(ShardedStore::new());
+        let manager = Arc::new(TransactionManager::new(0));
+
+        let run_id = RunId::new();
+        let ns = create_test_namespace(run_id);
+        let key_alice = create_test_key(&ns, "user:alice");
+        let key_bob = create_test_key(&ns, "user:bob");
+        let prefix = create_test_key(&ns, "user:");
+
+        // Setup: Create initial data with alice and bob
+        {
+            let snapshot = store.snapshot();
+            let mut setup_txn = TransactionContext::with_snapshot(1, run_id, Box::new(snapshot));
+            setup_txn.put(key_alice.clone(), Value::Int(100)).unwrap();
+            setup_txn.put(key_bob.clone(), Value::Int(200)).unwrap();
+            manager.commit(&mut setup_txn, store.as_ref(), wal.as_ref()).unwrap();
+        }
+
+        // T1: Delete alice (blind), then scan
+        let snapshot1 = store.snapshot();
+        let mut txn1 = TransactionContext::with_snapshot(2, run_id, Box::new(snapshot1));
+        txn1.delete(key_alice.clone()).unwrap(); // Blind delete
+        let scan_result = txn1.scan_prefix(&prefix).unwrap();
+
+        // T1 sees only bob (alice excluded due to delete_set)
+        assert_eq!(scan_result.len(), 1);
+        assert!(scan_result.iter().any(|(k, _)| k == &key_bob));
+
+        // T2: Update alice and commit first
+        {
+            let snapshot2 = store.snapshot();
+            let mut txn2 = TransactionContext::with_snapshot(3, run_id, Box::new(snapshot2));
+            // T2 reads alice first (creates read_set entry)
+            let _ = txn2.get(&key_alice).unwrap();
+            txn2.put(key_alice.clone(), Value::Int(999)).unwrap();
+            manager.commit(&mut txn2, store.as_ref(), wal.as_ref()).unwrap();
+        }
+
+        // T1 commits - should FAIL because alice was modified after T1 observed it in scan
+        let result = manager.commit(&mut txn1, store.as_ref(), wal.as_ref());
+
+        // Conflict should be detected: T1 scanned and saw alice at v1, but T2 updated it to v2
+        assert!(result.is_err(), "Should detect conflict when scanned deleted key is modified");
+
+        // T2's update should be preserved
+        let final_value = store.get(&key_alice).unwrap().unwrap();
+        assert_eq!(final_value.value, Value::Int(999), "T2's update should be preserved");
+    }
+
+    /// Test that blind delete without scan does NOT cause conflict (by design).
+    /// This ensures we didn't break the "blind writes don't conflict" semantics.
+    #[test]
+    fn test_blind_delete_no_conflict() {
+        let temp_dir = TempDir::new().unwrap();
+        let wal_path = temp_dir.path().join("blind_delete.wal");
+        let wal = Arc::new(WAL::open(&wal_path, DurabilityMode::Strict).unwrap());
+        let store = Arc::new(ShardedStore::new());
+        let manager = Arc::new(TransactionManager::new(0));
+
+        let run_id = RunId::new();
+        let ns = create_test_namespace(run_id);
+        let key_alice = create_test_key(&ns, "user:alice");
+
+        // Setup: Create alice
+        {
+            let snapshot = store.snapshot();
+            let mut setup_txn = TransactionContext::with_snapshot(1, run_id, Box::new(snapshot));
+            setup_txn.put(key_alice.clone(), Value::Int(100)).unwrap();
+            manager.commit(&mut setup_txn, store.as_ref(), wal.as_ref()).unwrap();
+        }
+
+        // T1: Blind delete alice (no read, no scan)
+        let snapshot1 = store.snapshot();
+        let mut txn1 = TransactionContext::with_snapshot(2, run_id, Box::new(snapshot1));
+        txn1.delete(key_alice.clone()).unwrap(); // Blind delete - no read_set entry
+
+        // T2: Update alice and commit first
+        {
+            let snapshot2 = store.snapshot();
+            let mut txn2 = TransactionContext::with_snapshot(3, run_id, Box::new(snapshot2));
+            let _ = txn2.get(&key_alice).unwrap();
+            txn2.put(key_alice.clone(), Value::Int(999)).unwrap();
+            manager.commit(&mut txn2, store.as_ref(), wal.as_ref()).unwrap();
+        }
+
+        // T1 commits - should SUCCEED because blind writes don't conflict
+        let result = manager.commit(&mut txn1, store.as_ref(), wal.as_ref());
+        assert!(result.is_ok(), "Blind delete should succeed (no read_set entry)");
+
+        // T1's delete overwrites T2's update - this is expected for blind writes
+        let final_value = store.get(&key_alice).unwrap();
+        assert!(final_value.is_none(), "Blind delete should succeed, removing alice");
+    }
 }
 
