@@ -3,9 +3,11 @@
 //! This module provides the Transaction type that wraps TransactionContext
 //! and implements the TransactionOps trait for unified primitive access.
 //!
-//! # KV Operations in TransactionOps
-//! # Event Operations in TransactionOps
-//! # State Operations in TransactionOps
+//! # Supported Operations
+//! - KV: key-value operations (get, put, delete, exists, list)
+//! - Event: append-only event log operations
+//! - State: compare-and-swap state cells
+//! - JSON: document operations with path-based access
 //!
 //! This implementation provides:
 //! - Read-your-writes semantics (check write set first)
@@ -13,12 +15,13 @@
 //! - Proper key construction with namespaces
 //! - Event buffering with sequence allocation
 //! - State cell CAS (compare-and-swap) support
+//! - JSON document operations via TransactionContext
 
 use crate::transaction_ops::TransactionOps;
-use strata_concurrency::TransactionContext;
+use strata_concurrency::{JsonStoreExt, TransactionContext};
 use strata_core::{
-    EntityRef, Event, JsonPath, JsonValue, MetadataFilter, RunMetadata, RunStatus, State,
-    StrataError, Timestamp, Value, VectorEntry, VectorMatch, Version, Versioned,
+    EntityRef, Event, JsonPatch, JsonPath, JsonValue, MetadataFilter, RunMetadata, RunStatus,
+    State, StrataError, Timestamp, Value, VectorEntry, VectorMatch, Version, Versioned,
 };
 use strata_core::types::{Key, Namespace, RunId, TypeTag};
 use sha2::{Sha256, Digest};
@@ -141,6 +144,11 @@ impl<'a> Transaction<'a> {
     /// Create a state key for the given name
     fn state_key(&self, name: &str) -> Key {
         Key::new_state(self.namespace.clone(), name)
+    }
+
+    /// Create a JSON key for the given document ID
+    fn json_key(&self, doc_id: &str) -> Key {
+        Key::new_json(self.namespace.clone(), doc_id)
     }
 }
 
@@ -461,44 +469,165 @@ impl<'a> TransactionOps for Transaction<'a> {
     }
 
     // =========================================================================
-    // Json Operations (Phase 4) - Stub implementations
+    // Json Operations
     // =========================================================================
 
-    fn json_create(&mut self, _doc_id: &str, _value: JsonValue) -> Result<Version, StrataError> {
-        unimplemented!("Json operations will be implemented in Phase 4")
+    fn json_create(&mut self, doc_id: &str, value: JsonValue) -> Result<Version, StrataError> {
+        let full_key = self.json_key(doc_id);
+
+        // Check if document already exists in this transaction's writes
+        // (same pattern as state_init checking write_set)
+        for entry in self.ctx.json_writes() {
+            if entry.key == full_key {
+                if let JsonPatch::Set { path, .. } = &entry.patch {
+                    if path.is_root() {
+                        return Err(StrataError::invalid_operation(
+                            EntityRef::json(self.run_id(), doc_id),
+                            "document already exists",
+                        ));
+                    }
+                }
+            }
+        }
+
+        // Create the document by setting at root path
+        self.ctx
+            .json_set(&full_key, &JsonPath::root(), value)
+            .map_err(StrataError::from)?;
+
+        Ok(Version::txn(self.ctx.txn_id))
     }
 
-    fn json_get(&self, _doc_id: &str) -> Result<Option<Versioned<JsonValue>>, StrataError> {
-        unimplemented!("Json operations will be implemented in Phase 4")
+    fn json_get(&self, doc_id: &str) -> Result<Option<Versioned<JsonValue>>, StrataError> {
+        let full_key = self.json_key(doc_id);
+
+        // Check json_writes for root Set on this key (read-your-writes)
+        // Iterate in reverse to get the most recent write
+        for entry in self.ctx.json_writes().iter().rev() {
+            if entry.key == full_key {
+                match &entry.patch {
+                    JsonPatch::Set { path, value } if path.is_root() => {
+                        return Ok(Some(Versioned::new(
+                            value.clone(),
+                            Version::txn(self.ctx.txn_id),
+                        )));
+                    }
+                    JsonPatch::Delete { path } if path.is_root() => {
+                        // Document was deleted in this transaction
+                        return Ok(None);
+                    }
+                    _ => {}
+                }
+            }
+        }
+
+        // For documents not in json_writes, return None
+        // (same pattern as kv_get returning None for snapshot reads)
+        Ok(None)
     }
 
     fn json_get_path(
         &self,
-        _doc_id: &str,
-        _path: &JsonPath,
+        doc_id: &str,
+        path: &JsonPath,
     ) -> Result<Option<JsonValue>, StrataError> {
-        unimplemented!("Json operations will be implemented in Phase 4")
+        let full_key = self.json_key(doc_id);
+
+        // Check json_writes for writes affecting this path (read-your-writes)
+        for entry in self.ctx.json_writes().iter().rev() {
+            if entry.key == full_key {
+                match &entry.patch {
+                    JsonPatch::Set {
+                        path: set_path,
+                        value,
+                    } => {
+                        // If the set path is an ancestor of or equal to our path
+                        if set_path.is_ancestor_of(path) || set_path == path {
+                            if set_path == path {
+                                return Ok(Some(value.clone()));
+                            }
+                            // Navigate into the written value using relative path
+                            let relative_segments: Vec<_> = path
+                                .segments()
+                                .iter()
+                                .skip(set_path.len())
+                                .cloned()
+                                .collect();
+                            let relative_path = JsonPath::from_segments(relative_segments);
+                            return Ok(strata_core::get_at_path(value, &relative_path).cloned());
+                        }
+                    }
+                    JsonPatch::Delete { path: del_path } => {
+                        if del_path.is_ancestor_of(path) || del_path == path {
+                            return Ok(None);
+                        }
+                    }
+                }
+            }
+        }
+
+        // For paths not in json_writes, return None
+        Ok(None)
     }
 
     fn json_set(
         &mut self,
-        _doc_id: &str,
-        _path: &JsonPath,
-        _value: JsonValue,
+        doc_id: &str,
+        path: &JsonPath,
+        value: JsonValue,
     ) -> Result<Version, StrataError> {
-        unimplemented!("Json operations will be implemented in Phase 4")
+        let full_key = self.json_key(doc_id);
+
+        // Call ctx.json_set (same pattern as kv_put calling ctx.put)
+        self.ctx
+            .json_set(&full_key, path, value)
+            .map_err(StrataError::from)?;
+
+        Ok(Version::txn(self.ctx.txn_id))
     }
 
-    fn json_delete(&mut self, _doc_id: &str) -> Result<bool, StrataError> {
-        unimplemented!("Json operations will be implemented in Phase 4")
+    fn json_delete(&mut self, doc_id: &str) -> Result<bool, StrataError> {
+        let full_key = self.json_key(doc_id);
+
+        // Check if document exists (for return value, same pattern as kv_delete)
+        let existed = self.json_exists(doc_id)?;
+
+        // Delete the entire document by deleting at root path
+        self.ctx
+            .json_delete(&full_key, &JsonPath::root())
+            .map_err(StrataError::from)?;
+
+        Ok(existed)
     }
 
-    fn json_exists(&self, _doc_id: &str) -> Result<bool, StrataError> {
-        unimplemented!("Json operations will be implemented in Phase 4")
+    fn json_exists(&self, doc_id: &str) -> Result<bool, StrataError> {
+        let full_key = self.json_key(doc_id);
+
+        // Check json_writes for root Set/Delete on this key
+        // (same pattern as kv_exists checking write_set/delete_set)
+        for entry in self.ctx.json_writes().iter().rev() {
+            if entry.key == full_key {
+                match &entry.patch {
+                    JsonPatch::Set { path, .. } if path.is_root() => {
+                        return Ok(true);
+                    }
+                    JsonPatch::Delete { path } if path.is_root() => {
+                        return Ok(false);
+                    }
+                    _ => {}
+                }
+            }
+        }
+
+        // For documents not in json_writes, return false
+        // (same pattern as kv_exists returning false for keys not in buffers)
+        Ok(false)
     }
 
-    fn json_destroy(&mut self, _doc_id: &str) -> Result<bool, StrataError> {
-        unimplemented!("Json operations will be implemented in Phase 4")
+    fn json_destroy(&mut self, doc_id: &str) -> Result<bool, StrataError> {
+        // json_destroy is the same as json_delete
+        // (destroy entire document)
+        self.json_delete(doc_id)
     }
 
     // =========================================================================
@@ -925,6 +1054,142 @@ mod tests {
             }
             _ => panic!("Expected InvalidOperation error"),
         }
+    }
+
+    // =========================================================================
+    // JSON Tests
+    // =========================================================================
+
+    #[test]
+    fn test_json_create_and_get() {
+        let ns = create_test_namespace();
+        let mut ctx = create_test_context(&ns);
+        let mut txn = Transaction::new(&mut ctx, ns.clone());
+
+        // Create a JSON document
+        let doc: JsonValue = serde_json::json!({"name": "Alice", "age": 30}).into();
+        let version = txn.json_create("user:1", doc.clone()).unwrap();
+        assert!(version.as_u64() > 0);
+
+        // Get the document back (read-your-writes)
+        let result = txn.json_get("user:1").unwrap();
+        assert!(result.is_some());
+        let versioned = result.unwrap();
+        assert_eq!(versioned.value, doc);
+    }
+
+    #[test]
+    fn test_json_create_duplicate_fails() {
+        let ns = create_test_namespace();
+        let mut ctx = create_test_context(&ns);
+        let mut txn = Transaction::new(&mut ctx, ns.clone());
+
+        // Create twice should fail
+        let doc: JsonValue = serde_json::json!({"key": "value"}).into();
+        txn.json_create("doc1", doc).unwrap();
+        let result = txn.json_create("doc1", serde_json::json!({"other": "data"}).into());
+
+        assert!(result.is_err());
+        match result.unwrap_err() {
+            StrataError::InvalidOperation { reason, .. } => {
+                assert!(reason.contains("already exists"));
+            }
+            _ => panic!("Expected InvalidOperation error"),
+        }
+    }
+
+    #[test]
+    fn test_json_set_and_get_path() {
+        let ns = create_test_namespace();
+        let mut ctx = create_test_context(&ns);
+        let mut txn = Transaction::new(&mut ctx, ns.clone());
+
+        // Create a document
+        let doc: JsonValue = serde_json::json!({"user": {"name": "Bob"}}).into();
+        txn.json_create("doc", doc).unwrap();
+
+        // Set a nested value
+        let path: JsonPath = "user.age".parse().unwrap();
+        txn.json_set("doc", &path, serde_json::json!(25).into()).unwrap();
+
+        // Get the path value back
+        let result = txn.json_get_path("doc", &path).unwrap();
+        let expected: JsonValue = serde_json::json!(25).into();
+        assert_eq!(result, Some(expected));
+    }
+
+    #[test]
+    fn test_json_delete() {
+        let ns = create_test_namespace();
+        let mut ctx = create_test_context(&ns);
+        let mut txn = Transaction::new(&mut ctx, ns.clone());
+
+        // Create then delete
+        let doc: JsonValue = serde_json::json!({"key": "value"}).into();
+        txn.json_create("doc", doc).unwrap();
+        let existed = txn.json_delete("doc").unwrap();
+        assert!(existed);
+
+        // Get should return None
+        let result = txn.json_get("doc").unwrap();
+        assert!(result.is_none());
+    }
+
+    #[test]
+    fn test_json_exists() {
+        let ns = create_test_namespace();
+        let mut ctx = create_test_context(&ns);
+        let mut txn = Transaction::new(&mut ctx, ns.clone());
+
+        // Document doesn't exist initially
+        assert!(!txn.json_exists("missing").unwrap());
+
+        // Create and check
+        let doc: JsonValue = serde_json::json!({}).into();
+        txn.json_create("doc", doc).unwrap();
+        assert!(txn.json_exists("doc").unwrap());
+    }
+
+    #[test]
+    fn test_json_destroy() {
+        let ns = create_test_namespace();
+        let mut ctx = create_test_context(&ns);
+        let mut txn = Transaction::new(&mut ctx, ns.clone());
+
+        // Create then destroy
+        let doc: JsonValue = serde_json::json!({"data": true}).into();
+        txn.json_create("doc", doc).unwrap();
+        let existed = txn.json_destroy("doc").unwrap();
+        assert!(existed);
+
+        // Should no longer exist
+        assert!(!txn.json_exists("doc").unwrap());
+    }
+
+    #[test]
+    fn test_json_get_nonexistent() {
+        let ns = create_test_namespace();
+        let mut ctx = create_test_context(&ns);
+        let txn = Transaction::new(&mut ctx, ns.clone());
+
+        // Getting non-existent document returns None
+        let result = txn.json_get("nonexistent").unwrap();
+        assert!(result.is_none());
+    }
+
+    #[test]
+    fn test_json_get_path_root() {
+        let ns = create_test_namespace();
+        let mut ctx = create_test_context(&ns);
+        let mut txn = Transaction::new(&mut ctx, ns.clone());
+
+        // Create a document
+        let doc: JsonValue = serde_json::json!({"name": "Test"}).into();
+        txn.json_create("doc", doc.clone()).unwrap();
+
+        // Get at root path returns the whole document
+        let result = txn.json_get_path("doc", &JsonPath::root()).unwrap();
+        assert_eq!(result, Some(doc));
     }
 
 }
