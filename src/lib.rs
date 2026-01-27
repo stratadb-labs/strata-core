@@ -7,4 +7,3 @@ pub use strata_storage;
 pub use strata_concurrency;
 pub use strata_durability;
 pub use strata_engine;
-pub use strata_api;

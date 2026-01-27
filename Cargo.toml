@@ -12,7 +12,6 @@ members = [
     "crates/concurrency",
     "crates/durability",
     "crates/engine",
-    "crates/api",
     "crates/search",
     "crates/executor",
 ]
@@ -97,7 +96,6 @@ strata-storage = { path = "crates/storage" }
 strata-concurrency = { path = "crates/concurrency" }
 strata-durability = { path = "crates/durability" }
 strata-engine = { path = "crates/engine" }
-strata-api = { path = "crates/api" }
 thiserror = { workspace = true }
 serde_json = { workspace = true }
 uuid = { workspace = true }
