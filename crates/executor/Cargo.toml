@@ -12,7 +12,7 @@ description = "Command execution layer for Strata database"
 [dependencies]
 # Internal crates
 strata-core = { path = "../core" }
-strata-api = { path = "../api" }
+strata-engine = { path = "../engine" }
 
 # Serialization
 serde = { workspace = true }
@@ -29,4 +29,3 @@ uuid = { workspace = true }
 
 [dev-dependencies]
 tempfile = { workspace = true }
-strata-engine = { path = "../engine" }

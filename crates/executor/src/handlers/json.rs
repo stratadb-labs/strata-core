@@ -1,50 +1,35 @@
 //! JSON command handlers.
 //!
-//! This module implements handlers for all 17 JSON commands by dispatching
-//! to the SubstrateImpl's JsonStore trait methods.
+//! This module implements handlers for all JSON commands by dispatching
+//! directly to engine primitives via `bridge::Primitives`.
 
 use std::sync::Arc;
 
-use strata_api::substrate::json::{JsonListResult as ApiJsonListResult, JsonSearchHit as ApiJsonSearchHit};
-use strata_api::substrate::{ApiRunId, JsonStore, SubstrateImpl};
-use strata_core::{Value, Version, Versioned};
+use strata_core::{SearchRequest, Value, Versioned};
 
+use crate::bridge::{
+    extract_version, json_to_value, parse_path, to_core_run_id, validate_key, value_to_json,
+    Primitives,
+};
 use crate::convert::convert_result;
 use crate::types::{JsonSearchHit, RunId, VersionedValue};
-use crate::{Error, Output, Result};
+use crate::{Output, Result};
 
-/// Convert executor RunId to API RunId.
-fn to_api_run_id(run: &RunId) -> Result<ApiRunId> {
-    ApiRunId::parse(run.as_str()).ok_or_else(|| Error::InvalidInput {
-        reason: format!("Invalid run ID: '{}'", run.as_str()),
-    })
-}
+// =============================================================================
+// Helpers
+// =============================================================================
 
-/// Convert Versioned<Value> to VersionedValue.
-fn to_versioned_value(v: Versioned<Value>) -> VersionedValue {
-    VersionedValue {
-        value: v.value,
+/// Convert a `Versioned<JsonValue>` from the JSON primitive into a `VersionedValue`
+/// (which wraps `strata_core::Value`).
+fn json_versioned_to_versioned_value(
+    v: Versioned<strata_core::primitives::json::JsonValue>,
+) -> Result<VersionedValue> {
+    let value = convert_result(json_to_value(v.value))?;
+    Ok(VersionedValue {
+        value,
         version: extract_version(&v.version),
         timestamp: v.timestamp.into(),
-    }
-}
-
-/// Extract u64 from Version enum.
-fn extract_version(v: &Version) -> u64 {
-    match v {
-        Version::Txn(n) => *n,
-        Version::Sequence(n) => *n,
-        Version::Counter(n) => *n,
-    }
-}
-
-/// Convert API JsonSearchHit to executor JsonSearchHit.
-fn to_search_hit(hit: ApiJsonSearchHit) -> JsonSearchHit {
-    JsonSearchHit {
-        key: hit.key,
-        score: hit.score,
-        highlights: vec![], // API doesn't provide highlights currently
-    }
+    })
 }
 
 // =============================================================================
@@ -52,227 +37,361 @@ fn to_search_hit(hit: ApiJsonSearchHit) -> JsonSearchHit {
 // =============================================================================
 
 /// Handle JsonSet command.
+///
+/// Auto-creation logic:
+/// - If doc doesn't exist and path is root: create the document.
+/// - If doc doesn't exist and path is non-root: create with empty object, then set at path.
+/// - If doc exists: set at path.
 pub fn json_set(
-    substrate: &Arc<SubstrateImpl>,
+    p: &Arc<Primitives>,
     run: RunId,
     key: String,
     path: String,
     value: Value,
 ) -> Result<Output> {
-    let api_run = to_api_run_id(&run)?;
-    let version = convert_result(substrate.json_set(&api_run, &key, &path, value))?;
+    let run_id = to_core_run_id(&run)?;
+    convert_result(validate_key(&key))?;
+    let json_path = convert_result(parse_path(&path))?;
+    let json_value = convert_result(value_to_json(value))?;
+
+    let exists = convert_result(p.json.exists(&run_id, &key))?;
+
+    let version = if !exists && json_path.is_root() {
+        // Document doesn't exist and path is root — create it.
+        convert_result(p.json.create(&run_id, &key, json_value))?
+    } else if !exists {
+        // Document doesn't exist and path is non-root — create empty object first, then set.
+        let empty_obj = convert_result(value_to_json(Value::Object(Default::default())))?;
+        convert_result(p.json.create(&run_id, &key, empty_obj))?;
+        convert_result(p.json.set(&run_id, &key, &json_path, json_value))?
+    } else {
+        // Document exists — set at path.
+        convert_result(p.json.set(&run_id, &key, &json_path, json_value))?
+    };
+
     Ok(Output::Version(extract_version(&version)))
 }
 
 /// Handle JsonGet command.
 pub fn json_get(
-    substrate: &Arc<SubstrateImpl>,
+    p: &Arc<Primitives>,
     run: RunId,
     key: String,
     path: String,
 ) -> Result<Output> {
-    let api_run = to_api_run_id(&run)?;
-    let result = convert_result(substrate.json_get(&api_run, &key, &path))?;
-    Ok(Output::MaybeVersioned(result.map(to_versioned_value)))
+    let run_id = to_core_run_id(&run)?;
+    convert_result(validate_key(&key))?;
+    let json_path = convert_result(parse_path(&path))?;
+
+    let result = convert_result(p.json.get(&run_id, &key, &json_path))?;
+    let versioned = result
+        .map(|v| json_versioned_to_versioned_value(v))
+        .transpose()?;
+    Ok(Output::MaybeVersioned(versioned))
 }
 
 /// Handle JsonDelete command.
+///
+/// - Root path: destroy entire document (returns 1 if existed, 0 otherwise).
+/// - Non-root path: delete at path (returns 1).
 pub fn json_delete(
-    substrate: &Arc<SubstrateImpl>,
+    p: &Arc<Primitives>,
     run: RunId,
     key: String,
     path: String,
 ) -> Result<Output> {
-    let api_run = to_api_run_id(&run)?;
-    let count = convert_result(substrate.json_delete(&api_run, &key, &path))?;
-    Ok(Output::Uint(count))
+    let run_id = to_core_run_id(&run)?;
+    convert_result(validate_key(&key))?;
+    let json_path = convert_result(parse_path(&path))?;
+
+    if json_path.is_root() {
+        let deleted = convert_result(p.json.destroy(&run_id, &key))?;
+        Ok(Output::Uint(if deleted { 1 } else { 0 }))
+    } else {
+        convert_result(p.json.delete_at_path(&run_id, &key, &json_path))?;
+        Ok(Output::Uint(1))
+    }
 }
 
 /// Handle JsonMerge command.
 pub fn json_merge(
-    substrate: &Arc<SubstrateImpl>,
+    p: &Arc<Primitives>,
     run: RunId,
     key: String,
     path: String,
     patch: Value,
 ) -> Result<Output> {
-    let api_run = to_api_run_id(&run)?;
-    let version = convert_result(substrate.json_merge(&api_run, &key, &path, patch))?;
+    let run_id = to_core_run_id(&run)?;
+    convert_result(validate_key(&key))?;
+    let json_path = convert_result(parse_path(&path))?;
+    let patch_json = convert_result(value_to_json(patch))?;
+
+    let version = convert_result(p.json.merge(&run_id, &key, &json_path, patch_json))?;
     Ok(Output::Version(extract_version(&version)))
 }
 
 /// Handle JsonHistory command.
 pub fn json_history(
-    substrate: &Arc<SubstrateImpl>,
+    p: &Arc<Primitives>,
     run: RunId,
     key: String,
     limit: Option<u64>,
     before: Option<u64>,
 ) -> Result<Output> {
-    let api_run = to_api_run_id(&run)?;
-    let before_version = before.map(Version::Counter);
-    let history = convert_result(substrate.json_history(&api_run, &key, limit, before_version))?;
-    let values: Vec<VersionedValue> = history.into_iter().map(to_versioned_value).collect();
+    let run_id = to_core_run_id(&run)?;
+    convert_result(validate_key(&key))?;
+
+    let history = convert_result(p.json.history(
+        &run_id,
+        &key,
+        limit.map(|l| l as usize),
+        before,
+    ))?;
+
+    // Convert Vec<Versioned<JsonDoc>> to Vec<VersionedValue>
+    let values: Vec<VersionedValue> = history
+        .into_iter()
+        .map(|v| {
+            let val = convert_result(json_to_value(v.value.value))?;
+            Ok(VersionedValue {
+                value: val,
+                version: extract_version(&v.version),
+                timestamp: v.timestamp.into(),
+            })
+        })
+        .collect::<Result<Vec<_>>>()?;
+
     Ok(Output::VersionedValues(values))
 }
 
 /// Handle JsonExists command.
 pub fn json_exists(
-    substrate: &Arc<SubstrateImpl>,
+    p: &Arc<Primitives>,
     run: RunId,
     key: String,
 ) -> Result<Output> {
-    let api_run = to_api_run_id(&run)?;
-    let exists = convert_result(substrate.json_exists(&api_run, &key))?;
+    let run_id = to_core_run_id(&run)?;
+    convert_result(validate_key(&key))?;
+
+    let exists = convert_result(p.json.exists(&run_id, &key))?;
     Ok(Output::Bool(exists))
 }
 
 /// Handle JsonGetVersion command.
 pub fn json_get_version(
-    substrate: &Arc<SubstrateImpl>,
+    p: &Arc<Primitives>,
     run: RunId,
     key: String,
 ) -> Result<Output> {
-    let api_run = to_api_run_id(&run)?;
-    let version = convert_result(substrate.json_get_version(&api_run, &key))?;
+    let run_id = to_core_run_id(&run)?;
+    convert_result(validate_key(&key))?;
+
+    let version = convert_result(p.json.get_version(&run_id, &key))?;
     Ok(Output::MaybeVersion(version))
 }
 
 /// Handle JsonSearch command.
 pub fn json_search(
-    substrate: &Arc<SubstrateImpl>,
+    p: &Arc<Primitives>,
     run: RunId,
     query: String,
     k: u64,
 ) -> Result<Output> {
-    let api_run = to_api_run_id(&run)?;
-    let hits = convert_result(substrate.json_search(&api_run, &query, k))?;
-    let search_hits: Vec<JsonSearchHit> = hits.into_iter().map(to_search_hit).collect();
+    let run_id = to_core_run_id(&run)?;
+
+    let request = SearchRequest::new(run_id, &query).with_k(k as usize);
+    let response = convert_result(p.json.search(&request))?;
+
+    let search_hits: Vec<JsonSearchHit> = response
+        .hits
+        .into_iter()
+        .map(|hit| JsonSearchHit {
+            key: hit.doc_ref.to_string(),
+            score: hit.score,
+            highlights: vec![],
+        })
+        .collect();
+
     Ok(Output::JsonSearchHits(search_hits))
 }
 
 /// Handle JsonList command.
 pub fn json_list(
-    substrate: &Arc<SubstrateImpl>,
+    p: &Arc<Primitives>,
     run: RunId,
     prefix: Option<String>,
     cursor: Option<String>,
     limit: u64,
 ) -> Result<Output> {
-    let api_run = to_api_run_id(&run)?;
-    let result: ApiJsonListResult = convert_result(substrate.json_list(
-        &api_run,
+    let run_id = to_core_run_id(&run)?;
+
+    let result = convert_result(p.json.list(
+        &run_id,
         prefix.as_deref(),
         cursor.as_deref(),
-        limit,
+        limit as usize,
     ))?;
+
     Ok(Output::JsonListResult {
-        keys: result.keys,
+        keys: result.doc_ids,
         cursor: result.next_cursor,
     })
 }
 
 /// Handle JsonCas command.
 pub fn json_cas(
-    substrate: &Arc<SubstrateImpl>,
+    p: &Arc<Primitives>,
     run: RunId,
     key: String,
     expected_version: u64,
     path: String,
     value: Value,
 ) -> Result<Output> {
-    let api_run = to_api_run_id(&run)?;
-    let version = convert_result(substrate.json_cas(&api_run, &key, expected_version, &path, value))?;
+    let run_id = to_core_run_id(&run)?;
+    convert_result(validate_key(&key))?;
+    let json_path = convert_result(parse_path(&path))?;
+    let json_value = convert_result(value_to_json(value))?;
+
+    let version = convert_result(p.json.cas(
+        &run_id,
+        &key,
+        expected_version,
+        &json_path,
+        json_value,
+    ))?;
     Ok(Output::Version(extract_version(&version)))
 }
 
 /// Handle JsonQuery command.
 pub fn json_query(
-    substrate: &Arc<SubstrateImpl>,
+    p: &Arc<Primitives>,
     run: RunId,
     path: String,
     value: Value,
     limit: u64,
 ) -> Result<Output> {
-    let api_run = to_api_run_id(&run)?;
-    let keys = convert_result(substrate.json_query(&api_run, &path, value, limit))?;
+    let run_id = to_core_run_id(&run)?;
+    let json_path = convert_result(parse_path(&path))?;
+    let json_value = convert_result(value_to_json(value))?;
+
+    let keys = convert_result(p.json.query(&run_id, &json_path, &json_value, limit as usize))?;
     Ok(Output::Keys(keys))
 }
 
 /// Handle JsonCount command.
-pub fn json_count(substrate: &Arc<SubstrateImpl>, run: RunId) -> Result<Output> {
-    let api_run = to_api_run_id(&run)?;
-    let count = convert_result(substrate.json_count(&api_run))?;
+pub fn json_count(p: &Arc<Primitives>, run: RunId) -> Result<Output> {
+    let run_id = to_core_run_id(&run)?;
+    let count = convert_result(p.json.count(&run_id))?;
     Ok(Output::Uint(count))
 }
 
 /// Handle JsonBatchGet command.
 pub fn json_batch_get(
-    substrate: &Arc<SubstrateImpl>,
+    p: &Arc<Primitives>,
     run: RunId,
     keys: Vec<String>,
 ) -> Result<Output> {
-    let api_run = to_api_run_id(&run)?;
+    let run_id = to_core_run_id(&run)?;
     let key_refs: Vec<&str> = keys.iter().map(|s| s.as_str()).collect();
-    let results = convert_result(substrate.json_batch_get(&api_run, &key_refs))?;
+
+    let results = convert_result(p.json.batch_get(&run_id, &key_refs))?;
+
+    // Convert Vec<Option<Versioned<JsonDoc>>> to Vec<Option<VersionedValue>>
     let values: Vec<Option<VersionedValue>> = results
         .into_iter()
-        .map(|opt| opt.map(to_versioned_value))
-        .collect();
+        .map(|opt| {
+            opt.map(|v| {
+                let val = convert_result(json_to_value(v.value.value))?;
+                Ok(VersionedValue {
+                    value: val,
+                    version: extract_version(&v.version),
+                    timestamp: v.timestamp.into(),
+                })
+            })
+            .transpose()
+        })
+        .collect::<Result<Vec<_>>>()?;
+
     Ok(Output::Values(values))
 }
 
 /// Handle JsonBatchCreate command.
 pub fn json_batch_create(
-    substrate: &Arc<SubstrateImpl>,
+    p: &Arc<Primitives>,
     run: RunId,
     docs: Vec<(String, Value)>,
 ) -> Result<Output> {
-    let api_run = to_api_run_id(&run)?;
-    let doc_refs: Vec<(&str, Value)> = docs
-        .iter()
-        .map(|(k, v): &(String, Value)| (k.as_str(), v.clone()))
-        .collect();
-    let versions = convert_result(substrate.json_batch_create(&api_run, doc_refs))?;
+    let run_id = to_core_run_id(&run)?;
+
+    let json_docs: Vec<(String, strata_core::primitives::json::JsonValue)> = docs
+        .into_iter()
+        .map(|(k, v)| {
+            let jv = convert_result(value_to_json(v))?;
+            Ok((k, jv))
+        })
+        .collect::<Result<Vec<_>>>()?;
+
+    let versions = convert_result(p.json.batch_create(&run_id, json_docs))?;
     let version_nums: Vec<u64> = versions.into_iter().map(|v| extract_version(&v)).collect();
     Ok(Output::Versions(version_nums))
 }
 
 /// Handle JsonArrayPush command.
 pub fn json_array_push(
-    substrate: &Arc<SubstrateImpl>,
+    p: &Arc<Primitives>,
     run: RunId,
     key: String,
     path: String,
     values: Vec<Value>,
 ) -> Result<Output> {
-    let api_run = to_api_run_id(&run)?;
-    let new_len = convert_result(substrate.json_array_push(&api_run, &key, &path, values))?;
+    let run_id = to_core_run_id(&run)?;
+    convert_result(validate_key(&key))?;
+    let json_path = convert_result(parse_path(&path))?;
+
+    let json_values: Vec<strata_core::primitives::json::JsonValue> = values
+        .into_iter()
+        .map(|v| convert_result(value_to_json(v)))
+        .collect::<Result<Vec<_>>>()?;
+
+    let (_version, new_len) =
+        convert_result(p.json.array_push(&run_id, &key, &json_path, json_values))?;
     Ok(Output::Uint(new_len as u64))
 }
 
 /// Handle JsonIncrement command.
 pub fn json_increment(
-    substrate: &Arc<SubstrateImpl>,
+    p: &Arc<Primitives>,
     run: RunId,
     key: String,
     path: String,
     delta: f64,
 ) -> Result<Output> {
-    let api_run = to_api_run_id(&run)?;
-    let new_value = convert_result(substrate.json_increment(&api_run, &key, &path, delta))?;
+    let run_id = to_core_run_id(&run)?;
+    convert_result(validate_key(&key))?;
+    let json_path = convert_result(parse_path(&path))?;
+
+    let (_version, new_value) =
+        convert_result(p.json.increment(&run_id, &key, &json_path, delta))?;
     Ok(Output::Float(new_value))
 }
 
 /// Handle JsonArrayPop command.
 pub fn json_array_pop(
-    substrate: &Arc<SubstrateImpl>,
+    p: &Arc<Primitives>,
     run: RunId,
     key: String,
     path: String,
 ) -> Result<Output> {
-    let api_run = to_api_run_id(&run)?;
-    let popped = convert_result(substrate.json_array_pop(&api_run, &key, &path))?;
+    let run_id = to_core_run_id(&run)?;
+    convert_result(validate_key(&key))?;
+    let json_path = convert_result(parse_path(&path))?;
+
+    let (_version, popped_json) =
+        convert_result(p.json.array_pop(&run_id, &key, &json_path))?;
+
+    let popped = popped_json
+        .map(|jv| convert_result(json_to_value(jv)))
+        .transpose()?;
     Ok(Output::Maybe(popped))
 }
 
@@ -281,14 +400,15 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_to_api_run_id_default() {
+    fn test_to_core_run_id_default() {
         let run = RunId::from("default");
-        let api_run = to_api_run_id(&run).unwrap();
-        assert!(api_run.is_default());
+        let core_id = to_core_run_id(&run).unwrap();
+        assert_eq!(core_id.as_bytes(), &[0u8; 16]);
     }
 
     #[test]
     fn test_extract_version() {
+        use strata_core::Version;
         assert_eq!(extract_version(&Version::Txn(42)), 42);
         assert_eq!(extract_version(&Version::Counter(100)), 100);
     }

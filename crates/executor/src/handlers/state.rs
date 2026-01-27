@@ -1,42 +1,17 @@
 //! State command handlers.
 //!
 //! This module implements handlers for the 8 serializable State commands.
-//! Note: state_transition, state_transition_or_init, and state_get_or_init
+//! Note: state_transition, state_transition_or_init, and state_read_or_init
 //! are excluded from the executor as they require closures.
 
 use std::sync::Arc;
 
-use strata_api::substrate::{ApiRunId, StateCell, SubstrateImpl};
 use strata_core::{Value, Version, Versioned};
 
+use crate::bridge::{self, Primitives};
 use crate::convert::convert_result;
 use crate::types::{RunId, VersionedValue};
-use crate::{Error, Output, Result};
-
-/// Convert executor RunId to API RunId.
-fn to_api_run_id(run: &RunId) -> Result<ApiRunId> {
-    ApiRunId::parse(run.as_str()).ok_or_else(|| Error::InvalidInput {
-        reason: format!("Invalid run ID: '{}'", run.as_str()),
-    })
-}
-
-/// Convert Versioned<Value> to VersionedValue.
-fn to_versioned_value(v: Versioned<Value>) -> VersionedValue {
-    VersionedValue {
-        value: v.value,
-        version: extract_version(&v.version),
-        timestamp: v.timestamp.into(),
-    }
-}
-
-/// Extract u64 from Version enum.
-fn extract_version(v: &Version) -> u64 {
-    match v {
-        Version::Txn(n) => *n,
-        Version::Sequence(n) => *n,
-        Version::Counter(n) => *n,
-    }
-}
+use crate::{Output, Result};
 
 // =============================================================================
 // Individual Handlers
@@ -44,109 +19,120 @@ fn extract_version(v: &Version) -> u64 {
 
 /// Handle StateSet command.
 pub fn state_set(
-    substrate: &Arc<SubstrateImpl>,
+    p: &Arc<Primitives>,
     run: RunId,
     cell: String,
     value: Value,
 ) -> Result<Output> {
-    let api_run = to_api_run_id(&run)?;
-    let version = convert_result(substrate.state_set(&api_run, &cell, value))?;
-    Ok(Output::Version(extract_version(&version)))
+    let run_id = bridge::to_core_run_id(&run)?;
+    convert_result(bridge::validate_key(&cell))?;
+    let versioned = convert_result(p.state.set(&run_id, &cell, value))?;
+    Ok(Output::Version(bridge::extract_version(&versioned.version)))
 }
 
-/// Handle StateGet command.
-pub fn state_get(
-    substrate: &Arc<SubstrateImpl>,
+/// Handle StateRead command.
+pub fn state_read(
+    p: &Arc<Primitives>,
     run: RunId,
     cell: String,
 ) -> Result<Output> {
-    let api_run = to_api_run_id(&run)?;
-    let result = convert_result(substrate.state_get(&api_run, &cell))?;
-    Ok(Output::MaybeVersioned(result.map(to_versioned_value)))
+    let run_id = bridge::to_core_run_id(&run)?;
+    convert_result(bridge::validate_key(&cell))?;
+    let result = convert_result(p.state.read(&run_id, &cell))?;
+    let mapped = result.map(|state| {
+        let combined = Versioned {
+            value: state.value.value,
+            version: state.version,
+            timestamp: state.timestamp,
+        };
+        bridge::to_versioned_value(combined)
+    });
+    Ok(Output::MaybeVersioned(mapped))
 }
 
 /// Handle StateCas command.
 pub fn state_cas(
-    substrate: &Arc<SubstrateImpl>,
+    p: &Arc<Primitives>,
     run: RunId,
     cell: String,
     expected_counter: Option<u64>,
     value: Value,
 ) -> Result<Output> {
-    let api_run = to_api_run_id(&run)?;
-    let result = convert_result(substrate.state_cas(&api_run, &cell, expected_counter, value))?;
-    Ok(Output::MaybeVersion(result.map(|v| extract_version(&v))))
+    let run_id = bridge::to_core_run_id(&run)?;
+    convert_result(bridge::validate_key(&cell))?;
+    match expected_counter {
+        None => {
+            // Init semantics: create only if cell doesn't exist.
+            match p.state.init(&run_id, &cell, value) {
+                Ok(versioned) => Ok(Output::MaybeVersion(Some(bridge::extract_version(&versioned.version)))),
+                Err(_) => Ok(Output::MaybeVersion(None)),
+            }
+        }
+        Some(expected) => {
+            match p.state.cas(&run_id, &cell, Version::Counter(expected), value) {
+                Ok(versioned) => Ok(Output::MaybeVersion(Some(bridge::extract_version(&versioned.version)))),
+                Err(_) => Ok(Output::MaybeVersion(None)),
+            }
+        }
+    }
 }
 
 /// Handle StateDelete command.
 pub fn state_delete(
-    substrate: &Arc<SubstrateImpl>,
+    p: &Arc<Primitives>,
     run: RunId,
     cell: String,
 ) -> Result<Output> {
-    let api_run = to_api_run_id(&run)?;
-    let existed = convert_result(substrate.state_delete(&api_run, &cell))?;
+    let run_id = bridge::to_core_run_id(&run)?;
+    convert_result(bridge::validate_key(&cell))?;
+    let existed = convert_result(p.state.delete(&run_id, &cell))?;
     Ok(Output::Bool(existed))
 }
 
 /// Handle StateExists command.
 pub fn state_exists(
-    substrate: &Arc<SubstrateImpl>,
+    p: &Arc<Primitives>,
     run: RunId,
     cell: String,
 ) -> Result<Output> {
-    let api_run = to_api_run_id(&run)?;
-    let exists = convert_result(substrate.state_exists(&api_run, &cell))?;
+    let run_id = bridge::to_core_run_id(&run)?;
+    convert_result(bridge::validate_key(&cell))?;
+    let exists = convert_result(p.state.exists(&run_id, &cell))?;
     Ok(Output::Bool(exists))
 }
 
 /// Handle StateHistory command.
 pub fn state_history(
-    substrate: &Arc<SubstrateImpl>,
+    p: &Arc<Primitives>,
     run: RunId,
     cell: String,
     limit: Option<u64>,
     before: Option<u64>,
 ) -> Result<Output> {
-    let api_run = to_api_run_id(&run)?;
-    let before_version = before.map(Version::Counter);
-    let history = convert_result(substrate.state_history(&api_run, &cell, limit, before_version))?;
-    let values: Vec<VersionedValue> = history.into_iter().map(to_versioned_value).collect();
+    let run_id = bridge::to_core_run_id(&run)?;
+    convert_result(bridge::validate_key(&cell))?;
+    let limit_usize = limit.map(|l| l as usize);
+    let history = convert_result(p.state.history(&run_id, &cell, limit_usize, before))?;
+    let values: Vec<VersionedValue> = history.into_iter().map(bridge::to_versioned_value).collect();
     Ok(Output::VersionedValues(values))
 }
 
 /// Handle StateInit command.
 pub fn state_init(
-    substrate: &Arc<SubstrateImpl>,
+    p: &Arc<Primitives>,
     run: RunId,
     cell: String,
     value: Value,
 ) -> Result<Output> {
-    let api_run = to_api_run_id(&run)?;
-    let version = convert_result(substrate.state_init(&api_run, &cell, value))?;
-    Ok(Output::Version(extract_version(&version)))
+    let run_id = bridge::to_core_run_id(&run)?;
+    convert_result(bridge::validate_key(&cell))?;
+    let versioned = convert_result(p.state.init(&run_id, &cell, value))?;
+    Ok(Output::Version(bridge::extract_version(&versioned.version)))
 }
 
 /// Handle StateList command.
-pub fn state_list(substrate: &Arc<SubstrateImpl>, run: RunId) -> Result<Output> {
-    let api_run = to_api_run_id(&run)?;
-    let cells = convert_result(substrate.state_list(&api_run))?;
+pub fn state_list(p: &Arc<Primitives>, run: RunId) -> Result<Output> {
+    let run_id = bridge::to_core_run_id(&run)?;
+    let cells = convert_result(p.state.list(&run_id))?;
     Ok(Output::Strings(cells))
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn test_to_api_run_id_default() {
-        let run = RunId::from("default");
-        let api_run = to_api_run_id(&run).unwrap();
-        assert!(api_run.is_default());
-    }
-
-    #[test]
-    fn test_extract_version() {
-        assert_eq!(extract_version(&Version::Counter(42)), 42);
-    }
 }

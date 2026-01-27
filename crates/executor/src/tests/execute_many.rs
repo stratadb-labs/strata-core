@@ -10,12 +10,10 @@ use std::sync::Arc;
 
 /// Create a test executor with an in-memory database.
 fn create_test_executor() -> Executor {
-    use strata_api::substrate::SubstrateImpl;
     use strata_engine::Database;
 
     let db = Arc::new(Database::builder().no_durability().open_temp().unwrap());
-    let substrate = Arc::new(SubstrateImpl::new(db));
-    Executor::new(substrate)
+    Executor::new(db)
 }
 
 #[test]
@@ -62,17 +60,17 @@ fn test_execute_many_preserves_order() {
     // Put three different values
     let put_results = executor.execute_many(vec![
         Command::KvPut {
-            run: RunId::from("default"),
+            run: Some(RunId::from("default")),
             key: "key1".to_string(),
             value: Value::Int(1),
         },
         Command::KvPut {
-            run: RunId::from("default"),
+            run: Some(RunId::from("default")),
             key: "key2".to_string(),
             value: Value::Int(2),
         },
         Command::KvPut {
-            run: RunId::from("default"),
+            run: Some(RunId::from("default")),
             key: "key3".to_string(),
             value: Value::Int(3),
         },
@@ -83,15 +81,15 @@ fn test_execute_many_preserves_order() {
     // Get them back in a specific order
     let get_results = executor.execute_many(vec![
         Command::KvGet {
-            run: RunId::from("default"),
+            run: Some(RunId::from("default")),
             key: "key3".to_string(),
         },
         Command::KvGet {
-            run: RunId::from("default"),
+            run: Some(RunId::from("default")),
             key: "key1".to_string(),
         },
         Command::KvGet {
-            run: RunId::from("default"),
+            run: Some(RunId::from("default")),
             key: "key2".to_string(),
         },
     ]);
@@ -129,7 +127,7 @@ fn test_execute_many_continues_after_error() {
     let results = executor.execute_many(vec![
         Command::Ping, // Should succeed
         Command::KvGetAt {
-            run: RunId::from("nonexistent-run-12345"),
+            run: Some(RunId::from("nonexistent-run-12345")),
             key: "key".to_string(),
             version: 1,
         }, // Should fail (invalid run)
@@ -149,24 +147,24 @@ fn test_execute_many_mixed_operations() {
     let results = executor.execute_many(vec![
         // Store a value
         Command::KvPut {
-            run: RunId::from("default"),
+            run: Some(RunId::from("default")),
             key: "counter".to_string(),
             value: Value::Int(10),
         },
         // Check it exists
         Command::KvExists {
-            run: RunId::from("default"),
+            run: Some(RunId::from("default")),
             key: "counter".to_string(),
         },
         // Increment it
         Command::KvIncr {
-            run: RunId::from("default"),
+            run: Some(RunId::from("default")),
             key: "counter".to_string(),
             delta: 5,
         },
         // Get the new value
         Command::KvGet {
-            run: RunId::from("default"),
+            run: Some(RunId::from("default")),
             key: "counter".to_string(),
         },
     ]);
@@ -223,7 +221,7 @@ fn test_execute_many_large_batch() {
     // Create a batch of 100 commands
     let commands: Vec<Command> = (0..100)
         .map(|i| Command::KvPut {
-            run: RunId::from("default"),
+            run: Some(RunId::from("default")),
             key: format!("key_{}", i),
             value: Value::Int(i),
         })

@@ -984,7 +984,7 @@ impl Database {
     /// db.commit_transaction(&mut txn)?;
     /// db.end_transaction(txn); // Return to pool
     /// ```
-    pub(crate) fn begin_transaction(&self, run_id: RunId) -> TransactionContext {
+    pub fn begin_transaction(&self, run_id: RunId) -> TransactionContext {
         let txn_id = self.coordinator.next_txn_id();
         let snapshot = self.storage.create_snapshot();
         self.coordinator.record_start();
@@ -1010,7 +1010,7 @@ impl Database {
     /// db.commit_transaction(&mut txn)?;
     /// db.end_transaction(txn); // Return to pool for reuse
     /// ```
-    pub(crate) fn end_transaction(&self, ctx: TransactionContext) {
+    pub fn end_transaction(&self, ctx: TransactionContext) {
         TransactionPool::release(ctx);
     }
 
@@ -1035,7 +1035,7 @@ impl Database {
     ///
     /// # Contract
     /// Returns the commit version (u64) assigned to all writes in this transaction.
-    pub(crate) fn commit_transaction(&self, txn: &mut TransactionContext) -> Result<u64> {
+    pub fn commit_transaction(&self, txn: &mut TransactionContext) -> Result<u64> {
         self.commit_internal(txn, self.durability_mode)
     }
 

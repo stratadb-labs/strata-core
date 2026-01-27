@@ -125,7 +125,7 @@ pub enum Output {
     VectorBatchResult(Vec<VectorBatchEntry>),
 
     /// Vector collection info
-    VectorCollectionInfo(Option<CollectionInfo>),
+    VectorGetCollection(Option<CollectionInfo>),
 
     /// List of vector collections
     VectorCollectionList(Vec<CollectionInfo>),
@@ -162,6 +162,15 @@ pub enum Output {
 
     /// Transaction info
     TxnInfo(Option<TransactionInfo>),
+
+    /// Transaction successfully begun
+    TxnBegun,
+
+    /// Transaction committed with version
+    TxnCommitted { version: u64 },
+
+    /// Transaction aborted
+    TxnAborted,
 
     // ==================== Retention-specific ====================
     /// Retention version info

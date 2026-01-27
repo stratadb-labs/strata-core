@@ -59,13 +59,15 @@
 //! 4. **Serialization is lossless** - JSON round-trip preserves exact values
 //! 5. **No executable code** - Commands are data, not closures
 
+pub mod bridge;
 mod command;
 mod convert;
 mod error;
 mod executor;
 pub mod json;
 mod output;
-mod strata;
+mod session;
+mod api;
 mod types;
 
 // Handler modules
@@ -80,7 +82,8 @@ pub use command::Command;
 pub use error::Error;
 pub use executor::Executor;
 pub use output::Output;
-pub use strata::Strata;
+pub use session::Session;
+pub use api::Strata;
 pub use types::*;
 
 /// Result type for executor operations

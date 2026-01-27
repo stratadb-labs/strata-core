@@ -138,6 +138,10 @@ pub enum Error {
     #[error("transaction already active")]
     TransactionAlreadyActive,
 
+    /// Transaction conflict (commit-time validation failure)
+    #[error("transaction conflict: {reason}")]
+    TransactionConflict { reason: String },
+
     // ==================== System Errors ====================
     /// I/O error
     #[error("I/O error: {reason}")]

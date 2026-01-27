@@ -33,20 +33,35 @@ use crate::types::*;
 /// | Retention | 3 | Retention policy |
 /// | Database | 4 | Database-level operations |
 ///
+/// # Run field
+///
+/// Data-scoped commands have an optional `run` field. When omitted (or `None`),
+/// the executor resolves it to the default run before dispatch. Existing JSON
+/// with `"run": "default"` continues to work; new callers can simply omit the
+/// field.
+///
+/// Run lifecycle commands (RunGet, RunComplete, RunDelete, etc.) keep a required
+/// `run: RunId` since they explicitly operate on a specific run.
+///
 /// # Example
 ///
 /// ```ignore
 /// use strata_executor::{Command, RunId};
 /// use strata_core::Value;
 ///
+/// // Explicit run
 /// let cmd = Command::KvPut {
-///     run: RunId::default(),
+///     run: Some(RunId::default()),
 ///     key: "foo".into(),
 ///     value: Value::Int(42),
 /// };
 ///
-/// let json = serde_json::to_string(&cmd)?;
-/// // {"KvPut":{"run":"default","key":"foo","value":42}}
+/// // Omit run (defaults to "default")
+/// let cmd = Command::KvPut {
+///     run: None,
+///     key: "foo".into(),
+///     value: Value::Int(42),
+/// };
 /// ```
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -55,7 +70,8 @@ pub enum Command {
     /// Put a key-value pair.
     /// Returns: `Output::Version`
     KvPut {
-        run: RunId,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        run: Option<RunId>,
         key: String,
         value: Value,
     },
@@ -63,14 +79,16 @@ pub enum Command {
     /// Get a value by key.
     /// Returns: `Output::MaybeVersioned`
     KvGet {
-        run: RunId,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        run: Option<RunId>,
         key: String,
     },
 
     /// Get a value at a specific version.
     /// Returns: `Output::Versioned`
     KvGetAt {
-        run: RunId,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        run: Option<RunId>,
         key: String,
         version: u64,
     },
@@ -78,21 +96,24 @@ pub enum Command {
     /// Delete a key.
     /// Returns: `Output::Bool` (true if key existed)
     KvDelete {
-        run: RunId,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        run: Option<RunId>,
         key: String,
     },
 
     /// Check if a key exists.
     /// Returns: `Output::Bool`
     KvExists {
-        run: RunId,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        run: Option<RunId>,
         key: String,
     },
 
     /// Get version history for a key.
     /// Returns: `Output::VersionedValues`
     KvHistory {
-        run: RunId,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        run: Option<RunId>,
         key: String,
         limit: Option<u64>,
         before: Option<u64>,
@@ -101,7 +122,8 @@ pub enum Command {
     /// Atomic increment.
     /// Returns: `Output::Int` (new value)
     KvIncr {
-        run: RunId,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        run: Option<RunId>,
         key: String,
         delta: i64,
     },
@@ -109,7 +131,8 @@ pub enum Command {
     /// Compare-and-swap by version.
     /// Returns: `Output::Bool` (true if swap succeeded)
     KvCasVersion {
-        run: RunId,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        run: Option<RunId>,
         key: String,
         expected_version: Option<u64>,
         new_value: Value,
@@ -118,7 +141,8 @@ pub enum Command {
     /// Compare-and-swap by value.
     /// Returns: `Output::Bool` (true if swap succeeded)
     KvCasValue {
-        run: RunId,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        run: Option<RunId>,
         key: String,
         expected_value: Option<Value>,
         new_value: Value,
@@ -127,7 +151,8 @@ pub enum Command {
     /// List keys with optional prefix filter.
     /// Returns: `Output::Keys`
     KvKeys {
-        run: RunId,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        run: Option<RunId>,
         prefix: String,
         limit: Option<u64>,
     },
@@ -135,7 +160,8 @@ pub enum Command {
     /// Scan keys with cursor-based pagination.
     /// Returns: `Output::KvScanResult`
     KvScan {
-        run: RunId,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        run: Option<RunId>,
         prefix: String,
         limit: u64,
         cursor: Option<String>,
@@ -144,28 +170,32 @@ pub enum Command {
     /// Get multiple values.
     /// Returns: `Output::MaybeVersionedValues`
     KvMget {
-        run: RunId,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        run: Option<RunId>,
         keys: Vec<String>,
     },
 
     /// Put multiple key-value pairs atomically.
     /// Returns: `Output::Version`
     KvMput {
-        run: RunId,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        run: Option<RunId>,
         entries: Vec<(String, Value)>,
     },
 
     /// Delete multiple keys.
     /// Returns: `Output::Uint` (count of keys that existed)
     KvMdelete {
-        run: RunId,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        run: Option<RunId>,
         keys: Vec<String>,
     },
 
     /// Check existence of multiple keys.
     /// Returns: `Output::Uint` (count of keys that exist)
     KvMexists {
-        run: RunId,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        run: Option<RunId>,
         keys: Vec<String>,
     },
 
@@ -173,7 +203,8 @@ pub enum Command {
     /// Set a value at a path in a JSON document.
     /// Returns: `Output::Version`
     JsonSet {
-        run: RunId,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        run: Option<RunId>,
         key: String,
         path: String,
         value: Value,
@@ -182,7 +213,8 @@ pub enum Command {
     /// Get a value at a path from a JSON document.
     /// Returns: `Output::MaybeVersioned`
     JsonGet {
-        run: RunId,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        run: Option<RunId>,
         key: String,
         path: String,
     },
@@ -190,7 +222,8 @@ pub enum Command {
     /// Delete a value at a path from a JSON document.
     /// Returns: `Output::Uint` (count of elements removed)
     JsonDelete {
-        run: RunId,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        run: Option<RunId>,
         key: String,
         path: String,
     },
@@ -198,7 +231,8 @@ pub enum Command {
     /// Merge a value at a path (RFC 7396 JSON Merge Patch).
     /// Returns: `Output::Version`
     JsonMerge {
-        run: RunId,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        run: Option<RunId>,
         key: String,
         path: String,
         patch: Value,
@@ -207,7 +241,8 @@ pub enum Command {
     /// Get version history for a JSON document.
     /// Returns: `Output::VersionedValues`
     JsonHistory {
-        run: RunId,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        run: Option<RunId>,
         key: String,
         limit: Option<u64>,
         before: Option<u64>,
@@ -216,21 +251,24 @@ pub enum Command {
     /// Check if a JSON document exists.
     /// Returns: `Output::Bool`
     JsonExists {
-        run: RunId,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        run: Option<RunId>,
         key: String,
     },
 
     /// Get the current version of a JSON document.
     /// Returns: `Output::MaybeUint`
     JsonGetVersion {
-        run: RunId,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        run: Option<RunId>,
         key: String,
     },
 
     /// Full-text search across JSON documents.
     /// Returns: `Output::JsonSearchHits`
     JsonSearch {
-        run: RunId,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        run: Option<RunId>,
         query: String,
         k: u64,
     },
@@ -238,7 +276,8 @@ pub enum Command {
     /// List JSON documents with cursor-based pagination.
     /// Returns: `Output::JsonListResult`
     JsonList {
-        run: RunId,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        run: Option<RunId>,
         prefix: Option<String>,
         cursor: Option<String>,
         limit: u64,
@@ -247,7 +286,8 @@ pub enum Command {
     /// Compare-and-swap: update if version matches.
     /// Returns: `Output::Version`
     JsonCas {
-        run: RunId,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        run: Option<RunId>,
         key: String,
         expected_version: u64,
         path: String,
@@ -257,7 +297,8 @@ pub enum Command {
     /// Query documents by exact field match.
     /// Returns: `Output::Keys`
     JsonQuery {
-        run: RunId,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        run: Option<RunId>,
         path: String,
         value: Value,
         limit: u64,
@@ -266,27 +307,31 @@ pub enum Command {
     /// Count JSON documents in the store.
     /// Returns: `Output::Uint`
     JsonCount {
-        run: RunId,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        run: Option<RunId>,
     },
 
     /// Batch get multiple JSON documents.
     /// Returns: `Output::MaybeVersionedValues`
     JsonBatchGet {
-        run: RunId,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        run: Option<RunId>,
         keys: Vec<String>,
     },
 
     /// Batch create multiple JSON documents atomically.
     /// Returns: `Output::Versions`
     JsonBatchCreate {
-        run: RunId,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        run: Option<RunId>,
         docs: Vec<(String, Value)>,
     },
 
     /// Atomically push values to an array at path.
     /// Returns: `Output::Uint` (new array length)
     JsonArrayPush {
-        run: RunId,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        run: Option<RunId>,
         key: String,
         path: String,
         values: Vec<Value>,
@@ -295,7 +340,8 @@ pub enum Command {
     /// Atomically increment a numeric value at path.
     /// Returns: `Output::Float`
     JsonIncrement {
-        run: RunId,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        run: Option<RunId>,
         key: String,
         path: String,
         delta: f64,
@@ -304,7 +350,8 @@ pub enum Command {
     /// Atomically pop a value from an array at path.
     /// Returns: `Output::Maybe` (the popped value)
     JsonArrayPop {
-        run: RunId,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        run: Option<RunId>,
         key: String,
         path: String,
     },
@@ -313,7 +360,8 @@ pub enum Command {
     /// Append an event to a stream.
     /// Returns: `Output::Version`
     EventAppend {
-        run: RunId,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        run: Option<RunId>,
         stream: String,
         payload: Value,
     },
@@ -321,14 +369,16 @@ pub enum Command {
     /// Append multiple events atomically.
     /// Returns: `Output::Versions`
     EventAppendBatch {
-        run: RunId,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        run: Option<RunId>,
         events: Vec<(String, Value)>,
     },
 
     /// Read events from a stream in ascending order.
     /// Returns: `Output::VersionedValues`
     EventRange {
-        run: RunId,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        run: Option<RunId>,
         stream: String,
         start: Option<u64>,
         end: Option<u64>,
@@ -337,8 +387,9 @@ pub enum Command {
 
     /// Get a specific event by sequence number.
     /// Returns: `Output::MaybeVersioned`
-    EventGet {
-        run: RunId,
+    EventRead {
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        run: Option<RunId>,
         stream: String,
         sequence: u64,
     },
@@ -346,28 +397,32 @@ pub enum Command {
     /// Get the count of events in a stream.
     /// Returns: `Output::Uint`
     EventLen {
-        run: RunId,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        run: Option<RunId>,
         stream: String,
     },
 
     /// Get the latest sequence number in a stream.
     /// Returns: `Output::MaybeUint`
     EventLatestSequence {
-        run: RunId,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        run: Option<RunId>,
         stream: String,
     },
 
     /// Get stream metadata.
     /// Returns: `Output::StreamInfo`
     EventStreamInfo {
-        run: RunId,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        run: Option<RunId>,
         stream: String,
     },
 
     /// Read events from a stream in descending order (newest first).
     /// Returns: `Output::VersionedValues`
     EventRevRange {
-        run: RunId,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        run: Option<RunId>,
         stream: String,
         start: Option<u64>,
         end: Option<u64>,
@@ -377,20 +432,23 @@ pub enum Command {
     /// List all streams (event types) in a run.
     /// Returns: `Output::Strings`
     EventStreams {
-        run: RunId,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        run: Option<RunId>,
     },
 
     /// Get the latest event (head) of a stream.
     /// Returns: `Output::MaybeVersioned`
     EventHead {
-        run: RunId,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        run: Option<RunId>,
         stream: String,
     },
 
     /// Verify the hash chain integrity of the event log.
     /// Returns: `Output::ChainVerification`
     EventVerifyChain {
-        run: RunId,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        run: Option<RunId>,
     },
 
     // ==================== State (8) ====================
@@ -400,22 +458,25 @@ pub enum Command {
     /// Set a state cell value.
     /// Returns: `Output::Version`
     StateSet {
-        run: RunId,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        run: Option<RunId>,
         cell: String,
         value: Value,
     },
 
     /// Get a state cell value.
     /// Returns: `Output::MaybeVersioned`
-    StateGet {
-        run: RunId,
+    StateRead {
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        run: Option<RunId>,
         cell: String,
     },
 
     /// Compare-and-swap on a state cell.
     /// Returns: `Output::MaybeVersion`
     StateCas {
-        run: RunId,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        run: Option<RunId>,
         cell: String,
         expected_counter: Option<u64>,
         value: Value,
@@ -424,21 +485,24 @@ pub enum Command {
     /// Delete a state cell.
     /// Returns: `Output::Bool`
     StateDelete {
-        run: RunId,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        run: Option<RunId>,
         cell: String,
     },
 
     /// Check if a state cell exists.
     /// Returns: `Output::Bool`
     StateExists {
-        run: RunId,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        run: Option<RunId>,
         cell: String,
     },
 
     /// Get version history for a state cell.
     /// Returns: `Output::VersionedValues`
     StateHistory {
-        run: RunId,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        run: Option<RunId>,
         cell: String,
         limit: Option<u64>,
         before: Option<u64>,
@@ -447,7 +511,8 @@ pub enum Command {
     /// Initialize a state cell (only if it doesn't exist).
     /// Returns: `Output::Version`
     StateInit {
-        run: RunId,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        run: Option<RunId>,
         cell: String,
         value: Value,
     },
@@ -455,14 +520,16 @@ pub enum Command {
     /// List all state cell names.
     /// Returns: `Output::Strings`
     StateList {
-        run: RunId,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        run: Option<RunId>,
     },
 
     // ==================== Vector (19) ====================
     /// Insert or update a vector.
     /// Returns: `Output::Version`
     VectorUpsert {
-        run: RunId,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        run: Option<RunId>,
         collection: String,
         key: String,
         vector: Vec<f32>,
@@ -472,7 +539,8 @@ pub enum Command {
     /// Get a vector by key.
     /// Returns: `Output::MaybeVectorData`
     VectorGet {
-        run: RunId,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        run: Option<RunId>,
         collection: String,
         key: String,
     },
@@ -480,7 +548,8 @@ pub enum Command {
     /// Delete a vector.
     /// Returns: `Output::Bool`
     VectorDelete {
-        run: RunId,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        run: Option<RunId>,
         collection: String,
         key: String,
     },
@@ -488,7 +557,8 @@ pub enum Command {
     /// Search for similar vectors.
     /// Returns: `Output::VectorMatches`
     VectorSearch {
-        run: RunId,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        run: Option<RunId>,
         collection: String,
         query: Vec<f32>,
         k: u64,
@@ -498,15 +568,17 @@ pub enum Command {
 
     /// Get collection information.
     /// Returns: `Output::MaybeCollectionInfo`
-    VectorCollectionInfo {
-        run: RunId,
+    VectorGetCollection {
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        run: Option<RunId>,
         collection: String,
     },
 
     /// Create a collection with explicit configuration.
     /// Returns: `Output::Version`
     VectorCreateCollection {
-        run: RunId,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        run: Option<RunId>,
         collection: String,
         dimension: u64,
         metric: DistanceMetric,
@@ -514,35 +586,40 @@ pub enum Command {
 
     /// Delete a collection.
     /// Returns: `Output::Bool`
-    VectorDropCollection {
-        run: RunId,
+    VectorDeleteCollection {
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        run: Option<RunId>,
         collection: String,
     },
 
     /// List all collections in a run.
     /// Returns: `Output::CollectionInfos`
     VectorListCollections {
-        run: RunId,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        run: Option<RunId>,
     },
 
     /// Check if a collection exists.
     /// Returns: `Output::Bool`
     VectorCollectionExists {
-        run: RunId,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        run: Option<RunId>,
         collection: String,
     },
 
     /// Get the count of vectors in a collection.
     /// Returns: `Output::Uint`
     VectorCount {
-        run: RunId,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        run: Option<RunId>,
         collection: String,
     },
 
     /// Batch insert or update vectors.
     /// Returns: `Output::VectorBatchResults`
     VectorUpsertBatch {
-        run: RunId,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        run: Option<RunId>,
         collection: String,
         vectors: Vec<VectorEntry>,
     },
@@ -550,7 +627,8 @@ pub enum Command {
     /// Batch get vectors.
     /// Returns: `Output::MaybeVectorDatas`
     VectorGetBatch {
-        run: RunId,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        run: Option<RunId>,
         collection: String,
         keys: Vec<String>,
     },
@@ -558,7 +636,8 @@ pub enum Command {
     /// Batch delete vectors.
     /// Returns: `Output::Bools`
     VectorDeleteBatch {
-        run: RunId,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        run: Option<RunId>,
         collection: String,
         keys: Vec<String>,
     },
@@ -566,7 +645,8 @@ pub enum Command {
     /// Get version history for a vector.
     /// Returns: `Output::VectorHistoryResult`
     VectorHistory {
-        run: RunId,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        run: Option<RunId>,
         collection: String,
         key: String,
         limit: Option<u64>,
@@ -576,7 +656,8 @@ pub enum Command {
     /// Get a vector at a specific version.
     /// Returns: `Output::MaybeVectorData`
     VectorGetAt {
-        run: RunId,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        run: Option<RunId>,
         collection: String,
         key: String,
         version: u64,
@@ -585,7 +666,8 @@ pub enum Command {
     /// List all vector keys in a collection.
     /// Returns: `Output::Keys`
     VectorListKeys {
-        run: RunId,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        run: Option<RunId>,
         collection: String,
         limit: Option<u64>,
         cursor: Option<String>,
@@ -594,7 +676,8 @@ pub enum Command {
     /// Scan vectors in a collection.
     /// Returns: `Output::VectorScanResult`
     VectorScan {
-        run: RunId,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        run: Option<RunId>,
         collection: String,
         limit: Option<u64>,
         cursor: Option<String>,
@@ -624,7 +707,7 @@ pub enum Command {
 
     /// Close a run (mark as completed).
     /// Returns: `Output::Version`
-    RunClose {
+    RunComplete {
         run: RunId,
     },
 
@@ -757,8 +840,10 @@ pub enum Command {
 
     // ==================== Transaction (5) ====================
     /// Begin a new transaction.
-    /// Returns: `Output::TxnId`
+    /// Returns: `Output::TxnBegun`
     TxnBegin {
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        run: Option<RunId>,
         options: Option<TxnOptions>,
     },
 
@@ -785,19 +870,22 @@ pub enum Command {
     /// Apply retention policy (trigger garbage collection).
     /// Returns: `Output::RetentionResult`
     RetentionApply {
-        run: RunId,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        run: Option<RunId>,
     },
 
     /// Get retention statistics.
     /// Returns: `Output::RetentionStats`
     RetentionStats {
-        run: RunId,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        run: Option<RunId>,
     },
 
     /// Preview what would be deleted by retention policy.
     /// Returns: `Output::RetentionPreview`
     RetentionPreview {
-        run: RunId,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        run: Option<RunId>,
     },
 
     // ==================== Database (4) ====================
@@ -812,4 +900,139 @@ pub enum Command {
 
     /// Trigger compaction
     Compact,
+}
+
+impl Command {
+    /// Fill in the default run for any data command where run is `None`.
+    ///
+    /// Called by the executor before dispatch so handlers always receive a
+    /// concrete `RunId`.
+    pub fn resolve_default_run(&mut self) {
+        macro_rules! resolve {
+            ($run:expr) => {
+                if $run.is_none() {
+                    *$run = Some(RunId::default());
+                }
+            };
+        }
+
+        match self {
+            // KV
+            Command::KvPut { run, .. }
+            | Command::KvGet { run, .. }
+            | Command::KvGetAt { run, .. }
+            | Command::KvDelete { run, .. }
+            | Command::KvExists { run, .. }
+            | Command::KvHistory { run, .. }
+            | Command::KvIncr { run, .. }
+            | Command::KvCasVersion { run, .. }
+            | Command::KvCasValue { run, .. }
+            | Command::KvKeys { run, .. }
+            | Command::KvScan { run, .. }
+            | Command::KvMget { run, .. }
+            | Command::KvMput { run, .. }
+            | Command::KvMdelete { run, .. }
+            | Command::KvMexists { run, .. }
+            // JSON
+            | Command::JsonSet { run, .. }
+            | Command::JsonGet { run, .. }
+            | Command::JsonDelete { run, .. }
+            | Command::JsonMerge { run, .. }
+            | Command::JsonHistory { run, .. }
+            | Command::JsonExists { run, .. }
+            | Command::JsonGetVersion { run, .. }
+            | Command::JsonSearch { run, .. }
+            | Command::JsonList { run, .. }
+            | Command::JsonCas { run, .. }
+            | Command::JsonQuery { run, .. }
+            | Command::JsonCount { run, .. }
+            | Command::JsonBatchGet { run, .. }
+            | Command::JsonBatchCreate { run, .. }
+            | Command::JsonArrayPush { run, .. }
+            | Command::JsonIncrement { run, .. }
+            | Command::JsonArrayPop { run, .. }
+            // Event
+            | Command::EventAppend { run, .. }
+            | Command::EventAppendBatch { run, .. }
+            | Command::EventRange { run, .. }
+            | Command::EventRead { run, .. }
+            | Command::EventLen { run, .. }
+            | Command::EventLatestSequence { run, .. }
+            | Command::EventStreamInfo { run, .. }
+            | Command::EventRevRange { run, .. }
+            | Command::EventStreams { run, .. }
+            | Command::EventHead { run, .. }
+            | Command::EventVerifyChain { run, .. }
+            // State
+            | Command::StateSet { run, .. }
+            | Command::StateRead { run, .. }
+            | Command::StateCas { run, .. }
+            | Command::StateDelete { run, .. }
+            | Command::StateExists { run, .. }
+            | Command::StateHistory { run, .. }
+            | Command::StateInit { run, .. }
+            | Command::StateList { run, .. }
+            // Vector
+            | Command::VectorUpsert { run, .. }
+            | Command::VectorGet { run, .. }
+            | Command::VectorDelete { run, .. }
+            | Command::VectorSearch { run, .. }
+            | Command::VectorGetCollection { run, .. }
+            | Command::VectorCreateCollection { run, .. }
+            | Command::VectorDeleteCollection { run, .. }
+            | Command::VectorListCollections { run, .. }
+            | Command::VectorCollectionExists { run, .. }
+            | Command::VectorCount { run, .. }
+            | Command::VectorUpsertBatch { run, .. }
+            | Command::VectorGetBatch { run, .. }
+            | Command::VectorDeleteBatch { run, .. }
+            | Command::VectorHistory { run, .. }
+            | Command::VectorGetAt { run, .. }
+            | Command::VectorListKeys { run, .. }
+            | Command::VectorScan { run, .. }
+            // Retention
+            | Command::RetentionApply { run, .. }
+            | Command::RetentionStats { run, .. }
+            | Command::RetentionPreview { run, .. }
+            // Transaction begin
+            | Command::TxnBegin { run, .. } => {
+                resolve!(run);
+            }
+
+            // Run lifecycle, Transaction, and Database commands have no
+            // optional run to resolve.
+            Command::RunCreate { .. }
+            | Command::RunGet { .. }
+            | Command::RunList { .. }
+            | Command::RunComplete { .. }
+            | Command::RunUpdateMetadata { .. }
+            | Command::RunExists { .. }
+            | Command::RunPause { .. }
+            | Command::RunResume { .. }
+            | Command::RunFail { .. }
+            | Command::RunCancel { .. }
+            | Command::RunArchive { .. }
+            | Command::RunDelete { .. }
+            | Command::RunQueryByStatus { .. }
+            | Command::RunQueryByTag { .. }
+            | Command::RunCount { .. }
+            | Command::RunSearch { .. }
+            | Command::RunAddTags { .. }
+            | Command::RunRemoveTags { .. }
+            | Command::RunGetTags { .. }
+            | Command::RunCreateChild { .. }
+            | Command::RunGetChildren { .. }
+            | Command::RunGetParent { .. }
+            | Command::RunSetRetention { .. }
+            | Command::RunGetRetention { .. }
+            | Command::TxnCommit
+            | Command::TxnRollback
+            | Command::TxnInfo
+            | Command::TxnIsActive
+            | Command::Ping
+            | Command::Info
+            | Command::Flush
+            | Command::Compact => {}
+        }
+    }
 }
