@@ -787,25 +787,25 @@ impl RunIndex for SubstrateImpl {
     }
 }
 
-fn convert_run_status(status: &strata_primitives::RunStatus) -> RunState {
+fn convert_run_status(status: &strata_engine::RunStatus) -> RunState {
     match status {
-        strata_primitives::RunStatus::Active => RunState::Active,
-        strata_primitives::RunStatus::Completed => RunState::Completed,
-        strata_primitives::RunStatus::Failed => RunState::Failed,
-        strata_primitives::RunStatus::Cancelled => RunState::Cancelled,
-        strata_primitives::RunStatus::Paused => RunState::Paused,
-        strata_primitives::RunStatus::Archived => RunState::Archived,
+        strata_engine::RunStatus::Active => RunState::Active,
+        strata_engine::RunStatus::Completed => RunState::Completed,
+        strata_engine::RunStatus::Failed => RunState::Failed,
+        strata_engine::RunStatus::Cancelled => RunState::Cancelled,
+        strata_engine::RunStatus::Paused => RunState::Paused,
+        strata_engine::RunStatus::Archived => RunState::Archived,
     }
 }
 
-fn convert_run_state_to_status(state: RunState) -> strata_primitives::RunStatus {
+fn convert_run_state_to_status(state: RunState) -> strata_engine::RunStatus {
     match state {
-        RunState::Active => strata_primitives::RunStatus::Active,
-        RunState::Completed => strata_primitives::RunStatus::Completed,
-        RunState::Failed => strata_primitives::RunStatus::Failed,
-        RunState::Cancelled => strata_primitives::RunStatus::Cancelled,
-        RunState::Paused => strata_primitives::RunStatus::Paused,
-        RunState::Archived => strata_primitives::RunStatus::Archived,
+        RunState::Active => strata_engine::RunStatus::Active,
+        RunState::Completed => strata_engine::RunStatus::Completed,
+        RunState::Failed => strata_engine::RunStatus::Failed,
+        RunState::Cancelled => strata_engine::RunStatus::Cancelled,
+        RunState::Paused => strata_engine::RunStatus::Paused,
+        RunState::Archived => strata_engine::RunStatus::Archived,
     }
 }
 
@@ -816,7 +816,7 @@ fn convert_run_state_to_status(state: RunState) -> strata_primitives::RunStatus 
 /// - `run_id`: An internal UUID for namespacing
 ///
 /// We use `name` here because that's what the substrate layer uses as the run identifier.
-fn metadata_to_versioned_info(m: strata_primitives::RunMetadata) -> Versioned<RunInfo> {
+fn metadata_to_versioned_info(m: strata_engine::RunMetadata) -> Versioned<RunInfo> {
     // Use m.name, not m.run_id - name is the user-provided run identifier
     let api_run_id = ApiRunId::parse(&m.name).unwrap_or_else(ApiRunId::new);
     let info = RunInfo {

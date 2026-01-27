@@ -441,39 +441,9 @@ impl KVStore for SubstrateImpl {
             .map_err(convert_error)
     }
 
-    fn kv_incr(&self, run: &ApiRunId, key: &str, delta: i64) -> StrataResult<i64> {
-        validate_key(key)?;
-        let run_id = run.to_run_id();
-
-        // Use transaction_with_retry for automatic conflict handling
-        // High retry count for high-contention scenarios (e.g., 10 threads x 100 increments)
-        let retry_config = strata_engine::RetryConfig::default()
-            .with_max_retries(50)
-            .with_base_delay_ms(1)
-            .with_max_delay_ms(10);
-
-        self.db().transaction_with_retry(run_id, retry_config, |txn| {
-            use strata_primitives::extensions::KVStoreExt;
-
-            let current = txn.kv_get(key)?;
-            let current_value = match current {
-                Some(Value::Int(n)) => n,
-                Some(_) => return Err(strata_core::StrataError::invalid_input(
-                    "Cannot increment non-integer value".to_string(),
-                )),
-                None => 0,
-            };
-
-            // Use checked_add to prevent overflow
-            let new_value = current_value.checked_add(delta).ok_or_else(|| {
-                strata_core::StrataError::invalid_input(
-                    "Integer overflow in increment operation".to_string(),
-                )
-            })?;
-
-            txn.kv_put(key, Value::Int(new_value))?;
-            Ok(new_value)
-        }).map_err(convert_error)
+    fn kv_incr(&self, _run: &ApiRunId, _key: &str, _delta: i64) -> StrataResult<i64> {
+        // TODO: Re-implement once transaction_with_retry is exposed through the new API surface
+        Err(strata_core::StrataError::internal("kv_incr temporarily disabled during engine re-architecture".to_string()))
     }
 
     fn kv_cas_version(
@@ -486,7 +456,7 @@ impl KVStore for SubstrateImpl {
         validate_key(key)?;
         let run_id = run.to_run_id();
         self.db().transaction(run_id, |txn| {
-            use strata_primitives::extensions::KVStoreExt;
+            use strata_engine::KVStoreExt;
 
             let current = txn.kv_get(key)?;
 
@@ -517,7 +487,7 @@ impl KVStore for SubstrateImpl {
         let run_id = run.to_run_id();
 
         let result = self.db().transaction(run_id, |txn| {
-            use strata_primitives::extensions::KVStoreExt;
+            use strata_engine::KVStoreExt;
 
             let current = txn.kv_get(key)?;
 
@@ -603,20 +573,9 @@ impl KVStoreBatch for SubstrateImpl {
         self.kv().get_many(&run_id, keys).map_err(convert_error)
     }
 
-    fn kv_mput(&self, run: &ApiRunId, entries: &[(&str, Value)]) -> StrataResult<Version> {
-        // Validate all keys first
-        for (key, _) in entries {
-            validate_key(key)?;
-        }
-        let run_id = run.to_run_id();
-        let ((), commit_version) = self.db().transaction_with_version(run_id, |txn| {
-            use strata_primitives::extensions::KVStoreExt;
-            for (key, value) in entries {
-                txn.kv_put(key, value.clone())?;
-            }
-            Ok(())
-        }).map_err(convert_error)?;
-        Ok(Version::Txn(commit_version))
+    fn kv_mput(&self, _run: &ApiRunId, _entries: &[(&str, Value)]) -> StrataResult<Version> {
+        // TODO: Re-implement once transaction_with_version is exposed through the new API surface
+        Err(strata_core::StrataError::internal("kv_mput temporarily disabled during engine re-architecture".to_string()))
     }
 
     fn kv_mdelete(&self, run: &ApiRunId, keys: &[&str]) -> StrataResult<u64> {
@@ -626,7 +585,7 @@ impl KVStoreBatch for SubstrateImpl {
         }
         let run_id = run.to_run_id();
         self.db().transaction(run_id, |txn| {
-            use strata_primitives::extensions::KVStoreExt;
+            use strata_engine::KVStoreExt;
             let mut deleted = 0u64;
             for key in keys {
                 if txn.kv_get(key)?.is_some() {

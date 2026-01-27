@@ -8,8 +8,8 @@
 
 use std::cmp::Ordering;
 
-use crate::vector::backend::VectorIndexBackend;
-use crate::vector::{DistanceMetric, VectorConfig, VectorError, VectorHeap, VectorId};
+use crate::primitives::vector::backend::VectorIndexBackend;
+use crate::primitives::vector::{DistanceMetric, VectorConfig, VectorError, VectorHeap, VectorId};
 
 /// Brute-force vector search backend
 ///

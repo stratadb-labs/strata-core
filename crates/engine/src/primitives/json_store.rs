@@ -33,7 +33,7 @@
 //! 5. WAL remains unified (entry types 0x20-0x23)
 //! 6. JSON API feels like other primitives
 
-use crate::extensions::JsonStoreExt;
+use crate::primitives::extensions::JsonStoreExt;
 use strata_concurrency::TransactionContext;
 use strata_core::contract::{Timestamp, Version, Versioned};
 use strata_core::error::Result;
@@ -42,7 +42,7 @@ use strata_core::StrataError;
 use strata_core::traits::SnapshotView;
 use strata_core::types::{Key, Namespace, RunId};
 use strata_core::value::Value;
-use strata_engine::Database;
+use crate::database::Database;
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 use std::time::SystemTime;
@@ -154,7 +154,7 @@ impl JsonDoc {
 ///
 /// ```ignore
 /// use strata_primitives::JsonStore;
-/// use strata_engine::Database;
+/// use crate::database::Database;
 /// use strata_core::types::RunId;
 /// use strata_core::primitives::json::JsonValue;
 ///
@@ -1422,7 +1422,7 @@ impl JsonStore {
         &self,
         req: &strata_core::SearchRequest,
     ) -> strata_core::error::Result<strata_core::SearchResponse> {
-        use crate::searchable::{build_search_response, SearchCandidate};
+        use crate::primitives::searchable::{build_search_response, SearchCandidate};
         use strata_core::search_types::EntityRef;
         use std::time::Instant;
 
@@ -1537,7 +1537,7 @@ impl JsonStore {
 
 // ========== Searchable Trait Implementation ==========
 
-impl crate::searchable::Searchable for JsonStore {
+impl crate::primitives::searchable::Searchable for JsonStore {
     fn search(
         &self,
         req: &strata_core::SearchRequest,

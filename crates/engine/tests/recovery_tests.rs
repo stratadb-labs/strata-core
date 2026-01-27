@@ -10,7 +10,7 @@ use strata_core::contract::Version;
 use strata_core::types::RunId;
 use strata_core::value::Value;
 use strata_engine::Database;
-use strata_primitives::{EventLog, KVStore, RunIndex, RunStatus, StateCell};
+use strata_engine::{EventLog, KVStore, RunIndex, RunStatus, StateCell};
 use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -440,7 +440,7 @@ fn test_run_delete_survives_recovery() {
 /// Test cross-primitive transaction survives recovery
 #[test]
 fn test_cross_primitive_transaction_survives_recovery() {
-    use strata_primitives::{EventLogExt, KVStoreExt, StateCellExt};
+    use strata_engine::{EventLogExt, KVStoreExt, StateCellExt};
 
     let (db, temp_dir, run_id) = setup();
     let path = get_path(&temp_dir);

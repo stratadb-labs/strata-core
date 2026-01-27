@@ -148,15 +148,15 @@ impl VectorRecord {
     }
 
     /// Serialize to bytes (MessagePack)
-    pub fn to_bytes(&self) -> Result<Vec<u8>, crate::vector::VectorError> {
+    pub fn to_bytes(&self) -> Result<Vec<u8>, crate::primitives::vector::VectorError> {
         rmp_serde::to_vec(self)
-            .map_err(|e| crate::vector::VectorError::Serialization(e.to_string()))
+            .map_err(|e| crate::primitives::vector::VectorError::Serialization(e.to_string()))
     }
 
     /// Deserialize from bytes (MessagePack)
-    pub fn from_bytes(data: &[u8]) -> Result<Self, crate::vector::VectorError> {
+    pub fn from_bytes(data: &[u8]) -> Result<Self, crate::primitives::vector::VectorError> {
         rmp_serde::from_slice(data)
-            .map_err(|e| crate::vector::VectorError::Serialization(e.to_string()))
+            .map_err(|e| crate::primitives::vector::VectorError::Serialization(e.to_string()))
     }
 }
 
@@ -218,15 +218,15 @@ impl CollectionRecord {
     }
 
     /// Serialize to bytes (MessagePack)
-    pub fn to_bytes(&self) -> Result<Vec<u8>, crate::vector::VectorError> {
+    pub fn to_bytes(&self) -> Result<Vec<u8>, crate::primitives::vector::VectorError> {
         rmp_serde::to_vec(self)
-            .map_err(|e| crate::vector::VectorError::Serialization(e.to_string()))
+            .map_err(|e| crate::primitives::vector::VectorError::Serialization(e.to_string()))
     }
 
     /// Deserialize from bytes (MessagePack)
-    pub fn from_bytes(data: &[u8]) -> Result<Self, crate::vector::VectorError> {
+    pub fn from_bytes(data: &[u8]) -> Result<Self, crate::primitives::vector::VectorError> {
         rmp_serde::from_slice(data)
-            .map_err(|e| crate::vector::VectorError::Serialization(e.to_string()))
+            .map_err(|e| crate::primitives::vector::VectorError::Serialization(e.to_string()))
     }
 }
 
@@ -252,11 +252,11 @@ impl From<&VectorConfig> for VectorConfigSerde {
 }
 
 impl TryFrom<VectorConfigSerde> for VectorConfig {
-    type Error = crate::vector::VectorError;
+    type Error = crate::primitives::vector::VectorError;
 
     fn try_from(serde: VectorConfigSerde) -> Result<Self, Self::Error> {
         let metric = DistanceMetric::from_byte(serde.metric).ok_or_else(|| {
-            crate::vector::VectorError::Serialization(format!(
+            crate::primitives::vector::VectorError::Serialization(format!(
                 "Invalid metric byte: {}",
                 serde.metric
             ))

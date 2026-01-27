@@ -4,6 +4,7 @@
 //! Validates that transactions atomically operate across different
 //! Key types (KV and Event) in a single transaction.
 
+use strata_core::Storage;
 use strata_core::StrataError;
 use strata_core::types::{Key, Namespace, RunId};
 use strata_core::value::Value;
@@ -47,10 +48,10 @@ fn test_atomic_kv_and_event_write() {
     .unwrap();
 
     // Verify BOTH were committed atomically
-    let kv_result = db.get(&kv_key).unwrap().unwrap();
+    let kv_result = db.storage().get(&kv_key).unwrap().unwrap();
     assert_eq!(kv_result.value, Value::String("active".to_string()));
 
-    let event_result = db.get(&event_key).unwrap().unwrap();
+    let event_result = db.storage().get(&event_key).unwrap().unwrap();
     assert_eq!(
         event_result.value,
         Value::String("user_logged_in".to_string())
@@ -84,10 +85,10 @@ fn test_atomic_kv_and_event_with_multiple_events() {
     .unwrap();
 
     // All should be committed with same version
-    let kv = db.get(&kv_key).unwrap().unwrap();
-    let e1 = db.get(&event1).unwrap().unwrap();
-    let e2 = db.get(&event2).unwrap().unwrap();
-    let e3 = db.get(&event3).unwrap().unwrap();
+    let kv = db.storage().get(&kv_key).unwrap().unwrap();
+    let e1 = db.storage().get(&event1).unwrap().unwrap();
+    let e2 = db.storage().get(&event2).unwrap().unwrap();
+    let e3 = db.storage().get(&event3).unwrap().unwrap();
 
     assert_eq!(kv.version, e1.version);
     assert_eq!(e1.version, e2.version);
@@ -110,7 +111,11 @@ fn test_cross_primitive_rollback_on_error() {
     let event_key = Key::new_event(ns.clone(), 1);
 
     // Pre-populate KV key
-    db.put(run_id, kv_key.clone(), Value::Int(0)).unwrap();
+    db.transaction(run_id, |txn| {
+        txn.put(kv_key.clone(), Value::Int(0))?;
+        Ok(())
+    })
+    .unwrap();
 
     // Transaction that writes to both but then fails
     let result: Result<(), StrataError> = db.transaction(run_id, |txn| {
@@ -128,11 +133,11 @@ fn test_cross_primitive_rollback_on_error() {
 
     // BOTH writes should be rolled back
     // KV should still have original value
-    let kv = db.get(&kv_key).unwrap().unwrap();
+    let kv = db.storage().get(&kv_key).unwrap().unwrap();
     assert_eq!(kv.value, Value::Int(0)); // Original value preserved
 
     // Event should NOT exist
-    assert!(db.get(&event_key).unwrap().is_none());
+    assert!(db.storage().get(&event_key).unwrap().is_none());
 }
 
 #[test]
@@ -150,7 +155,11 @@ fn test_cross_primitive_conflict_rollback() {
     let event_key = Key::new_event(ns.clone(), 1);
 
     // Pre-populate with initial value
-    db.put(run_id, kv_key.clone(), Value::Int(0)).unwrap();
+    db.transaction(run_id, |txn| {
+        txn.put(kv_key.clone(), Value::Int(0))?;
+        Ok(())
+    })
+    .unwrap();
 
     let db1 = Arc::clone(&db);
     let db2 = Arc::clone(&db);
@@ -205,7 +214,7 @@ fn test_cross_primitive_conflict_rollback() {
     // (both KV and Event must roll back together)
     if r1.is_err() {
         // T1 was aborted - event should not exist
-        assert!(db.get(&event_key).unwrap().is_none());
+        assert!(db.storage().get(&event_key).unwrap().is_none());
     }
 }
 
@@ -287,8 +296,8 @@ fn test_cross_primitive_delete_atomicity() {
     .unwrap();
 
     // Both should be deleted
-    assert!(db.get(&kv_key).unwrap().is_none());
-    assert!(db.get(&event_key).unwrap().is_none());
+    assert!(db.storage().get(&kv_key).unwrap().is_none());
+    assert!(db.storage().get(&event_key).unwrap().is_none());
 }
 
 // ============================================================================
@@ -320,10 +329,10 @@ fn test_cross_primitive_recovery() {
     {
         let db = Database::open(&db_path).unwrap();
 
-        let kv = db.get(&kv_key).unwrap().unwrap();
+        let kv = db.storage().get(&kv_key).unwrap().unwrap();
         assert_eq!(kv.value, Value::String("kv_data".to_string()));
 
-        let event = db.get(&event_key).unwrap().unwrap();
+        let event = db.storage().get(&event_key).unwrap().unwrap();
         assert_eq!(event.value, Value::String("event_data".to_string()));
 
         // Should have same version (atomically committed)

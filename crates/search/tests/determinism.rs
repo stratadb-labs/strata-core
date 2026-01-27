@@ -9,7 +9,7 @@ use strata_core::search_types::{PrimitiveType, SearchRequest};
 use strata_core::types::RunId;
 use strata_core::value::Value;
 use strata_engine::Database;
-use strata_primitives::{KVStore, RunIndex};
+use strata_engine::{KVStore, RunIndex};
 use strata_search::{DatabaseSearchExt, HybridSearch, RRFFuser};
 use std::sync::Arc;
 

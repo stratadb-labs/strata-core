@@ -31,7 +31,7 @@
 //!
 //! 3. **Embedding Format**: Raw f32 LE for efficiency. No compression currently.
 
-use crate::vector::{
+use crate::primitives::vector::{
     CollectionId, DistanceMetric, IndexBackendFactory, StorageDtype, VectorConfig, VectorError,
     VectorId, VectorRecord, VectorResult, VectorStore,
 };
@@ -242,7 +242,7 @@ impl VectorStore {
             let collection_id = CollectionId::new(header.run_id, &header.name);
 
             // Restore collection configuration in KV
-            let collection_record = crate::vector::CollectionRecord::new(&config);
+            let collection_record = crate::primitives::vector::CollectionRecord::new(&config);
             let config_key = strata_core::types::Key::new_vector_config(
                 strata_core::types::Namespace::for_run(header.run_id),
                 &header.name,
@@ -340,8 +340,8 @@ impl VectorStore {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::vector::VectorStore;
-    use strata_engine::Database;
+    use crate::primitives::vector::VectorStore;
+    use crate::database::Database;
     use std::io::Cursor;
     use std::sync::Arc;
     use tempfile::TempDir;

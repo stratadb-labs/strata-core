@@ -28,7 +28,8 @@
 
 use strata_core::error::Result;
 use strata_core::StrataError;
-use strata_engine::{register_recovery_participant, Database, RecoveryParticipant};
+use crate::recovery_participant::{register_recovery_participant, RecoveryParticipant};
+use crate::database::Database;
 use tracing::info;
 
 /// Recovery function for VectorStore

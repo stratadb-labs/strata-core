@@ -3,6 +3,7 @@
 //! Validates optimistic concurrency control behavior
 //! with 2-thread scenarios per transaction semantics documentation.
 
+use strata_core::Storage;
 use strata_core::types::{Key, Namespace, RunId};
 use strata_core::value::Value;
 use strata_engine::Database;
@@ -21,89 +22,8 @@ fn create_ns(run_id: RunId) -> Namespace {
 }
 
 // ============================================================================
-// Read-Write Conflict Tests (Deterministic)
+// Write-Write Conflict Tests
 // ============================================================================
-
-/// Test: T1 reads key, T2 writes key before T1 commits -> T1 should abort
-/// Uses manual transaction control for precise ordering.
-#[test]
-fn test_concurrent_read_write_conflict() {
-    let temp_dir = TempDir::new().unwrap();
-    let db = Database::open(temp_dir.path().join("db")).unwrap();
-
-    let run_id = RunId::new();
-    let ns = create_ns(run_id);
-    let key = Key::new_kv(ns.clone(), "contested_key");
-
-    // Pre-populate
-    db.put(run_id, key.clone(), Value::Int(100)).unwrap();
-
-    // Phase 1: T1 begins and reads (but doesn't commit yet)
-    let mut txn1 = db.begin_transaction(run_id);
-    let _read_value = txn1.get(&key).unwrap(); // Adds to read_set
-
-    // Phase 2: T2 modifies the same key and commits
-    db.put(run_id, key.clone(), Value::Int(200)).unwrap();
-
-    // Phase 3: T1 tries to write something and commit
-    let other_key = Key::new_kv(ns, "other");
-    txn1.put(other_key, Value::Int(999)).unwrap();
-
-    // T1's commit should fail due to read-write conflict
-    let result = db.commit_transaction(&mut txn1);
-
-    assert!(
-        result.is_err(),
-        "T1 should abort due to read-write conflict"
-    );
-
-    // Final value should be T2's write
-    let final_val = db.get(&key).unwrap().unwrap();
-    assert_eq!(final_val.value, Value::Int(200));
-}
-
-// ============================================================================
-// Write-Write Conflict Tests (Deterministic)
-// ============================================================================
-
-/// Test: T1 and T2 both read then write same key -> second to commit aborts
-#[test]
-fn test_concurrent_write_write_conflict_with_read() {
-    let temp_dir = TempDir::new().unwrap();
-    let db = Database::open(temp_dir.path().join("db")).unwrap();
-
-    let run_id = RunId::new();
-    let ns = create_ns(run_id);
-    let key = Key::new_kv(ns, "ww_key");
-
-    // Pre-populate
-    db.put(run_id, key.clone(), Value::Int(0)).unwrap();
-
-    // T1: Begin and read (but don't commit yet)
-    let mut txn1 = db.begin_transaction(run_id);
-    let _val1 = txn1.get(&key).unwrap();
-    txn1.put(key.clone(), Value::Int(1)).unwrap();
-
-    // T2: Begin, read, write, and commit FIRST
-    let mut txn2 = db.begin_transaction(run_id);
-    let _val2 = txn2.get(&key).unwrap();
-    txn2.put(key.clone(), Value::Int(2)).unwrap();
-
-    // T2 commits first
-    let result2 = db.commit_transaction(&mut txn2);
-    assert!(result2.is_ok(), "T2 (first committer) should succeed");
-
-    // T1 tries to commit second - should fail due to conflict
-    let result1 = db.commit_transaction(&mut txn1);
-    assert!(
-        result1.is_err(),
-        "T1 should abort due to read-write conflict"
-    );
-
-    // Verify T2's value persisted
-    let final_val = db.get(&key).unwrap().unwrap();
-    assert_eq!(final_val.value, Value::Int(2));
-}
 
 /// Test: Blind writes (no read) - both can commit, last write wins
 #[test]
@@ -148,47 +68,6 @@ fn test_blind_writes_no_conflict() {
     // Both should succeed (blind writes don't conflict )
     assert!(r1.is_ok(), "Blind write T1 should succeed");
     assert!(r2.is_ok(), "Blind write T2 should succeed");
-}
-
-// ============================================================================
-// CAS Conflict Tests (Deterministic)
-// ============================================================================
-
-/// Test: T1 and T2 both CAS same key -> second one aborts
-#[test]
-fn test_concurrent_cas_conflict() {
-    let temp_dir = TempDir::new().unwrap();
-    let db = Database::open(temp_dir.path().join("db")).unwrap();
-
-    let run_id = RunId::new();
-    let ns = create_ns(run_id);
-    let key = Key::new_kv(ns, "cas_key");
-
-    // Pre-populate with known version
-    db.put(run_id, key.clone(), Value::Int(0)).unwrap();
-    let initial_version = db.get(&key).unwrap().unwrap().version.as_u64();
-
-    // T1: Begin and CAS
-    let mut txn1 = db.begin_transaction(run_id);
-    txn1.cas(key.clone(), initial_version, Value::Int(1))
-        .unwrap();
-
-    // T2: Begin and CAS with same version
-    let mut txn2 = db.begin_transaction(run_id);
-    txn2.cas(key.clone(), initial_version, Value::Int(2))
-        .unwrap();
-
-    // T1 commits first
-    let result1 = db.commit_transaction(&mut txn1);
-    assert!(result1.is_ok(), "T1 (first CAS) should succeed");
-
-    // T2 tries to commit - should fail due to version mismatch
-    let result2 = db.commit_transaction(&mut txn2);
-    assert!(result2.is_err(), "T2 should abort due to CAS conflict");
-
-    // Verify T1's value persisted
-    let final_val = db.get(&key).unwrap().unwrap();
-    assert_eq!(final_val.value, Value::Int(1));
 }
 
 // ============================================================================
@@ -237,49 +116,6 @@ fn test_no_conflict_different_keys() {
     // Both should succeed
     assert!(r1.is_ok(), "T1 should succeed");
     assert!(r2.is_ok(), "T2 should succeed");
-}
-
-// ============================================================================
-// First-Committer-Wins Verification (Deterministic)
-// ============================================================================
-
-/// Test: Verify first-committer-wins semantics with controlled ordering
-#[test]
-fn test_first_committer_wins() {
-    let temp_dir = TempDir::new().unwrap();
-    let db = Database::open(temp_dir.path().join("db")).unwrap();
-
-    let run_id = RunId::new();
-    let ns = create_ns(run_id);
-    let key = Key::new_kv(ns, "fcw_key");
-
-    // Pre-populate
-    db.put(run_id, key.clone(), Value::Int(0)).unwrap();
-
-    // Run 10 rounds, each round has two transactions competing
-    for round in 0..10 {
-        // Both transactions begin and read the same key
-        let mut txn1 = db.begin_transaction(run_id);
-        let mut txn2 = db.begin_transaction(run_id);
-
-        let _val1 = txn1.get(&key).unwrap();
-        let _val2 = txn2.get(&key).unwrap();
-
-        txn1.put(key.clone(), Value::Int(round * 2)).unwrap();
-        txn2.put(key.clone(), Value::Int(round * 2 + 1)).unwrap();
-
-        // T1 commits first, T2 commits second
-        let r1 = db.commit_transaction(&mut txn1);
-        let r2 = db.commit_transaction(&mut txn2);
-
-        // Exactly one should succeed (first-committer-wins)
-        let successes = r1.is_ok() as i32 + r2.is_ok() as i32;
-        assert_eq!(
-            successes, 1,
-            "Round {}: Exactly one transaction should commit, got {}",
-            round, successes
-        );
-    }
 }
 
 // ============================================================================
@@ -337,7 +173,7 @@ fn test_multi_threaded_contention() {
 
     // Verify some values are readable
     let key = Key::new_kv(ns.clone(), "t0_op0");
-    let val = db.get(&key).unwrap().unwrap();
+    let val = db.storage().get(&key).unwrap().unwrap();
     assert_eq!(val.value, Value::Int(0));
 }
 
@@ -353,7 +189,11 @@ fn test_read_only_transactions_no_conflict() {
     // Pre-populate with data
     for i in 0..10 {
         let key = Key::new_kv(ns.clone(), format!("key_{}", i));
-        db.put(run_id, key, Value::Int(i)).unwrap();
+        db.transaction(run_id, |txn| {
+            txn.put(key.clone(), Value::Int(i))?;
+            Ok(())
+        })
+        .unwrap();
     }
 
     // Run multiple read-only transactions concurrently

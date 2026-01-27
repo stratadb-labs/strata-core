@@ -24,9 +24,9 @@
 //! All VectorStore instances for the same Database share backend state
 //! through `Database::extension::<VectorBackendState>()`.
 
-use crate::extensions::VectorStoreExt;
-use crate::vector::collection::{validate_collection_name, validate_vector_key};
-use crate::vector::{
+use crate::primitives::extensions::VectorStoreExt;
+use crate::primitives::vector::collection::{validate_collection_name, validate_vector_key};
+use crate::primitives::vector::{
     CollectionId, CollectionInfo, CollectionRecord, IndexBackendFactory, MetadataFilter,
     VectorConfig, VectorEntry, VectorError, VectorId, VectorIndexBackend, VectorMatch,
     VectorRecord, VectorResult,
@@ -37,7 +37,7 @@ use strata_core::search_types::{EntityRef, SearchBudget, SearchHit, SearchRespon
 use strata_core::types::{Key, Namespace, RunId};
 use strata_core::value::Value;
 use strata_durability::wal::WALEntry;
-use strata_engine::Database;
+use crate::database::Database;
 use serde_json::Value as JsonValue;
 use std::collections::BTreeMap;
 use parking_lot::RwLock;
@@ -90,7 +90,7 @@ impl Default for VectorBackendState {
 ///
 /// ```ignore
 /// use strata_primitives::VectorStore;
-/// use strata_engine::Database;
+/// use crate::database::Database;
 /// use strata_core::types::RunId;
 ///
 /// let db = Arc::new(Database::open("/path/to/data")?);
@@ -306,11 +306,11 @@ impl VectorStore {
             } => {
                 let config = VectorConfig {
                     dimension: *dimension,
-                    metric: crate::vector::DistanceMetric::from_byte(*metric)
+                    metric: crate::primitives::vector::DistanceMetric::from_byte(*metric)
                         .ok_or_else(|| {
                             VectorError::Serialization(format!("Invalid metric: {}", metric))
                         })?,
-                    storage_dtype: crate::vector::StorageDtype::F32,
+                    storage_dtype: crate::primitives::vector::StorageDtype::F32,
                 };
                 // Ignore errors if collection already exists (idempotent replay)
                 let _ = self.replay_create_collection(*run_id, collection, config);
@@ -1352,7 +1352,7 @@ impl VectorStore {
         query: &[f32],
         k: usize,
         filter: Option<MetadataFilter>,
-    ) -> VectorResult<Vec<crate::vector::VectorMatchWithSource>> {
+    ) -> VectorResult<Vec<crate::primitives::vector::VectorMatchWithSource>> {
         // k=0 returns empty
         if k == 0 {
             return Ok(Vec::new());
@@ -1391,7 +1391,7 @@ impl VectorStore {
 
             for (vector_id, score) in candidates {
                 let (key, metadata, source_ref, version) = self.get_key_metadata_source(run_id, collection, vector_id)?;
-                matches.push(crate::vector::VectorMatchWithSource::new(key, score, metadata, source_ref, version));
+                matches.push(crate::primitives::vector::VectorMatchWithSource::new(key, score, metadata, source_ref, version));
             }
         } else {
             // Filter active - use adaptive over-fetch
@@ -1428,7 +1428,7 @@ impl VectorStore {
                 for (vector_id, score) in candidates {
                     let (key, metadata, source_ref, version) = self.get_key_metadata_source(run_id, collection, vector_id)?;
                     if filter_ref.matches(&metadata) {
-                        matches.push(crate::vector::VectorMatchWithSource::new(key, score, metadata, source_ref, version));
+                        matches.push(crate::primitives::vector::VectorMatchWithSource::new(key, score, metadata, source_ref, version));
                         if matches.len() >= k {
                             break;
                         }
@@ -2421,7 +2421,7 @@ impl VectorStore {
 
 // ========== Searchable Trait Implementation ==========
 
-impl crate::searchable::Searchable for VectorStore {
+impl crate::primitives::searchable::Searchable for VectorStore {
     /// Vector search via search interface
     ///
     /// NOTE: Per architecture documentation:
@@ -2520,7 +2520,7 @@ impl strata_storage::PrimitiveStorageExt for VectorStore {
         entry_type: u8,
         payload: &[u8],
     ) -> Result<(), strata_storage::PrimitiveExtError> {
-        use crate::vector::wal::VectorWalReplayer;
+        use crate::primitives::vector::wal::VectorWalReplayer;
 
         let replayer = VectorWalReplayer::new(self);
         replayer
@@ -2615,7 +2615,7 @@ impl VectorStoreExt for TransactionContext {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::vector::{DistanceMetric, VectorConfig};
+    use crate::primitives::vector::{DistanceMetric, VectorConfig};
     use tempfile::TempDir;
 
     fn setup() -> (TempDir, Arc<Database>, VectorStore) {
@@ -2877,7 +2877,7 @@ mod tests {
         let config = VectorConfig {
             dimension: 0,
             metric: DistanceMetric::Cosine,
-            storage_dtype: crate::vector::StorageDtype::F32,
+            storage_dtype: crate::primitives::vector::StorageDtype::F32,
         };
 
         let result = store.create_collection(run_id, "test", config);

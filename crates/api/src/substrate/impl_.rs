@@ -34,7 +34,7 @@ use std::sync::Arc;
 use strata_core::primitives::json::{JsonPath, JsonValue};
 use strata_core::{StrataError, StrataResult, Value};
 use strata_engine::Database;
-use strata_primitives::{
+use strata_engine::{
     EventLog as PrimitiveEventLog,
     JsonStore as PrimitiveJsonStore,
     KVStore as PrimitiveKVStore,
@@ -185,7 +185,7 @@ pub(crate) fn convert_error(err: StrataError) -> StrataError {
 
 /// Convert VectorError to StrataError
 ///
-/// Uses the existing From implementation in strata_primitives::vector::error.
+/// Uses the existing From implementation in strata_engine::vector::error.
 pub(crate) fn convert_vector_error(err: VectorError) -> StrataError {
     StrataError::from(err)
 }

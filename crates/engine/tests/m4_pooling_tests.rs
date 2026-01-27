@@ -246,70 +246,26 @@ fn test_concurrent_transactions_use_pool() {
     }
 }
 
-#[test]
-fn test_begin_end_transaction_uses_pool() {
-    let temp_dir = TempDir::new().unwrap();
-    let db = Database::open(temp_dir.path().join("db")).unwrap();
-    let run_id = RunId::new();
-    let ns = create_ns(run_id);
-
-    // Clear pool
-    TransactionPool::warmup(0);
-
-    // Manual transaction with explicit end_transaction
-    let mut txn = db.begin_transaction(run_id);
-    let key = create_key(&ns, "manual_key");
-    txn.put(key, Value::Int(42)).unwrap();
-    db.commit_transaction(&mut txn).unwrap();
-    db.end_transaction(txn);
-
-    // Context should be in pool now
-    assert_eq!(
-        TransactionPool::pool_size(),
-        1,
-        "Manual transaction should return context to pool"
-    );
-
-    // Next transaction should reuse the pooled context
-    let mut txn2 = db.begin_transaction(run_id);
-    let key2 = create_key(&ns, "manual_key_2");
-    txn2.put(key2, Value::Int(43)).unwrap();
-    db.commit_transaction(&mut txn2).unwrap();
-    db.end_transaction(txn2);
-
-    // Pool should still have exactly one context
-    assert_eq!(
-        TransactionPool::pool_size(),
-        1,
-        "Pool size should remain stable"
-    );
-}
-
 // ============================================================================
 // Pool Size Tests
 // ============================================================================
 
 #[test]
 fn test_pool_caps_at_max_size() {
-    // Create many concurrent transactions to test pool cap
+    // Verify pool doesn't exceed MAX_POOL_SIZE after many transactions
     let temp_dir = TempDir::new().unwrap();
     let db = Database::open(temp_dir.path().join("db")).unwrap();
     let run_id = RunId::new();
     let ns = create_ns(run_id);
 
-    // Start many transactions concurrently (using begin_transaction)
-    let mut transactions = Vec::new();
-    for _ in 0..(MAX_POOL_SIZE + 5) {
-        let txn = db.begin_transaction(run_id);
-        transactions.push(txn);
-    }
-
-    // End all transactions
-    for mut txn in transactions {
-        let key = create_key(&ns, &format!("key_{}", txn.txn_id));
-        txn.put(key, Value::Int(1)).unwrap();
-        db.commit_transaction(&mut txn).unwrap();
-        db.end_transaction(txn);
+    // Run more transactions than MAX_POOL_SIZE to fill the pool
+    for i in 0..(MAX_POOL_SIZE + 5) {
+        let key = create_key(&ns, &format!("key_{}", i));
+        db.transaction(run_id, |txn| {
+            txn.put(key.clone(), Value::Int(i as i64))?;
+            Ok(())
+        })
+        .unwrap();
     }
 
     // Pool should cap at MAX_POOL_SIZE

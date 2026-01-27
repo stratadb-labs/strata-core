@@ -18,8 +18,8 @@ use strata_core::primitives::json::JsonPath;
 use strata_core::types::RunId;
 use strata_core::value::Value;
 use strata_engine::Database;
-use strata_primitives::extensions::*;
-use strata_primitives::*;
+use strata_engine::extensions::*;
+use strata_engine::*;
 use std::collections::HashMap;
 use std::sync::Arc;
 

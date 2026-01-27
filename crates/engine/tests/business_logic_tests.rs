@@ -20,7 +20,7 @@ use strata_core::contract::Version;
 use strata_core::types::RunId;
 use strata_core::value::Value;
 use strata_engine::Database;
-use strata_primitives::{
+use strata_engine::{
     EventLog, KVStore, RunIndex, RunStatus, StateCell, VectorStore,
     vector::{DistanceMetric, MetadataFilter, VectorConfig},
 };

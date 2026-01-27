@@ -34,7 +34,7 @@
 //! - Event key: `<namespace>:<TypeTag::Event>:<sequence_be_bytes>`
 //! - Metadata key: `<namespace>:<TypeTag::Event>:__meta__`
 
-use crate::extensions::EventLogExt;
+use crate::primitives::extensions::EventLogExt;
 use sha2::{Digest, Sha256};
 use strata_concurrency::TransactionContext;
 use strata_core::contract::{Timestamp, Version, Versioned};
@@ -42,7 +42,7 @@ use strata_core::error::Result;
 use strata_core::StrataError;
 use strata_core::types::{Key, Namespace, RunId};
 use strata_core::value::Value;
-use strata_engine::{Database, RetryConfig};
+use crate::database::{Database, RetryConfig};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -972,7 +972,7 @@ impl EventLog {
         &self,
         req: &strata_core::SearchRequest,
     ) -> strata_core::error::Result<strata_core::SearchResponse> {
-        use crate::searchable::{build_search_response, SearchCandidate};
+        use crate::primitives::searchable::{build_search_response, SearchCandidate};
         use strata_core::search_types::EntityRef;
         use strata_core::traits::SnapshotView;
         use std::time::Instant;
@@ -1053,7 +1053,7 @@ impl EventLog {
 
 // ========== Searchable Trait Implementation ==========
 
-impl crate::searchable::Searchable for EventLog {
+impl crate::primitives::searchable::Searchable for EventLog {
     fn search(
         &self,
         req: &strata_core::SearchRequest,
@@ -1693,7 +1693,7 @@ mod tests {
 
     #[test]
     fn test_eventlog_ext_append() {
-        use crate::extensions::EventLogExt;
+        use crate::primitives::extensions::EventLogExt;
 
         let (_temp, db, log) = setup();
         let run_id = RunId::new();
@@ -1713,7 +1713,7 @@ mod tests {
 
     #[test]
     fn test_eventlog_ext_read() {
-        use crate::extensions::EventLogExt;
+        use crate::primitives::extensions::EventLogExt;
 
         let (_temp, db, log) = setup();
         let run_id = RunId::new();
@@ -1732,7 +1732,7 @@ mod tests {
 
     #[test]
     fn test_eventlog_ext_validation() {
-        use crate::extensions::EventLogExt;
+        use crate::primitives::extensions::EventLogExt;
 
         let (_temp, db, _log) = setup();
         let run_id = RunId::new();
@@ -1746,7 +1746,7 @@ mod tests {
 
     #[test]
     fn test_cross_primitive_transaction() {
-        use crate::extensions::{EventLogExt, KVStoreExt};
+        use crate::primitives::extensions::{EventLogExt, KVStoreExt};
 
         let (_temp, db, _log) = setup();
         let run_id = RunId::new();

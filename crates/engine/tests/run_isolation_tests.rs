@@ -7,7 +7,7 @@ use strata_core::contract::Version;
 use strata_core::types::RunId;
 use strata_core::value::Value;
 use strata_engine::Database;
-use strata_primitives::{EventLog, KVStore, RunIndex, StateCell};
+use strata_engine::{EventLog, KVStore, RunIndex, StateCell};
 use std::collections::HashMap;
 use std::sync::Arc;
 use tempfile::TempDir;

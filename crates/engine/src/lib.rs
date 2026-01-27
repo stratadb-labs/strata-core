@@ -33,7 +33,7 @@ pub mod transaction;
 pub mod transaction_ops; // TransactionOps Trait Definition
 
 pub use coordinator::{TransactionCoordinator, TransactionMetrics};
-pub use database::{Database, DatabaseBuilder, PersistenceMode, RetryConfig};
+pub use database::{Database, DatabaseBuilder, RetryConfig};
 pub use recovery_participant::{
     recover_all_participants, register_recovery_participant, RecoveryFn, RecoveryParticipant,
 };
@@ -43,11 +43,41 @@ pub use durability::{
 };
 pub use instrumentation::PerfTrace;
 pub use replay::{
-    diff_views, DiffEntry, ReadOnlyView, ReplayError, RunDiff, RunError, RunIndex,
+    diff_views, DiffEntry, ReadOnlyView, ReplayError, RunDiff, RunError,
+    RunIndex as ReplayRunIndex,
 };
 // Note: Use strata_core::PrimitiveType for DiffEntry.primitive field
 pub use transaction::{Transaction, TransactionPool, MAX_POOL_SIZE};
 pub use transaction_ops::TransactionOps;
+
+pub mod primitives;
+
+// Re-export submodules for `strata_engine::vector::*` and `strata_engine::extensions::*` access
+pub use primitives::vector;
+pub use primitives::extensions;
+
+// Re-export primitive types at crate root for convenience
+pub use primitives::{
+    // Primitives
+    KVStore, KVTransaction, EventLog, Event, ChainVerification,
+    StateCell, State, JsonStore, JsonDoc, VectorStore,
+    RunIndex, RunMetadata, RunStatus,
+    // Handles
+    RunHandle, EventHandle, JsonHandle, KvHandle, StateHandle, VectorHandle,
+    // Search
+    Searchable, SearchCandidate, SimpleScorer,
+    // Vector types
+    VectorConfig, VectorEntry, VectorMatch, DistanceMetric,
+    CollectionId, CollectionInfo, VectorIndexBackend, BruteForceBackend, VectorError,
+    VectorId, VectorRecord, VectorResult, VectorConfigSerde, VectorHeap,
+    CollectionRecord, IndexBackendFactory, JsonScalar, MetadataFilter, StorageDtype,
+    VectorBackendState,
+    validate_collection_name, validate_vector_key, build_search_response,
+    // Extension traits
+    KVStoreExt, EventLogExt, StateCellExt, JsonStoreExt, VectorStoreExt,
+    // Recovery
+    register_vector_recovery,
+};
 
 #[cfg(feature = "perf-trace")]
 pub use instrumentation::{PerfBreakdown, PerfStats};

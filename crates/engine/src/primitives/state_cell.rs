@@ -26,14 +26,14 @@
 //! - TypeTag: State (0x03)
 //! - Key format: `<namespace>:<TypeTag::State>:<cell_name>`
 
-use crate::extensions::StateCellExt;
+use crate::primitives::extensions::StateCellExt;
 use strata_concurrency::TransactionContext;
 use strata_core::contract::{Version, Versioned};
 use strata_core::error::Result;
 use strata_core::types::{Key, Namespace, RunId};
 use strata_core::value::Value;
 use strata_core::Timestamp;
-use strata_engine::{Database, RetryConfig};
+use crate::database::{Database, RetryConfig};
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 
@@ -508,7 +508,7 @@ impl StateCell {
         &self,
         req: &strata_core::SearchRequest,
     ) -> strata_core::error::Result<strata_core::SearchResponse> {
-        use crate::searchable::{build_search_response, SearchCandidate};
+        use crate::primitives::searchable::{build_search_response, SearchCandidate};
         use strata_core::search_types::EntityRef;
         use strata_core::traits::SnapshotView;
         use std::time::Instant;
@@ -578,7 +578,7 @@ impl StateCell {
 
 // ========== Searchable Trait Implementation ==========
 
-impl crate::searchable::Searchable for StateCell {
+impl crate::primitives::searchable::Searchable for StateCell {
     fn search(
         &self,
         req: &strata_core::SearchRequest,
@@ -1074,7 +1074,7 @@ mod tests {
 
     #[test]
     fn test_cross_primitive_transaction() {
-        use crate::extensions::KVStoreExt;
+        use crate::primitives::extensions::KVStoreExt;
 
         let (_temp, db, sc) = setup();
         let run_id = RunId::new();

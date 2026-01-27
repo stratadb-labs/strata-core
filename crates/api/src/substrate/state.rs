@@ -370,7 +370,7 @@ impl StateCell for SubstrateImpl {
         let run_id = run.to_run_id();
 
         // Wrap the substrate closure to match the primitive's signature
-        let primitive_closure = |state: &strata_primitives::State| {
+        let primitive_closure = |state: &strata_engine::State| {
             let new_value = f(&state.value)
                 .map_err(|e| strata_core::StrataError::invalid_input(e.to_string()))?;
             Ok((new_value.clone(), new_value))
@@ -396,7 +396,7 @@ impl StateCell for SubstrateImpl {
         let run_id = run.to_run_id();
 
         // Wrap the substrate closure to match the primitive's signature
-        let primitive_closure = |state: &strata_primitives::State| {
+        let primitive_closure = |state: &strata_engine::State| {
             let new_value = f(&state.value)
                 .map_err(|e| strata_core::StrataError::invalid_input(e.to_string()))?;
             Ok((new_value.clone(), new_value))

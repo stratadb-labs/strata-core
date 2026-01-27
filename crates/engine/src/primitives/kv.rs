@@ -26,13 +26,13 @@
 //! - **List Operations**: `list`, `list_with_values`
 //!   Scan keys with optional prefix filtering.
 
-use crate::extensions::KVStoreExt;
+use crate::primitives::extensions::KVStoreExt;
 use strata_concurrency::TransactionContext;
 use strata_core::error::Result;
 use strata_core::types::{Key, Namespace, RunId};
 use strata_core::value::Value;
 use strata_core::{Version, Versioned};
-use strata_engine::Database;
+use crate::database::Database;
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -54,7 +54,7 @@ pub struct ScanResult {
 ///
 /// ```ignore
 /// use strata_primitives::KVStore;
-/// use strata_engine::Database;
+/// use crate::database::Database;
 /// use strata_core::types::RunId;
 /// use strata_core::value::Value;
 ///
@@ -536,7 +536,7 @@ impl KVStore {
         &self,
         req: &strata_core::SearchRequest,
     ) -> strata_core::error::Result<strata_core::SearchResponse> {
-        use crate::searchable::{build_search_response, SearchCandidate};
+        use crate::primitives::searchable::{build_search_response, SearchCandidate};
         use strata_core::search_types::EntityRef;
         use strata_core::traits::SnapshotView;
         use std::time::Instant;
@@ -701,7 +701,7 @@ impl<'a> KVTransaction<'a> {
 
 // ========== Searchable Trait Implementation ==========
 
-impl crate::searchable::Searchable for KVStore {
+impl crate::primitives::searchable::Searchable for KVStore {
     fn search(
         &self,
         req: &strata_core::SearchRequest,
@@ -1052,7 +1052,7 @@ mod tests {
 
     #[test]
     fn test_kvstore_ext_in_transaction() {
-        use crate::extensions::KVStoreExt;
+        use crate::primitives::extensions::KVStoreExt;
 
         let (_temp, db, _kv) = setup();
         let run_id = RunId::new();
@@ -1068,7 +1068,7 @@ mod tests {
 
     #[test]
     fn test_kvstore_ext_delete() {
-        use crate::extensions::KVStoreExt;
+        use crate::primitives::extensions::KVStoreExt;
 
         let (_temp, db, kv) = setup();
         let run_id = RunId::new();
@@ -1456,7 +1456,7 @@ mod tests {
 
     #[test]
     fn test_kv_searchable_trait() {
-        use crate::searchable::Searchable;
+        use crate::primitives::searchable::Searchable;
         use strata_core::PrimitiveType;
         use strata_core::SearchRequest;
 

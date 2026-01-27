@@ -27,7 +27,7 @@
 //!
 //! ## RunHandle Pattern Implementation
 
-use crate::extensions::{
+use crate::primitives::extensions::{
     EventLogExt, JsonStoreExt, KVStoreExt, StateCellExt, VectorStoreExt,
 };
 use strata_concurrency::TransactionContext;
@@ -36,7 +36,7 @@ use strata_core::error::Result;
 use strata_core::primitives::json::{JsonPath, JsonValue};
 use strata_core::types::RunId;
 use strata_core::value::Value;
-use strata_engine::Database;
+use crate::database::Database;
 use std::sync::Arc;
 
 // ============================================================================

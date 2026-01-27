@@ -4,7 +4,7 @@
 //! BruteForceBackend (O(n) search)
 //! HnswBackend (O(log n) search) - reserved
 
-use crate::vector::{DistanceMetric, VectorConfig, VectorError, VectorId};
+use crate::primitives::vector::{DistanceMetric, VectorConfig, VectorError, VectorId};
 
 /// Trait for swappable vector index implementations
 ///

@@ -7,6 +7,7 @@
 //! - Multi-threaded (with conflict): >2K txns/sec
 
 use criterion::{black_box, criterion_group, criterion_main, BenchmarkId, Criterion, Throughput};
+use strata_core::Storage;
 use strata_core::types::{Key, Namespace, RunId};
 use strata_core::value::Value;
 use strata_engine::Database;
@@ -48,7 +49,11 @@ fn bench_single_threaded_transactions(c: &mut Criterion) {
 
     group.bench_function("transaction_get_put", |b| {
         let key = Key::new_kv(ns.clone(), "get_put_key");
-        db.put(run_id, key.clone(), Value::Int(0)).unwrap();
+        db.transaction(run_id, |txn| {
+            txn.put(key.clone(), Value::Int(0))?;
+            Ok(())
+        })
+        .unwrap();
 
         b.iter(|| {
             let result = db.transaction(run_id, |txn| {
@@ -137,7 +142,11 @@ fn bench_multi_threaded_with_conflict(c: &mut Criterion) {
                     let key = Key::new_kv(ns, "contested_key");
 
                     // Pre-populate
-                    db.put(run_id, key.clone(), Value::Int(0)).unwrap();
+                    db.transaction(run_id, |txn| {
+                        txn.put(key.clone(), Value::Int(0))?;
+                        Ok(())
+                    })
+                    .unwrap();
 
                     let start = std::time::Instant::now();
 
@@ -176,36 +185,6 @@ fn bench_multi_threaded_with_conflict(c: &mut Criterion) {
     group.finish();
 }
 
-/// Benchmark: Snapshot creation overhead
-fn bench_snapshot_creation(c: &mut Criterion) {
-    let mut group = c.benchmark_group("snapshot");
-
-    for data_size in [100, 1000, 10000] {
-        let temp_dir = TempDir::new().unwrap();
-        let db = Database::open(temp_dir.path().join("db")).unwrap();
-        let run_id = RunId::new();
-        let ns = create_ns(run_id);
-
-        // Pre-populate with data
-        for i in 0..data_size {
-            let key = Key::new_kv(ns.clone(), format!("key_{}", i));
-            db.put(run_id, key, Value::Int(i as i64)).unwrap();
-        }
-
-        group.throughput(Throughput::Elements(1));
-
-        group.bench_with_input(BenchmarkId::new("keys", data_size), &data_size, |b, _| {
-            b.iter(|| {
-                // Begin transaction creates a snapshot
-                let txn = db.begin_transaction(run_id);
-                black_box(txn);
-            });
-        });
-    }
-
-    group.finish();
-}
-
 /// Benchmark: Read-only transactions
 fn bench_read_only_transactions(c: &mut Criterion) {
     let temp_dir = TempDir::new().unwrap();
@@ -216,7 +195,11 @@ fn bench_read_only_transactions(c: &mut Criterion) {
     // Pre-populate
     for i in 0..1000 {
         let key = Key::new_kv(ns.clone(), format!("key_{}", i));
-        db.put(run_id, key, Value::Int(i as i64)).unwrap();
+        db.transaction(run_id, |txn| {
+            txn.put(key.clone(), Value::Int(i as i64))?;
+            Ok(())
+        })
+        .unwrap();
     }
 
     let mut group = c.benchmark_group("read_only");
@@ -263,7 +246,10 @@ fn bench_direct_operations(c: &mut Criterion) {
         let mut i = 0u64;
         b.iter(|| {
             let key = Key::new_kv(ns.clone(), format!("direct_key_{}", i));
-            let result = db.put(run_id, key, Value::Int(i as i64));
+            let result = db.transaction(run_id, |txn| {
+                txn.put(key.clone(), Value::Int(i as i64))?;
+                Ok(())
+            });
             black_box(result.unwrap());
             i += 1;
         });
@@ -271,11 +257,15 @@ fn bench_direct_operations(c: &mut Criterion) {
 
     // Pre-populate for get benchmark
     let get_key = Key::new_kv(ns.clone(), "get_key");
-    db.put(run_id, get_key.clone(), Value::Int(42)).unwrap();
+    db.transaction(run_id, |txn| {
+        txn.put(get_key.clone(), Value::Int(42))?;
+        Ok(())
+    })
+    .unwrap();
 
     group.bench_function("direct_get", |b| {
         b.iter(|| {
-            let result = db.get(&get_key);
+            let result = db.storage().get(&get_key);
             black_box(result.unwrap());
         });
     });
@@ -288,7 +278,7 @@ criterion_group!(
     bench_single_threaded_transactions,
     bench_multi_threaded_no_conflict,
     bench_multi_threaded_with_conflict,
-    bench_snapshot_creation,
+
     bench_read_only_transactions,
     bench_direct_operations,
 );

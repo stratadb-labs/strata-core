@@ -40,7 +40,7 @@ use strata_durability::run_bundle::{
 };
 use strata_durability::wal::WALEntry;
 use strata_core::traits::Storage;
-use strata_engine::Database;
+use crate::database::Database;
 use serde::{Deserialize, Serialize};
 use std::path::Path;
 use std::sync::Arc;
@@ -846,7 +846,7 @@ impl RunIndex {
         &self,
         req: &strata_core::SearchRequest,
     ) -> strata_core::error::Result<strata_core::SearchResponse> {
-        use crate::searchable::{build_search_response, SearchCandidate};
+        use crate::primitives::searchable::{build_search_response, SearchCandidate};
         use strata_core::search_types::EntityRef;
         use strata_core::traits::SnapshotView;
         use std::time::Instant;
@@ -1462,7 +1462,7 @@ fn json_to_value(json: &serde_json::Value) -> Value {
 
 // ========== Searchable Trait Implementation ==========
 
-impl crate::searchable::Searchable for RunIndex {
+impl crate::primitives::searchable::Searchable for RunIndex {
     fn search(
         &self,
         req: &strata_core::SearchRequest,
@@ -2023,7 +2023,7 @@ mod tests {
 
     mod integration_tests {
         use super::*;
-        use crate::{EventLog, KVStore, StateCell};
+        use crate::primitives::{EventLog, KVStore, StateCell};
 
         #[test]
         fn test_run_lifecycle_with_primitives() {
@@ -2178,7 +2178,7 @@ mod tests {
 
     mod export_tests {
         use super::*;
-        use crate::KVStore;
+        use crate::primitives::KVStore;
         use strata_durability::run_bundle::{RunBundleError, RunBundleReader};
 
         #[test]
@@ -2371,7 +2371,7 @@ mod tests {
 
     mod import_tests {
         use super::*;
-        use crate::KVStore;
+        use crate::primitives::KVStore;
         use strata_durability::run_bundle::RunBundleError;
 
         #[test]
@@ -2999,7 +2999,7 @@ mod tests {
 
     mod verify_tests {
         use super::*;
-        use crate::KVStore;
+        use crate::primitives::KVStore;
         use strata_durability::run_bundle::RunBundleError;
 
         #[test]

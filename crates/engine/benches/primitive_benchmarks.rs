@@ -11,7 +11,7 @@ use criterion::{criterion_group, criterion_main, Criterion, Throughput};
 use strata_core::types::RunId;
 use strata_core::value::Value;
 use strata_engine::Database;
-use strata_primitives::{
+use strata_engine::{
     EventLog, EventLogExt, KVStore, KVStoreExt, StateCell, StateCellExt,
 };
 use std::sync::atomic::{AtomicU64, Ordering};

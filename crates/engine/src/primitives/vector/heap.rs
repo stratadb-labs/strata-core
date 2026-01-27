@@ -13,8 +13,8 @@
 use std::collections::BTreeMap;
 use std::sync::atomic::{AtomicU64, Ordering};
 
-use crate::vector::error::{VectorError, VectorResult};
-use crate::vector::types::{DistanceMetric, VectorConfig, VectorId};
+use crate::primitives::vector::error::{VectorError, VectorResult};
+use crate::primitives::vector::types::{DistanceMetric, VectorConfig, VectorId};
 
 /// Per-collection vector heap
 ///

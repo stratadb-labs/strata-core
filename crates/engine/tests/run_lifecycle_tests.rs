@@ -11,7 +11,7 @@ use strata_core::run_types::{RunMetadata, RunStatus};
 use strata_core::types::{Key, Namespace, RunId};
 use strata_core::value::Value;
 use strata_core::PrimitiveType;
-use strata_engine::{diff_views, DiffEntry, ReadOnlyView, RunDiff, RunIndex};
+use strata_engine::{diff_views, DiffEntry, ReadOnlyView, RunDiff, ReplayRunIndex as RunIndex};
 
 // ============================================================================
 // RunStatus and RunMetadata Tests

@@ -6,7 +6,7 @@ use strata_core::contract::Version;
 use strata_core::types::RunId;
 use strata_core::value::Value;
 use strata_engine::Database;
-use strata_primitives::{
+use strata_engine::{
     EventLog, EventLogExt, KVStore, KVStoreExt, StateCell, StateCellExt,
 };
 use std::collections::HashMap;

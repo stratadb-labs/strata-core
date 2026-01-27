@@ -27,10 +27,8 @@ use strata_concurrency::{
 };
 use strata_core::error::Result;
 use strata_core::StrataError;
-use strata_core::traits::Storage;
-use strata_core::types::{Key, RunId};
+use strata_core::types::RunId;
 use strata_core::value::Value;
-use strata_core::VersionedValue;
 use strata_durability::wal::{DurabilityMode, WAL};
 use strata_storage::ShardedStore;
 use parking_lot::Mutex as ParkingMutex;
@@ -143,7 +141,7 @@ impl RetryConfig {
 /// - **Disk + Buffered**: Production workloads
 /// - **Disk + Strict**: Audit logs, critical data
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum PersistenceMode {
+pub(crate) enum PersistenceMode {
     /// No disk files at all - data exists only in memory
     ///
     /// - No directories created
@@ -250,7 +248,7 @@ impl DatabaseBuilder {
     }
 
     /// Set durability mode explicitly
-    pub fn durability(mut self, mode: DurabilityMode) -> Self {
+    pub(crate) fn durability(mut self, mode: DurabilityMode) -> Self {
         self.durability = mode;
         self
     }
@@ -323,7 +321,7 @@ impl DatabaseBuilder {
     ///
     /// * `flush_interval_ms` - Maximum time between fsyncs
     /// * `max_pending_writes` - Maximum writes before forced fsync
-    pub fn buffered_with(mut self, flush_interval_ms: u64, max_pending_writes: usize) -> Self {
+    pub(crate) fn buffered_with(mut self, flush_interval_ms: u64, max_pending_writes: usize) -> Self {
         self.durability = DurabilityMode::Batched {
             interval_ms: flush_interval_ms,
             batch_size: max_pending_writes,
@@ -341,7 +339,7 @@ impl DatabaseBuilder {
     }
 
     /// Get configured path (if any)
-    pub fn get_path(&self) -> Option<&PathBuf> {
+    pub(crate) fn get_path(&self) -> Option<&PathBuf> {
         self.path.as_ref()
     }
 
@@ -526,7 +524,7 @@ impl Database {
     ///
     /// Per spec Section 5: Uses RecoveryCoordinator to replay WAL and
     /// initialize TransactionManager with the recovered version.
-    pub fn open_with_mode<P: AsRef<Path>>(
+    pub(crate) fn open_with_mode<P: AsRef<Path>>(
         path: P,
         durability_mode: DurabilityMode,
     ) -> Result<Self> {
@@ -651,7 +649,7 @@ impl Database {
     }
 
     /// Get the data directory path
-    pub fn data_dir(&self) -> &Path {
+    pub(crate) fn data_dir(&self) -> &Path {
         &self.data_dir
     }
 
@@ -659,7 +657,7 @@ impl Database {
     ///
     /// Returns an Arc to the Mutex-protected WAL, or None for ephemeral databases.
     /// Lock the mutex to append entries.
-    pub fn wal(&self) -> Option<Arc<ParkingMutex<WAL>>> {
+    pub(crate) fn wal(&self) -> Option<Arc<ParkingMutex<WAL>>> {
         self.wal.as_ref().map(Arc::clone)
     }
 
@@ -669,7 +667,7 @@ impl Database {
     }
 
     /// Get the persistence mode
-    pub fn persistence_mode(&self) -> PersistenceMode {
+    pub(crate) fn persistence_mode(&self) -> PersistenceMode {
         self.persistence_mode
     }
 
@@ -680,7 +678,7 @@ impl Database {
     /// be called manually to ensure durability at a specific point.
     ///
     /// For ephemeral databases, this is a no-op.
-    pub fn flush(&self) -> Result<()> {
+    pub(crate) fn flush(&self) -> Result<()> {
         if let Some(ref wal) = self.wal {
             let wal = wal.lock();
             wal.fsync()
@@ -721,7 +719,7 @@ impl Database {
     /// // All VectorStore instances for this Database share the same state
     /// let state = db.extension::<VectorBackendState>();
     /// ```
-    pub fn extension<T: Any + Send + Sync + Default>(&self) -> Arc<T> {
+    pub(crate) fn extension<T: Any + Send + Sync + Default>(&self) -> Arc<T> {
         let type_id = TypeId::of::<T>();
 
         // Use entry API for atomic get-or-insert
@@ -741,6 +739,57 @@ impl Database {
     // ========================================================================
     // Transaction API
     // ========================================================================
+
+    /// Check if the database is accepting transactions.
+    fn check_accepting(&self) -> Result<()> {
+        if !self.accepting_transactions.load(Ordering::SeqCst) {
+            return Err(StrataError::invalid_input(
+                "Database is shutting down".to_string(),
+            ));
+        }
+        Ok(())
+    }
+
+    /// Execute one transaction attempt: commit on success, abort on error.
+    ///
+    /// Handles the commit-or-abort decision and coordinator bookkeeping.
+    /// The caller is responsible for calling `end_transaction()` afterward.
+    ///
+    /// Returns `(closure_result, commit_version)` on success.
+    fn run_single_attempt<T>(
+        &self,
+        txn: &mut TransactionContext,
+        result: Result<T>,
+        durability: DurabilityMode,
+        timeout: Option<Duration>,
+    ) -> Result<(T, u64)> {
+        match result {
+            Ok(value) => {
+                // Check timeout before commit if specified
+                if let Some(timeout) = timeout {
+                    if txn.is_expired(timeout) {
+                        let elapsed = txn.elapsed();
+                        let _ = txn.mark_aborted(format!(
+                            "Transaction timeout: elapsed {:?}, limit {:?}",
+                            elapsed, timeout
+                        ));
+                        self.coordinator.record_abort();
+                        return Err(StrataError::transaction_timeout(
+                            elapsed.as_millis() as u64
+                        ));
+                    }
+                }
+                // Commit on success
+                let commit_version = self.commit_internal(txn, durability)?;
+                Ok((value, commit_version))
+            }
+            Err(e) => {
+                let _ = txn.mark_aborted(format!("Closure error: {}", e));
+                self.coordinator.record_abort();
+                Err(e)
+            }
+        }
+    }
 
     /// Execute a transaction with the given closure
     ///
@@ -770,33 +819,12 @@ impl Database {
     where
         F: FnOnce(&mut TransactionContext) -> Result<T>,
     {
-        // Check if database is accepting transactions
-        if !self.accepting_transactions.load(Ordering::SeqCst) {
-            return Err(StrataError::invalid_input(
-                "Database is shutting down".to_string(),
-            ));
-        }
-
+        self.check_accepting()?;
         let mut txn = self.begin_transaction(run_id);
-
-        // Execute closure
         let result = f(&mut txn);
-
-        match result {
-            Ok(value) => {
-                // Commit on success
-                let _commit_version = self.commit_transaction(&mut txn)?;
-                self.end_transaction(txn); // Return to pool
-                Ok(value)
-            }
-            Err(e) => {
-                // Abort on error (just discard, per spec no AbortTxn in WAL for user aborts)
-                let _ = txn.mark_aborted(format!("Closure error: {}", e));
-                self.coordinator.record_abort();
-                self.end_transaction(txn); // Return to pool
-                Err(e)
-            }
-        }
+        let outcome = self.run_single_attempt(&mut txn, result, self.durability_mode, None);
+        self.end_transaction(txn);
+        outcome.map(|(value, _)| value)
     }
 
     /// Execute a transaction and return both the result and commit version
@@ -816,37 +844,16 @@ impl Database {
     /// })?;
     /// // commit_version now contains the version assigned to the put
     /// ```
-    pub fn transaction_with_version<F, T>(&self, run_id: RunId, f: F) -> Result<(T, u64)>
+    pub(crate) fn transaction_with_version<F, T>(&self, run_id: RunId, f: F) -> Result<(T, u64)>
     where
         F: FnOnce(&mut TransactionContext) -> Result<T>,
     {
-        // Check if database is accepting transactions
-        if !self.accepting_transactions.load(Ordering::SeqCst) {
-            return Err(StrataError::invalid_input(
-                "Database is shutting down".to_string(),
-            ));
-        }
-
+        self.check_accepting()?;
         let mut txn = self.begin_transaction(run_id);
-
-        // Execute closure
         let result = f(&mut txn);
-
-        match result {
-            Ok(value) => {
-                // Commit on success
-                let commit_version = self.commit_transaction(&mut txn)?;
-                self.end_transaction(txn); // Return to pool
-                Ok((value, commit_version))
-            }
-            Err(e) => {
-                // Abort on error
-                let _ = txn.mark_aborted(format!("Closure error: {}", e));
-                self.coordinator.record_abort();
-                self.end_transaction(txn); // Return to pool
-                Err(e)
-            }
-        }
+        let outcome = self.run_single_attempt(&mut txn, result, self.durability_mode, None);
+        self.end_transaction(txn);
+        outcome
     }
 
     /// Execute a transaction with automatic retry on conflict
@@ -877,7 +884,7 @@ impl Database {
     ///     Ok(())
     /// })?;
     /// ```
-    pub fn transaction_with_retry<F, T>(
+    pub(crate) fn transaction_with_retry<F, T>(
         &self,
         run_id: RunId,
         config: RetryConfig,
@@ -886,63 +893,27 @@ impl Database {
     where
         F: Fn(&mut TransactionContext) -> Result<T>,
     {
-        // Check if database is accepting transactions
-        if !self.accepting_transactions.load(Ordering::SeqCst) {
-            return Err(StrataError::invalid_input(
-                "Database is shutting down".to_string(),
-            ));
-        }
+        self.check_accepting()?;
 
         let mut last_error = None;
 
         for attempt in 0..=config.max_retries {
             let mut txn = self.begin_transaction(run_id);
+            let result = f(&mut txn);
+            let outcome = self.run_single_attempt(&mut txn, result, self.durability_mode, None);
+            self.end_transaction(txn);
 
-            // Execute closure
-            match f(&mut txn) {
-                Ok(value) => {
-                    // Try to commit
-                    match self.commit_transaction(&mut txn) {
-                        Ok(_commit_version) => {
-                            self.end_transaction(txn); // Return to pool
-                            return Ok(value);
-                        }
-                        Err(e) if e.is_conflict() && attempt < config.max_retries => {
-                            // Conflict during commit - will retry
-                            self.end_transaction(txn); // Return to pool
-                            last_error = Some(e);
-                            std::thread::sleep(config.calculate_delay(attempt));
-                            continue;
-                        }
-                        Err(e) => {
-                            // Non-conflict error or max retries reached
-                            let _ = txn.mark_aborted(format!("Commit error: {}", e));
-                            self.coordinator.record_abort();
-                            self.end_transaction(txn); // Return to pool
-                            return Err(e);
-                        }
-                    }
-                }
+            match outcome {
+                Ok((value, _)) => return Ok(value),
                 Err(e) if e.is_conflict() && attempt < config.max_retries => {
-                    // Conflict from closure - will retry
-                    let _ = txn.mark_aborted(format!("Closure conflict: {}", e));
-                    self.coordinator.record_abort();
-                    self.end_transaction(txn); // Return to pool
                     last_error = Some(e);
                     std::thread::sleep(config.calculate_delay(attempt));
                     continue;
                 }
-                Err(e) => {
-                    // Non-conflict error or max retries reached
-                    let _ = txn.mark_aborted(format!("Closure error: {}", e));
-                    self.coordinator.record_abort();
-                    self.end_transaction(txn); // Return to pool
-                    return Err(e);
-                }
+                Err(e) => return Err(e),
             }
         }
 
-        // Max retries exceeded
         Err(last_error
             .unwrap_or_else(|| StrataError::conflict("Max retries exceeded".to_string())))
     }
@@ -975,7 +946,7 @@ impl Database {
     ///     },
     /// )?;
     /// ```
-    pub fn transaction_with_timeout<F, T>(
+    pub(crate) fn transaction_with_timeout<F, T>(
         &self,
         run_id: RunId,
         timeout: Duration,
@@ -984,47 +955,12 @@ impl Database {
     where
         F: FnOnce(&mut TransactionContext) -> Result<T>,
     {
-        // Check if database is accepting transactions
-        if !self.accepting_transactions.load(Ordering::SeqCst) {
-            return Err(StrataError::invalid_input(
-                "Database is shutting down".to_string(),
-            ));
-        }
-
+        self.check_accepting()?;
         let mut txn = self.begin_transaction(run_id);
-
-        // Execute closure
         let result = f(&mut txn);
-
-        match result {
-            Ok(value) => {
-                // Check timeout before commit
-                if txn.is_expired(timeout) {
-                    let elapsed = txn.elapsed();
-                    let _ = txn.mark_aborted(format!(
-                        "Transaction timeout: elapsed {:?}, limit {:?}",
-                        elapsed, timeout
-                    ));
-                    self.coordinator.record_abort();
-                    self.end_transaction(txn); // Return to pool
-                    return Err(StrataError::transaction_timeout(
-                        elapsed.as_millis() as u64
-                    ));
-                }
-
-                // Commit on success (ignore the returned version for this API)
-                let _commit_version = self.commit_transaction(&mut txn)?;
-                self.end_transaction(txn); // Return to pool
-                Ok(value)
-            }
-            Err(e) => {
-                // Abort on error
-                let _ = txn.mark_aborted(format!("Closure error: {}", e));
-                self.coordinator.record_abort();
-                self.end_transaction(txn); // Return to pool
-                Err(e)
-            }
-        }
+        let outcome = self.run_single_attempt(&mut txn, result, self.durability_mode, Some(timeout));
+        self.end_transaction(txn);
+        outcome.map(|(value, _)| value)
     }
 
     /// Begin a new transaction (for manual control)
@@ -1048,7 +984,7 @@ impl Database {
     /// db.commit_transaction(&mut txn)?;
     /// db.end_transaction(txn); // Return to pool
     /// ```
-    pub fn begin_transaction(&self, run_id: RunId) -> TransactionContext {
+    pub(crate) fn begin_transaction(&self, run_id: RunId) -> TransactionContext {
         let txn_id = self.coordinator.next_txn_id();
         let snapshot = self.storage.create_snapshot();
         self.coordinator.record_start();
@@ -1074,7 +1010,7 @@ impl Database {
     /// db.commit_transaction(&mut txn)?;
     /// db.end_transaction(txn); // Return to pool for reuse
     /// ```
-    pub fn end_transaction(&self, ctx: TransactionContext) {
+    pub(crate) fn end_transaction(&self, ctx: TransactionContext) {
         TransactionPool::release(ctx);
     }
 
@@ -1099,7 +1035,7 @@ impl Database {
     ///
     /// # Contract
     /// Returns the commit version (u64) assigned to all writes in this transaction.
-    pub fn commit_transaction(&self, txn: &mut TransactionContext) -> Result<u64> {
+    pub(crate) fn commit_transaction(&self, txn: &mut TransactionContext) -> Result<u64> {
         self.commit_internal(txn, self.durability_mode)
     }
 
@@ -1206,7 +1142,7 @@ impl Database {
     }
 
     /// Get the transaction coordinator (for metrics/testing)
-    pub fn coordinator(&self) -> &TransactionCoordinator {
+    pub(crate) fn coordinator(&self) -> &TransactionCoordinator {
         &self.coordinator
     }
 
@@ -1216,12 +1152,12 @@ impl Database {
     /// - Active count
     /// - Total started/committed/aborted
     /// - Commit rate
-    pub fn metrics(&self) -> TransactionMetrics {
+    pub(crate) fn metrics(&self) -> TransactionMetrics {
         self.coordinator.metrics()
     }
 
     /// Get the current durability mode
-    pub fn durability_mode(&self) -> DurabilityMode {
+    pub(crate) fn durability_mode(&self) -> DurabilityMode {
         self.durability_mode
     }
 
@@ -1253,7 +1189,7 @@ impl Database {
     ///     },
     /// )?;
     /// ```
-    pub fn transaction_with_durability<F, T>(
+    pub(crate) fn transaction_with_durability<F, T>(
         &self,
         run_id: RunId,
         durability: DurabilityMode,
@@ -1262,43 +1198,12 @@ impl Database {
     where
         F: FnOnce(&mut TransactionContext) -> Result<T>,
     {
-        // Check if database is accepting transactions
-        if !self.accepting_transactions.load(Ordering::SeqCst) {
-            return Err(StrataError::invalid_input(
-                "Database is shutting down".to_string(),
-            ));
-        }
-
+        self.check_accepting()?;
         let mut txn = self.begin_transaction(run_id);
-
-        // Execute closure
-        match f(&mut txn) {
-            Ok(value) => {
-                let commit_result = self.commit_with_durability(&mut txn, durability);
-                self.end_transaction(txn); // Return to pool
-                commit_result?;
-                Ok(value)
-            }
-            Err(e) => {
-                let _ = txn.mark_aborted(format!("Closure error: {}", e));
-                self.coordinator.record_abort();
-                self.end_transaction(txn); // Return to pool
-                Err(e)
-            }
-        }
-    }
-
-    /// Commit transaction with specific durability mode
-    ///
-    /// Internal method used by `transaction_with_durability`.
-    fn commit_with_durability(
-        &self,
-        txn: &mut TransactionContext,
-        durability: DurabilityMode,
-    ) -> Result<()> {
-        // Delegate to commit_internal, discarding the commit version
-        self.commit_internal(txn, durability)?;
-        Ok(())
+        let result = f(&mut txn);
+        let outcome = self.run_single_attempt(&mut txn, result, durability, None);
+        self.end_transaction(txn);
+        outcome.map(|(value, _)| value)
     }
 
     // ========================================================================
@@ -1357,123 +1262,7 @@ impl Database {
     }
 
     // ========================================================================
-    // Implicit Transactions (Legacy Compatibility)
-    // ========================================================================
-
-    /// Put a key-value pair (legacy compatibility)
-    ///
-    /// Per spec Section 4.2: Wraps in implicit transaction, commits immediately.
-    /// This provides backwards compatibility with legacy-style operations.
-    ///
-    /// # Arguments
-    /// * `run_id` - RunId for namespace isolation
-    /// * `key` - Key to store
-    /// * `value` - Value to store
-    ///
-    /// # Returns
-    /// * `Ok(())` - Value stored successfully
-    /// * `Err(TransactionConflict)` - Conflict detected (rare for implicit txns)
-    ///
-    /// # Example
-    /// ```ignore
-    /// db.put(run_id, key, Value::Int(42))?;
-    /// ```
-    pub fn put(&self, run_id: RunId, key: Key, value: Value) -> Result<()> {
-        self.transaction(run_id, |txn| {
-            txn.put(key.clone(), value.clone())?;
-            Ok(())
-        })
-    }
-
-    /// Get a value by key (legacy compatibility)
-    ///
-    /// Per spec Section 4.2: Read-only, always succeeds.
-    /// This provides backwards compatibility with legacy-style operations.
-    ///
-    /// Unlike writes, reads don't need a full transaction.
-    /// We read directly from storage for O(log n) performance.
-    ///
-    /// # Arguments
-    /// * `key` - Key to retrieve
-    ///
-    /// # Returns
-    /// * `Ok(Some(VersionedValue))` - Value found
-    /// * `Ok(None)` - Key doesn't exist
-    ///
-    /// # Example
-    /// ```ignore
-    /// if let Some(vv) = db.get(&key)? {
-    ///     println!("Value: {:?}, Version: {}", vv.value, vv.version);
-    /// }
-    /// ```
-    pub fn get(&self, key: &Key) -> Result<Option<VersionedValue>> {
-        // For read-only operations, read directly from storage
-        // This is O(1) via DashMap + FxHashMap lookup
-        // Explicitly call Storage trait to get TTL expiration handling
-        Storage::get(self.storage.as_ref(), key)
-    }
-
-    /// Delete a key (legacy compatibility)
-    ///
-    /// Per spec Section 4.2: Wraps in implicit transaction, commits immediately.
-    /// This provides backwards compatibility with legacy-style operations.
-    ///
-    /// # Arguments
-    /// * `run_id` - RunId for namespace isolation
-    /// * `key` - Key to delete
-    ///
-    /// # Returns
-    /// * `Ok(())` - Key deleted (or didn't exist)
-    /// * `Err(TransactionConflict)` - Conflict detected (rare for implicit txns)
-    ///
-    /// # Example
-    /// ```ignore
-    /// db.delete(run_id, key)?;
-    /// ```
-    pub fn delete(&self, run_id: RunId, key: Key) -> Result<()> {
-        self.transaction(run_id, |txn| {
-            txn.delete(key.clone())?;
-            Ok(())
-        })
-    }
-
-    /// Compare-and-swap (legacy compatibility with explicit version)
-    ///
-    /// Per spec Section 3.4: CAS validates expected_version before write.
-    /// The operation succeeds only if the current version matches expected_version.
-    ///
-    /// # Arguments
-    /// * `run_id` - RunId for namespace isolation
-    /// * `key` - Key to update
-    /// * `expected_version` - Version the key must have (0 = key must not exist)
-    /// * `new_value` - New value to write if version matches
-    ///
-    /// # Returns
-    /// * `Ok(())` - CAS succeeded
-    /// * `Err(TransactionConflict)` - Version mismatch or conflict
-    ///
-    /// # Example
-    /// ```ignore
-    /// // Get current version
-    /// let vv = db.get(&key)?.unwrap();
-    /// // Atomic update only if version matches
-    /// db.cas(run_id, key, vv.version, Value::Int(new_val))?;
-    /// ```
-    pub fn cas(
-        &self,
-        run_id: RunId,
-        key: Key,
-        expected_version: u64,
-        new_value: Value,
-    ) -> Result<()> {
-        self.transaction(run_id, |txn| {
-            txn.cas(key.clone(), expected_version, new_value.clone())?;
-            Ok(())
-        })
-    }
-
-    // ========================================================================
-    // Replay API 
+    // Replay API
     // ========================================================================
 
     /// Replay a run and return a read-only view
@@ -1510,7 +1299,7 @@ impl Database {
     ///     println!("  {:?} = {:?}", key, value);
     /// }
     /// ```
-    pub fn replay_run(&self, run_id: RunId) -> Result<crate::replay::ReadOnlyView> {
+    pub(crate) fn replay_run(&self, run_id: RunId) -> Result<crate::replay::ReadOnlyView> {
         use crate::replay::ReadOnlyView;
         use strata_core::types::TypeTag;
 
@@ -1595,7 +1384,7 @@ impl Database {
     ///     println!("  Added: {} = {:?}", entry.key, entry.value_b);
     /// }
     /// ```
-    pub fn diff_runs(
+    pub(crate) fn diff_runs(
         &self,
         run_a: RunId,
         run_b: RunId,
@@ -1613,7 +1402,7 @@ impl Database {
     /// Ensures all WAL entries are flushed to disk before returning.
     /// For ephemeral databases, this is a no-op.
     /// This should be called before dropping the database for guaranteed durability.
-    pub fn close(&self) -> Result<()> {
+    pub(crate) fn close(&self) -> Result<()> {
         if let Some(ref wal) = self.wal {
             let wal = wal.lock();
             wal.fsync()
@@ -2209,196 +1998,6 @@ mod tests {
     }
 
     // ========================================================================
-    // Implicit Transaction Tests (Legacy Compatibility)
-    // ========================================================================
-
-    #[test]
-    fn test_implicit_put() {
-        let temp_dir = TempDir::new().unwrap();
-        let db = Database::open(temp_dir.path().join("db")).unwrap();
-
-        let run_id = RunId::new();
-        let ns = create_test_namespace(run_id);
-        let key = Key::new_kv(ns, "implicit_put");
-
-        // legacy-style put
-        db.put(run_id, key.clone(), Value::Int(42)).unwrap();
-
-        // Verify stored
-        let stored = db.storage().get(&key).unwrap().unwrap();
-        assert_eq!(stored.value, Value::Int(42));
-    }
-
-    #[test]
-    fn test_implicit_get() {
-        let temp_dir = TempDir::new().unwrap();
-        let db = Database::open(temp_dir.path().join("db")).unwrap();
-
-        let run_id = RunId::new();
-        let ns = create_test_namespace(run_id);
-        let key = Key::new_kv(ns, "implicit_get");
-
-        // Pre-populate using put
-        db.put(run_id, key.clone(), Value::Int(100)).unwrap();
-
-        // legacy-style get
-        let result = db.get(&key).unwrap();
-        assert!(result.is_some());
-        assert_eq!(result.unwrap().value, Value::Int(100));
-    }
-
-    #[test]
-    fn test_implicit_get_nonexistent() {
-        let temp_dir = TempDir::new().unwrap();
-        let db = Database::open(temp_dir.path().join("db")).unwrap();
-
-        let run_id = RunId::new();
-        let ns = create_test_namespace(run_id);
-        let key = Key::new_kv(ns, "nonexistent");
-
-        // legacy-style get for nonexistent key
-        let result = db.get(&key).unwrap();
-        assert!(result.is_none());
-    }
-
-    #[test]
-    fn test_implicit_delete() {
-        let temp_dir = TempDir::new().unwrap();
-        let db = Database::open(temp_dir.path().join("db")).unwrap();
-
-        let run_id = RunId::new();
-        let ns = create_test_namespace(run_id);
-        let key = Key::new_kv(ns, "to_delete_implicit");
-
-        // Pre-populate
-        db.put(run_id, key.clone(), Value::Int(1)).unwrap();
-        assert!(db.get(&key).unwrap().is_some());
-
-        // legacy-style delete
-        db.delete(run_id, key.clone()).unwrap();
-
-        // Verify deleted
-        assert!(db.get(&key).unwrap().is_none());
-    }
-
-    #[test]
-    fn test_implicit_cas_success() {
-        let temp_dir = TempDir::new().unwrap();
-        let db = Database::open(temp_dir.path().join("db")).unwrap();
-
-        let run_id = RunId::new();
-        let ns = create_test_namespace(run_id);
-        let key = Key::new_kv(ns, "cas_key");
-
-        // Initial put
-        db.put(run_id, key.clone(), Value::Int(1)).unwrap();
-        let current = db.get(&key).unwrap().unwrap();
-
-        // CAS with correct version
-        db.cas(run_id, key.clone(), current.version.as_u64(), Value::Int(2))
-            .unwrap();
-
-        // Verify updated
-        let updated = db.get(&key).unwrap().unwrap();
-        assert_eq!(updated.value, Value::Int(2));
-    }
-
-    #[test]
-    fn test_implicit_cas_failure() {
-        let temp_dir = TempDir::new().unwrap();
-        let db = Database::open(temp_dir.path().join("db")).unwrap();
-
-        let run_id = RunId::new();
-        let ns = create_test_namespace(run_id);
-        let key = Key::new_kv(ns, "cas_fail");
-
-        // Initial put
-        db.put(run_id, key.clone(), Value::Int(1)).unwrap();
-
-        // CAS with wrong version
-        let result = db.cas(run_id, key.clone(), 999, Value::Int(2));
-        assert!(result.is_err());
-
-        // Value should be unchanged
-        let stored = db.get(&key).unwrap().unwrap();
-        assert_eq!(stored.value, Value::Int(1));
-    }
-
-    #[test]
-    fn test_implicit_operations_durable() {
-        // Verify implicit operations are written to WAL and survive restart
-        let temp_dir = TempDir::new().unwrap();
-        let db_path = temp_dir.path().join("db");
-        let run_id = RunId::new();
-        let ns = create_test_namespace(run_id);
-
-        let key1 = Key::new_kv(ns.clone(), "durable1");
-        let key2 = Key::new_kv(ns.clone(), "durable2");
-
-        // Write and close
-        {
-            let db = Database::open(&db_path).unwrap();
-            db.put(run_id, key1.clone(), Value::Int(100)).unwrap();
-            db.put(run_id, key2.clone(), Value::String("test".to_string()))
-                .unwrap();
-        }
-
-        // Reopen and verify
-        {
-            let db = Database::open(&db_path).unwrap();
-            let v1 = db.get(&key1).unwrap().unwrap();
-            let v2 = db.get(&key2).unwrap().unwrap();
-
-            assert_eq!(v1.value, Value::Int(100));
-            assert_eq!(v2.value, Value::String("test".to_string()));
-        }
-    }
-
-    #[test]
-    fn test_implicit_cas_create_new_key() {
-        let temp_dir = TempDir::new().unwrap();
-        let db = Database::open(temp_dir.path().join("db")).unwrap();
-
-        let run_id = RunId::new();
-        let ns = create_test_namespace(run_id);
-        let key = Key::new_kv(ns, "new_cas_key");
-
-        // CAS with version 0 should create new key (key doesn't exist)
-        db.cas(run_id, key.clone(), 0, Value::Int(42)).unwrap();
-
-        // Verify created
-        let stored = db.get(&key).unwrap().unwrap();
-        assert_eq!(stored.value, Value::Int(42));
-    }
-
-    #[test]
-    fn test_implicit_mixed_operations() {
-        let temp_dir = TempDir::new().unwrap();
-        let db = Database::open(temp_dir.path().join("db")).unwrap();
-
-        let run_id = RunId::new();
-        let ns = create_test_namespace(run_id);
-
-        // Put, Get, CAS, Get, Delete, Get
-        let key = Key::new_kv(ns, "mixed_ops");
-
-        // Put
-        db.put(run_id, key.clone(), Value::Int(1)).unwrap();
-        let v1 = db.get(&key).unwrap().unwrap();
-        assert_eq!(v1.value, Value::Int(1));
-
-        // CAS to increment
-        db.cas(run_id, key.clone(), v1.version.as_u64(), Value::Int(2))
-            .unwrap();
-        let v2 = db.get(&key).unwrap().unwrap();
-        assert_eq!(v2.value, Value::Int(2));
-
-        // Delete
-        db.delete(run_id, key.clone()).unwrap();
-        assert!(db.get(&key).unwrap().is_none());
-    }
-
-    // ========================================================================
     // Retry Tests
     // ========================================================================
 
@@ -2463,7 +2062,7 @@ mod tests {
         assert_eq!(result.unwrap(), 42);
 
         // Verify stored
-        let stored = db.get(&key).unwrap().unwrap();
+        let stored = db.storage().get(&key).unwrap().unwrap();
         assert_eq!(stored.value, Value::Int(42));
     }
 
@@ -2581,7 +2180,11 @@ mod tests {
         let key = Key::new_kv(ns, "return_value");
 
         // Pre-populate
-        db.put(run_id, key.clone(), Value::Int(100)).unwrap();
+        db.transaction(run_id, |txn| {
+            txn.put(key.clone(), Value::Int(100))?;
+            Ok(())
+        })
+        .unwrap();
 
         // Transaction returns a value
         // Note: txn.get() returns Option<Value>, not Option<VersionedValue>
@@ -2611,7 +2214,11 @@ mod tests {
         let attempts = AtomicU64::new(0);
 
         // Initialize counter
-        db.put(run_id, key.clone(), Value::Int(0)).unwrap();
+        db.transaction(run_id, |txn| {
+            txn.put(key.clone(), Value::Int(0))?;
+            Ok(())
+        })
+        .unwrap();
 
         let config = RetryConfig {
             max_retries: 5,
@@ -2645,7 +2252,7 @@ mod tests {
         assert_eq!(attempts.load(Ordering::Relaxed), 2); // Tried twice
 
         // Verify final value
-        let stored = db.get(&key).unwrap().unwrap();
+        let stored = db.storage().get(&key).unwrap().unwrap();
         assert_eq!(stored.value, Value::Int(1));
     }
 
@@ -2695,7 +2302,7 @@ mod tests {
         assert_eq!(result.unwrap(), 42);
 
         // Verify stored
-        let stored = db.get(&key).unwrap().unwrap();
+        let stored = db.storage().get(&key).unwrap().unwrap();
         assert_eq!(stored.value, Value::Int(42));
     }
 
@@ -2727,7 +2334,7 @@ mod tests {
         assert!(matches!(err, StrataError::TransactionTimeout { .. }));
 
         // Data should NOT be committed
-        assert!(db.get(&key).unwrap().is_none());
+        assert!(db.storage().get(&key).unwrap().is_none());
     }
 
     #[test]
@@ -2751,7 +2358,7 @@ mod tests {
         // All should be stored
         for i in 0..100 {
             let key = Key::new_kv(ns.clone(), &format!("key_{}", i));
-            let val = db.get(&key).unwrap().unwrap();
+            let val = db.storage().get(&key).unwrap().unwrap();
             assert_eq!(val.value, Value::Int(i as i64));
         }
     }
@@ -2953,7 +2560,11 @@ mod tests {
         let key = Key::new_kv(ns, "return_test");
 
         // Pre-populate
-        db.put(run_id, key.clone(), Value::Int(100)).unwrap();
+        db.transaction(run_id, |txn| {
+            txn.put(key.clone(), Value::Int(100))?;
+            Ok(())
+        })
+        .unwrap();
 
         // Read value with durability override
         let result: Result<i64> =
@@ -3067,15 +2678,19 @@ mod tests {
         // Write data and shutdown
         {
             let db = Database::open(&db_path).unwrap();
-            db.put(run_id, key.clone(), Value::Int(42)).unwrap();
+            db.transaction(run_id, |txn| {
+                txn.put(key.clone(), Value::Int(42))?;
+                Ok(())
+            })
+            .unwrap();
             db.shutdown().unwrap();
         }
 
         // Reopen and verify data survived
         {
             let db = Database::open(&db_path).unwrap();
-            let val = db.get(&key).unwrap().unwrap();
-            assert_eq!(val.value, Value::Int(42));
+            let stored = db.storage().get(&key).unwrap().unwrap();
+            assert_eq!(stored.value, Value::Int(42));
         }
     }
 
@@ -3103,4 +2718,5 @@ mod tests {
             assert_eq!(db.durability_mode(), DurabilityMode::None);
         }
     }
+
 }

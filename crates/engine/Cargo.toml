@@ -26,15 +26,21 @@ thiserror = { workspace = true }
 tracing = { workspace = true }
 uuid = { workspace = true }
 sha2 = "0.10.9"
+base64 = { workspace = true }
+byteorder = { workspace = true }
+rmp-serde = { workspace = true }
 
 [dev-dependencies]
 tempfile = { workspace = true }
 proptest = { workspace = true }
 chrono = { workspace = true }
 criterion = "0.5"
-strata-primitives = { path = "../primitives" }
 serde_json = { workspace = true }
 
 [[bench]]
 name = "transaction_benchmarks"
+harness = false
+
+[[bench]]
+name = "primitive_benchmarks"
 harness = false

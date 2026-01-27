@@ -29,7 +29,7 @@
 //! Primitives can be combined within a single transaction using extension traits:
 //!
 //! ```rust,ignore
-//! use strata_primitives::extensions::*;
+//! use strata_engine::primitives::extensions::*;
 //!
 //! db.transaction(run_id, |txn| {
 //!     txn.kv_put("key", value)?;
@@ -38,9 +38,6 @@
 //!     Ok(())
 //! })?;
 //! ```
-
-#![warn(missing_docs)]
-#![warn(clippy::all)]
 
 pub mod event_log;
 pub mod extensions;
@@ -72,11 +69,3 @@ pub use vector::{
 
 // Re-export extension traits for convenience
 pub use extensions::*;
-
-#[cfg(test)]
-mod tests {
-    #[test]
-    fn test_crate_compiles() {
-        // Basic smoke test to ensure crate compiles
-    }
-}

@@ -20,7 +20,7 @@ use strata_core::error::Result;
 use strata_core::search_types::{SearchBudget, SearchRequest, SearchResponse, SearchStats};
 use strata_core::PrimitiveType;
 use strata_engine::Database;
-use strata_primitives::{EventLog, JsonStore, KVStore, RunIndex, StateCell, VectorStore};
+use strata_engine::{EventLog, JsonStore, KVStore, RunIndex, StateCell, VectorStore};
 use std::sync::Arc;
 use std::time::Instant;
 
@@ -229,7 +229,7 @@ impl HybridSearch {
         primitive: PrimitiveType,
         req: &SearchRequest,
     ) -> Result<SearchResponse> {
-        use strata_primitives::Searchable;
+        use strata_engine::Searchable;
 
         match primitive {
             PrimitiveType::Kv => self.kv.search(req),
