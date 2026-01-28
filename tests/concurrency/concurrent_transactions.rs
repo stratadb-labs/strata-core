@@ -1,0 +1,371 @@
+//! Concurrent Transaction Tests
+//!
+//! Tests for concurrent transaction scenarios:
+//! - Parallel commits on different runs
+//! - Serial commits on same run
+//! - High contention scenarios
+
+use strata_concurrency::manager::TransactionManager;
+use strata_concurrency::transaction::TransactionContext;
+use strata_concurrency::validation::validate_transaction;
+use strata_core::traits::Storage;
+use strata_core::types::{Key, Namespace};
+use strata_core::value::Value;
+use strata_core::RunId;
+use strata_storage::sharded::ShardedStore;
+use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::{Arc, Barrier};
+use std::thread;
+
+fn create_test_key(run_id: RunId, name: &str) -> Key {
+    let ns = Namespace::for_run(run_id);
+    Key::new_kv(ns, name)
+}
+
+// ============================================================================
+// Parallel Commits on Different Runs
+// ============================================================================
+
+#[test]
+fn parallel_commits_different_runs_no_contention() {
+    let store = Arc::new(ShardedStore::new());
+    let manager = Arc::new(TransactionManager::new(1));
+    let barrier = Arc::new(Barrier::new(4));
+    let commits = Arc::new(AtomicU64::new(0));
+
+    let handles: Vec<_> = (0..4)
+        .map(|_| {
+            let store = Arc::clone(&store);
+            let manager = Arc::clone(&manager);
+            let barrier = Arc::clone(&barrier);
+            let commits = Arc::clone(&commits);
+
+            thread::spawn(move || {
+                let run_id = RunId::new(); // Each thread gets unique run
+                let key = create_test_key(run_id, "data");
+
+                // Setup initial value
+                Storage::put(&*store, key.clone(), Value::Int(0), None).unwrap();
+
+                barrier.wait();
+
+                // Each thread commits 10 transactions
+                for i in 0..10 {
+                    let txn_id = manager.next_txn_id();
+                    let mut txn = TransactionContext::new(txn_id, run_id, manager.allocate_version());
+
+                    // Read and write
+                    let v = Storage::get(&*store, &key).unwrap().unwrap().version.as_u64();
+                    txn.read_set.insert(key.clone(), v);
+                    txn.write_set.insert(key.clone(), Value::Int(i));
+
+                    // Validate
+                    let result = validate_transaction(&txn, &*store);
+                    if result.is_valid() {
+                        Storage::put(&*store, key.clone(), Value::Int(i), None).unwrap();
+                        commits.fetch_add(1, Ordering::Relaxed);
+                    }
+                }
+            })
+        })
+        .collect();
+
+    for handle in handles {
+        handle.join().unwrap();
+    }
+
+    // All 40 commits should succeed (no cross-run contention)
+    assert_eq!(commits.load(Ordering::Relaxed), 40);
+}
+
+#[test]
+fn different_runs_have_independent_namespaces() {
+    let store = Arc::new(ShardedStore::new());
+    let run1 = RunId::new();
+    let run2 = RunId::new();
+
+    let key1 = create_test_key(run1, "shared_name");
+    let key2 = create_test_key(run2, "shared_name");
+
+    // Write different values to same logical name in different runs
+    Storage::put(&*store, key1.clone(), Value::Int(100), None).unwrap();
+    Storage::put(&*store, key2.clone(), Value::Int(200), None).unwrap();
+
+    // They should be independent
+    let val1 = Storage::get(&*store, &key1).unwrap().unwrap().value;
+    let val2 = Storage::get(&*store, &key2).unwrap().unwrap().value;
+
+    assert_eq!(val1, Value::Int(100));
+    assert_eq!(val2, Value::Int(200));
+}
+
+// ============================================================================
+// High Contention Single Key
+// ============================================================================
+
+#[test]
+fn high_contention_single_key() {
+    let store = Arc::new(ShardedStore::new());
+    let run_id = RunId::new();
+    let key = create_test_key(run_id, "contested");
+
+    // Initial value
+    Storage::put(&*store, key.clone(), Value::Int(0), None).unwrap();
+
+    let barrier = Arc::new(Barrier::new(8));
+    let commits = Arc::new(AtomicU64::new(0));
+    let conflicts = Arc::new(AtomicU64::new(0));
+
+    let handles: Vec<_> = (0..8)
+        .map(|thread_id| {
+            let store = Arc::clone(&store);
+            let barrier = Arc::clone(&barrier);
+            let commits = Arc::clone(&commits);
+            let conflicts = Arc::clone(&conflicts);
+            let key = key.clone();
+
+            thread::spawn(move || {
+                barrier.wait();
+
+                for i in 0..10 {
+                    // Read current value
+                    let current = Storage::get(&*store, &key).unwrap().unwrap();
+                    let read_version = current.version.as_u64();
+
+                    // Create transaction
+                    let mut txn = TransactionContext::new(
+                        (thread_id * 100 + i) as u64,
+                        run_id,
+                        read_version,
+                    );
+                    txn.read_set.insert(key.clone(), read_version);
+                    txn.write_set
+                        .insert(key.clone(), Value::Int((thread_id * 100 + i) as i64));
+
+                    // Validate
+                    let result = validate_transaction(&txn, &*store);
+                    if result.is_valid() {
+                        // Try to apply (race with other threads)
+                        Storage::put(
+                            &*store,
+                            key.clone(),
+                            Value::Int((thread_id * 100 + i) as i64),
+                            None,
+                        )
+                        .unwrap();
+                        commits.fetch_add(1, Ordering::Relaxed);
+                    } else {
+                        conflicts.fetch_add(1, Ordering::Relaxed);
+                    }
+                }
+            })
+        })
+        .collect();
+
+    for handle in handles {
+        handle.join().unwrap();
+    }
+
+    let total_commits = commits.load(Ordering::Relaxed);
+    let total_conflicts = conflicts.load(Ordering::Relaxed);
+
+    // With 8 threads x 10 iterations = 80 attempts
+    // Due to contention, we expect some conflicts
+    assert!(total_commits > 0, "Some transactions should commit");
+    assert!(total_commits + total_conflicts == 80, "All attempts accounted for");
+}
+
+// ============================================================================
+// Interleaved Operations (No Conflict)
+// ============================================================================
+
+#[test]
+fn interleaved_disjoint_operations_both_commit() {
+    let store = Arc::new(ShardedStore::new());
+    let run_id = RunId::new();
+    let key_a = create_test_key(run_id, "A");
+    let key_b = create_test_key(run_id, "B");
+
+    // Initial values
+    Storage::put(&*store, key_a.clone(), Value::Int(1), None).unwrap();
+    Storage::put(&*store, key_b.clone(), Value::Int(2), None).unwrap();
+
+    let va = Storage::get(&*store, &key_a).unwrap().unwrap().version.as_u64();
+    let vb = Storage::get(&*store, &key_b).unwrap().unwrap().version.as_u64();
+
+    // T1: reads A, writes B
+    let mut t1 = TransactionContext::new(1, run_id, 1);
+    t1.read_set.insert(key_a.clone(), va);
+    t1.write_set.insert(key_b.clone(), Value::Int(20));
+
+    // T2: reads B, writes A
+    let mut t2 = TransactionContext::new(2, run_id, 1);
+    t2.read_set.insert(key_b.clone(), vb);
+    t2.write_set.insert(key_a.clone(), Value::Int(10));
+
+    // Both should validate (disjoint read/write sets)
+    let result1 = validate_transaction(&t1, &*store);
+    let result2 = validate_transaction(&t2, &*store);
+
+    assert!(result1.is_valid(), "T1 should commit (reads A, writes B)");
+    assert!(result2.is_valid(), "T2 should commit (reads B, writes A)");
+}
+
+// ============================================================================
+// Version Allocation
+// ============================================================================
+
+#[test]
+fn version_allocation_is_unique() {
+    let manager = Arc::new(TransactionManager::new(1));
+    let barrier = Arc::new(Barrier::new(8));
+
+    let handles: Vec<_> = (0..8)
+        .map(|_| {
+            let manager = Arc::clone(&manager);
+            let barrier = Arc::clone(&barrier);
+
+            thread::spawn(move || {
+                barrier.wait();
+                let mut versions = Vec::with_capacity(1000);
+                for _ in 0..1000 {
+                    versions.push(manager.allocate_version());
+                }
+                versions
+            })
+        })
+        .collect();
+
+    let mut all_versions: Vec<u64> = handles
+        .into_iter()
+        .flat_map(|h| h.join().unwrap())
+        .collect();
+
+    all_versions.sort();
+
+    // Check for duplicates
+    for i in 1..all_versions.len() {
+        assert_ne!(
+            all_versions[i],
+            all_versions[i - 1],
+            "Duplicate version: {}",
+            all_versions[i]
+        );
+    }
+}
+
+#[test]
+fn txn_id_allocation_is_unique() {
+    let manager = Arc::new(TransactionManager::new(1));
+    let barrier = Arc::new(Barrier::new(4));
+
+    let handles: Vec<_> = (0..4)
+        .map(|_| {
+            let manager = Arc::clone(&manager);
+            let barrier = Arc::clone(&barrier);
+
+            thread::spawn(move || {
+                barrier.wait();
+                let mut ids = Vec::with_capacity(100);
+                for _ in 0..100 {
+                    ids.push(manager.next_txn_id());
+                }
+                ids
+            })
+        })
+        .collect();
+
+    let mut all_ids: Vec<u64> = handles.into_iter().flat_map(|h| h.join().unwrap()).collect();
+
+    all_ids.sort();
+
+    // Check for duplicates
+    for i in 1..all_ids.len() {
+        assert_ne!(all_ids[i], all_ids[i - 1], "Duplicate txn_id: {}", all_ids[i]);
+    }
+}
+
+// ============================================================================
+// Transaction Manager State
+// ============================================================================
+
+#[test]
+fn manager_version_monotonically_increases() {
+    let manager = TransactionManager::new(100);
+
+    let v1 = manager.allocate_version();
+    let v2 = manager.allocate_version();
+    let v3 = manager.allocate_version();
+
+    assert!(v2 > v1);
+    assert!(v3 > v2);
+}
+
+#[test]
+fn manager_with_initial_version() {
+    let manager = TransactionManager::new(1000);
+
+    let v1 = manager.allocate_version();
+    assert!(v1 >= 1000, "First version should be >= initial");
+}
+
+#[test]
+fn manager_with_txn_id_recovery() {
+    // Simulating recovery where we need to continue from a known max txn_id
+    let manager = TransactionManager::with_txn_id(100, 500);
+
+    let txn_id = manager.next_txn_id();
+    assert!(txn_id > 500, "Txn ID should continue from max");
+}
+
+// ============================================================================
+// Edge Cases
+// ============================================================================
+
+#[test]
+fn concurrent_empty_transactions() {
+    let store = Arc::new(ShardedStore::new());
+    let run_id = RunId::new();
+    let barrier = Arc::new(Barrier::new(4));
+
+    let handles: Vec<_> = (0..4)
+        .map(|i| {
+            let store = Arc::clone(&store);
+            let barrier = Arc::clone(&barrier);
+
+            thread::spawn(move || {
+                barrier.wait();
+
+                // Empty transaction (read-only)
+                let txn = TransactionContext::new(i as u64, run_id, 1);
+                let result = validate_transaction(&txn, &*store);
+                result.is_valid()
+            })
+        })
+        .collect();
+
+    for handle in handles {
+        assert!(handle.join().unwrap(), "Empty transactions should always commit");
+    }
+}
+
+#[test]
+fn rapid_transaction_creation() {
+    let manager = TransactionManager::new(1);
+    let run_id = RunId::new();
+
+    // Create many transactions rapidly
+    let txns: Vec<_> = (0..1000)
+        .map(|_| {
+            let txn_id = manager.next_txn_id();
+            let start_version = manager.allocate_version();
+            TransactionContext::new(txn_id, run_id, start_version)
+        })
+        .collect();
+
+    // All should have unique IDs
+    let mut ids: Vec<u64> = txns.iter().map(|t| t.txn_id).collect();
+    ids.sort();
+    ids.dedup();
+    assert_eq!(ids.len(), 1000);
+}
