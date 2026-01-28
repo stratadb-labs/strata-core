@@ -9,6 +9,7 @@ mod database;
 mod primitives;
 
 mod acid_properties;
+mod adversarial;
 mod cross_primitive;
 mod run_isolation;
 mod stress;

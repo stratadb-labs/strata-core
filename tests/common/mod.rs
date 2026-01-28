@@ -5,7 +5,7 @@
 
 #![allow(dead_code)]
 
-pub use strata_core::{JsonPath, JsonValue, RunId, Value};
+pub use strata_core::{JsonPath, JsonValue, RunId, Value, Version};
 pub use strata_engine::{
     register_vector_recovery, Database, DistanceMetric, EventLog, JsonStore, KVStore, RunIndex,
     StateCell, StorageDtype, VectorConfig, VectorStore,
