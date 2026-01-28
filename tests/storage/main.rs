@@ -1,18 +1,14 @@
+//! Storage Crate Integration Tests
+//!
+//! Tests for strata-storage: MVCC, snapshots, compaction, retention.
+
+#[path = "../common/mod.rs"]
 mod common;
 
-mod btreemap_source;
-mod conformance;
-mod dimension;
-mod heap_delete;
-mod heap_free_slot_reuse;
-mod heap_get;
-mod heap_insert;
-mod heap_iteration;
-mod heap_kv_consistency;
-mod metric;
-mod reconstructibility;
+mod compaction;
+mod format_validation;
+mod mvcc_invariants;
+mod retention_policy;
 mod run_isolation;
-mod snapshot_invariants;
-mod snapshot_wal_equiv;
-mod vectorid_never_reused;
-mod vectorid_stable;
+mod snapshot_isolation;
+mod stress;

@@ -1,212 +1,270 @@
-//! S6: Run Isolation Tests
+//! Run Isolation Tests
 //!
-//! Invariant S6: Collections scoped to RunId.
+//! Tests that different runs are properly isolated in the storage layer.
 
-use crate::common::*;
-use strata_core::types::RunId;
+use strata_core::traits::Storage;
+use strata_core::types::{Key, Namespace};
+use strata_core::value::Value;
+use strata_core::RunId;
+use strata_storage::sharded::ShardedStore;
+use std::sync::Arc;
+use std::thread;
 
-/// Test that different runs are isolated
-#[test]
-fn test_s6_different_runs_isolated() {
-    let test_db = TestDb::new();
-    let vector = test_db.vector();
-
-    let run1 = RunId::new();
-    let run2 = RunId::new();
-
-    // Create same-named collection in both runs
-    vector
-        .create_collection(run1, "embeddings", config_minilm())
-        .unwrap();
-    vector
-        .create_collection(run2, "embeddings", config_minilm())
-        .unwrap();
-
-    // Insert in run1
-    let embedding1 = random_vector(384);
-    vector
-        .insert(run1, "embeddings", "key1", &embedding1, None)
-        .unwrap();
-
-    // run2 should not see run1's vectors
-    let search_result = vector
-        .search(run2, "embeddings", &random_vector(384), 10, None)
-        .unwrap();
-    assert!(search_result.is_empty(), "S6 VIOLATED: run2 sees run1's data");
-
-    // run2's get should not find run1's key
-    let get_result = vector.get(run2, "embeddings", "key1").unwrap();
-    assert!(get_result.is_none(), "S6 VIOLATED: run2 can get run1's key");
-
-    // Insert in run2
-    vector
-        .insert(run2, "embeddings", "key2", &random_vector(384), None)
-        .unwrap();
-
-    // run1 should not see run2's vectors
-    let count1 = vector.count(run1, "embeddings").unwrap();
-    assert_eq!(count1, 1, "S6 VIOLATED: run1 count affected by run2");
-
-    let count2 = vector.count(run2, "embeddings").unwrap();
-    assert_eq!(count2, 1, "S6 VIOLATED: run2 count affected by run1");
+fn create_test_key(run_id: RunId, name: &str) -> Key {
+    let ns = Namespace::for_run(run_id);
+    Key::new_kv(ns, name)
 }
 
-/// Test that delete in one run doesn't affect another
-#[test]
-fn test_s6_delete_in_one_run_doesnt_affect_other() {
-    let test_db = TestDb::new();
-    let vector = test_db.vector();
+// ============================================================================
+// Basic Isolation
+// ============================================================================
 
+#[test]
+fn different_runs_have_separate_namespaces() {
+    let store = ShardedStore::new();
     let run1 = RunId::new();
     let run2 = RunId::new();
 
-    vector
-        .create_collection(run1, "embeddings", config_minilm())
-        .unwrap();
-    vector
-        .create_collection(run2, "embeddings", config_minilm())
-        .unwrap();
+    // Same key name, different runs
+    let key1 = create_test_key(run1, "shared_name");
+    let key2 = create_test_key(run2, "shared_name");
 
-    // Insert same key in both runs
-    vector
-        .insert(run1, "embeddings", "key1", &random_vector(384), None)
-        .unwrap();
-    vector
-        .insert(run2, "embeddings", "key1", &random_vector(384), None)
-        .unwrap();
+    Storage::put(&store, key1.clone(), Value::Int(100), None).unwrap();
+    Storage::put(&store, key2.clone(), Value::Int(200), None).unwrap();
 
-    // Delete from run1
-    vector.delete(run1, "embeddings", "key1").unwrap();
+    let val1 = Storage::get(&store, &key1).unwrap().unwrap().value;
+    let val2 = Storage::get(&store, &key2).unwrap().unwrap().value;
 
-    // run1's vector should be gone
-    assert!(vector.get(run1, "embeddings", "key1").unwrap().is_none());
-
-    // run2's vector should still exist
-    let count2 = vector.count(run2, "embeddings").unwrap();
-    assert_eq!(count2, 1, "S6 VIOLATED: delete in run1 affected run2");
-    assert!(vector.get(run2, "embeddings", "key1").unwrap().is_some());
+    assert_eq!(val1, Value::Int(100));
+    assert_eq!(val2, Value::Int(200));
 }
 
-/// Test collection deletion is run-scoped
 #[test]
-fn test_s6_collection_delete_run_scoped() {
-    let test_db = TestDb::new();
-    let vector = test_db.vector();
-
+fn clear_run_only_affects_target_run() {
+    let store = ShardedStore::new();
     let run1 = RunId::new();
     let run2 = RunId::new();
 
-    vector
-        .create_collection(run1, "embeddings", config_minilm())
-        .unwrap();
-    vector
-        .create_collection(run2, "embeddings", config_minilm())
-        .unwrap();
-
-    vector
-        .insert(run1, "embeddings", "key1", &random_vector(384), None)
-        .unwrap();
-    vector
-        .insert(run2, "embeddings", "key1", &random_vector(384), None)
-        .unwrap();
-
-    // Delete collection from run1
-    vector.delete_collection(run1, "embeddings").unwrap();
-
-    // run1's collection should be gone
-    assert!(vector.get_collection(run1, "embeddings").unwrap().is_none());
-
-    // run2's collection should still exist
-    assert!(vector.get_collection(run2, "embeddings").unwrap().is_some());
-    assert_eq!(vector.count(run2, "embeddings").unwrap(), 1);
-}
-
-/// Test that run isolation survives restart
-#[test]
-fn test_s6_run_isolation_survives_restart() {
-    let mut test_db = TestDb::new();
-
-    let run1 = RunId::new();
-    let run2 = RunId::new();
-
-    {
-        let vector = test_db.vector();
-        vector
-            .create_collection(run1, "embeddings", config_minilm())
-            .unwrap();
-        vector
-            .create_collection(run2, "embeddings", config_minilm())
-            .unwrap();
-
-        vector
-            .insert(run1, "embeddings", "key1", &random_vector(384), None)
-            .unwrap();
-        vector
-            .insert(run2, "embeddings", "key2", &random_vector(384), None)
-            .unwrap();
+    // Put keys in both runs
+    for i in 0..5 {
+        let key1 = create_test_key(run1, &format!("key_{}", i));
+        let key2 = create_test_key(run2, &format!("key_{}", i));
+        Storage::put(&store, key1, Value::Int(i), None).unwrap();
+        Storage::put(&store, key2, Value::Int(i + 100), None).unwrap();
     }
 
-    // Restart
-    test_db.reopen();
+    // Clear run1
+    store.clear_run(&run1);
 
-    let vector = test_db.vector();
-
-    // Run isolation should be preserved
-    assert!(vector.get(run1, "embeddings", "key1").unwrap().is_some());
-    assert!(vector.get(run1, "embeddings", "key2").unwrap().is_none());
-
-    assert!(vector.get(run2, "embeddings", "key2").unwrap().is_some());
-    assert!(vector.get(run2, "embeddings", "key1").unwrap().is_none());
-}
-
-/// Test many runs are isolated
-#[test]
-fn test_s6_many_runs_isolated() {
-    let test_db = TestDb::new();
-    let vector = test_db.vector();
-
-    let runs: Vec<RunId> = (0..10).map(|_| RunId::new()).collect();
-
-    // Create collection and insert unique key in each run
-    for (i, run_id) in runs.iter().enumerate() {
-        vector
-            .create_collection(*run_id, "embeddings", config_minilm())
-            .unwrap();
-        vector
-            .insert(
-                *run_id,
-                "embeddings",
-                &format!("run_{}_key", i),
-                &random_vector(384),
-                None,
-            )
-            .unwrap();
+    // Run1 should be empty
+    for i in 0..5 {
+        let key1 = create_test_key(run1, &format!("key_{}", i));
+        assert!(Storage::get(&store, &key1).unwrap().is_none());
     }
 
-    // Verify each run only sees its own key
-    for (i, run_id) in runs.iter().enumerate() {
-        let count = vector.count(*run_id, "embeddings").unwrap();
-        assert_eq!(count, 1, "S6 VIOLATED: Run {} has wrong count", i);
+    // Run2 should still have data
+    for i in 0..5 {
+        let key2 = create_test_key(run2, &format!("key_{}", i));
+        let val = Storage::get(&store, &key2).unwrap();
+        assert!(val.is_some());
+        assert_eq!(val.unwrap().value, Value::Int(i + 100));
+    }
+}
 
-        // Should find its own key
-        let own_key = format!("run_{}_key", i);
-        assert!(
-            vector.get(*run_id, "embeddings", &own_key).unwrap().is_some(),
-            "S6 VIOLATED: Run {} can't find own key",
-            i
-        );
+#[test]
+fn delete_in_one_run_doesnt_affect_other() {
+    let store = ShardedStore::new();
+    let run1 = RunId::new();
+    let run2 = RunId::new();
 
-        // Should not find other runs' keys
-        for (j, _) in runs.iter().enumerate() {
-            if i != j {
-                let other_key = format!("run_{}_key", j);
-                assert!(
-                    vector.get(*run_id, "embeddings", &other_key).unwrap().is_none(),
-                    "S6 VIOLATED: Run {} can see run {}'s key",
-                    i,
-                    j
-                );
-            }
+    let key1 = create_test_key(run1, "shared");
+    let key2 = create_test_key(run2, "shared");
+
+    Storage::put(&store, key1.clone(), Value::Int(1), None).unwrap();
+    Storage::put(&store, key2.clone(), Value::Int(2), None).unwrap();
+
+    // Delete in run1
+    Storage::delete(&store, &key1).unwrap();
+
+    // Run1 deleted
+    assert!(Storage::get(&store, &key1).unwrap().is_none());
+
+    // Run2 unaffected
+    assert_eq!(
+        Storage::get(&store, &key2).unwrap().unwrap().value,
+        Value::Int(2)
+    );
+}
+
+// ============================================================================
+// Concurrent Access Across Runs
+// ============================================================================
+
+#[test]
+fn concurrent_writes_to_different_runs() {
+    let store = Arc::new(ShardedStore::new());
+    let num_runs = 8;
+    let keys_per_run = 100;
+
+    let handles: Vec<_> = (0..num_runs)
+        .map(|_| {
+            let store = Arc::clone(&store);
+            thread::spawn(move || {
+                let run_id = RunId::new();
+                for i in 0..keys_per_run {
+                    let key = create_test_key(run_id, &format!("key_{}", i));
+                    Storage::put(&*store, key, Value::Int(i), None).unwrap();
+                }
+                run_id
+            })
+        })
+        .collect();
+
+    let run_ids: Vec<RunId> = handles.into_iter().map(|h| h.join().unwrap()).collect();
+
+    // Verify all runs have their data
+    for run_id in run_ids {
+        for i in 0..keys_per_run {
+            let key = create_test_key(run_id, &format!("key_{}", i));
+            let val = Storage::get(&*store, &key).unwrap();
+            assert!(val.is_some(), "Run {:?} key {} missing", run_id, i);
+            assert_eq!(val.unwrap().value, Value::Int(i));
         }
     }
+}
+
+#[test]
+fn concurrent_reads_and_writes_different_runs() {
+    let store = Arc::new(ShardedStore::new());
+    let read_run = RunId::new();
+    let write_run = RunId::new();
+
+    // Pre-populate read run
+    for i in 0..100 {
+        let key = create_test_key(read_run, &format!("key_{}", i));
+        Storage::put(&*store, key, Value::Int(i), None).unwrap();
+    }
+
+    let store_read = Arc::clone(&store);
+    let store_write = Arc::clone(&store);
+
+    // Reader thread
+    let reader = thread::spawn(move || {
+        let mut reads = 0u64;
+        for _ in 0..1000 {
+            for i in 0..100 {
+                let key = create_test_key(read_run, &format!("key_{}", i));
+                let val = Storage::get(&*store_read, &key).unwrap();
+                assert!(val.is_some());
+                assert_eq!(val.unwrap().value, Value::Int(i));
+                reads += 1;
+            }
+        }
+        reads
+    });
+
+    // Writer thread (different run)
+    let writer = thread::spawn(move || {
+        for i in 0..1000 {
+            for j in 0..10 {
+                let key = create_test_key(write_run, &format!("key_{}", j));
+                Storage::put(&*store_write, key, Value::Int(i), None).unwrap();
+            }
+        }
+    });
+
+    let reads = reader.join().unwrap();
+    writer.join().unwrap();
+
+    assert_eq!(reads, 1000 * 100);
+}
+
+// ============================================================================
+// Run Listing
+// ============================================================================
+
+#[test]
+fn run_ids_lists_all_active_runs() {
+    let store = ShardedStore::new();
+    let run1 = RunId::new();
+    let run2 = RunId::new();
+    let run3 = RunId::new();
+
+    // Put one key in each run
+    let key1 = create_test_key(run1, "k");
+    let key2 = create_test_key(run2, "k");
+    let key3 = create_test_key(run3, "k");
+
+    Storage::put(&store, key1, Value::Int(1), None).unwrap();
+    Storage::put(&store, key2, Value::Int(2), None).unwrap();
+    Storage::put(&store, key3, Value::Int(3), None).unwrap();
+
+    let runs = store.run_ids();
+    assert_eq!(runs.len(), 3);
+    assert!(runs.contains(&run1));
+    assert!(runs.contains(&run2));
+    assert!(runs.contains(&run3));
+}
+
+#[test]
+fn run_entry_count() {
+    let store = ShardedStore::new();
+    let run_id = RunId::new();
+
+    // Put 10 keys
+    for i in 0..10 {
+        let key = create_test_key(run_id, &format!("key_{}", i));
+        Storage::put(&store, key, Value::Int(i), None).unwrap();
+    }
+
+    let count = store.run_entry_count(&run_id);
+    assert_eq!(count, 10);
+}
+
+#[test]
+fn list_run_keys() {
+    let store = ShardedStore::new();
+    let run_id = RunId::new();
+    let ns = Namespace::for_run(run_id);
+
+    // Put 5 keys
+    for i in 0..5 {
+        let key = Key::new_kv(ns.clone(), &format!("key_{}", i));
+        Storage::put(&store, key, Value::Int(i), None).unwrap();
+    }
+
+    let keys = store.list_run(&run_id);
+    assert_eq!(keys.len(), 5);
+}
+
+// ============================================================================
+// Empty Run Handling
+// ============================================================================
+
+#[test]
+fn get_from_nonexistent_run_returns_none() {
+    let store = ShardedStore::new();
+    let run_id = RunId::new();
+    let key = create_test_key(run_id, "never_written");
+
+    let result = Storage::get(&store, &key).unwrap();
+    assert!(result.is_none());
+}
+
+#[test]
+fn clear_nonexistent_run_succeeds() {
+    let store = ShardedStore::new();
+    let run_id = RunId::new();
+
+    // Should not panic
+    store.clear_run(&run_id);
+}
+
+#[test]
+fn run_entry_count_for_empty_run() {
+    let store = ShardedStore::new();
+    let run_id = RunId::new();
+
+    let count = store.run_entry_count(&run_id);
+    assert_eq!(count, 0);
 }

@@ -1,0 +1,391 @@
+//! Snapshot Isolation Tests
+//!
+//! Tests the snapshot isolation guarantees:
+//! - Snapshots capture a consistent point in time
+//! - Concurrent snapshots don't interfere
+//! - Snapshot ignores later modifications
+
+use strata_core::traits::{SnapshotView, Storage};
+use strata_core::types::{Key, Namespace};
+use strata_core::value::Value;
+use strata_core::RunId;
+use strata_storage::sharded::ShardedStore;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{Arc, Barrier};
+use std::thread;
+use std::time::{Duration, Instant};
+
+fn create_test_key(run_id: RunId, name: &str) -> Key {
+    let ns = Namespace::for_run(run_id);
+    Key::new_kv(ns, name)
+}
+
+// ============================================================================
+// Snapshot Acquisition
+// ============================================================================
+
+#[test]
+fn snapshot_captures_current_version() {
+    let store = Arc::new(ShardedStore::new());
+    let run_id = RunId::new();
+    let key = create_test_key(run_id, "capture");
+
+    // Put value
+    Storage::put(&*store, key.clone(), Value::Int(42), None).unwrap();
+
+    // Take snapshot
+    let snapshot = store.snapshot();
+
+    // Snapshot should see the value
+    let result = SnapshotView::get(&snapshot, &key).unwrap();
+    assert!(result.is_some());
+    assert_eq!(result.unwrap().value, Value::Int(42));
+}
+
+#[test]
+fn snapshot_acquisition_is_fast() {
+    let store = Arc::new(ShardedStore::new());
+    let run_id = RunId::new();
+
+    // Populate store with data
+    for i in 0..1000 {
+        let key = create_test_key(run_id, &format!("key_{}", i));
+        Storage::put(&*store, key, Value::Int(i), None).unwrap();
+    }
+
+    // Measure snapshot acquisition time
+    let start = Instant::now();
+    for _ in 0..10000 {
+        let _snapshot = store.snapshot();
+    }
+    let elapsed = start.elapsed();
+
+    // Should be very fast (< 1ms per snapshot on average)
+    let avg_ns = elapsed.as_nanos() / 10000;
+    assert!(
+        avg_ns < 1_000_000, // < 1ms
+        "Snapshot should be O(1), took {} ns average",
+        avg_ns
+    );
+}
+
+#[test]
+fn multiple_snapshots_independent() {
+    let store = Arc::new(ShardedStore::new());
+    let run_id = RunId::new();
+    let key = create_test_key(run_id, "multi_snap");
+
+    // Initial value
+    Storage::put(&*store, key.clone(), Value::Int(1), None).unwrap();
+    let snap1 = store.snapshot();
+
+    // Update value
+    Storage::put(&*store, key.clone(), Value::Int(2), None).unwrap();
+    let snap2 = store.snapshot();
+
+    // Update again
+    Storage::put(&*store, key.clone(), Value::Int(3), None).unwrap();
+    let snap3 = store.snapshot();
+
+    // Each snapshot sees its version
+    assert_eq!(
+        SnapshotView::get(&snap1, &key).unwrap().unwrap().value,
+        Value::Int(1)
+    );
+    assert_eq!(
+        SnapshotView::get(&snap2, &key).unwrap().unwrap().value,
+        Value::Int(2)
+    );
+    assert_eq!(
+        SnapshotView::get(&snap3, &key).unwrap().unwrap().value,
+        Value::Int(3)
+    );
+}
+
+// ============================================================================
+// Isolation Guarantees
+// ============================================================================
+
+#[test]
+fn snapshot_ignores_concurrent_writes() {
+    let store = Arc::new(ShardedStore::new());
+    let run_id = RunId::new();
+    let key = create_test_key(run_id, "concurrent");
+
+    // Initial value
+    Storage::put(&*store, key.clone(), Value::Int(100), None).unwrap();
+
+    // Take snapshot
+    let snapshot = store.snapshot();
+
+    // Modify after snapshot
+    Storage::put(&*store, key.clone(), Value::Int(200), None).unwrap();
+    Storage::put(&*store, key.clone(), Value::Int(300), None).unwrap();
+
+    // Snapshot should still see original value
+    let result = SnapshotView::get(&snapshot, &key).unwrap();
+    assert_eq!(result.unwrap().value, Value::Int(100));
+
+    // Current store sees latest
+    let current = Storage::get(&*store, &key).unwrap();
+    assert_eq!(current.unwrap().value, Value::Int(300));
+}
+
+#[test]
+fn snapshot_sees_pre_delete_value() {
+    let store = Arc::new(ShardedStore::new());
+    let run_id = RunId::new();
+    let key = create_test_key(run_id, "pre_delete");
+
+    // Put value
+    Storage::put(&*store, key.clone(), Value::Int(42), None).unwrap();
+
+    // Take snapshot
+    let snapshot = store.snapshot();
+
+    // Delete after snapshot
+    Storage::delete(&*store, &key).unwrap();
+
+    // Snapshot should still see value
+    let result = SnapshotView::get(&snapshot, &key).unwrap();
+    assert!(result.is_some(), "Snapshot should see pre-delete value");
+    assert_eq!(result.unwrap().value, Value::Int(42));
+
+    // Current should not see value
+    let current = Storage::get(&*store, &key).unwrap();
+    assert!(current.is_none());
+}
+
+#[test]
+fn repeated_reads_return_same_value() {
+    let store = Arc::new(ShardedStore::new());
+    let run_id = RunId::new();
+    let key = create_test_key(run_id, "repeated");
+
+    Storage::put(&*store, key.clone(), Value::Int(42), None).unwrap();
+
+    let snapshot = store.snapshot();
+
+    // Read multiple times
+    let read1 = SnapshotView::get(&snapshot, &key).unwrap();
+    let read2 = SnapshotView::get(&snapshot, &key).unwrap();
+    let read3 = SnapshotView::get(&snapshot, &key).unwrap();
+
+    assert_eq!(read1, read2);
+    assert_eq!(read2, read3);
+}
+
+#[test]
+fn multi_key_consistency_within_snapshot() {
+    let store = Arc::new(ShardedStore::new());
+    let run_id = RunId::new();
+
+    // Put related values
+    let key_a = create_test_key(run_id, "balance_a");
+    let key_b = create_test_key(run_id, "balance_b");
+
+    Storage::put(&*store, key_a.clone(), Value::Int(100), None).unwrap();
+    Storage::put(&*store, key_b.clone(), Value::Int(200), None).unwrap();
+
+    // Take snapshot
+    let snapshot = store.snapshot();
+
+    // Transfer in current store
+    Storage::put(&*store, key_a.clone(), Value::Int(50), None).unwrap();
+    Storage::put(&*store, key_b.clone(), Value::Int(250), None).unwrap();
+
+    // Snapshot should see consistent pre-transfer state
+    let a = SnapshotView::get(&snapshot, &key_a)
+        .unwrap()
+        .unwrap()
+        .value;
+    let b = SnapshotView::get(&snapshot, &key_b)
+        .unwrap()
+        .unwrap()
+        .value;
+
+    match (a, b) {
+        (Value::Int(a_val), Value::Int(b_val)) => {
+            assert_eq!(a_val + b_val, 300, "Snapshot should see consistent state");
+        }
+        _ => panic!("Expected Int values"),
+    }
+}
+
+// ============================================================================
+// Concurrent Access
+// ============================================================================
+
+#[test]
+fn concurrent_readers_dont_block() {
+    let store = Arc::new(ShardedStore::new());
+    let run_id = RunId::new();
+
+    // Populate
+    for i in 0..100 {
+        let key = create_test_key(run_id, &format!("key_{}", i));
+        Storage::put(&*store, key, Value::Int(i), None).unwrap();
+    }
+
+    let snapshot = store.snapshot();
+    let barrier = Arc::new(Barrier::new(8));
+
+    let handles: Vec<_> = (0..8)
+        .map(|_| {
+            let snapshot = snapshot.clone();
+            let barrier = Arc::clone(&barrier);
+            thread::spawn(move || {
+                barrier.wait();
+                let mut reads = 0u64;
+                for _ in 0..1000 {
+                    for i in 0..100 {
+                        let key = create_test_key(run_id, &format!("key_{}", i));
+                        let _ = SnapshotView::get(&snapshot, &key);
+                        reads += 1;
+                    }
+                }
+                reads
+            })
+        })
+        .collect();
+
+    let total_reads: u64 = handles.into_iter().map(|h| h.join().unwrap()).sum();
+    assert_eq!(total_reads, 8 * 1000 * 100);
+}
+
+#[test]
+fn snapshot_survives_store_modifications() {
+    let store = Arc::new(ShardedStore::new());
+    let run_id = RunId::new();
+
+    // Initial population
+    for i in 0..10 {
+        let key = create_test_key(run_id, &format!("key_{}", i));
+        Storage::put(&*store, key, Value::Int(i), None).unwrap();
+    }
+
+    let snapshot = store.snapshot();
+    let stop = Arc::new(AtomicBool::new(false));
+
+    // Spawn writer
+    let store_clone = Arc::clone(&store);
+    let stop_clone = Arc::clone(&stop);
+    let writer = thread::spawn(move || {
+        let mut counter = 0i64;
+        while !stop_clone.load(Ordering::Relaxed) {
+            for i in 0..10 {
+                let key = create_test_key(run_id, &format!("key_{}", i));
+                let _ = Storage::put(&*store_clone, key, Value::Int(counter), None);
+            }
+            counter += 1;
+            if counter > 100 {
+                break;
+            }
+        }
+    });
+
+    // Read from snapshot while writer is active
+    for _ in 0..100 {
+        for i in 0..10 {
+            let key = create_test_key(run_id, &format!("key_{}", i));
+            let result = SnapshotView::get(&snapshot, &key).unwrap();
+            // Should see original value (0-9)
+            let value = result.unwrap().value;
+            if let Value::Int(v) = value {
+                assert!(
+                    v < 10,
+                    "Snapshot should see original values, got {}",
+                    v
+                );
+            }
+        }
+    }
+
+    stop.store(true, Ordering::Relaxed);
+    writer.join().unwrap();
+}
+
+#[test]
+fn snapshot_cache_provides_isolation() {
+    let store = Arc::new(ShardedStore::new());
+    let run_id = RunId::new();
+    let key = create_test_key(run_id, "cached");
+
+    // Put value
+    Storage::put(&*store, key.clone(), Value::Int(100), None).unwrap();
+
+    // Take snapshot and read (caches the value)
+    let snapshot = store.snapshot();
+    let first_read = SnapshotView::get(&snapshot, &key).unwrap();
+    assert_eq!(first_read.unwrap().value, Value::Int(100));
+
+    // Delete in store
+    Storage::delete(&*store, &key).unwrap();
+
+    // Snapshot should still see cached value
+    let second_read = SnapshotView::get(&snapshot, &key).unwrap();
+    assert!(second_read.is_some(), "Cached value should survive delete");
+    assert_eq!(second_read.unwrap().value, Value::Int(100));
+}
+
+// ============================================================================
+// Snapshot Scan Operations
+// ============================================================================
+
+#[test]
+fn snapshot_scan_sees_consistent_state() {
+    let store = Arc::new(ShardedStore::new());
+    let run_id = RunId::new();
+    let ns = Namespace::for_run(run_id);
+
+    // Put values with common prefix
+    for i in 0..10 {
+        let key = Key::new_kv(ns.clone(), &format!("prefix_{}", i));
+        Storage::put(&*store, key, Value::Int(i), None).unwrap();
+    }
+
+    let snapshot = store.snapshot();
+
+    // Modify after snapshot
+    for i in 0..10 {
+        let key = Key::new_kv(ns.clone(), &format!("prefix_{}", i));
+        Storage::put(&*store, key, Value::Int(i + 100), None).unwrap();
+    }
+
+    // Scan should see original values
+    let prefix = Key::new_kv(ns.clone(), "prefix_");
+    let results = SnapshotView::scan_prefix(&snapshot, &prefix).unwrap();
+
+    // All values should be < 10 (original)
+    for (_key, versioned) in results {
+        if let Value::Int(v) = versioned.value {
+            assert!(v < 10, "Scan should see original values, got {}", v);
+        }
+    }
+}
+
+#[test]
+fn snapshot_list_sees_all_keys() {
+    let store = Arc::new(ShardedStore::new());
+    let run_id = RunId::new();
+    let ns = Namespace::for_run(run_id);
+
+    // Put 5 values
+    for i in 0..5 {
+        let key = Key::new_kv(ns.clone(), &format!("list_key_{}", i));
+        Storage::put(&*store, key, Value::Int(i), None).unwrap();
+    }
+
+    let snapshot = store.snapshot();
+
+    // Delete some in store
+    for i in 0..3 {
+        let key = Key::new_kv(ns.clone(), &format!("list_key_{}", i));
+        Storage::delete(&*store, &key).unwrap();
+    }
+
+    // Snapshot scan should still see all 5
+    let prefix = Key::new_kv(ns.clone(), "list_key_");
+    let results = SnapshotView::scan_prefix(&snapshot, &prefix).unwrap();
+    assert_eq!(results.len(), 5, "Snapshot should see all 5 keys");
+}
