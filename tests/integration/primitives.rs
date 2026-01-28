@@ -315,9 +315,9 @@ fn all_six_primitives_together() {
     p.vector.create_collection(run_id, "memory", config_small()).unwrap();
     p.vector.insert(run_id, "memory", "m1", &[1.0, 0.0, 0.0], None).unwrap();
 
-    // Run index - note: runs are implicitly created when data is written
-    // The list_runs() only shows runs explicitly created via create_run()
-    // Data can be stored in any RunId without explicit registration
+    // Run index - runs must be explicitly created via create_run()
+    // We're using a random RunId here which is NOT registered with RunIndex
+    // In production, you would either use the default run or create one explicitly
 
     // Verify all readable
     assert!(p.kv.get(&run_id, "config").unwrap().is_some());
