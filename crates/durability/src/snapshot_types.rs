@@ -586,4 +586,163 @@ mod tests {
         assert!(msg.contains("12345678"));
         assert!(msg.contains("deadbeef"));
     }
+
+    // ========================================================================
+    // Adversarial / Edge Case Tests
+    // ========================================================================
+
+    #[test]
+    fn test_snapshot_header_boundary_values() {
+        // Max u64 values should serialize/deserialize correctly
+        let header = SnapshotHeader::with_timestamp(u64::MAX, u64::MAX, u64::MAX);
+        let bytes = header.to_bytes();
+        let parsed = SnapshotHeader::from_bytes(&bytes).unwrap();
+
+        assert_eq!(parsed.wal_offset, u64::MAX);
+        assert_eq!(parsed.transaction_count, u64::MAX);
+        assert_eq!(parsed.timestamp_micros, u64::MAX);
+    }
+
+    #[test]
+    fn test_snapshot_header_zero_values() {
+        let header = SnapshotHeader::with_timestamp(0, 0, 0);
+        let bytes = header.to_bytes();
+        let parsed = SnapshotHeader::from_bytes(&bytes).unwrap();
+
+        assert_eq!(parsed.wal_offset, 0);
+        assert_eq!(parsed.transaction_count, 0);
+        assert_eq!(parsed.timestamp_micros, 0);
+    }
+
+    #[test]
+    fn test_snapshot_header_exactly_minimum_size() {
+        let header = SnapshotHeader::new(0, 0);
+        let bytes = header.to_bytes();
+
+        // Should be exactly SNAPSHOT_HEADER_SIZE
+        assert_eq!(bytes.len(), SNAPSHOT_HEADER_SIZE);
+
+        // Parsing exactly that size should work
+        let parsed = SnapshotHeader::from_bytes(&bytes);
+        assert!(parsed.is_ok());
+    }
+
+    #[test]
+    fn test_snapshot_header_from_bytes_exactly_too_short_by_one() {
+        let header = SnapshotHeader::new(0, 0);
+        let bytes = header.to_bytes();
+
+        // One byte short should fail
+        let result = SnapshotHeader::from_bytes(&bytes[..SNAPSHOT_HEADER_SIZE - 1]);
+        assert!(matches!(result, Err(SnapshotError::TooShort { .. })));
+    }
+
+    #[test]
+    fn test_snapshot_header_corrupt_magic_partial() {
+        // Corrupt only one byte of magic
+        let header = SnapshotHeader::new(100, 10);
+        let mut bytes = header.to_bytes();
+        bytes[0] = 0xFF; // Corrupt first byte of "INMEM_SNAP"
+
+        let result = SnapshotHeader::from_bytes(&bytes);
+        assert!(matches!(result, Err(SnapshotError::InvalidMagic { .. })));
+    }
+
+    #[test]
+    fn test_snapshot_header_version_zero() {
+        // Version 0 should be rejected
+        let header = SnapshotHeader::new(0, 0);
+        let mut bytes = header.to_bytes();
+        bytes[10..14].copy_from_slice(&0u32.to_le_bytes());
+
+        let result = SnapshotHeader::from_bytes(&bytes);
+        assert!(matches!(result, Err(SnapshotError::UnsupportedVersion(0))));
+    }
+
+    #[test]
+    fn test_primitive_ids_id_5_not_valid() {
+        // ID 5 was formerly TRACE, now intentionally invalid for compatibility
+        assert!(!primitive_ids::is_valid(5));
+        assert_eq!(primitive_ids::name(5), "Unknown");
+    }
+
+    #[test]
+    fn test_primitive_section_empty_data() {
+        let section = PrimitiveSection::new(primitive_ids::KV, vec![]);
+        assert_eq!(section.data.len(), 0);
+        // type(1) + length(8) + data(0) = 9
+        assert_eq!(section.serialized_size(), 9);
+    }
+
+    #[test]
+    fn test_primitive_section_large_data() {
+        let data = vec![0xAB; 10_000_000]; // 10MB
+        let section = PrimitiveSection::new(primitive_ids::VECTOR, data.clone());
+        assert_eq!(section.data.len(), 10_000_000);
+        assert_eq!(section.serialized_size(), 1 + 8 + 10_000_000);
+    }
+
+    #[test]
+    fn test_snapshot_envelope_get_section_returns_first_match() {
+        let mut envelope = SnapshotEnvelope::new(0, 0);
+        envelope.add_section(primitive_ids::KV, vec![1]);
+        envelope.add_section(primitive_ids::KV, vec![2]); // Duplicate type
+
+        // Should return the first one
+        let section = envelope.get_section(primitive_ids::KV).unwrap();
+        assert_eq!(section.data, vec![1]);
+    }
+
+    #[test]
+    fn test_snapshot_error_all_variants_display() {
+        // Every error variant should produce a non-empty display message
+        let errors: Vec<SnapshotError> = vec![
+            SnapshotError::TooShort {
+                expected: 100,
+                actual: 10,
+            },
+            SnapshotError::InvalidMagic {
+                found: vec![0; 10],
+            },
+            SnapshotError::UnsupportedVersion(99),
+            SnapshotError::ChecksumMismatch {
+                expected: 1,
+                actual: 2,
+            },
+            SnapshotError::UnknownPrimitive(255),
+            SnapshotError::Io(std::io::Error::new(std::io::ErrorKind::NotFound, "test")),
+            SnapshotError::Serialize("test".to_string()),
+            SnapshotError::Deserialize("test".to_string()),
+            SnapshotError::MissingSection("KV"),
+            SnapshotError::PrimitiveCorrupted {
+                primitive: "KV",
+                message: "bad data".to_string(),
+            },
+        ];
+
+        for err in &errors {
+            let msg = err.to_string();
+            assert!(!msg.is_empty(), "Error {:?} should have non-empty display", err);
+        }
+    }
+
+    #[test]
+    fn test_min_snapshot_size_matches_formula() {
+        // MIN_SNAPSHOT_SIZE = SNAPSHOT_HEADER_SIZE + PrimitiveCount(1) + CRC32(4)
+        assert_eq!(MIN_SNAPSHOT_SIZE, SNAPSHOT_HEADER_SIZE + 1 + 4);
+    }
+
+    #[test]
+    fn test_now_micros_monotonic() {
+        // Multiple calls should not go backward
+        let samples: Vec<u64> = (0..100).map(|_| now_micros()).collect();
+        for window in samples.windows(2) {
+            assert!(
+                window[1] >= window[0],
+                "now_micros should be monotonic: {} < {}",
+                window[1],
+                window[0]
+            );
+        }
+    }
 }

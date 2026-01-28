@@ -673,4 +673,159 @@ mod tests {
         assert_eq!(read_entries.len(), 1);
         assert_eq!(entries[0], read_entries[0]);
     }
+
+    // ========================================================================
+    // Adversarial WAL.runlog Tests
+    // ========================================================================
+
+    #[test]
+    fn test_truncated_header() {
+        // Only 5 bytes (less than HEADER_SIZE)
+        let data = vec![0u8; 5];
+        let result = WalLogReader::read_from_slice(&data);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_wrong_version() {
+        let mut data = vec![0u8; HEADER_SIZE];
+        data[0..10].copy_from_slice(WAL_RUNLOG_MAGIC);
+        // Set version to 999
+        data[10..12].copy_from_slice(&999u16.to_le_bytes());
+        data[12..16].copy_from_slice(&0u32.to_le_bytes()); // 0 entries
+
+        let result = WalLogReader::read_from_slice(&data);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_entry_count_mismatch_more_declared() {
+        let run_id = make_test_run_id();
+        let entries = make_test_entries(run_id);
+
+        let (mut data, _) = WalLogWriter::write_to_vec(&entries).unwrap();
+
+        // Bump entry count to 999 (more than actual)
+        data[12..16].copy_from_slice(&999u32.to_le_bytes());
+
+        // Should fail when trying to read more entries than exist
+        let result = WalLogReader::read_from_slice(&data);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_filter_nonexistent_run() {
+        let run_id = make_test_run_id();
+        let other_run = make_test_run_id();
+        let entries = make_test_entries(run_id);
+
+        let filtered = filter_wal_for_run(&entries, &other_run);
+        assert!(filtered.is_empty());
+    }
+
+    #[test]
+    fn test_filter_empty_entries() {
+        let run_id = make_test_run_id();
+        let entries: Vec<WALEntry> = vec![];
+        let filtered = filter_wal_for_run(&entries, &run_id);
+        assert!(filtered.is_empty());
+    }
+
+    #[test]
+    fn test_iterator_stops_on_corruption() {
+        let run_id = make_test_run_id();
+        let entries = make_test_entries(run_id);
+
+        let (mut data, _) = WalLogWriter::write_to_vec(&entries).unwrap();
+
+        // Corrupt a data byte in the second entry area
+        let corrupt_pos = HEADER_SIZE + 30;
+        if corrupt_pos < data.len() {
+            data[corrupt_pos] ^= 0xFF;
+        }
+
+        let iter = WalLogIterator::new(std::io::Cursor::new(&data)).unwrap();
+        let results: Vec<_> = iter.collect();
+
+        // At least one entry should fail
+        assert!(
+            results.iter().any(|r| r.is_err()),
+            "Iterator should encounter corruption"
+        );
+    }
+
+    #[test]
+    fn test_vector_entries_in_runlog() {
+        let run_id = make_test_run_id();
+
+        let entries = vec![
+            WALEntry::VectorCollectionCreate {
+                run_id,
+                collection: "col".to_string(),
+                dimension: 128,
+                metric: 0,
+                version: 1,
+            },
+            WALEntry::VectorUpsert {
+                run_id,
+                collection: "col".to_string(),
+                key: "k1".to_string(),
+                vector_id: 1,
+                embedding: vec![0.1; 128],
+                metadata: None,
+                version: 2,
+                source_ref: None,
+            },
+            WALEntry::VectorDelete {
+                run_id,
+                collection: "col".to_string(),
+                key: "k1".to_string(),
+                vector_id: 1,
+                version: 3,
+            },
+            WALEntry::VectorCollectionDelete {
+                run_id,
+                collection: "col".to_string(),
+                version: 4,
+            },
+        ];
+
+        let (data, info) = WalLogWriter::write_to_vec(&entries).unwrap();
+        assert_eq!(info.entry_count, 4);
+
+        let read_entries = WalLogReader::read_from_slice(&data).unwrap();
+        assert_eq!(read_entries.len(), 4);
+
+        for (original, read) in entries.iter().zip(read_entries.iter()) {
+            assert_eq!(original, read);
+        }
+    }
+
+    #[test]
+    fn test_checksum_changes_with_different_data() {
+        let run_id = make_test_run_id();
+        let ns = Namespace::for_run(run_id);
+
+        let entries1 = vec![WALEntry::Write {
+            run_id,
+            key: Key::new(ns.clone(), TypeTag::KV, b"key1".to_vec()),
+            value: Value::Int(1),
+            version: 1,
+        }];
+
+        let entries2 = vec![WALEntry::Write {
+            run_id,
+            key: Key::new(ns, TypeTag::KV, b"key1".to_vec()),
+            value: Value::Int(2), // Different value
+            version: 1,
+        }];
+
+        let (_, info1) = WalLogWriter::write_to_vec(&entries1).unwrap();
+        let (_, info2) = WalLogWriter::write_to_vec(&entries2).unwrap();
+
+        assert_ne!(
+            info1.checksum, info2.checksum,
+            "Different data should produce different checksums"
+        );
+    }
 }

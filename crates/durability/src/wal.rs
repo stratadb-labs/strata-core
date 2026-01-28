@@ -2032,4 +2032,486 @@ mod tests {
         assert!(!corruption.message.is_empty(), "Corruption message should not be empty");
         assert_eq!(corruption.entries_before_corruption, 2, "Should report 2 entries before corruption");
     }
+
+    // ========================================================================
+    // Vector Entry Type Tests
+    // ========================================================================
+
+    #[test]
+    fn test_vector_collection_create_entry() {
+        let run_id = RunId::new();
+        let entry = WALEntry::VectorCollectionCreate {
+            run_id,
+            collection: "embeddings".to_string(),
+            dimension: 384,
+            metric: 0, // Cosine
+            version: 1,
+        };
+
+        assert_eq!(entry.run_id(), Some(run_id));
+        assert_eq!(entry.version(), Some(1));
+        assert!(!entry.is_txn_boundary());
+        assert!(!entry.is_checkpoint());
+        assert_eq!(entry.txn_id(), None);
+    }
+
+    #[test]
+    fn test_vector_collection_delete_entry() {
+        let run_id = RunId::new();
+        let entry = WALEntry::VectorCollectionDelete {
+            run_id,
+            collection: "old_embeddings".to_string(),
+            version: 42,
+        };
+
+        assert_eq!(entry.run_id(), Some(run_id));
+        assert_eq!(entry.version(), Some(42));
+        assert!(!entry.is_txn_boundary());
+    }
+
+    #[test]
+    fn test_vector_upsert_entry() {
+        let run_id = RunId::new();
+        let entry = WALEntry::VectorUpsert {
+            run_id,
+            collection: "embeddings".to_string(),
+            key: "doc_1".to_string(),
+            vector_id: 99,
+            embedding: vec![0.1, 0.2, 0.3, 0.4],
+            metadata: Some(vec![0x80]), // msgpack empty map
+            version: 5,
+            source_ref: None,
+        };
+
+        assert_eq!(entry.run_id(), Some(run_id));
+        assert_eq!(entry.version(), Some(5));
+        assert!(!entry.is_txn_boundary());
+        assert_eq!(entry.txn_id(), None);
+
+        if let WALEntry::VectorUpsert {
+            embedding,
+            vector_id,
+            ..
+        } = entry
+        {
+            assert_eq!(embedding.len(), 4);
+            assert_eq!(vector_id, 99);
+        } else {
+            panic!("Expected VectorUpsert variant");
+        }
+    }
+
+    #[test]
+    fn test_vector_delete_entry() {
+        let run_id = RunId::new();
+        let entry = WALEntry::VectorDelete {
+            run_id,
+            collection: "embeddings".to_string(),
+            key: "doc_1".to_string(),
+            vector_id: 99,
+            version: 6,
+        };
+
+        assert_eq!(entry.run_id(), Some(run_id));
+        assert_eq!(entry.version(), Some(6));
+        assert!(!entry.is_txn_boundary());
+    }
+
+    #[test]
+    fn test_vector_entries_serialize() {
+        let run_id = RunId::new();
+
+        let entries = vec![
+            WALEntry::VectorCollectionCreate {
+                run_id,
+                collection: "col".to_string(),
+                dimension: 128,
+                metric: 1, // Euclidean
+                version: 1,
+            },
+            WALEntry::VectorUpsert {
+                run_id,
+                collection: "col".to_string(),
+                key: "k1".to_string(),
+                vector_id: 1,
+                embedding: vec![1.0; 128],
+                metadata: None,
+                version: 2,
+                source_ref: None,
+            },
+            WALEntry::VectorDelete {
+                run_id,
+                collection: "col".to_string(),
+                key: "k1".to_string(),
+                vector_id: 1,
+                version: 3,
+            },
+            WALEntry::VectorCollectionDelete {
+                run_id,
+                collection: "col".to_string(),
+                version: 4,
+            },
+        ];
+
+        for entry in entries {
+            let encoded = bincode::serialize(&entry).expect("serialization failed");
+            let decoded: WALEntry = bincode::deserialize(&encoded).expect("deserialization failed");
+            assert_eq!(entry, decoded);
+        }
+    }
+
+    #[test]
+    fn test_vector_upsert_with_source_ref() {
+        let run_id = RunId::new();
+        let entity_ref = strata_core::EntityRef::kv(run_id, "source_key");
+
+        let entry = WALEntry::VectorUpsert {
+            run_id,
+            collection: "embeddings".to_string(),
+            key: "vec_1".to_string(),
+            vector_id: 1,
+            embedding: vec![0.5; 4],
+            metadata: None,
+            version: 1,
+            source_ref: Some(entity_ref.clone()),
+        };
+
+        // Serialize and deserialize
+        let encoded = bincode::serialize(&entry).expect("serialization failed");
+        let decoded: WALEntry = bincode::deserialize(&encoded).expect("deserialization failed");
+
+        if let WALEntry::VectorUpsert { source_ref, .. } = decoded {
+            assert_eq!(source_ref, Some(entity_ref));
+        } else {
+            panic!("Expected VectorUpsert");
+        }
+    }
+
+    #[test]
+    fn test_vector_upsert_source_ref_default_none() {
+        // Test backward compatibility: old entries without source_ref default to None
+        let run_id = RunId::new();
+        let entry = WALEntry::VectorUpsert {
+            run_id,
+            collection: "col".to_string(),
+            key: "k".to_string(),
+            vector_id: 1,
+            embedding: vec![1.0],
+            metadata: None,
+            version: 1,
+            source_ref: None,
+        };
+
+        let encoded = bincode::serialize(&entry).unwrap();
+        let decoded: WALEntry = bincode::deserialize(&encoded).unwrap();
+
+        if let WALEntry::VectorUpsert { source_ref, .. } = decoded {
+            assert!(source_ref.is_none());
+        } else {
+            panic!("Expected VectorUpsert");
+        }
+    }
+
+    // ========================================================================
+    // WAL File Adversarial Tests
+    // ========================================================================
+
+    #[test]
+    fn test_wal_read_empty_file() {
+        let temp_dir = TempDir::new().unwrap();
+        let wal_path = temp_dir.path().join("empty.wal");
+
+        let wal = WAL::open(&wal_path, DurabilityMode::default()).unwrap();
+        let entries = wal.read_all().unwrap();
+        assert!(entries.is_empty());
+        assert_eq!(wal.size(), 0);
+    }
+
+    #[test]
+    fn test_wal_read_entries_detailed_empty() {
+        let temp_dir = TempDir::new().unwrap();
+        let wal_path = temp_dir.path().join("empty_detailed.wal");
+
+        let wal = WAL::open(&wal_path, DurabilityMode::default()).unwrap();
+        let result = wal.read_entries_detailed(0).unwrap();
+
+        assert!(result.entries.is_empty());
+        assert_eq!(result.bytes_read, 0);
+        assert!(result.corruption.is_none());
+    }
+
+    #[test]
+    fn test_wal_truncate_then_append() {
+        let temp_dir = TempDir::new().unwrap();
+        let wal_path = temp_dir.path().join("trunc_append.wal");
+
+        let mut wal = WAL::open(&wal_path, DurabilityMode::Strict).unwrap();
+        let run_id = RunId::new();
+
+        // Write 3 entries
+        for i in 0..3 {
+            wal.append(&WALEntry::BeginTxn {
+                txn_id: i,
+                run_id,
+                timestamp: now(),
+            })
+            .unwrap();
+        }
+        wal.flush().unwrap();
+
+        let entries_before = wal.read_all().unwrap();
+        assert_eq!(entries_before.len(), 3);
+
+        // Truncate to 0
+        wal.truncate_to(0).unwrap();
+        assert_eq!(wal.size(), 0);
+
+        // Append new entry after truncation
+        let new_entry = WALEntry::CommitTxn { txn_id: 99, run_id };
+        wal.append(&new_entry).unwrap();
+        wal.flush().unwrap();
+
+        let entries_after = wal.read_all().unwrap();
+        assert_eq!(entries_after.len(), 1);
+        assert_eq!(entries_after[0], new_entry);
+    }
+
+    #[test]
+    fn test_wal_corruption_stops_read_entries() {
+        let temp_dir = TempDir::new().unwrap();
+        let wal_path = temp_dir.path().join("corrupt_read.wal");
+
+        let mut entry_offsets = Vec::new();
+        {
+            let mut wal = WAL::open(&wal_path, DurabilityMode::Strict).unwrap();
+            let run_id = RunId::new();
+            for i in 0..5 {
+                let offset = wal.append(&WALEntry::BeginTxn {
+                    txn_id: i,
+                    run_id,
+                    timestamp: now(),
+                })
+                .unwrap();
+                entry_offsets.push(offset);
+            }
+            wal.flush().unwrap();
+        }
+
+        // Corrupt the 4th entry
+        {
+            use std::io::Write;
+            let mut file = std::fs::OpenOptions::new()
+                .write(true)
+                .open(&wal_path)
+                .unwrap();
+            file.seek(SeekFrom::Start(entry_offsets[3] + 5)).unwrap();
+            file.write_all(&[0xFF; 30]).unwrap();
+            file.sync_all().unwrap();
+        }
+
+        // read_entries should return entries before corruption
+        let wal = WAL::open(&wal_path, DurabilityMode::default()).unwrap();
+        let entries = wal.read_entries(0).unwrap();
+        assert_eq!(entries.len(), 3, "Should read 3 entries before corruption");
+    }
+
+    #[test]
+    fn test_wal_find_last_checkpoint_with_multiple_checkpoints() {
+        let temp_dir = TempDir::new().unwrap();
+        let wal_path = temp_dir.path().join("multi_checkpoint.wal");
+
+        let mut wal = WAL::open(&wal_path, DurabilityMode::Strict).unwrap();
+        let run_id = RunId::new();
+
+        let snap_id_1 = uuid::Uuid::new_v4();
+        let snap_id_2 = uuid::Uuid::new_v4();
+
+        // First checkpoint at version 100
+        wal.append(&WALEntry::Checkpoint {
+            snapshot_id: snap_id_1,
+            version: 100,
+            active_runs: vec![run_id],
+        })
+        .unwrap();
+
+        // Some entries between checkpoints
+        wal.append(&WALEntry::BeginTxn {
+            txn_id: 1,
+            run_id,
+            timestamp: now(),
+        })
+        .unwrap();
+
+        // Second checkpoint at version 200 (should be the one found)
+        wal.append(&WALEntry::Checkpoint {
+            snapshot_id: snap_id_2,
+            version: 200,
+            active_runs: vec![run_id],
+        })
+        .unwrap();
+        wal.flush().unwrap();
+
+        let result = wal.find_last_checkpoint().unwrap();
+        assert!(result.is_some());
+        let (_, found_id, version) = result.unwrap();
+        assert_eq!(found_id, snap_id_2, "Should find the LAST checkpoint");
+        assert_eq!(version, 200);
+    }
+
+    #[test]
+    fn test_wal_concurrent_append() {
+        let temp_dir = TempDir::new().unwrap();
+        let wal_path = temp_dir.path().join("concurrent.wal");
+
+        let wal = Arc::new(WAL::open(&wal_path, DurabilityMode::None).unwrap());
+
+        let handles: Vec<_> = (0..4)
+            .map(|thread_id| {
+                let wal = Arc::clone(&wal);
+                thread::spawn(move || {
+                    let run_id = RunId::new();
+                    for i in 0..50 {
+                        let entry = WALEntry::BeginTxn {
+                            txn_id: (thread_id * 100 + i) as u64,
+                            run_id,
+                            timestamp: now(),
+                        };
+                        wal.append(&entry).unwrap();
+                    }
+                })
+            })
+            .collect();
+
+        for h in handles {
+            h.join().unwrap();
+        }
+
+        // Flush and read - should have 200 entries total (4 threads * 50 entries)
+        wal.flush().unwrap();
+        let entries = wal.read_all().unwrap();
+        assert_eq!(entries.len(), 200);
+    }
+
+    #[test]
+    fn test_wal_truncate_to_same_offset() {
+        let temp_dir = TempDir::new().unwrap();
+        let wal_path = temp_dir.path().join("trunc_same.wal");
+
+        let mut wal = WAL::open(&wal_path, DurabilityMode::Strict).unwrap();
+        let run_id = RunId::new();
+
+        wal.append(&WALEntry::BeginTxn {
+            txn_id: 1,
+            run_id,
+            timestamp: now(),
+        })
+        .unwrap();
+        wal.flush().unwrap();
+
+        let size = wal.size();
+
+        // Truncate to current size (no-op)
+        wal.truncate_to(size).unwrap();
+        assert_eq!(wal.size(), size);
+
+        // Data should still be readable
+        let entries = wal.read_all().unwrap();
+        assert_eq!(entries.len(), 1);
+    }
+
+    #[test]
+    fn test_wal_json_destroy_has_no_version() {
+        let run_id = RunId::new();
+        let entry = WALEntry::JsonDestroy {
+            run_id,
+            doc_id: "doc".to_string(),
+        };
+
+        // JsonDestroy is the only variant with run_id that has NO version
+        assert_eq!(entry.version(), None);
+        assert_eq!(entry.run_id(), Some(run_id));
+        assert_eq!(entry.txn_id(), None);
+        assert!(!entry.is_txn_boundary());
+        assert!(!entry.is_checkpoint());
+    }
+
+    #[test]
+    fn test_wal_version_returns_none_for_non_versioned_entries() {
+        let run_id = RunId::new();
+
+        // These entry types should have no version
+        let entries_without_version: Vec<WALEntry> = vec![
+            WALEntry::BeginTxn {
+                txn_id: 1,
+                run_id,
+                timestamp: now(),
+            },
+            WALEntry::CommitTxn { txn_id: 1, run_id },
+            WALEntry::AbortTxn { txn_id: 1, run_id },
+            WALEntry::JsonDestroy {
+                run_id,
+                doc_id: "d".to_string(),
+            },
+        ];
+
+        for entry in &entries_without_version {
+            assert_eq!(
+                entry.version(),
+                None,
+                "Entry {:?} should have no version",
+                entry
+            );
+        }
+    }
+
+    #[test]
+    fn test_wal_txn_id_returns_none_for_non_txn_entries() {
+        let run_id = RunId::new();
+        let ns = Namespace::new(
+            "t".to_string(),
+            "a".to_string(),
+            "g".to_string(),
+            run_id,
+        );
+
+        let non_txn_entries: Vec<WALEntry> = vec![
+            WALEntry::Write {
+                run_id,
+                key: Key::new_kv(ns, "k"),
+                value: Value::Int(1),
+                version: 1,
+            },
+            WALEntry::Checkpoint {
+                snapshot_id: Uuid::new_v4(),
+                version: 1,
+                active_runs: vec![],
+            },
+            WALEntry::JsonCreate {
+                run_id,
+                doc_id: "d".to_string(),
+                value_bytes: vec![],
+                version: 1,
+                timestamp: now(),
+            },
+            WALEntry::VectorUpsert {
+                run_id,
+                collection: "c".to_string(),
+                key: "k".to_string(),
+                vector_id: 1,
+                embedding: vec![1.0],
+                metadata: None,
+                version: 1,
+                source_ref: None,
+            },
+        ];
+
+        for entry in &non_txn_entries {
+            assert_eq!(
+                entry.txn_id(),
+                None,
+                "Entry {:?} should have no txn_id",
+                entry
+            );
+        }
+    }
 }

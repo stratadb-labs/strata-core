@@ -671,4 +671,260 @@ mod tests {
 
         assert_eq!(offset, combined.len(), "Should consume entire buffer");
     }
+
+    // ========================================================================
+    // Vector Entry Encoding Tests
+    // ========================================================================
+
+    #[test]
+    fn test_vector_collection_create_encode_decode() {
+        let run_id = RunId::new();
+        let entry = WALEntry::VectorCollectionCreate {
+            run_id,
+            collection: "embeddings".to_string(),
+            dimension: 384,
+            metric: 0,
+            version: 1,
+        };
+
+        let encoded = encode_entry(&entry).unwrap();
+        assert_eq!(encoded[4], TYPE_VECTOR_COLLECTION_CREATE);
+
+        let (decoded, consumed) = decode_entry(&encoded, 0).unwrap();
+        assert_eq!(entry, decoded);
+        assert_eq!(consumed, encoded.len());
+    }
+
+    #[test]
+    fn test_vector_upsert_encode_decode() {
+        let run_id = RunId::new();
+        let entry = WALEntry::VectorUpsert {
+            run_id,
+            collection: "col".to_string(),
+            key: "k1".to_string(),
+            vector_id: 42,
+            embedding: vec![0.1, 0.2, 0.3],
+            metadata: Some(vec![0x80]),
+            version: 5,
+            source_ref: None,
+        };
+
+        let encoded = encode_entry(&entry).unwrap();
+        assert_eq!(encoded[4], TYPE_VECTOR_UPSERT);
+
+        let (decoded, consumed) = decode_entry(&encoded, 0).unwrap();
+        assert_eq!(entry, decoded);
+        assert_eq!(consumed, encoded.len());
+    }
+
+    #[test]
+    fn test_vector_delete_encode_decode() {
+        let run_id = RunId::new();
+        let entry = WALEntry::VectorDelete {
+            run_id,
+            collection: "col".to_string(),
+            key: "k1".to_string(),
+            vector_id: 42,
+            version: 6,
+        };
+
+        let encoded = encode_entry(&entry).unwrap();
+        assert_eq!(encoded[4], TYPE_VECTOR_DELETE);
+
+        let (decoded, consumed) = decode_entry(&encoded, 0).unwrap();
+        assert_eq!(entry, decoded);
+        assert_eq!(consumed, encoded.len());
+    }
+
+    #[test]
+    fn test_vector_collection_delete_encode_decode() {
+        let run_id = RunId::new();
+        let entry = WALEntry::VectorCollectionDelete {
+            run_id,
+            collection: "old_col".to_string(),
+            version: 99,
+        };
+
+        let encoded = encode_entry(&entry).unwrap();
+        assert_eq!(encoded[4], TYPE_VECTOR_COLLECTION_DELETE);
+
+        let (decoded, consumed) = decode_entry(&encoded, 0).unwrap();
+        assert_eq!(entry, decoded);
+        assert_eq!(consumed, encoded.len());
+    }
+
+    // ========================================================================
+    // Adversarial Encoding Tests
+    // ========================================================================
+
+    #[test]
+    fn test_crc_corruption_single_bit_in_type_tag() {
+        let run_id = RunId::new();
+        let entry = WALEntry::CommitTxn { txn_id: 1, run_id };
+
+        let mut encoded = encode_entry(&entry).unwrap();
+        // Flip a bit in the type tag byte (byte 4)
+        encoded[4] ^= 0x01;
+
+        let result = decode_entry(&encoded, 0);
+        assert!(result.is_err(), "Single bit flip in type tag should cause CRC mismatch");
+    }
+
+    #[test]
+    fn test_crc_corruption_last_payload_byte() {
+        let run_id = RunId::new();
+        let entry = WALEntry::BeginTxn {
+            txn_id: 1,
+            run_id,
+            timestamp: now(),
+        };
+
+        let mut encoded = encode_entry(&entry).unwrap();
+        // Corrupt the last byte before the CRC
+        let crc_start = encoded.len() - 4;
+        encoded[crc_start - 1] ^= 0xFF;
+
+        let result = decode_entry(&encoded, 0);
+        assert!(result.is_err());
+        match result {
+            Err(StrataError::Corruption { message }) => {
+                assert!(message.contains("CRC mismatch"));
+            }
+            _ => panic!("Expected Corruption error"),
+        }
+    }
+
+    #[test]
+    fn test_forged_type_tag_with_valid_crc_still_detected() {
+        // Forge a buffer where type tag doesn't match the deserialized entry type
+        // but CRC is recomputed to be valid. The type tag cross-check should catch this.
+        let run_id = RunId::new();
+        let entry = WALEntry::CommitTxn { txn_id: 1, run_id };
+
+        let encoded = encode_entry(&entry).unwrap();
+
+        // Extract the payload
+        let len_bytes = &encoded[0..4];
+        let total_len = u32::from_le_bytes([len_bytes[0], len_bytes[1], len_bytes[2], len_bytes[3]]) as usize;
+        let payload = &encoded[5..5 + total_len - 1 - 4];
+
+        // Re-encode with wrong type tag but recomputed CRC
+        let wrong_type: u8 = TYPE_BEGIN_TXN; // CommitTxn has type 4, use type 1 instead
+        let mut forged = Vec::new();
+        forged.extend_from_slice(&(total_len as u32).to_le_bytes());
+        forged.push(wrong_type);
+        forged.extend_from_slice(payload);
+
+        // Recompute CRC with the wrong type tag
+        let mut hasher = Hasher::new();
+        hasher.update(&[wrong_type]);
+        hasher.update(payload);
+        let crc = hasher.finalize();
+        forged.extend_from_slice(&crc.to_le_bytes());
+
+        // Decode should fail because deserialized entry type won't match the forged type tag
+        let result = decode_entry(&forged, 0);
+        assert!(result.is_err(), "Forged type tag should be detected even with valid CRC");
+    }
+
+    #[test]
+    fn test_decode_empty_buffer() {
+        let result = decode_entry(&[], 0);
+        assert!(result.is_err());
+        // Should be Storage error (incomplete), not Corruption
+        match result {
+            Err(StrataError::Storage { message, .. }) => {
+                assert!(message.contains("Incomplete entry"));
+            }
+            _ => panic!("Expected Storage/Incomplete error for empty buffer, got: {:?}", result),
+        }
+    }
+
+    #[test]
+    fn test_decode_buffer_too_short_for_declared_length() {
+        // Declare a large length but provide a short buffer
+        let mut buf = vec![0u8; 20];
+        buf[0..4].copy_from_slice(&1000u32.to_le_bytes()); // length = 1000
+
+        let result = decode_entry(&buf, 0);
+        assert!(result.is_err());
+        match result {
+            Err(StrataError::Storage { message, .. }) => {
+                assert!(message.contains("Incomplete entry"));
+            }
+            _ => panic!("Expected Storage/Incomplete error for short buffer"),
+        }
+    }
+
+    #[test]
+    fn test_all_type_tags_are_distinct() {
+        // Verify no type tag collision between core, JSON, and vector entry types
+        let all_tags = [
+            TYPE_BEGIN_TXN,
+            TYPE_WRITE,
+            TYPE_DELETE,
+            TYPE_COMMIT_TXN,
+            TYPE_ABORT_TXN,
+            TYPE_CHECKPOINT,
+            TYPE_JSON_CREATE,
+            TYPE_JSON_SET,
+            TYPE_JSON_DELETE,
+            TYPE_JSON_DESTROY,
+            TYPE_VECTOR_COLLECTION_CREATE,
+            TYPE_VECTOR_COLLECTION_DELETE,
+            TYPE_VECTOR_UPSERT,
+            TYPE_VECTOR_DELETE,
+        ];
+
+        let mut seen = std::collections::HashSet::new();
+        for tag in all_tags {
+            assert!(
+                seen.insert(tag),
+                "Duplicate type tag: 0x{:02x}",
+                tag
+            );
+        }
+    }
+
+    #[test]
+    fn test_type_tag_ranges() {
+        // Core types: 1-6
+        assert!(TYPE_BEGIN_TXN >= 1 && TYPE_BEGIN_TXN <= 6);
+        assert!(TYPE_CHECKPOINT >= 1 && TYPE_CHECKPOINT <= 6);
+
+        // JSON types: 0x20-0x23
+        assert_eq!(TYPE_JSON_CREATE, 0x20);
+        assert_eq!(TYPE_JSON_SET, 0x21);
+        assert_eq!(TYPE_JSON_DELETE, 0x22);
+        assert_eq!(TYPE_JSON_DESTROY, 0x23);
+
+        // Vector types: 0x70-0x73
+        assert_eq!(TYPE_VECTOR_COLLECTION_CREATE, 0x70);
+        assert_eq!(TYPE_VECTOR_COLLECTION_DELETE, 0x71);
+        assert_eq!(TYPE_VECTOR_UPSERT, 0x72);
+        assert_eq!(TYPE_VECTOR_DELETE, 0x73);
+    }
+
+    #[test]
+    fn test_large_entry_encode_decode() {
+        let run_id = RunId::new();
+        // Large embedding vector (1000 dimensions)
+        let entry = WALEntry::VectorUpsert {
+            run_id,
+            collection: "large_col".to_string(),
+            key: "large_vec".to_string(),
+            vector_id: 1,
+            embedding: vec![0.12345; 1000],
+            metadata: Some(vec![0xAB; 10_000]), // 10KB metadata
+            version: 1,
+            source_ref: None,
+        };
+
+        let encoded = encode_entry(&entry).unwrap();
+        assert!(encoded.len() > 10_000, "Large entry should be >10KB");
+
+        let (decoded, consumed) = decode_entry(&encoded, 0).unwrap();
+        assert_eq!(entry, decoded);
+        assert_eq!(consumed, encoded.len());
+    }
 }

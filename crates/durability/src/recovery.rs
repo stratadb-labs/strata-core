@@ -2694,6 +2694,374 @@ mod tests {
         assert_eq!(doc.value.as_object().unwrap().get("count").unwrap(), 1);
     }
 
+    // ========================================================================
+    // Adversarial Recovery Tests
+    // ========================================================================
+
+    #[test]
+    fn test_replay_idempotent_kv_operations() {
+        // Replaying the same WAL twice to the same storage should produce identical state
+        let temp_dir = TempDir::new().unwrap();
+        let wal_path = temp_dir.path().join("idempotent.wal");
+
+        let run_id = RunId::new();
+        let ns = Namespace::new(
+            "tenant".to_string(),
+            "app".to_string(),
+            "agent".to_string(),
+            run_id,
+        );
+
+        {
+            let mut wal = WAL::open(&wal_path, DurabilityMode::Strict).unwrap();
+
+            wal.append(&WALEntry::BeginTxn {
+                txn_id: 1,
+                run_id,
+                timestamp: now(),
+            })
+            .unwrap();
+            wal.append(&WALEntry::Write {
+                run_id,
+                key: Key::new_kv(ns.clone(), "k1"),
+                value: Value::Int(42),
+                version: 10,
+            })
+            .unwrap();
+            wal.append(&WALEntry::CommitTxn { txn_id: 1, run_id })
+                .unwrap();
+        }
+
+        let store = ShardedStore::new();
+
+        // First replay
+        {
+            let wal = WAL::open(&wal_path, DurabilityMode::Strict).unwrap();
+            let stats = replay_wal(&wal, &store).unwrap();
+            assert_eq!(stats.txns_applied, 1);
+            assert_eq!(stats.writes_applied, 1);
+        }
+
+        let version_after_first = store.current_version();
+        let val_after_first = store.get(&Key::new_kv(ns.clone(), "k1")).unwrap().unwrap();
+
+        // Second replay (idempotent - overwrites same keys with same values)
+        {
+            let wal = WAL::open(&wal_path, DurabilityMode::Strict).unwrap();
+            let stats = replay_wal(&wal, &store).unwrap();
+            assert_eq!(stats.txns_applied, 1);
+        }
+
+        let version_after_second = store.current_version();
+        let val_after_second = store.get(&Key::new_kv(ns, "k1")).unwrap().unwrap();
+
+        // State should be identical
+        assert_eq!(version_after_first, version_after_second);
+        assert_eq!(val_after_first.value, val_after_second.value);
+        assert_eq!(val_after_first.version, val_after_second.version);
+    }
+
+    #[test]
+    fn test_replay_orphaned_entries_counted_but_not_applied() {
+        let temp_dir = TempDir::new().unwrap();
+        let wal_path = temp_dir.path().join("orphaned.wal");
+
+        let run_id = RunId::new();
+        let ns = Namespace::new(
+            "tenant".to_string(),
+            "app".to_string(),
+            "agent".to_string(),
+            run_id,
+        );
+
+        // Write orphaned entries (writes without BeginTxn)
+        {
+            let mut wal = WAL::open(&wal_path, DurabilityMode::Strict).unwrap();
+
+            // Orphaned write (no transaction started)
+            wal.append(&WALEntry::Write {
+                run_id,
+                key: Key::new_kv(ns.clone(), "orphan"),
+                value: Value::Int(999),
+                version: 1,
+            })
+            .unwrap();
+        }
+
+        let wal = WAL::open(&wal_path, DurabilityMode::Strict).unwrap();
+        let store = ShardedStore::new();
+        let stats = replay_wal(&wal, &store).unwrap();
+
+        assert_eq!(stats.txns_applied, 0);
+        assert_eq!(stats.writes_applied, 0);
+        assert_eq!(stats.orphaned_entries, 1);
+
+        // Orphaned entry should NOT be in storage
+        assert!(store.get(&Key::new_kv(ns, "orphan")).unwrap().is_none());
+    }
+
+    #[test]
+    fn test_replay_max_txn_id_tracked_across_committed_and_incomplete() {
+        let temp_dir = TempDir::new().unwrap();
+        let wal_path = temp_dir.path().join("max_txn.wal");
+
+        let run_id = RunId::new();
+        let ns = Namespace::new(
+            "tenant".to_string(),
+            "app".to_string(),
+            "agent".to_string(),
+            run_id,
+        );
+
+        {
+            let mut wal = WAL::open(&wal_path, DurabilityMode::Strict).unwrap();
+
+            // Committed txn with id 5
+            wal.append(&WALEntry::BeginTxn {
+                txn_id: 5,
+                run_id,
+                timestamp: now(),
+            })
+            .unwrap();
+            wal.append(&WALEntry::Write {
+                run_id,
+                key: Key::new_kv(ns.clone(), "k1"),
+                value: Value::Int(1),
+                version: 1,
+            })
+            .unwrap();
+            wal.append(&WALEntry::CommitTxn { txn_id: 5, run_id })
+                .unwrap();
+
+            // Incomplete txn with HIGHER id (100)
+            wal.append(&WALEntry::BeginTxn {
+                txn_id: 100,
+                run_id,
+                timestamp: now(),
+            })
+            .unwrap();
+            wal.append(&WALEntry::Write {
+                run_id,
+                key: Key::new_kv(ns.clone(), "k2"),
+                value: Value::Int(2),
+                version: 2,
+            })
+            .unwrap();
+            // NO CommitTxn - incomplete
+        }
+
+        let wal = WAL::open(&wal_path, DurabilityMode::Strict).unwrap();
+        let store = ShardedStore::new();
+        let stats = replay_wal(&wal, &store).unwrap();
+
+        // max_txn_id should include the incomplete transaction's ID
+        // This is critical so the next TransactionManager doesn't reuse ID 100
+        assert_eq!(stats.max_txn_id, 100);
+        assert_eq!(stats.txns_applied, 1);
+        assert_eq!(stats.incomplete_txns, 1);
+    }
+
+    #[test]
+    fn test_replay_aborted_and_incomplete_not_conflated() {
+        let temp_dir = TempDir::new().unwrap();
+        let wal_path = temp_dir.path().join("aborted_vs_incomplete.wal");
+
+        let run_id = RunId::new();
+        let ns = Namespace::new(
+            "tenant".to_string(),
+            "app".to_string(),
+            "agent".to_string(),
+            run_id,
+        );
+
+        {
+            let mut wal = WAL::open(&wal_path, DurabilityMode::Strict).unwrap();
+
+            // Committed txn
+            wal.append(&WALEntry::BeginTxn {
+                txn_id: 1,
+                run_id,
+                timestamp: now(),
+            })
+            .unwrap();
+            wal.append(&WALEntry::Write {
+                run_id,
+                key: Key::new_kv(ns.clone(), "k1"),
+                value: Value::Int(1),
+                version: 1,
+            })
+            .unwrap();
+            wal.append(&WALEntry::CommitTxn { txn_id: 1, run_id })
+                .unwrap();
+
+            // Aborted txn
+            wal.append(&WALEntry::BeginTxn {
+                txn_id: 2,
+                run_id,
+                timestamp: now(),
+            })
+            .unwrap();
+            wal.append(&WALEntry::Write {
+                run_id,
+                key: Key::new_kv(ns.clone(), "k2"),
+                value: Value::Int(2),
+                version: 2,
+            })
+            .unwrap();
+            wal.append(&WALEntry::AbortTxn { txn_id: 2, run_id })
+                .unwrap();
+
+            // Incomplete txn
+            wal.append(&WALEntry::BeginTxn {
+                txn_id: 3,
+                run_id,
+                timestamp: now(),
+            })
+            .unwrap();
+            wal.append(&WALEntry::Write {
+                run_id,
+                key: Key::new_kv(ns.clone(), "k3"),
+                value: Value::Int(3),
+                version: 3,
+            })
+            .unwrap();
+            // NO CommitTxn or AbortTxn
+        }
+
+        let wal = WAL::open(&wal_path, DurabilityMode::Strict).unwrap();
+        let store = ShardedStore::new();
+        let stats = replay_wal(&wal, &store).unwrap();
+
+        assert_eq!(stats.txns_applied, 1);
+        assert_eq!(stats.aborted_txns, 1);
+        assert_eq!(stats.incomplete_txns, 1);
+        assert_eq!(stats.writes_applied, 1);
+
+        // Only committed key should exist
+        assert!(store.get(&Key::new_kv(ns.clone(), "k1")).unwrap().is_some());
+        assert!(store.get(&Key::new_kv(ns.clone(), "k2")).unwrap().is_none());
+        assert!(store.get(&Key::new_kv(ns.clone(), "k3")).unwrap().is_none());
+    }
+
+    #[test]
+    fn test_validate_checkpoint_always_valid() {
+        let entries = vec![WALEntry::Checkpoint {
+            snapshot_id: uuid::Uuid::new_v4(),
+            version: 100,
+            active_runs: vec![RunId::new()],
+        }];
+
+        let result = validate_transactions(&entries);
+        assert!(result.is_clean());
+    }
+
+    #[test]
+    fn test_validate_aborted_transaction_not_incomplete() {
+        let run_id = RunId::new();
+
+        let entries = vec![
+            WALEntry::BeginTxn {
+                txn_id: 1,
+                run_id,
+                timestamp: now(),
+            },
+            WALEntry::AbortTxn { txn_id: 1, run_id },
+        ];
+
+        let result = validate_transactions(&entries);
+        // Aborted is not incomplete
+        assert!(result.incomplete_txns.is_empty());
+        assert!(result.is_clean());
+    }
+
+    #[test]
+    fn test_validation_result_log_warnings_does_not_panic() {
+        // Ensure log_warnings doesn't panic with various combinations
+        let mut result = ValidationResult::default();
+        result.log_warnings(); // Empty - should be no-op
+
+        result.incomplete_txns = vec![1, 2, 3];
+        result.orphaned_entries = 5;
+        result.warnings.push(ValidationWarning {
+            entry_index: 0,
+            message: "test warning".to_string(),
+        });
+        result.log_warnings(); // Should not panic
+    }
+
+    #[test]
+    fn test_replay_stats_default() {
+        let stats = ReplayStats::default();
+        assert_eq!(stats.txns_applied, 0);
+        assert_eq!(stats.writes_applied, 0);
+        assert_eq!(stats.deletes_applied, 0);
+        assert_eq!(stats.final_version, 0);
+        assert_eq!(stats.max_txn_id, 0);
+        assert_eq!(stats.incomplete_txns, 0);
+        assert_eq!(stats.aborted_txns, 0);
+        assert_eq!(stats.orphaned_entries, 0);
+        assert_eq!(stats.txns_filtered, 0);
+        assert_eq!(stats.corrupted_entries, 0);
+        assert_eq!(stats.json_creates_applied, 0);
+        assert_eq!(stats.json_sets_applied, 0);
+        assert_eq!(stats.json_deletes_applied, 0);
+        assert_eq!(stats.json_destroys_applied, 0);
+    }
+
+    #[test]
+    fn test_replay_options_debug_with_callback() {
+        use std::sync::Arc;
+
+        let options = ReplayOptions {
+            filter_run_id: Some(RunId::new()),
+            stop_at_version: Some(100),
+            progress_callback: Some(Arc::new(|_| {})),
+        };
+
+        // Debug should work and show <callback> instead of function pointer
+        let debug = format!("{:?}", options);
+        assert!(debug.contains("<callback>"));
+    }
+
+    #[test]
+    fn test_replay_options_debug_without_callback() {
+        let options = ReplayOptions {
+            filter_run_id: None,
+            stop_at_version: None,
+            progress_callback: None,
+        };
+
+        let debug = format!("{:?}", options);
+        assert!(debug.contains("None"));
+    }
+
+    #[test]
+    fn test_recovery_json_doc_roundtrip() {
+        let doc = RecoveryJsonDoc::new(
+            "test-doc",
+            serde_json::json!({"nested": {"key": [1, 2, 3]}}).into(),
+            5,
+            1706000000,
+        );
+
+        let bytes = doc.to_bytes().unwrap();
+        let recovered = RecoveryJsonDoc::from_bytes(&bytes).unwrap();
+
+        assert_eq!(recovered.id, "test-doc");
+        assert_eq!(recovered.version, 5);
+        assert_eq!(recovered.created_at, 1706000000);
+        // Verify nested structure survived serialization
+        let inner = recovered.value.as_inner();
+        assert_eq!(inner["nested"]["key"], serde_json::json!([1, 2, 3]));
+    }
+
+    #[test]
+    fn test_recovery_json_doc_from_corrupt_bytes() {
+        let corrupt = vec![0xFF, 0xFF, 0xFF, 0xFF];
+        let result = RecoveryJsonDoc::from_bytes(&corrupt);
+        assert!(result.is_err());
+    }
+
     #[test]
     fn test_json_mixed_with_kv_recovery() {
         let temp_dir = TempDir::new().unwrap();

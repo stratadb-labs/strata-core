@@ -884,4 +884,173 @@ mod tests {
         // Others should remain empty
         assert!(json.data.is_empty());
     }
+
+    // ========================================================================
+    // Adversarial Snapshot Tests
+    // ========================================================================
+
+    #[test]
+    fn test_snapshot_read_header_from_truncated_file() {
+        let temp_dir = TempDir::new().unwrap();
+        let path = temp_dir.path().join("truncated.snap");
+
+        // Write a valid snapshot first
+        let header = SnapshotHeader::new(100, 10);
+        let mut writer = SnapshotWriter::new();
+        writer.write(&header, &[], &path).unwrap();
+
+        // Truncate to less than header size
+        let mut data = std::fs::read(&path).unwrap();
+        data.truncate(SNAPSHOT_HEADER_SIZE - 5);
+        std::fs::write(&path, &data).unwrap();
+
+        let result = SnapshotReader::read_header(&path);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_snapshot_read_envelope_from_corrupted_crc() {
+        let temp_dir = TempDir::new().unwrap();
+        let path = temp_dir.path().join("corrupt_crc.snap");
+
+        let header = SnapshotHeader::new(100, 10);
+        let sections = vec![PrimitiveSection::new(primitive_ids::KV, vec![1, 2, 3])];
+
+        let mut writer = SnapshotWriter::new();
+        writer.write(&header, &sections, &path).unwrap();
+
+        // Corrupt the CRC (last 4 bytes)
+        let mut data = std::fs::read(&path).unwrap();
+        let len = data.len();
+        data[len - 1] ^= 0xFF;
+        std::fs::write(&path, &data).unwrap();
+
+        let result = SnapshotReader::read_envelope(&path);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_snapshot_read_envelope_with_zero_sections() {
+        let temp_dir = TempDir::new().unwrap();
+        let path = temp_dir.path().join("no_sections.snap");
+
+        let header = SnapshotHeader::new(0, 0);
+        let mut writer = SnapshotWriter::new();
+        writer.write(&header, &[], &path).unwrap();
+
+        let envelope = SnapshotReader::read_envelope(&path).unwrap();
+        assert!(envelope.sections.is_empty());
+    }
+
+    #[test]
+    fn test_snapshot_write_overwrite_existing() {
+        let temp_dir = TempDir::new().unwrap();
+        let path = temp_dir.path().join("overwrite.snap");
+
+        // First write
+        let header1 = SnapshotHeader::with_timestamp(100, 10, 1000);
+        let mut writer = SnapshotWriter::new();
+        writer.write(&header1, &[], &path).unwrap();
+
+        // Second write (overwrite)
+        let header2 = SnapshotHeader::with_timestamp(200, 20, 2000);
+        writer.write(&header2, &[], &path).unwrap();
+
+        // Should read the second header
+        let read_header = SnapshotReader::read_header(&path).unwrap();
+        assert_eq!(read_header.wal_offset, 200);
+        assert_eq!(read_header.transaction_count, 20);
+    }
+
+    #[test]
+    fn test_snapshot_validate_checksum_from_bytes_valid() {
+        let temp_dir = TempDir::new().unwrap();
+        let path = temp_dir.path().join("valid.snap");
+
+        let header = SnapshotHeader::new(100, 10);
+        let sections = vec![
+            PrimitiveSection::new(primitive_ids::KV, vec![1, 2, 3]),
+            PrimitiveSection::new(primitive_ids::JSON, vec![4, 5]),
+        ];
+
+        let mut writer = SnapshotWriter::new();
+        writer.write(&header, &sections, &path).unwrap();
+
+        let data = std::fs::read(&path).unwrap();
+        SnapshotReader::validate_checksum_from_bytes(&data).unwrap();
+    }
+
+    #[test]
+    fn test_snapshot_corruption_at_different_positions() {
+        let temp_dir = TempDir::new().unwrap();
+        let path = temp_dir.path().join("multi_corrupt.snap");
+
+        let header = SnapshotHeader::new(100, 10);
+        let sections = vec![PrimitiveSection::new(
+            primitive_ids::KV,
+            vec![0xAB; 100],
+        )];
+
+        let mut writer = SnapshotWriter::new();
+        writer.write(&header, &sections, &path).unwrap();
+
+        let original = std::fs::read(&path).unwrap();
+
+        // Try corrupting at various positions (except the CRC itself)
+        let positions = [0, 5, 10, 20, 30, 40, 50, 60, 70];
+        for &pos in &positions {
+            if pos >= original.len() - 4 {
+                continue; // Skip CRC region
+            }
+            let mut corrupted = original.clone();
+            corrupted[pos] ^= 0xFF;
+
+            let result = SnapshotReader::validate_checksum_from_bytes(&corrupted);
+            assert!(
+                result.is_err(),
+                "Corruption at position {} should be detected",
+                pos
+            );
+        }
+    }
+
+    #[test]
+    fn test_snapshot_with_all_six_primitive_types() {
+        let temp_dir = TempDir::new().unwrap();
+        let path = temp_dir.path().join("all_six.snap");
+
+        let header = SnapshotHeader::new(1000, 100);
+        let sections = vec![
+            PrimitiveSection::new(primitive_ids::KV, b"kv".to_vec()),
+            PrimitiveSection::new(primitive_ids::JSON, b"json".to_vec()),
+            PrimitiveSection::new(primitive_ids::EVENT, b"event".to_vec()),
+            PrimitiveSection::new(primitive_ids::STATE, b"state".to_vec()),
+            PrimitiveSection::new(primitive_ids::RUN, b"run".to_vec()),
+            PrimitiveSection::new(primitive_ids::VECTOR, b"vector".to_vec()),
+        ];
+
+        let mut writer = SnapshotWriter::new();
+        writer.write(&header, &sections, &path).unwrap();
+
+        let envelope = SnapshotReader::read_envelope(&path).unwrap();
+        assert_eq!(envelope.sections.len(), 6);
+        assert_eq!(envelope.sections[5].primitive_type, primitive_ids::VECTOR);
+        assert_eq!(envelope.sections[5].data, b"vector");
+    }
+
+    #[test]
+    fn test_snapshot_empty_section_data_preserved() {
+        let temp_dir = TempDir::new().unwrap();
+        let path = temp_dir.path().join("empty_data.snap");
+
+        let header = SnapshotHeader::new(0, 0);
+        let sections = vec![PrimitiveSection::new(primitive_ids::KV, vec![])];
+
+        let mut writer = SnapshotWriter::new();
+        writer.write(&header, &sections, &path).unwrap();
+
+        let envelope = SnapshotReader::read_envelope(&path).unwrap();
+        assert_eq!(envelope.sections.len(), 1);
+        assert!(envelope.sections[0].data.is_empty());
+    }
 }
