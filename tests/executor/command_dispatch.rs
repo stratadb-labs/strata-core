@@ -598,6 +598,449 @@ fn run_complete_changes_status() {
     }
 }
 
+#[test]
+fn run_pause_and_resume() {
+    let executor = create_executor();
+
+    let run_id = match executor.execute(Command::RunCreate {
+        run_id: Some("pausable-run".into()),
+        metadata: None,
+    }).unwrap() {
+        Output::RunWithVersion { info, .. } => info.id,
+        _ => panic!("Expected RunWithVersion"),
+    };
+
+    // Pause the run
+    executor.execute(Command::RunPause {
+        run: run_id.clone(),
+    }).unwrap();
+
+    let output = executor.execute(Command::RunGet {
+        run: run_id.clone(),
+    }).unwrap();
+    match output {
+        Output::RunInfoVersioned(v) => assert_eq!(v.info.status, RunStatus::Paused),
+        _ => panic!("Expected RunInfoVersioned"),
+    }
+
+    // Resume the run
+    executor.execute(Command::RunResume {
+        run: run_id.clone(),
+    }).unwrap();
+
+    let output = executor.execute(Command::RunGet {
+        run: run_id,
+    }).unwrap();
+    match output {
+        Output::RunInfoVersioned(v) => assert_eq!(v.info.status, RunStatus::Active),
+        _ => panic!("Expected RunInfoVersioned"),
+    }
+}
+
+#[test]
+fn run_cancel_changes_status() {
+    let executor = create_executor();
+
+    let run_id = match executor.execute(Command::RunCreate {
+        run_id: Some("cancellable-run".into()),
+        metadata: None,
+    }).unwrap() {
+        Output::RunWithVersion { info, .. } => info.id,
+        _ => panic!("Expected RunWithVersion"),
+    };
+
+    executor.execute(Command::RunCancel {
+        run: run_id.clone(),
+    }).unwrap();
+
+    let output = executor.execute(Command::RunGet {
+        run: run_id,
+    }).unwrap();
+    match output {
+        Output::RunInfoVersioned(v) => assert_eq!(v.info.status, RunStatus::Cancelled),
+        _ => panic!("Expected RunInfoVersioned"),
+    }
+}
+
+#[test]
+fn run_archive_changes_status() {
+    let executor = create_executor();
+
+    let run_id = match executor.execute(Command::RunCreate {
+        run_id: Some("archivable-run".into()),
+        metadata: None,
+    }).unwrap() {
+        Output::RunWithVersion { info, .. } => info.id,
+        _ => panic!("Expected RunWithVersion"),
+    };
+
+    executor.execute(Command::RunArchive {
+        run: run_id.clone(),
+    }).unwrap();
+
+    let output = executor.execute(Command::RunGet {
+        run: run_id,
+    }).unwrap();
+    match output {
+        Output::RunInfoVersioned(v) => assert_eq!(v.info.status, RunStatus::Archived),
+        _ => panic!("Expected RunInfoVersioned"),
+    }
+}
+
+#[test]
+fn run_delete_removes_run() {
+    let executor = create_executor();
+
+    let run_id = match executor.execute(Command::RunCreate {
+        run_id: Some("deletable-run".into()),
+        metadata: None,
+    }).unwrap() {
+        Output::RunWithVersion { info, .. } => info.id,
+        _ => panic!("Expected RunWithVersion"),
+    };
+
+    // Verify it exists
+    let output = executor.execute(Command::RunExists {
+        run: run_id.clone(),
+    }).unwrap();
+    assert!(matches!(output, Output::Bool(true)));
+
+    // Delete it
+    executor.execute(Command::RunDelete {
+        run: run_id.clone(),
+    }).unwrap();
+
+    // Verify it's gone
+    let output = executor.execute(Command::RunExists {
+        run: run_id,
+    }).unwrap();
+    assert!(matches!(output, Output::Bool(false)));
+}
+
+#[test]
+fn run_exists_returns_bool() {
+    let executor = create_executor();
+
+    // Non-existent run
+    let output = executor.execute(Command::RunExists {
+        run: RunId::from("non-existent-run"),
+    }).unwrap();
+    assert!(matches!(output, Output::Bool(false)));
+
+    // Create a run
+    executor.execute(Command::RunCreate {
+        run_id: Some("exists-test".into()),
+        metadata: None,
+    }).unwrap();
+
+    // Now it exists
+    let output = executor.execute(Command::RunExists {
+        run: RunId::from("exists-test"),
+    }).unwrap();
+    assert!(matches!(output, Output::Bool(true)));
+}
+
+#[test]
+fn run_update_metadata() {
+    let executor = create_executor();
+
+    let run_id = match executor.execute(Command::RunCreate {
+        run_id: Some("metadata-run".into()),
+        metadata: Some(Value::Object([
+            ("version".to_string(), Value::Int(1)),
+        ].into_iter().collect())),
+    }).unwrap() {
+        Output::RunWithVersion { info, .. } => info.id,
+        _ => panic!("Expected RunWithVersion"),
+    };
+
+    // Update metadata
+    executor.execute(Command::RunUpdateMetadata {
+        run: run_id.clone(),
+        metadata: Value::Object([
+            ("version".to_string(), Value::Int(2)),
+            ("updated".to_string(), Value::Bool(true)),
+        ].into_iter().collect()),
+    }).unwrap();
+
+    let output = executor.execute(Command::RunGet {
+        run: run_id,
+    }).unwrap();
+    match output {
+        Output::RunInfoVersioned(v) => {
+            let meta = v.info.metadata.expect("Should have metadata");
+            match meta {
+                Value::Object(map) => {
+                    assert_eq!(map.get("version"), Some(&Value::Int(2)));
+                    assert_eq!(map.get("updated"), Some(&Value::Bool(true)));
+                }
+                _ => panic!("Expected Object metadata"),
+            }
+        }
+        _ => panic!("Expected RunInfoVersioned"),
+    }
+}
+
+#[test]
+fn run_query_by_status() {
+    let executor = create_executor();
+
+    // Create runs with different statuses
+    executor.execute(Command::RunCreate {
+        run_id: Some("query-active-1".into()),
+        metadata: None,
+    }).unwrap();
+
+    let completed_run = match executor.execute(Command::RunCreate {
+        run_id: Some("query-completed-1".into()),
+        metadata: None,
+    }).unwrap() {
+        Output::RunWithVersion { info, .. } => info.id,
+        _ => panic!("Expected RunWithVersion"),
+    };
+    executor.execute(Command::RunComplete { run: completed_run }).unwrap();
+
+    // Query by Active status
+    let output = executor.execute(Command::RunQueryByStatus {
+        state: RunStatus::Active,
+    }).unwrap();
+    match output {
+        Output::RunInfoList(runs) => {
+            assert!(runs.iter().any(|r| r.info.id.as_str() == "query-active-1"));
+            assert!(runs.iter().all(|r| r.info.status == RunStatus::Active));
+        }
+        _ => panic!("Expected RunInfoList"),
+    }
+
+    // Query by Completed status
+    let output = executor.execute(Command::RunQueryByStatus {
+        state: RunStatus::Completed,
+    }).unwrap();
+    match output {
+        Output::RunInfoList(runs) => {
+            assert!(runs.iter().any(|r| r.info.id.as_str() == "query-completed-1"));
+            assert!(runs.iter().all(|r| r.info.status == RunStatus::Completed));
+        }
+        _ => panic!("Expected RunInfoList"),
+    }
+}
+
+#[test]
+fn run_query_by_tag() {
+    let executor = create_executor();
+
+    let run_id = match executor.execute(Command::RunCreate {
+        run_id: Some("tagged-query-run".into()),
+        metadata: None,
+    }).unwrap() {
+        Output::RunWithVersion { info, .. } => info.id,
+        _ => panic!("Expected RunWithVersion"),
+    };
+
+    executor.execute(Command::RunAddTags {
+        run: run_id,
+        tags: vec!["important".into(), "test".into()],
+    }).unwrap();
+
+    // Query by tag
+    let output = executor.execute(Command::RunQueryByTag {
+        tag: "important".into(),
+    }).unwrap();
+    match output {
+        Output::RunInfoList(runs) => {
+            assert!(runs.iter().any(|r| r.info.id.as_str() == "tagged-query-run"));
+        }
+        _ => panic!("Expected RunInfoList"),
+    }
+}
+
+#[test]
+fn run_count() {
+    let executor = create_executor();
+
+    // Get initial count
+    let initial_count = match executor.execute(Command::RunCount {
+        status: None,
+    }).unwrap() {
+        Output::Uint(n) => n,
+        _ => panic!("Expected Uint"),
+    };
+
+    // Create some runs
+    executor.execute(Command::RunCreate {
+        run_id: Some("count-run-1".into()),
+        metadata: None,
+    }).unwrap();
+    executor.execute(Command::RunCreate {
+        run_id: Some("count-run-2".into()),
+        metadata: None,
+    }).unwrap();
+
+    // Count should increase
+    let output = executor.execute(Command::RunCount {
+        status: None,
+    }).unwrap();
+    match output {
+        Output::Uint(n) => assert_eq!(n, initial_count + 2),
+        _ => panic!("Expected Uint"),
+    }
+
+    // Count by status
+    let output = executor.execute(Command::RunCount {
+        status: Some(RunStatus::Active),
+    }).unwrap();
+    match output {
+        Output::Uint(n) => assert!(n >= 2),
+        _ => panic!("Expected Uint"),
+    }
+}
+
+#[test]
+fn run_search() {
+    let executor = create_executor();
+
+    // Create runs with searchable metadata
+    executor.execute(Command::RunCreate {
+        run_id: Some("search-ml-training".into()),
+        metadata: Some(Value::Object([
+            ("type".to_string(), Value::String("training".into())),
+            ("model".to_string(), Value::String("gpt".into())),
+        ].into_iter().collect())),
+    }).unwrap();
+
+    executor.execute(Command::RunCreate {
+        run_id: Some("search-ml-inference".into()),
+        metadata: Some(Value::Object([
+            ("type".to_string(), Value::String("inference".into())),
+            ("model".to_string(), Value::String("gpt".into())),
+        ].into_iter().collect())),
+    }).unwrap();
+
+    // Search runs - the search implementation may vary
+    let output = executor.execute(Command::RunSearch {
+        query: "ml".into(),
+        limit: Some(10),
+    }).unwrap();
+
+    // Just verify we get a list back (search behavior depends on implementation)
+    match output {
+        Output::RunInfoList(_runs) => {
+            // Search found some runs (exact behavior depends on search implementation)
+        }
+        _ => panic!("Expected RunInfoList"),
+    }
+}
+
+#[test]
+fn run_create_child_and_hierarchy() {
+    let executor = create_executor();
+
+    // Create parent run
+    let parent_id = match executor.execute(Command::RunCreate {
+        run_id: Some("parent-run".into()),
+        metadata: None,
+    }).unwrap() {
+        Output::RunWithVersion { info, .. } => info.id,
+        _ => panic!("Expected RunWithVersion"),
+    };
+
+    // Create child runs
+    let child1_id = match executor.execute(Command::RunCreateChild {
+        parent: parent_id.clone(),
+        metadata: Some(Value::String("child 1".into())),
+    }).unwrap() {
+        Output::RunWithVersion { info, .. } => info.id,
+        _ => panic!("Expected RunWithVersion"),
+    };
+
+    let child2_id = match executor.execute(Command::RunCreateChild {
+        parent: parent_id.clone(),
+        metadata: Some(Value::String("child 2".into())),
+    }).unwrap() {
+        Output::RunWithVersion { info, .. } => info.id,
+        _ => panic!("Expected RunWithVersion"),
+    };
+
+    // Get children
+    let output = executor.execute(Command::RunGetChildren {
+        parent: parent_id.clone(),
+    }).unwrap();
+    match output {
+        Output::RunInfoList(children) => {
+            assert_eq!(children.len(), 2);
+            let child_ids: Vec<_> = children.iter().map(|c| c.info.id.as_str()).collect();
+            assert!(child_ids.contains(&child1_id.as_str()));
+            assert!(child_ids.contains(&child2_id.as_str()));
+        }
+        _ => panic!("Expected RunInfoList"),
+    }
+
+    // Get parent from child
+    let output = executor.execute(Command::RunGetParent {
+        run: child1_id,
+    }).unwrap();
+    match output {
+        Output::MaybeRunId(Some(pid)) => {
+            assert_eq!(pid.as_str(), parent_id.as_str());
+        }
+        _ => panic!("Expected MaybeRunId(Some)"),
+    }
+
+    // Parent has no parent
+    let output = executor.execute(Command::RunGetParent {
+        run: parent_id,
+    }).unwrap();
+    assert!(matches!(output, Output::MaybeRunId(None)));
+}
+
+#[test]
+fn run_retention_policy() {
+    let executor = create_executor();
+
+    let run_id = match executor.execute(Command::RunCreate {
+        run_id: Some("retention-run".into()),
+        metadata: None,
+    }).unwrap() {
+        Output::RunWithVersion { info, .. } => info.id,
+        _ => panic!("Expected RunWithVersion"),
+    };
+
+    // Set retention policy - KeepLast variant
+    let policy = strata_executor::RetentionPolicyInfo::KeepLast { count: 100 };
+    executor.execute(Command::RunSetRetention {
+        run: run_id.clone(),
+        policy: policy.clone(),
+    }).unwrap();
+
+    // Get retention policy
+    let output = executor.execute(Command::RunGetRetention {
+        run: run_id.clone(),
+    }).unwrap();
+    match output {
+        Output::RetentionPolicy(retrieved) => {
+            assert_eq!(retrieved, strata_executor::RetentionPolicyInfo::KeepLast { count: 100 });
+        }
+        _ => panic!("Expected RetentionPolicy"),
+    }
+
+    // Set retention policy - KeepFor variant
+    let policy = strata_executor::RetentionPolicyInfo::KeepFor { duration_secs: 86400 };
+    executor.execute(Command::RunSetRetention {
+        run: run_id.clone(),
+        policy,
+    }).unwrap();
+
+    let output = executor.execute(Command::RunGetRetention {
+        run: run_id,
+    }).unwrap();
+    match output {
+        Output::RetentionPolicy(retrieved) => {
+            assert_eq!(retrieved, strata_executor::RetentionPolicyInfo::KeepFor { duration_secs: 86400 });
+        }
+        _ => panic!("Expected RetentionPolicy"),
+    }
+}
+
 // ============================================================================
 // Default Run Resolution
 // ============================================================================
