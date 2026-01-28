@@ -1,24 +1,16 @@
+//! Integration Tests
+//!
+//! Comprehensive cross-layer tests organized by test dimensions:
+//! - Storage mode: persistent vs ephemeral
+//! - Durability: none, batched, strict
+//! - Primitives: single vs cross-primitive
+//! - Scale: 1k, 10k, 100k records
+//! - Branching: run isolation and forking
+
+#[path = "../common/mod.rs"]
 mod common;
 
-mod architecture_compliance;
-mod backward_compatibility;
-mod backwards_compatibility;
-mod edge_case_m1_m2;
-mod edge_case_m3;
-mod eventlog_semantics;
-mod m4_red_flags;
-mod mega_scale_events;
-mod mega_scale_json;
-mod mega_scale_vectors;
-mod migration_validation;
-mod regression_edge_cases;
-mod regression_known_bugs;
-mod seven_invariants;
-mod snapshot_monotonicity;
-mod spec_conformance;
-mod stress_high_dimension;
-mod stress_large_collections;
-mod stress_m5;
-mod stress_many_collections;
-mod stress_rapid_operations;
-mod stress_snapshot_wal_size;
+mod modes;
+mod primitives;
+mod scale;
+mod branching;
