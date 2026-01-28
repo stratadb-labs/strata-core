@@ -1,0 +1,29 @@
+mod common;
+
+mod aba_detection;
+mod concurrent_collection_mutations;
+mod concurrent_multi_primitive;
+mod concurrent_primitive_stress;
+mod concurrent_search_during_write;
+mod concurrent_stress;
+#[cfg(feature = "proptest")]
+mod conflict_detection_fuzzing;
+mod conflict_matrix;
+mod cross_primitive;
+mod cross_primitive_all_seven;
+mod cross_primitive_atomicity;
+mod cross_primitive_isolation;
+mod cross_primitive_rollback;
+mod cross_primitive_rollback_all;
+mod cross_primitive_transactions;
+mod kill_switch;
+mod kv_semantics;
+mod serializability;
+mod statecell_cas;
+mod statecell_semantics;
+mod transaction_context;
+mod transaction_workflow;
+mod tx_atomic_visibility;
+mod tx_conflict_detection;
+mod tx_rollback_safety;
+mod tx_vectorid_monotonicity;

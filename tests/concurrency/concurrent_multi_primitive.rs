@@ -1,0 +1,109 @@
+//! Concurrent Multi-Primitive Tests
+//!
+//! Tests concurrent operations across multiple primitives.
+
+use crate::common::*;
+use strata_core::json::JsonValue;
+use strata_core::types::JsonDocId;
+use strata_core::value::Value;
+use std::collections::HashMap;
+use std::thread;
+
+/// Create an object payload with an integer value for EventLog
+fn event_int_payload(v: i64) -> Value {
+    Value::Object(HashMap::from([("value".to_string(), Value::Int(v))]))
+}
+
+/// Test concurrent operations on all primitives.
+#[test]
+fn test_concurrent_all_primitives() {
+    let test_db = TestDb::new();
+    let db = test_db.db.clone();
+
+    let mut handles = vec![];
+
+    // KV thread
+    let db_kv = db.clone();
+    handles.push(thread::spawn(move || {
+        let kv = strata_engine::KVStore::new(db_kv);
+        let run_id = strata_core::types::RunId::new();
+        for i in 0..100 {
+            kv.put(&run_id, &format!("kv_{}", i), Value::Int(i)).expect("kv put");
+        }
+    }));
+
+    // JSON thread
+    let db_json = db.clone();
+    handles.push(thread::spawn(move || {
+        let json = strata_engine::JsonStore::new(db_json);
+        let run_id = strata_core::types::RunId::new();
+        for i in 0..100 {
+            let doc_id = JsonDocId::new();
+            json.create(&run_id, &doc_id, JsonValue::from(serde_json::json!({"i": i})))
+                .expect("json create");
+        }
+    }));
+
+    // Event thread
+    let db_event = db.clone();
+    handles.push(thread::spawn(move || {
+        let event = strata_engine::EventLog::new(db_event);
+        let run_id = strata_core::types::RunId::new();
+        for i in 0..100 {
+            event.append(&run_id, "type", event_int_payload(i))
+                .expect("event append");
+        }
+    }));
+
+    // Vector thread
+    let db_vec = db.clone();
+    handles.push(thread::spawn(move || {
+        let vector = strata_engine::VectorStore::new(db_vec);
+        let run_id = strata_core::types::RunId::new();
+        vector.create_collection(run_id, "concurrent_col", config_small()).expect("create");
+        for i in 0..100 {
+            vector.insert(run_id, "concurrent_col", &format!("v_{}", i), &seeded_vector(3, i as u64), None)
+                .expect("insert");
+        }
+    }));
+
+    // Wait for all threads
+    for h in handles {
+        h.join().expect("thread join");
+    }
+}
+
+/// Test concurrent primitive access from same run.
+#[test]
+fn test_concurrent_same_run() {
+    let test_db = TestDb::new();
+    let db = test_db.db.clone();
+    let run_id = test_db.run_id;
+
+    // Setup: create vector collection
+    let vector = strata_engine::VectorStore::new(db.clone());
+    vector.create_collection(run_id, "same_run", config_small()).expect("create");
+
+    let mut handles = vec![];
+
+    // Multiple threads accessing same run
+    for t in 0..4 {
+        let db = db.clone();
+        let handle = thread::spawn(move || {
+            let kv = strata_engine::KVStore::new(db.clone());
+            let vector = strata_engine::VectorStore::new(db);
+
+            for i in 0..25 {
+                let key = format!("t{}_item{}", t, i);
+                kv.put(&run_id, &key, Value::Int((t * 100 + i) as i64)).expect("kv put");
+                vector.insert(run_id, "same_run", &key, &seeded_vector(3, (t * 100 + i) as u64), None)
+                    .expect("vector insert");
+            }
+        });
+        handles.push(handle);
+    }
+
+    for h in handles {
+        h.join().expect("join");
+    }
+}

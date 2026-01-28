@@ -1,0 +1,17 @@
+mod collection_config_persist;
+mod collection_create;
+mod collection_delete;
+mod collection_get;
+mod collection_list;
+mod cross_all_primitives;
+mod cross_crash_recovery;
+mod cross_json_vector;
+mod cross_kv_vector;
+mod determinism_operations;
+mod determinism_recovery;
+mod determinism_search;
+mod determinism_vectorid;
+mod distance_cosine;
+mod distance_dotproduct;
+mod distance_edge_cases;
+mod distance_euclidean;
