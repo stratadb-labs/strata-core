@@ -15,3 +15,4 @@ mod strata_api;
 mod serialization;
 mod error_handling;
 mod adversarial;
+mod run_invariants;
