@@ -100,7 +100,7 @@ pub enum Command {
         prefix: Option<String>,
     },
 
-    // ==================== JSON (17) ====================
+    // ==================== JSON (4 MVP) ====================
     /// Set a value at a path in a JSON document.
     /// Returns: `Output::Version`
     JsonSet {
@@ -129,51 +129,6 @@ pub enum Command {
         path: String,
     },
 
-    /// Merge a value at a path (RFC 7396 JSON Merge Patch).
-    /// Returns: `Output::Version`
-    JsonMerge {
-        #[serde(default, skip_serializing_if = "Option::is_none")]
-        run: Option<RunId>,
-        key: String,
-        path: String,
-        patch: Value,
-    },
-
-    /// Get version history for a JSON document.
-    /// Returns: `Output::VersionedValues`
-    JsonHistory {
-        #[serde(default, skip_serializing_if = "Option::is_none")]
-        run: Option<RunId>,
-        key: String,
-        limit: Option<u64>,
-        before: Option<u64>,
-    },
-
-    /// Check if a JSON document exists.
-    /// Returns: `Output::Bool`
-    JsonExists {
-        #[serde(default, skip_serializing_if = "Option::is_none")]
-        run: Option<RunId>,
-        key: String,
-    },
-
-    /// Get the current version of a JSON document.
-    /// Returns: `Output::MaybeUint`
-    JsonGetVersion {
-        #[serde(default, skip_serializing_if = "Option::is_none")]
-        run: Option<RunId>,
-        key: String,
-    },
-
-    /// Full-text search across JSON documents.
-    /// Returns: `Output::JsonSearchHits`
-    JsonSearch {
-        #[serde(default, skip_serializing_if = "Option::is_none")]
-        run: Option<RunId>,
-        query: String,
-        k: u64,
-    },
-
     /// List JSON documents with cursor-based pagination.
     /// Returns: `Output::JsonListResult`
     JsonList {
@@ -182,79 +137,6 @@ pub enum Command {
         prefix: Option<String>,
         cursor: Option<String>,
         limit: u64,
-    },
-
-    /// Compare-and-swap: update if version matches.
-    /// Returns: `Output::Version`
-    JsonCas {
-        #[serde(default, skip_serializing_if = "Option::is_none")]
-        run: Option<RunId>,
-        key: String,
-        expected_version: u64,
-        path: String,
-        value: Value,
-    },
-
-    /// Query documents by exact field match.
-    /// Returns: `Output::Keys`
-    JsonQuery {
-        #[serde(default, skip_serializing_if = "Option::is_none")]
-        run: Option<RunId>,
-        path: String,
-        value: Value,
-        limit: u64,
-    },
-
-    /// Count JSON documents in the store.
-    /// Returns: `Output::Uint`
-    JsonCount {
-        #[serde(default, skip_serializing_if = "Option::is_none")]
-        run: Option<RunId>,
-    },
-
-    /// Batch get multiple JSON documents.
-    /// Returns: `Output::MaybeVersionedValues`
-    JsonBatchGet {
-        #[serde(default, skip_serializing_if = "Option::is_none")]
-        run: Option<RunId>,
-        keys: Vec<String>,
-    },
-
-    /// Batch create multiple JSON documents atomically.
-    /// Returns: `Output::Versions`
-    JsonBatchCreate {
-        #[serde(default, skip_serializing_if = "Option::is_none")]
-        run: Option<RunId>,
-        docs: Vec<(String, Value)>,
-    },
-
-    /// Atomically push values to an array at path.
-    /// Returns: `Output::Uint` (new array length)
-    JsonArrayPush {
-        #[serde(default, skip_serializing_if = "Option::is_none")]
-        run: Option<RunId>,
-        key: String,
-        path: String,
-        values: Vec<Value>,
-    },
-
-    /// Atomically increment a numeric value at path.
-    /// Returns: `Output::Float`
-    JsonIncrement {
-        #[serde(default, skip_serializing_if = "Option::is_none")]
-        run: Option<RunId>,
-        key: String,
-        path: String,
-        delta: f64,
-    },
-
-    /// Atomically pop a value from an array at path.
-    /// Returns: `Output::Maybe` (the popped value)
-    JsonArrayPop {
-        #[serde(default, skip_serializing_if = "Option::is_none")]
-        run: Option<RunId>,
-        key: String,
-        path: String,
     },
 
     // ==================== Event (11) ====================
@@ -720,20 +602,7 @@ impl Command {
             | Command::JsonSet { run, .. }
             | Command::JsonGet { run, .. }
             | Command::JsonDelete { run, .. }
-            | Command::JsonMerge { run, .. }
-            | Command::JsonHistory { run, .. }
-            | Command::JsonExists { run, .. }
-            | Command::JsonGetVersion { run, .. }
-            | Command::JsonSearch { run, .. }
             | Command::JsonList { run, .. }
-            | Command::JsonCas { run, .. }
-            | Command::JsonQuery { run, .. }
-            | Command::JsonCount { run, .. }
-            | Command::JsonBatchGet { run, .. }
-            | Command::JsonBatchCreate { run, .. }
-            | Command::JsonArrayPush { run, .. }
-            | Command::JsonIncrement { run, .. }
-            | Command::JsonArrayPop { run, .. }
             // Event
             | Command::EventAppend { run, .. }
             | Command::EventAppendBatch { run, .. }

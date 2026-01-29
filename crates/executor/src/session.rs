@@ -338,10 +338,6 @@ impl Session {
                 let deleted = txn.json_delete(&key).map_err(Error::from)?;
                 Ok(Output::Uint(if deleted { 1 } else { 0 }))
             }
-            Command::JsonExists { key, .. } => {
-                let exists = txn.json_exists(&key).map_err(Error::from)?;
-                Ok(Output::Bool(exists))
-            }
 
             // Commands not directly mapped to TransactionOps — delegate to executor.
             // This includes batch operations, history, CAS, scan, incr, etc.

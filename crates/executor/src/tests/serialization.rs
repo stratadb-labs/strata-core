@@ -121,25 +121,6 @@ fn test_command_json_get() {
     });
 }
 
-#[test]
-fn test_command_json_search() {
-    test_command_round_trip(Command::JsonSearch {
-        run: Some(RunId::from("default")),
-        query: "alice".to_string(),
-        k: 10,
-    });
-}
-
-#[test]
-fn test_command_json_array_push() {
-    test_command_round_trip(Command::JsonArrayPush {
-        run: Some(RunId::from("default")),
-        key: "doc1".to_string(),
-        path: "$.items".to_string(),
-        values: vec![Value::Int(1), Value::Int(2)],
-    });
-}
-
 // =============================================================================
 // Event Command Tests
 // =============================================================================

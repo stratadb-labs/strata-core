@@ -17,11 +17,8 @@
 //!
 //! ## API
 //!
-//! - **Single-Operation API**: `get`, `create`, `set`, `delete_at_path`, `destroy`
-//!   Each operation runs in its own implicit transaction.
-//!
-//! - **Fast Path Reads**: `get`, `exists`, `get_doc`
-//!   Use SnapshotView directly for read-only access.
+//! All operations go through `db.transaction()` for consistency:
+//! - `create`, `get`, `set`, `delete_at_path`, `destroy`, `list`, `exists`
 //!
 //! ## Architectural Rules
 //!
@@ -39,7 +36,6 @@ use strata_core::contract::{Timestamp, Version, Versioned};
 use strata_core::error::Result;
 use strata_core::primitives::json::{delete_at_path, get_at_path, set_at_path, JsonLimitError, JsonPath, JsonValue};
 use strata_core::StrataError;
-use strata_core::traits::SnapshotView;
 use strata_core::types::{Key, Namespace, RunId};
 use strata_core::value::Value;
 use crate::database::Database;
@@ -249,7 +245,7 @@ impl JsonStore {
         let key = self.key_for(run_id, doc_id);
         let doc = JsonDoc::new(doc_id, value.clone());
 
-        let version = self.db.transaction(*run_id, |txn| {
+        self.db.transaction(*run_id, |txn| {
             // Check if document already exists
             if txn.get(&key)?.is_some() {
                 return Err(StrataError::invalid_input(format!(
@@ -261,34 +257,14 @@ impl JsonStore {
             let serialized = Self::serialize_doc(&doc)?;
             txn.put(key.clone(), serialized)?;
             Ok(Version::counter(doc.version))
-        })?;
-
-        // Update inverted index (zero overhead when disabled)
-        let index = self.db.extension::<crate::primitives::index::InvertedIndex>();
-        if index.is_enabled() {
-            let text = self.flatten_json(&value);
-            let entity_ref = crate::search_types::EntityRef::Json {
-                run_id: *run_id,
-                doc_id: doc_id.to_string(),
-            };
-            index.index_document(&entity_ref, &text, None);
-        }
-
-        Ok(version)
+        })
     }
 
     // ========================================================================
-    // Fast Path Reads
+    // Reads
     // ========================================================================
 
-    /// Get value at path in a document (FAST PATH)
-    ///
-    /// Uses SnapshotView directly for read-only access.
-    /// Bypasses full transaction overhead:
-    /// - Direct snapshot read
-    /// - No transaction object allocation
-    /// - No read-set recording
-    /// - No commit validation
+    /// Get value at path in a document.
     ///
     /// # Arguments
     ///
@@ -310,181 +286,32 @@ impl JsonStore {
         // Validate path limits (Issue #440)
         path.validate().map_err(limit_error_to_error)?;
 
-        let snapshot = self.db.storage().create_snapshot();
         let key = self.key_for(run_id, doc_id);
 
-        match snapshot.get(&key)? {
-            Some(vv) => {
-                let doc = Self::deserialize_doc(&vv.value)?;
-                match get_at_path(&doc.value, path).cloned() {
-                    Some(value) => Ok(Some(Versioned::with_timestamp(
-                        value,
-                        Version::counter(doc.version),
-                        Timestamp::from_micros(doc.updated_at),
-                    ))),
-                    None => Ok(None),
+        self.db.transaction(*run_id, |txn| {
+            match txn.get(&key)? {
+                Some(value) => {
+                    let doc = Self::deserialize_doc(&value)?;
+                    match get_at_path(&doc.value, path).cloned() {
+                        Some(json_value) => Ok(Some(Versioned::with_timestamp(
+                            json_value,
+                            Version::counter(doc.version),
+                            Timestamp::from_micros(doc.updated_at),
+                        ))),
+                        None => Ok(None),
+                    }
                 }
+                None => Ok(None),
             }
-            None => Ok(None),
-        }
+        })
     }
 
-    /// Get the full document (FAST PATH)
-    ///
-    /// Returns the entire JsonDoc including metadata (version, timestamps).
-    pub fn get_doc(&self, run_id: &RunId, doc_id: &str) -> Result<Option<Versioned<JsonDoc>>> {
-        let snapshot = self.db.storage().create_snapshot();
-        let key = self.key_for(run_id, doc_id);
-
-        match snapshot.get(&key)? {
-            Some(vv) => {
-                let doc = Self::deserialize_doc(&vv.value)?;
-                let versioned = Versioned::with_timestamp(
-                    doc.clone(),
-                    Version::counter(doc.version),
-                    Timestamp::from_micros(doc.updated_at),
-                );
-                Ok(Some(versioned))
-            }
-            None => Ok(None),
-        }
-    }
-
-    /// Get document version (FAST PATH)
-    ///
-    /// Efficient way to check document version without full deserialization.
-    /// (In practice, we deserialize but could optimize later)
-    pub fn get_version(&self, run_id: &RunId, doc_id: &str) -> Result<Option<u64>> {
-        let snapshot = self.db.storage().create_snapshot();
-        let key = self.key_for(run_id, doc_id);
-
-        match snapshot.get(&key)? {
-            Some(vv) => {
-                let doc = Self::deserialize_doc(&vv.value)?;
-                Ok(Some(doc.version))
-            }
-            None => Ok(None),
-        }
-    }
-
-    /// Check if document exists (FAST PATH)
-    ///
-    /// Fastest way to check document existence.
+    /// Check if document exists.
     pub fn exists(&self, run_id: &RunId, doc_id: &str) -> Result<bool> {
-        let snapshot = self.db.storage().create_snapshot();
         let key = self.key_for(run_id, doc_id);
-        Ok(snapshot.get(&key)?.is_some())
-    }
-
-    /// Get document version history
-    ///
-    /// Returns full document snapshots in descending version order (newest first).
-    ///
-    /// **Important**: This returns value-history, not transition-history. Each entry
-    /// is a complete document snapshot, not a diff or operation log.
-    ///
-    /// ## Parameters
-    ///
-    /// * `run_id` - RunId for namespace isolation
-    /// * `doc_id` - Document identifier
-    /// * `limit` - Maximum versions to return (None = all)
-    /// * `before_version` - Only return versions older than this document version (for pagination)
-    ///
-    /// ## Returns
-    ///
-    /// Vector of `Versioned<JsonDoc>` in descending version order (newest first).
-    /// Empty if document doesn't exist or has no history.
-    ///
-    /// ## Ordering Guarantee
-    ///
-    /// Results are guaranteed to be in descending document version order.
-    /// This invariant is enforced by the storage layer's `get_history()` contract.
-    ///
-    /// ## Deletion Semantics
-    ///
-    /// History survives document deletion. If a document is deleted:
-    /// - Previous versions remain accessible via `history()`
-    /// - The deleted state may appear as a tombstone entry (filtered at substrate layer)
-    /// - This matches Strata's "execution commit" philosophy where all committed state is preserved
-    ///
-    /// ## Version Semantics
-    ///
-    /// The `before_version` parameter filters by **document version** (`JsonDoc.version`),
-    /// not by storage transaction version. This matches StateCell semantics.
-    ///
-    /// ## Storage Behavior
-    ///
-    /// - **ShardedStore** (persistent): Returns full version history from VersionChain
-    /// - **UnifiedStore** (in-memory): Returns only current version (no history retention)
-    ///
-    /// ## Example
-    ///
-    /// ```ignore
-    /// // Get last 10 versions
-    /// let history = json.history(&run_id, &doc_id, Some(10), None)?;
-    ///
-    /// // Paginate: get next 10 versions older than version 50
-    /// let page2 = json.history(&run_id, &doc_id, Some(10), Some(50))?;
-    /// ```
-    pub fn history(
-        &self,
-        run_id: &RunId,
-        doc_id: &str,
-        limit: Option<usize>,
-        before_version: Option<u64>,
-    ) -> Result<Vec<Versioned<JsonDoc>>> {
-        use strata_core::traits::Storage;
-
-        let key = self.key_for(run_id, doc_id);
-
-        // Optimization: When before_version is None, we can pass limit directly to storage
-        // to avoid unbounded reads. When before_version is Some, we must fetch more and
-        // filter by document version (which differs from storage transaction version).
-        let storage_limit = if before_version.is_none() { limit } else { None };
-
-        let raw_history = self.db.storage().get_history(&key, storage_limit, None)?;
-
-        // Storage layer contract: get_history() returns newest-first.
-        // If this invariant ever changes, json_history semantics must be updated.
-        debug_assert!(
-            raw_history.windows(2).all(|w| w[0].version >= w[1].version),
-            "Storage::get_history() must return results in descending version order"
-        );
-
-        let mut results: Vec<Versioned<JsonDoc>> = Vec::new();
-
-        for versioned_value in raw_history {
-            // Deserialize the JsonDoc from storage
-            let doc = match Self::deserialize_doc(&versioned_value.value) {
-                Ok(d) => d,
-                Err(_) => continue, // Skip malformed entries
-            };
-
-            // Apply before_version filter (based on document's internal version)
-            if let Some(before) = before_version {
-                if doc.version >= before {
-                    continue;
-                }
-            }
-
-            // Build result with document's internal version.
-            // Use STORAGE timestamp for consistency with KV and StateCell.
-            // (JsonDoc.updated_at is document-level, but we want commit-time consistency)
-            results.push(Versioned::with_timestamp(
-                doc.clone(),
-                Version::counter(doc.version),
-                versioned_value.timestamp,
-            ));
-
-            // Apply limit
-            if let Some(max) = limit {
-                if results.len() >= max {
-                    break;
-                }
-            }
-        }
-
-        Ok(results)
+        self.db.transaction(*run_id, |txn| {
+            Ok(txn.get(&key)?.is_some())
+        })
     }
 
     // ========================================================================
@@ -630,191 +457,6 @@ impl JsonStore {
     }
 
     // ========================================================================
-    // Atomic Merge
-    // ========================================================================
-
-    /// Atomically merge a patch into a document using RFC 7396 JSON Merge Patch
-    ///
-    /// This operation is atomic - the read, merge, and write happen within
-    /// a single transaction, preventing race conditions with concurrent updates.
-    ///
-    /// If the document doesn't exist, it will be created with the patch value.
-    ///
-    /// # Arguments
-    ///
-    /// * `run_id` - RunId for namespace isolation
-    /// * `doc_id` - Document to merge into
-    /// * `path` - Path within the document to merge at (use JsonPath::root() for whole doc)
-    /// * `patch` - The patch to apply (RFC 7396 merge patch semantics)
-    ///
-    /// # Returns
-    ///
-    /// * `Ok(Version)` - New document version after merge
-    /// * `Err` - On path error or serialization error
-    ///
-    /// # RFC 7396 Semantics
-    ///
-    /// - If patch is an object, recursively merge each key
-    /// - If a key's value is null, remove that key from target
-    /// - If patch is not an object, it replaces the target entirely
-    ///
-    /// # Example
-    ///
-    /// ```ignore
-    /// // Initial document: {"name": "Alice", "age": 30}
-    /// // Patch: {"age": 31, "city": "NYC"}
-    /// // Result: {"name": "Alice", "age": 31, "city": "NYC"}
-    ///
-    /// let version = json.merge(&run_id, &doc_id, &JsonPath::root(), patch)?;
-    /// ```
-    pub fn merge(
-        &self,
-        run_id: &RunId,
-        doc_id: &str,
-        path: &JsonPath,
-        patch: JsonValue,
-    ) -> Result<Version> {
-        use strata_core::primitives::json::merge_patch;
-
-        // Validate path and patch limits
-        path.validate().map_err(limit_error_to_error)?;
-        patch.validate().map_err(limit_error_to_error)?;
-
-        let key = self.key_for(run_id, doc_id);
-
-        self.db.transaction(*run_id, |txn| {
-            // Load existing document or create new one
-            let mut doc = match txn.get(&key)? {
-                Some(stored) => Self::deserialize_doc(&stored)?,
-                None => {
-                    // Document doesn't exist - create it
-                    if path.is_root() {
-                        // At root, just create with patch value
-                        let doc = JsonDoc::new(doc_id, patch.clone());
-                        let serialized = Self::serialize_doc(&doc)?;
-                        txn.put(key.clone(), serialized)?;
-                        return Ok(Version::counter(doc.version));
-                    } else {
-                        // At path, create empty object first
-                        JsonDoc::new(doc_id, JsonValue::object())
-                    }
-                }
-            };
-
-            // Get current value at path (or create if path doesn't exist yet)
-            if path.is_root() {
-                // Merge at root
-                merge_patch(&mut doc.value, &patch);
-            } else {
-                // Get or create value at path
-                match get_at_path(&doc.value, path).cloned() {
-                    Some(mut current) => {
-                        // Merge into existing value
-                        merge_patch(&mut current, &patch);
-                        set_at_path(&mut doc.value, path, current)
-                            .map_err(|e| StrataError::invalid_input(format!("Path error: {}", e)))?;
-                    }
-                    None => {
-                        // Path doesn't exist - set patch value directly
-                        set_at_path(&mut doc.value, path, patch)
-                            .map_err(|e| StrataError::invalid_input(format!("Path error: {}", e)))?;
-                    }
-                }
-            }
-
-            doc.touch();
-
-            // Store updated document
-            let serialized = Self::serialize_doc(&doc)?;
-            txn.put(key.clone(), serialized)?;
-
-            Ok(Version::counter(doc.version))
-        })
-    }
-
-    // ========================================================================
-    // Compare-and-Swap
-    // ========================================================================
-
-    /// Compare-and-swap: atomically update if version matches
-    ///
-    /// This operation provides optimistic concurrency control. It reads the
-    /// document, checks that the version matches the expected version, and
-    /// only then applies the update.
-    ///
-    /// # Arguments
-    ///
-    /// * `run_id` - RunId for namespace isolation
-    /// * `doc_id` - Document to update
-    /// * `expected_version` - The version the caller believes the document has
-    /// * `path` - Path within the document to update
-    /// * `value` - New value to set at path
-    ///
-    /// # Returns
-    ///
-    /// * `Ok(Version)` - Update succeeded, returns new version
-    /// * `Err(VersionMismatch)` - Version didn't match
-    /// * `Err(InvalidOperation)` - Document doesn't exist
-    ///
-    /// # Example
-    ///
-    /// ```ignore
-    /// // Read document and its version
-    /// let versioned = json.get(&run_id, &doc_id, &JsonPath::root())?;
-    /// let version = versioned.version; // e.g., 5
-    ///
-    /// // Try to update only if version is still 5
-    /// match json.cas(&run_id, &doc_id, 5, &"name".parse()?, new_value) {
-    ///     Ok(new_ver) => println!("Updated to version {}", new_ver),
-    ///     Err(StrataError::Conflict { reason, .. }) => {
-    ///         println!("Conflict! {}", reason);
-    ///     }
-    ///     Err(e) => return Err(e),
-    /// }
-    /// ```
-    pub fn cas(
-        &self,
-        run_id: &RunId,
-        doc_id: &str,
-        expected_version: u64,
-        path: &JsonPath,
-        value: JsonValue,
-    ) -> Result<Version> {
-        // Validate path and value limits
-        path.validate().map_err(limit_error_to_error)?;
-        value.validate().map_err(limit_error_to_error)?;
-
-        let key = self.key_for(run_id, doc_id);
-
-        self.db.transaction(*run_id, |txn| {
-            // Load existing document
-            let stored = txn.get(&key)?.ok_or_else(|| {
-                StrataError::invalid_input(format!("JSON document {} not found", doc_id))
-            })?;
-            let mut doc = Self::deserialize_doc(&stored)?;
-
-            // Check version
-            if doc.version != expected_version {
-                return Err(StrataError::conflict(format!(
-                    "Version mismatch: expected {}, got {}",
-                    expected_version, doc.version
-                )));
-            }
-
-            // Apply mutation
-            set_at_path(&mut doc.value, path, value)
-                .map_err(|e| StrataError::invalid_input(format!("Path error: {}", e)))?;
-            doc.touch();
-
-            // Store updated document
-            let serialized = Self::serialize_doc(&doc)?;
-            txn.put(key.clone(), serialized)?;
-
-            Ok(Version::counter(doc.version))
-        })
-    }
-
-    // ========================================================================
     // Introspection
     // ========================================================================
 
@@ -856,696 +498,59 @@ impl JsonStore {
         cursor: Option<&str>,
         limit: usize,
     ) -> Result<JsonListResult> {
-        let snapshot = self.db.storage().create_snapshot();
         let ns = self.namespace_for_run(run_id);
         let scan_prefix = Key::new_json_prefix(ns);
 
-        let mut doc_ids = Vec::with_capacity(limit + 1);
+        self.db.transaction(*run_id, |txn| {
+            let mut doc_ids = Vec::with_capacity(limit + 1);
 
-        // Cursor is now a simple string key (no UUID parsing needed)
-        let cursor_doc_id: Option<&str> = cursor;
+            // Cursor is now a simple string key (no UUID parsing needed)
+            let cursor_doc_id: Option<&str> = cursor;
 
-        let mut past_cursor = cursor_doc_id.is_none();
+            let mut past_cursor = cursor_doc_id.is_none();
 
-        for (_key, versioned_value) in snapshot.scan_prefix(&scan_prefix)? {
-            // Deserialize to get doc_id
-            let doc = match Self::deserialize_doc(&versioned_value.value) {
-                Ok(d) => d,
-                Err(_) => continue, // Skip invalid documents
-            };
+            for (_key, value) in txn.scan_prefix(&scan_prefix)? {
+                // Deserialize to get doc_id
+                let doc = match Self::deserialize_doc(&value) {
+                    Ok(d) => d,
+                    Err(_) => continue, // Skip invalid documents
+                };
 
-            // Handle cursor: skip until we're past the cursor
-            if !past_cursor {
-                if cursor_doc_id == Some(doc.id.as_str()) {
-                    past_cursor = true;
-                }
-                continue;
-            }
-
-            // Apply prefix filter if specified
-            if let Some(p) = prefix {
-                if !doc.id.starts_with(p) {
+                // Handle cursor: skip until we're past the cursor
+                if !past_cursor {
+                    if cursor_doc_id == Some(doc.id.as_str()) {
+                        past_cursor = true;
+                    }
                     continue;
                 }
-            }
 
-            doc_ids.push(doc.id);
-
-            // Collect limit + 1 to detect if there are more
-            if doc_ids.len() > limit {
-                break;
-            }
-        }
-
-        // If we have more than limit, pop the last and use it as cursor
-        let next_cursor = if doc_ids.len() > limit {
-            doc_ids.pop(); // Remove the extra item
-            doc_ids.last().cloned()
-        } else {
-            None
-        };
-
-        Ok(JsonListResult { doc_ids, next_cursor })
-    }
-
-    /// Count documents in the store
-    ///
-    /// Returns the total number of JSON documents for a run.
-    /// Supports Primitive Contract Invariant 6: Introspectable.
-    ///
-    /// # Arguments
-    ///
-    /// * `run_id` - RunId for namespace isolation
-    ///
-    /// # Returns
-    ///
-    /// * `Ok(u64)` - Number of documents
-    ///
-    /// # Example
-    ///
-    /// ```ignore
-    /// let count = json.count(&run_id)?;
-    /// println!("Store has {} documents", count);
-    /// ```
-    pub fn count(&self, run_id: &RunId) -> Result<u64> {
-        let snapshot = self.db.storage().create_snapshot();
-        let ns = self.namespace_for_run(run_id);
-        let scan_prefix = Key::new_json_prefix(ns);
-
-        let mut count = 0u64;
-        for (_key, _versioned_value) in snapshot.scan_prefix(&scan_prefix)? {
-            count += 1;
-        }
-
-        Ok(count)
-    }
-
-    /// Batch get multiple documents
-    ///
-    /// Retrieves multiple documents in a single operation.
-    /// More efficient than multiple individual get() calls.
-    ///
-    /// # Arguments
-    ///
-    /// * `run_id` - RunId for namespace isolation
-    /// * `doc_ids` - Document IDs to retrieve
-    ///
-    /// # Returns
-    ///
-    /// * `Ok(Vec<Option<Versioned<JsonDoc>>>)` - Documents in same order as input
-    ///   Returns `None` for documents that don't exist
-    ///
-    /// # Example
-    ///
-    /// ```ignore
-    /// let doc_ids = vec![id1, id2, id3];
-    /// let docs = json.batch_get(&run_id, &doc_ids)?;
-    /// for (i, doc) in docs.iter().enumerate() {
-    ///     match doc {
-    ///         Some(v) => println!("Doc {} exists: {:?}", i, v.value),
-    ///         None => println!("Doc {} not found", i),
-    ///     }
-    /// }
-    /// ```
-    pub fn batch_get<S: AsRef<str>>(
-        &self,
-        run_id: &RunId,
-        doc_ids: &[S],
-    ) -> Result<Vec<Option<Versioned<JsonDoc>>>> {
-        let snapshot = self.db.storage().create_snapshot();
-
-        let results: Vec<Option<Versioned<JsonDoc>>> = doc_ids
-            .iter()
-            .map(|doc_id| {
-                let key = self.key_for(run_id, doc_id.as_ref());
-                match snapshot.get(&key) {
-                    Ok(Some(vv)) => {
-                        match Self::deserialize_doc(&vv.value) {
-                            Ok(doc) => Some(Versioned::with_timestamp(
-                                doc.clone(),
-                                Version::counter(doc.version),
-                                Timestamp::from_micros(doc.updated_at),
-                            )),
-                            Err(_) => None,
-                        }
-                    }
-                    Ok(None) => None,
-                    Err(_) => None,
-                }
-            })
-            .collect();
-
-        Ok(results)
-    }
-
-    /// Batch create multiple documents atomically
-    ///
-    /// Creates multiple documents in a single atomic transaction.
-    /// If any document fails to create (e.g., already exists), the entire
-    /// operation fails and no documents are created.
-    ///
-    /// # Arguments
-    ///
-    /// * `run_id` - RunId for namespace isolation
-    /// * `docs` - Document ID and value pairs to create
-    ///
-    /// # Returns
-    ///
-    /// * `Ok(Vec<Version>)` - Versions of created documents in same order as input
-    ///
-    /// # Errors
-    ///
-    /// * `InvalidOperation` - If any document already exists
-    ///
-    /// # Example
-    ///
-    /// ```ignore
-    /// let docs = vec![
-    ///     (id1, JsonValue::from("value1")),
-    ///     (id2, JsonValue::from("value2")),
-    /// ];
-    /// let versions = json.batch_create(&run_id, docs)?;
-    /// ```
-    pub fn batch_create<S: AsRef<str> + Clone>(
-        &self,
-        run_id: &RunId,
-        docs: Vec<(S, JsonValue)>,
-    ) -> Result<Vec<Version>> {
-        // Validate all values first
-        for (_doc_id, value) in &docs {
-            value.validate().map_err(limit_error_to_error)?;
-        }
-
-        self.db.transaction(*run_id, |txn| {
-            let mut versions = Vec::with_capacity(docs.len());
-
-            for (doc_id, value) in &docs {
-                let key = self.key_for(run_id, doc_id.as_ref());
-
-                // Check if document already exists
-                if txn.get(&key)?.is_some() {
-                    return Err(StrataError::invalid_input(format!(
-                        "JSON document {} already exists",
-                        doc_id.as_ref()
-                    )));
-                }
-
-                let doc = JsonDoc::new(doc_id.as_ref(), value.clone());
-                let serialized = Self::serialize_doc(&doc)?;
-                txn.put(key, serialized)?;
-                versions.push(Version::counter(doc.version));
-            }
-
-            Ok(versions)
-        })
-    }
-
-    // ========================================================================
-    // Array Operations
-    // ========================================================================
-
-    /// Atomically push values to an array at path
-    ///
-    /// Appends one or more values to an array within a document.
-    /// The operation is atomic - all values are appended or none.
-    ///
-    /// # Arguments
-    ///
-    /// * `run_id` - RunId for namespace isolation
-    /// * `doc_id` - Document containing the array
-    /// * `path` - Path to the array
-    /// * `values` - Values to append
-    ///
-    /// # Returns
-    ///
-    /// * `Ok((Version, usize))` - New document version and new array length
-    ///
-    /// # Errors
-    ///
-    /// * `InvalidOperation` - If document doesn't exist
-    /// * `InvalidOperation` - If path doesn't point to an array
-    ///
-    /// # Example
-    ///
-    /// ```ignore
-    /// // Append to array
-    /// let (version, len) = json.array_push(
-    ///     &run_id,
-    ///     &doc_id,
-    ///     &"items".parse()?,
-    ///     vec![JsonValue::from("new_item")],
-    /// )?;
-    /// println!("Array now has {} items", len);
-    /// ```
-    pub fn array_push(
-        &self,
-        run_id: &RunId,
-        doc_id: &str,
-        path: &JsonPath,
-        values: Vec<JsonValue>,
-    ) -> Result<(Version, usize)> {
-        // Validate path and values
-        path.validate().map_err(limit_error_to_error)?;
-        for value in &values {
-            value.validate().map_err(limit_error_to_error)?;
-        }
-
-        let key = self.key_for(run_id, doc_id);
-
-        self.db.transaction(*run_id, |txn| {
-            // Load existing document
-            let stored = txn.get(&key)?.ok_or_else(|| {
-                StrataError::invalid_input(format!("JSON document {} not found", doc_id))
-            })?;
-            let mut doc = Self::deserialize_doc(&stored)?;
-
-            // Get the array at path
-            let arr = match get_at_path(&doc.value, path) {
-                Some(val) => match val.as_array() {
-                    Some(arr) => arr.clone(),
-                    None => {
-                        return Err(StrataError::invalid_input(format!(
-                            "Path '{}' does not point to an array",
-                            path
-                        )));
-                    }
-                },
-                None => {
-                    return Err(StrataError::invalid_input(format!(
-                        "Path '{}' does not exist",
-                        path
-                    )));
-                }
-            };
-
-            // Create new array with appended values
-            let mut new_arr = arr;
-            new_arr.extend(values.into_iter().map(|v| v.into_inner()));
-            let new_len = new_arr.len();
-
-            // Update document
-            let new_array = JsonValue::from(serde_json::Value::Array(new_arr));
-            set_at_path(&mut doc.value, path, new_array)
-                .map_err(|e| StrataError::invalid_input(format!("Path error: {}", e)))?;
-            doc.touch();
-
-            // Store updated document
-            let serialized = Self::serialize_doc(&doc)?;
-            txn.put(key.clone(), serialized)?;
-
-            Ok((Version::counter(doc.version), new_len))
-        })
-    }
-
-    /// Atomically increment a numeric value at path
-    ///
-    /// Adds a delta to a numeric value within a document.
-    /// The operation is atomic - guaranteed not to lose increments.
-    ///
-    /// # Arguments
-    ///
-    /// * `run_id` - RunId for namespace isolation
-    /// * `doc_id` - Document containing the number
-    /// * `path` - Path to the number
-    /// * `delta` - Value to add (can be negative for decrement)
-    ///
-    /// # Returns
-    ///
-    /// * `Ok((Version, f64))` - New document version and new value
-    ///
-    /// # Errors
-    ///
-    /// * `InvalidOperation` - If document doesn't exist
-    /// * `InvalidOperation` - If path doesn't point to a number
-    ///
-    /// # Example
-    ///
-    /// ```ignore
-    /// // Increment counter
-    /// let (version, new_val) = json.increment(
-    ///     &run_id,
-    ///     &doc_id,
-    ///     &"views".parse()?,
-    ///     1.0,
-    /// )?;
-    /// println!("View count is now {}", new_val);
-    /// ```
-    pub fn increment(
-        &self,
-        run_id: &RunId,
-        doc_id: &str,
-        path: &JsonPath,
-        delta: f64,
-    ) -> Result<(Version, f64)> {
-        // Validate path
-        path.validate().map_err(limit_error_to_error)?;
-
-        let key = self.key_for(run_id, doc_id);
-
-        self.db.transaction(*run_id, |txn| {
-            // Load existing document
-            let stored = txn.get(&key)?.ok_or_else(|| {
-                StrataError::invalid_input(format!("JSON document {} not found", doc_id))
-            })?;
-            let mut doc = Self::deserialize_doc(&stored)?;
-
-            // Get the current value at path
-            let current_value = match get_at_path(&doc.value, path) {
-                Some(val) => {
-                    // Try to get as number
-                    if let Some(n) = val.as_f64() {
-                        n
-                    } else if let Some(n) = val.as_i64() {
-                        n as f64
-                    } else {
-                        return Err(StrataError::invalid_input(format!(
-                            "Path '{}' does not point to a number",
-                            path
-                        )));
+                // Apply prefix filter if specified
+                if let Some(p) = prefix {
+                    if !doc.id.starts_with(p) {
+                        continue;
                     }
                 }
-                None => {
-                    return Err(StrataError::invalid_input(format!(
-                        "Path '{}' does not exist",
-                        path
-                    )));
+
+                doc_ids.push(doc.id);
+
+                // Collect limit + 1 to detect if there are more
+                if doc_ids.len() > limit {
+                    break;
                 }
-            };
+            }
 
-            // Calculate new value
-            let new_value = current_value + delta;
-
-            // Update document
-            let new_json_value = if new_value.fract() == 0.0 && new_value >= i64::MIN as f64 && new_value <= i64::MAX as f64 {
-                // Store as integer if it's a whole number
-                JsonValue::from(new_value as i64)
+            // If we have more than limit, pop the last and use it as cursor
+            let next_cursor = if doc_ids.len() > limit {
+                doc_ids.pop(); // Remove the extra item
+                doc_ids.last().cloned()
             } else {
-                JsonValue::from(new_value)
+                None
             };
-            set_at_path(&mut doc.value, path, new_json_value)
-                .map_err(|e| StrataError::invalid_input(format!("Path error: {}", e)))?;
-            doc.touch();
 
-            // Store updated document
-            let serialized = Self::serialize_doc(&doc)?;
-            txn.put(key.clone(), serialized)?;
-
-            Ok((Version::counter(doc.version), new_value))
+            Ok(JsonListResult { doc_ids, next_cursor })
         })
     }
 
-    /// Atomically pop a value from an array at path
-    ///
-    /// Removes and returns the last element from an array within a document.
-    /// The operation is atomic.
-    ///
-    /// # Arguments
-    ///
-    /// * `run_id` - RunId for namespace isolation
-    /// * `doc_id` - Document containing the array
-    /// * `path` - Path to the array
-    ///
-    /// # Returns
-    ///
-    /// * `Ok((Version, Some(value)))` - New version and popped value
-    /// * `Ok((Version, None))` - New version but array was empty
-    ///
-    /// # Errors
-    ///
-    /// * `InvalidOperation` - If document doesn't exist
-    /// * `InvalidOperation` - If path doesn't point to an array
-    ///
-    /// # Example
-    ///
-    /// ```ignore
-    /// // Pop from array
-    /// let (version, popped) = json.array_pop(&run_id, &doc_id, &"items".parse()?)?;
-    /// match popped {
-    ///     Some(val) => println!("Popped: {:?}", val),
-    ///     None => println!("Array was empty"),
-    /// }
-    /// ```
-    pub fn array_pop(
-        &self,
-        run_id: &RunId,
-        doc_id: &str,
-        path: &JsonPath,
-    ) -> Result<(Version, Option<JsonValue>)> {
-        // Validate path
-        path.validate().map_err(limit_error_to_error)?;
-
-        let key = self.key_for(run_id, doc_id);
-
-        self.db.transaction(*run_id, |txn| {
-            // Load existing document
-            let stored = txn.get(&key)?.ok_or_else(|| {
-                StrataError::invalid_input(format!("JSON document {} not found", doc_id))
-            })?;
-            let mut doc = Self::deserialize_doc(&stored)?;
-
-            // Get the array at path
-            let mut arr = match get_at_path(&doc.value, path) {
-                Some(val) => match val.as_array() {
-                    Some(arr) => arr.clone(),
-                    None => {
-                        return Err(StrataError::invalid_input(format!(
-                            "Path '{}' does not point to an array",
-                            path
-                        )));
-                    }
-                },
-                None => {
-                    return Err(StrataError::invalid_input(format!(
-                        "Path '{}' does not exist",
-                        path
-                    )));
-                }
-            };
-
-            // Pop the last element
-            let popped = arr.pop().map(JsonValue::from);
-
-            // Update document
-            let new_array = JsonValue::from(serde_json::Value::Array(arr));
-            set_at_path(&mut doc.value, path, new_array)
-                .map_err(|e| StrataError::invalid_input(format!("Path error: {}", e)))?;
-            doc.touch();
-
-            // Store updated document
-            let serialized = Self::serialize_doc(&doc)?;
-            txn.put(key.clone(), serialized)?;
-
-            Ok((Version::counter(doc.version), popped))
-        })
-    }
-
-    /// Query documents by exact field match
-    ///
-    /// Finds documents where the value at the specified path exactly matches
-    /// the given value. Unlike search (fuzzy text matching), query performs
-    /// exact equality comparison.
-    ///
-    /// # Arguments
-    ///
-    /// * `run_id` - RunId for namespace isolation
-    /// * `path` - Path within documents to compare
-    /// * `value` - Value to match exactly
-    /// * `limit` - Maximum number of results to return
-    ///
-    /// # Returns
-    ///
-    /// * `Ok(Vec<String>)` - Document IDs with matching value at path
-    ///
-    /// # Example
-    ///
-    /// ```ignore
-    /// // Find all documents where status == "active"
-    /// let active_docs = json.query(
-    ///     &run_id,
-    ///     &"status".parse()?,
-    ///     &JsonValue::from("active"),
-    ///     100,
-    /// )?;
-    ///
-    /// // Find all orders for a specific user
-    /// let user_orders = json.query(
-    ///     &run_id,
-    ///     &"user_id".parse()?,
-    ///     &JsonValue::from(user_id),
-    ///     50,
-    /// )?;
-    /// ```
-    pub fn query(
-        &self,
-        run_id: &RunId,
-        path: &JsonPath,
-        value: &JsonValue,
-        limit: usize,
-    ) -> Result<Vec<String>> {
-        // Validate path limits
-        path.validate().map_err(limit_error_to_error)?;
-
-        let snapshot = self.db.storage().create_snapshot();
-        let ns = self.namespace_for_run(run_id);
-        let scan_prefix = Key::new_json_prefix(ns);
-
-        let mut results = Vec::new();
-
-        for (_key, versioned_value) in snapshot.scan_prefix(&scan_prefix)? {
-            // Deserialize document
-            let doc = match Self::deserialize_doc(&versioned_value.value) {
-                Ok(d) => d,
-                Err(_) => continue, // Skip invalid documents
-            };
-
-            // Check if value at path matches
-            if let Some(doc_value) = get_at_path(&doc.value, path) {
-                if doc_value == value {
-                    results.push(doc.id);
-                    if results.len() >= limit {
-                        break;
-                    }
-                }
-            }
-        }
-
-        Ok(results)
-    }
-
-    // ========================================================================
-    // Search API
-    // ========================================================================
-
-    /// Search JSON documents
-    ///
-    /// Flattens JSON structure into searchable text and scores against query.
-    /// Respects budget constraints (time and candidate limits).
-    ///
-    /// # Example
-    ///
-    /// ```ignore
-    /// use crate::SearchRequest;
-    ///
-    /// let response = json.search(&SearchRequest::new(run_id, "Alice"))?;
-    /// for hit in response.hits {
-    ///     println!("Found doc {:?} with score {}", hit.doc_ref, hit.score);
-    /// }
-    /// ```
-    pub fn search(
-        &self,
-        req: &crate::SearchRequest,
-    ) -> strata_core::error::Result<crate::SearchResponse> {
-        use crate::primitives::searchable::{build_search_response, SearchCandidate};
-        use crate::search_types::EntityRef;
-        use std::time::Instant;
-
-        let start = Instant::now();
-        let snapshot = self.db.storage().create_snapshot();
-        let ns = self.namespace_for_run(&req.run_id);
-        let scan_prefix = Key::new_json_prefix(ns);
-
-        let mut candidates = Vec::new();
-        let mut truncated = false;
-
-        // Scan all JSON documents for this run
-        for (_key, versioned_value) in snapshot.scan_prefix(&scan_prefix)? {
-            // Check budget constraints
-            if start.elapsed().as_micros() as u64 >= req.budget.max_wall_time_micros {
-                truncated = true;
-                break;
-            }
-            if candidates.len() >= req.budget.max_candidates_per_primitive {
-                truncated = true;
-                break;
-            }
-
-            // Deserialize document
-            let doc = match Self::deserialize_doc(&versioned_value.value) {
-                Ok(d) => d,
-                Err(_) => continue, // Skip invalid documents
-            };
-
-            // Time range filter
-            if let Some((start_ts, end_ts)) = req.time_range {
-                let ts = doc.updated_at as u64;
-                if ts < start_ts || ts > end_ts {
-                    continue;
-                }
-            }
-
-            // Extract searchable text by flattening JSON
-            let text = self.flatten_json(&doc.value);
-
-            candidates.push(SearchCandidate::new(
-                EntityRef::Json {
-                    run_id: req.run_id,
-                    doc_id: doc.id,
-                },
-                text,
-                Some(doc.updated_at as u64),
-            ));
-        }
-
-        Ok(build_search_response(
-            candidates,
-            &req.query,
-            req.k,
-            truncated,
-            start.elapsed().as_micros() as u64,
-        ))
-    }
-
-    /// Flatten JSON into searchable text
-    ///
-    /// Recursively extracts all string values and creates "path: value" pairs
-    /// for better search context.
-    fn flatten_json(&self, value: &JsonValue) -> String {
-        let mut parts = Vec::new();
-        self.flatten_recursive(value.as_inner(), &mut parts, "");
-        parts.join(" ")
-    }
-
-    /// Recursively flatten JSON value
-    fn flatten_recursive(&self, value: &serde_json::Value, parts: &mut Vec<String>, path: &str) {
-        use serde_json::Value as JV;
-
-        match value {
-            JV::String(s) => {
-                parts.push(s.clone());
-                if !path.is_empty() {
-                    parts.push(format!("{}: {}", path, s));
-                }
-            }
-            JV::Number(n) => {
-                parts.push(format!("{}", n));
-            }
-            JV::Bool(b) => {
-                parts.push(format!("{}", b));
-            }
-            JV::Array(arr) => {
-                for (i, item) in arr.iter().enumerate() {
-                    let child_path = if path.is_empty() {
-                        format!("[{}]", i)
-                    } else {
-                        format!("{}[{}]", path, i)
-                    };
-                    self.flatten_recursive(item, parts, &child_path);
-                }
-            }
-            JV::Object(obj) => {
-                for (k, v) in obj.iter() {
-                    let child_path = if path.is_empty() {
-                        k.clone()
-                    } else {
-                        format!("{}.{}", path, k)
-                    };
-                    parts.push(k.clone()); // Include field names as searchable
-                    self.flatten_recursive(v, parts, &child_path);
-                }
-            }
-            JV::Null => {}
-        }
-    }
 }
 
 // ========== Searchable Trait Implementation ==========
@@ -1553,9 +558,10 @@ impl JsonStore {
 impl crate::primitives::searchable::Searchable for JsonStore {
     fn search(
         &self,
-        req: &crate::SearchRequest,
+        _req: &crate::SearchRequest,
     ) -> strata_core::error::Result<crate::SearchResponse> {
-        self.search(req)
+        // Search is handled by the intelligence layer, not the primitive
+        Ok(crate::SearchResponse::empty())
     }
 
     fn primitive_kind(&self) -> strata_core::PrimitiveType {
@@ -2074,61 +1080,6 @@ mod tests {
     }
 
     #[test]
-    fn test_get_doc() {
-        let db = Database::builder().in_memory().open_temp().unwrap();
-        let store = JsonStore::new(db);
-        let run_id = RunId::new();
-        let doc_id = "test-doc";
-
-        store
-            .create(&run_id, &doc_id, JsonValue::from(42i64))
-            .unwrap();
-
-        let versioned_doc = store.get_doc(&run_id, &doc_id).unwrap().unwrap();
-        let doc = versioned_doc.value;
-        assert_eq!(doc.id, doc_id);
-        assert_eq!(doc.version, 1);
-        assert_eq!(doc.value, JsonValue::from(42i64));
-    }
-
-    #[test]
-    fn test_get_doc_missing() {
-        let db = Database::builder().in_memory().open_temp().unwrap();
-        let store = JsonStore::new(db);
-        let run_id = RunId::new();
-        let doc_id = "test-doc";
-
-        let result = store.get_doc(&run_id, &doc_id).unwrap();
-        assert!(result.is_none());
-    }
-
-    #[test]
-    fn test_get_version() {
-        let db = Database::builder().in_memory().open_temp().unwrap();
-        let store = JsonStore::new(db);
-        let run_id = RunId::new();
-        let doc_id = "test-doc";
-
-        store
-            .create(&run_id, &doc_id, JsonValue::from(42i64))
-            .unwrap();
-
-        let version = store.get_version(&run_id, &doc_id).unwrap();
-        assert_eq!(version, Some(1));
-    }
-
-    #[test]
-    fn test_get_version_missing() {
-        let db = Database::builder().in_memory().open_temp().unwrap();
-        let store = JsonStore::new(db);
-        let run_id = RunId::new();
-        let doc_id = "test-doc";
-
-        let version = store.get_version(&run_id, &doc_id).unwrap();
-        assert!(version.is_none());
-    }
-
-    #[test]
     fn test_exists() {
         let db = Database::builder().in_memory().open_temp().unwrap();
         let store = JsonStore::new(db);
@@ -2250,10 +1201,10 @@ mod tests {
         let run_id = RunId::new();
         let doc_id = "test-doc";
 
-        store.create(&run_id, &doc_id, JsonValue::object()).unwrap();
-        assert_eq!(store.get_version(&run_id, &doc_id).unwrap(), Some(1));
+        let v1 = store.create(&run_id, &doc_id, JsonValue::object()).unwrap();
+        assert_eq!(v1, Version::counter(1));
 
-        store
+        let v2 = store
             .set(
                 &run_id,
                 &doc_id,
@@ -2261,9 +1212,9 @@ mod tests {
                 JsonValue::from(1i64),
             )
             .unwrap();
-        assert_eq!(store.get_version(&run_id, &doc_id).unwrap(), Some(2));
+        assert_eq!(v2, Version::counter(2));
 
-        store
+        let v3 = store
             .set(
                 &run_id,
                 &doc_id,
@@ -2271,7 +1222,7 @@ mod tests {
                 JsonValue::from(2i64),
             )
             .unwrap();
-        assert_eq!(store.get_version(&run_id, &doc_id).unwrap(), Some(3));
+        assert_eq!(v3, Version::counter(3));
     }
 
     #[test]
@@ -2467,18 +1418,18 @@ mod tests {
             "c": 3
         })
         .into();
-        store.create(&run_id, &doc_id, value).unwrap();
-        assert_eq!(store.get_version(&run_id, &doc_id).unwrap(), Some(1));
+        let v1 = store.create(&run_id, &doc_id, value).unwrap();
+        assert_eq!(v1, Version::counter(1));
 
-        store
+        let v2 = store
             .delete_at_path(&run_id, &doc_id, &"a".parse().unwrap())
             .unwrap();
-        assert_eq!(store.get_version(&run_id, &doc_id).unwrap(), Some(2));
+        assert_eq!(v2, Version::counter(2));
 
-        store
+        let v3 = store
             .delete_at_path(&run_id, &doc_id, &"b".parse().unwrap())
             .unwrap();
-        assert_eq!(store.get_version(&run_id, &doc_id).unwrap(), Some(3));
+        assert_eq!(v3, Version::counter(3));
     }
 
     #[test]

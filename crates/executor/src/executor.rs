@@ -101,7 +101,7 @@ impl Executor {
                 crate::handlers::kv::kv_list(&self.primitives, run, prefix)
             }
 
-            // JSON commands
+            // JSON commands (4 MVP)
             Command::JsonSet {
                 run,
                 key,
@@ -119,36 +119,6 @@ impl Executor {
                 let run = run.expect("resolved by resolve_default_run");
                 crate::handlers::json::json_delete(&self.primitives, run, key, path)
             }
-            Command::JsonMerge {
-                run,
-                key,
-                path,
-                patch,
-            } => {
-                let run = run.expect("resolved by resolve_default_run");
-                crate::handlers::json::json_merge(&self.primitives, run, key, path, patch)
-            }
-            Command::JsonHistory {
-                run,
-                key,
-                limit,
-                before,
-            } => {
-                let run = run.expect("resolved by resolve_default_run");
-                crate::handlers::json::json_history(&self.primitives, run, key, limit, before)
-            }
-            Command::JsonExists { run, key } => {
-                let run = run.expect("resolved by resolve_default_run");
-                crate::handlers::json::json_exists(&self.primitives, run, key)
-            }
-            Command::JsonGetVersion { run, key } => {
-                let run = run.expect("resolved by resolve_default_run");
-                crate::handlers::json::json_get_version(&self.primitives, run, key)
-            }
-            Command::JsonSearch { run, query, k } => {
-                let run = run.expect("resolved by resolve_default_run");
-                crate::handlers::json::json_search(&self.primitives, run, query, k)
-            }
             Command::JsonList {
                 run,
                 prefix,
@@ -157,66 +127,6 @@ impl Executor {
             } => {
                 let run = run.expect("resolved by resolve_default_run");
                 crate::handlers::json::json_list(&self.primitives, run, prefix, cursor, limit)
-            }
-            Command::JsonCas {
-                run,
-                key,
-                expected_version,
-                path,
-                value,
-            } => {
-                let run = run.expect("resolved by resolve_default_run");
-                crate::handlers::json::json_cas(
-                    &self.primitives,
-                    run,
-                    key,
-                    expected_version,
-                    path,
-                    value,
-                )
-            }
-            Command::JsonQuery {
-                run,
-                path,
-                value,
-                limit,
-            } => {
-                let run = run.expect("resolved by resolve_default_run");
-                crate::handlers::json::json_query(&self.primitives, run, path, value, limit)
-            }
-            Command::JsonCount { run } => {
-                let run = run.expect("resolved by resolve_default_run");
-                crate::handlers::json::json_count(&self.primitives, run)
-            }
-            Command::JsonBatchGet { run, keys } => {
-                let run = run.expect("resolved by resolve_default_run");
-                crate::handlers::json::json_batch_get(&self.primitives, run, keys)
-            }
-            Command::JsonBatchCreate { run, docs } => {
-                let run = run.expect("resolved by resolve_default_run");
-                crate::handlers::json::json_batch_create(&self.primitives, run, docs)
-            }
-            Command::JsonArrayPush {
-                run,
-                key,
-                path,
-                values,
-            } => {
-                let run = run.expect("resolved by resolve_default_run");
-                crate::handlers::json::json_array_push(&self.primitives, run, key, path, values)
-            }
-            Command::JsonIncrement {
-                run,
-                key,
-                path,
-                delta,
-            } => {
-                let run = run.expect("resolved by resolve_default_run");
-                crate::handlers::json::json_increment(&self.primitives, run, key, path, delta)
-            }
-            Command::JsonArrayPop { run, key, path } => {
-                let run = run.expect("resolved by resolve_default_run");
-                crate::handlers::json::json_array_pop(&self.primitives, run, key, path)
             }
 
             // Event commands
