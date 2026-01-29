@@ -5,7 +5,7 @@
 
 use crate::types::*;
 use crate::{Command, Output};
-use strata_core::Value;
+use crate::Value;
 
 /// Helper to test round-trip serialization of a Command.
 fn test_command_round_trip(cmd: Command) {

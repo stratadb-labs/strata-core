@@ -154,4 +154,8 @@ pub enum Error {
     /// Internal error (bug or invariant violation)
     #[error("internal error: {reason}")]
     Internal { reason: String },
+
+    /// Feature not yet implemented
+    #[error("not implemented: {feature} - {reason}")]
+    NotImplemented { feature: String, reason: String },
 }

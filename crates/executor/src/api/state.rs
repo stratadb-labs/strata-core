@@ -1,8 +1,7 @@
 //! State cell operations.
 
 use super::Strata;
-use strata_core::Value;
-use crate::{Command, Error, Output, Result};
+use crate::{Command, Error, Output, Result, Value};
 use crate::types::*;
 
 impl Strata {
@@ -11,11 +10,11 @@ impl Strata {
     // =========================================================================
 
     /// Set a state cell value.
-    pub fn state_set(&self, cell: &str, value: Value) -> Result<u64> {
+    pub fn state_set(&self, cell: &str, value: impl Into<Value>) -> Result<u64> {
         match self.executor.execute(Command::StateSet {
             run: self.run_id(),
             cell: cell.to_string(),
-            value,
+            value: value.into(),
         })? {
             Output::Version(v) => Ok(v),
             _ => Err(Error::Internal {
@@ -42,13 +41,13 @@ impl Strata {
         &self,
         cell: &str,
         expected_counter: Option<u64>,
-        value: Value,
+        value: impl Into<Value>,
     ) -> Result<Option<u64>> {
         match self.executor.execute(Command::StateCas {
             run: self.run_id(),
             cell: cell.to_string(),
             expected_counter,
-            value,
+            value: value.into(),
         })? {
             Output::MaybeVersion(v) => Ok(v),
             _ => Err(Error::Internal {
@@ -104,11 +103,11 @@ impl Strata {
     }
 
     /// Initialize a state cell (only if it doesn't exist).
-    pub fn state_init(&self, cell: &str, value: Value) -> Result<u64> {
+    pub fn state_init(&self, cell: &str, value: impl Into<Value>) -> Result<u64> {
         match self.executor.execute(Command::StateInit {
             run: self.run_id(),
             cell: cell.to_string(),
-            value,
+            value: value.into(),
         })? {
             Output::Version(v) => Ok(v),
             _ => Err(Error::Internal {

@@ -123,11 +123,12 @@ Run management uses a **layered API** design that balances simplicity with power
 │                                                                 │
 │  Simple Run Context (90% of users)    Power API (10% of users) │
 │  ┌─────────────────────────────┐     ┌─────────────────────────┐│
-│  │ db.checkout_run("name")     │     │ db.runs().fork(...)     ││
+│  │ db.create_run("name")       │     │ db.runs().fork(...)     ││
 │  │ db.set_run("name")          │     │ db.runs().diff(...)     ││
 │  │ db.current_run()            │     │ db.runs().add_tags(...) ││
 │  │ db.list_runs()              │     │ db.runs().pause(...)    ││
 │  │ db.delete_run("name")       │     │ db.runs().query_by_tag()││
+│  │ db.fork_run("dest")         │     │                         ││
 │  └─────────────────────────────┘     └─────────────────────────┘│
 │                    │                            │                │
 │                    └──────────┬─────────────────┘                │
@@ -153,58 +154,62 @@ These methods live directly on `Strata` for everyday run management:
 
 | Git Command | Strata API | Description |
 |-------------|------------|-------------|
-| `git checkout -b <name>` | `db.checkout_run("name")` | Create if needed, switch to it |
+| `git branch <name>` | `db.create_run("name")` | Create a new blank run (stay on current) |
 | `git switch <name>` | `db.set_run("name")` | Switch to existing run |
 | (implicit) | `db.current_run()` | Get current run name |
 | `git branch` | `db.list_runs()` | List all runs |
 | `git branch -d <name>` | `db.delete_run("name")` | Delete a run |
+| `git checkout -b <name>` | `db.create_run()` + `db.set_run()` | Create and switch |
+| `git worktree add` (future) | `db.fork_run("dest")` | Copy current run to new run |
 
 ```rust
 // Simple usage - most users only need this
 let mut db = Strata::open("/data")?;
 
-db.checkout_run("agent-session")?;   // Create if needed, switch
+db.create_run("agent-session")?;     // Create a new blank run
+db.set_run("agent-session")?;        // Switch to it
 db.kv_put("key", value)?;            // Operates on current run
 
-db.set_run("other-run")?;            // Switch to existing run
+db.set_run("default")?;              // Switch to existing run
 let runs = db.list_runs()?;          // See all available runs
 db.delete_run("old-run")?;           // Clean up
 ```
 
-### Power Run API (Future)
+### Power Run API (via db.runs())
 
 Advanced operations available via `db.runs()` accessor:
 
 ```rust
 // Power user API - advanced run management
-db.runs().fork("source", "target")?;           // Copy all data to new run
-db.runs().diff("run-a", "run-b")?;             // Compare two runs
-db.runs().add_tags("run", vec!["experiment"])?; // Tag management
-db.runs().query_by_tag("experiment")?;         // Query by tag
-db.runs().pause("run")?;                       // Lifecycle management
-db.runs().get_children("parent")?;             // Genealogy
-db.runs().get_lineage("run")?;                 // Full ancestry
+db.runs().list()?;                             // List all runs
+db.runs().exists("run-name")?;                 // Check if run exists
+db.runs().create("new-run")?;                  // Create a new run
+db.runs().delete("old-run")?;                  // Delete a run
+db.runs().fork("destination")?;                // Copy current run to new run (future)
+db.runs().diff("run-a", "run-b")?;             // Compare two runs (future)
 ```
 
 **Why this split?**
 
-- **Context methods (`checkout_run`, `set_run`, `current_run`)** answer: "Where am I working?"
+- **Context methods (`create_run`, `set_run`, `current_run`)** answer: "Where am I working?"
 - **Management methods (`db.runs()`)** answer: "How do I manage runs themselves?"
 
 This mirrors git's porcelain (user-facing) vs plumbing (internal) distinction.
 
 ### MVP Scope
 
-For MVP, only the simple run context API is implemented:
+For MVP, the following run context API is implemented:
 
 | Method | Status | Description |
 |--------|--------|-------------|
-| `checkout_run(&mut self, name)` | MVP | Create if needed, switch |
-| `set_run(&mut self, name)` | MVP | Switch to existing |
+| `create_run(&self, name)` | MVP | Create a new blank run |
+| `set_run(&mut self, name)` | MVP | Switch to existing run (errors if not found) |
 | `current_run(&self)` | MVP | Get current run name |
 | `list_runs(&self)` | MVP | List all runs |
 | `delete_run(&self, name)` | MVP | Delete a run |
-| `db.runs().*` | Future | Power API accessor |
+| `fork_run(&self, dest)` | Stub | Fork current run (returns NotImplemented) |
+| `db.runs().list/create/delete/exists` | MVP | Power API accessor |
+| `db.runs().fork/diff` | Stub | Returns NotImplemented |
 
 ### Core API
 
@@ -212,26 +217,25 @@ For MVP, only the simple run context API is implemented:
 impl Strata {
     // === Construction ===
 
-    /// Create a new Strata instance wrapping the given database.
-    /// Each agent should create their own instance.
-    pub fn new(db: Arc<Database>) -> Self;
-
-    /// Convenience: Open database and create Strata in one call.
-    /// Safe to call multiple times with same path.
+    /// Open database and create Strata in one call.
     pub fn open(path: impl AsRef<Path>) -> Result<Self>;
+
+    /// Open a temporary in-memory database (for testing).
+    pub fn open_temp() -> Result<Self>;
+
+    /// Create from an existing database handle.
+    pub fn from_database(db: Arc<Database>) -> Result<Self>;
 
     // === Run Context (MVP) ===
 
-    /// Create run if it doesn't exist, then switch to it.
-    /// Like `git checkout -b`. This is the primary way to work with runs.
-    pub fn checkout_run(&mut self, name: &str) -> Result<()>;
+    /// Create a new blank run (stays on current run).
+    pub fn create_run(&self, name: &str) -> Result<()>;
 
     /// Switch to an existing run. Returns error if run doesn't exist.
-    /// Use `checkout_run()` if you want create-if-needed semantics.
     pub fn set_run(&mut self, name: &str) -> Result<()>;
 
-    /// Get the current run name. None if using default run.
-    pub fn current_run(&self) -> Option<&str>;
+    /// Get the current run name. Returns "default" initially.
+    pub fn current_run(&self) -> &str;
 
     /// List all runs.
     pub fn list_runs(&self) -> Result<Vec<String>>;
@@ -239,11 +243,14 @@ impl Strata {
     /// Delete a run. Cannot delete the current run or default run.
     pub fn delete_run(&self, name: &str) -> Result<()>;
 
-    // === Power Run API (Future) ===
+    /// Fork current run to a new destination (NOT YET IMPLEMENTED).
+    pub fn fork_run(&self, destination: &str) -> Result<()>;
+
+    // === Power Run API ===
 
     /// Access advanced run management operations.
-    /// Returns a handle for fork, diff, tags, lifecycle, etc.
-    pub fn runs(&self) -> RunsApi;
+    /// Returns a handle for list, create, delete, exists, fork, diff.
+    pub fn runs(&self) -> Runs;
 
     // === Primitives (operate on current run) ===
 
@@ -283,20 +290,22 @@ impl Strata {
 ```rust
 let database = Database::open("/data")?;
 
-// Agent 1 - operates on run-1
-let mut agent1_db = Strata::new(database.clone());
-agent1_db.checkout_run("agent-1-session")?;
+// Agent 1 - operates on agent-1-session run
+let mut agent1_db = Strata::from_database(database.clone())?;
+agent1_db.create_run("agent-1-session")?;
+agent1_db.set_run("agent-1-session")?;
 
-// Agent 2 - operates on run-2
-let mut agent2_db = Strata::new(database.clone());
-agent2_db.checkout_run("agent-2-session")?;
+// Agent 2 - operates on agent-2-session run
+let mut agent2_db = Strata::from_database(database.clone())?;
+agent2_db.create_run("agent-2-session")?;
+agent2_db.set_run("agent-2-session")?;
 
 // Concurrent operations are safe - different runs are isolated
 std::thread::spawn(move || {
-    agent1_db.kv_put("status", "working".into())?;
+    agent1_db.kv_put("status", "working")?;
 });
 std::thread::spawn(move || {
-    agent2_db.kv_put("status", "also working".into())?;
+    agent2_db.kv_put("status", "also working")?;
 });
 ```
 
@@ -337,33 +346,36 @@ File: `crates/engine/src/database.rs`
 - ✅ Fixed TOCTOU race condition
 - ✅ Singleton tests added
 
-### 2. Strata: Run Context (TODO)
+### 2. Strata: Run Context ✅
 
 File: `crates/executor/src/api/mod.rs`
 
-- Add `current_run: Option<RunId>` field
-- Add run context methods:
-  - `checkout_run(&mut self, name: &str)` - create if needed, switch
-  - `set_run(&mut self, name: &str)` - switch to existing
+- ✅ Added `current_run: RunId` field (defaults to "default")
+- ✅ Added run context methods:
+  - `create_run(&self, name: &str)` - create a new blank run
+  - `set_run(&mut self, name: &str)` - switch to existing run
   - `current_run(&self)` - get current run name
   - `list_runs(&self)` - list all runs
   - `delete_run(&self, name: &str)` - delete a run
-- Modify all primitive methods to use `self.current_run.clone()` instead of `None`
+  - `fork_run(&self, dest: &str)` - stub (NotImplemented)
+- ✅ Added `db.runs()` power API accessor
+- ✅ All primitive methods use `self.current_run.clone()`
 
 ### 3. Commands: No Change Needed
 
 The command structure already has `run: Option<RunId>`. Strata fills in `run: self.current_run.clone()` when building commands.
 
-### 4. Hide RunIndex (TODO)
+### 4. Hide RunIndex ✅
 
-- RunIndex becomes internal plumbing
-- Users access run management through Strata methods
-- Future: `db.runs()` accessor for power API
+- ✅ RunIndex is internal plumbing
+- ✅ Users access run management through Strata methods
+- ✅ `db.runs()` accessor for power API
 
 ```rust
 // User sees this:
-db.checkout_run("my-session")?;
-db.kv_put("key", value)?;
+db.create_run("my-session")?;
+db.set_run("my-session")?;
+db.kv_put("key", "value")?;
 
 // NOT this:
 let run_index = RunIndex::new(database);
@@ -382,19 +394,20 @@ run_index.create_run(...)?;
 - Fixed TOCTOU race condition
 - PR #786 merged
 
-### Phase 3: Run Context (Current)
-- Add `current_run` field to Strata
-- Add `checkout_run()`, `set_run()`, `current_run()`, `list_runs()`, `delete_run()`
-- Modify all primitive methods to use `current_run`
-- Hide RunIndex as internal plumbing
+### Phase 3: Run Context ✅
+- ✅ Added `current_run` field to Strata
+- ✅ Added `create_run()`, `set_run()`, `current_run()`, `list_runs()`, `delete_run()`, `fork_run()` (stub)
+- ✅ Modified all primitive methods to use `current_run`
+- ✅ Hide RunIndex as internal plumbing
+- ✅ Added `db.runs()` power API accessor
 
 ### Phase 4: Simplify Other Primitive APIs
 - Apply MVP pattern to Event, State, JSON, Vector
 - Make primitive constructors `pub(crate)`
 
 ### Phase 5: Power Run API (Future)
-- Add `db.runs()` accessor for advanced operations
-- Implement `fork_run()`, `diff_runs()`
+- Implement `fork_run()` (copy data to new run)
+- Implement `diff_runs()` (compare two runs)
 - Expose tags, lifecycle, genealogy via power API
 
 ## Examples
@@ -415,18 +428,20 @@ let config = db.kv_get("config")?;
 let database = Database::open("/shared/data")?;
 
 // Agent 1 - customer support context
-let mut db1 = Strata::new(database.clone());
-db1.checkout_run("customer-support-session")?;
+let mut db1 = Strata::from_database(database.clone())?;
+db1.create_run("customer-support-session")?;
+db1.set_run("customer-support-session")?;
 db1.kv_put("context", customer_data)?;
 db1.event_append("actions", json!({"action": "lookup"}))?;
 
 // Agent 2 - research context (different run, isolated)
-let mut db2 = Strata::new(database.clone());
-db2.checkout_run("research-session")?;
+let mut db2 = Strata::from_database(database.clone())?;
+db2.create_run("research-session")?;
+db2.set_run("research-session")?;
 db2.kv_put("context", research_query)?;
 
 // Agent 3 - same run as Agent 1 (shared context)
-let mut db3 = Strata::new(database.clone());
+let mut db3 = Strata::from_database(database.clone())?;
 db3.set_run("customer-support-session")?;  // Join existing run
 let context = db3.kv_get("context")?;       // Sees Agent 1's data
 ```
@@ -434,8 +449,9 @@ let context = db3.kv_get("context")?;       // Sees Agent 1's data
 ### Session/Transaction Usage
 
 ```rust
-let db = Strata::open("/data")?;
-db.checkout_run("my-run")?;
+let mut db = Strata::open("/data")?;
+db.create_run("my-run")?;
+db.set_run("my-run")?;
 
 // Multi-operation transaction
 db.transaction(|txn| {
@@ -451,15 +467,18 @@ db.transaction(|txn| {
 ### fork_run: Copy Data Between Runs
 
 ```rust
-// Create "experiment-v2" with all data copied from "experiment-v1"
-db.runs().fork("experiment-v1", "experiment-v2")?;
+// Create "experiment-v2" with all data copied from the current run
+db.set_run("experiment-v1")?;
+db.runs().fork("experiment-v2")?;  // Fork current run to experiment-v2
+// OR use the convenience method:
+db.fork_run("experiment-v2")?;
 ```
 
 **Behavior:**
-- Creates target run with `parent_id` pointing to source (for genealogy)
+- Creates target run with `parent_id` pointing to current run (for genealogy)
 - Copies all data: KV pairs, events, state cells, JSON docs, vector collections
 - New run starts in `Active` status with fresh timestamps
-- Switches context to the new run
+- Stays on the current run (use `set_run()` to switch after)
 
 **Use cases:**
 - A/B testing different approaches
@@ -501,20 +520,19 @@ let lineage = db.runs().get_lineage("run-id")?;
 let children = db.runs().get_children("run-id")?;
 ```
 
-## Open Questions
+## Open Questions (Resolved)
 
 1. **Default run name**: Should it be "default", "main", or something else?
-   - Current: Uses "default"
-   - Alternative: Use "main" to match git convention
+   - ✅ Decision: Uses "default"
 
 2. **Auto-create on set_run?**: Should `set_run("foo")` create the run if it doesn't exist?
-   - Decision: No. Use `checkout_run()` for create-if-needed semantics.
+   - ✅ Decision: No. Use `create_run()` + `set_run()` for explicit semantics.
    - `set_run()` returns error if run doesn't exist (explicit is better).
 
 3. **Run persistence**: Should "current run" persist across restarts?
-   - Decision: No. Always start at default run.
+   - ✅ Decision: No. Always start at default run.
    - Rationale: Strata instances are per-agent, not persisted entities.
 
 4. **Strata cloning**: Should `Strata` be `Clone`?
-   - Decision: No. Each agent should create their own instance.
+   - ✅ Decision: No. Each agent should create their own instance.
    - Rationale: Cloning would create confusion about shared vs independent context.

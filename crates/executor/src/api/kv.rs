@@ -1,8 +1,7 @@
 //! Key-value store operations.
 
 use super::Strata;
-use strata_core::Value;
-use crate::{Command, Error, Output, Result};
+use crate::{Command, Error, Output, Result, Value};
 
 impl Strata {
     // =========================================================================
@@ -14,12 +13,26 @@ impl Strata {
     /// Creates the key if it doesn't exist, overwrites if it does.
     /// Returns the version created by this write operation.
     ///
-    /// The value is stored in the current run context.
-    pub fn kv_put(&self, key: &str, value: Value) -> Result<u64> {
+    /// Accepts any type that implements `Into<Value>`:
+    /// - `&str`, `String` → `Value::String`
+    /// - `i32`, `i64` → `Value::Int`
+    /// - `f32`, `f64` → `Value::Float`
+    /// - `bool` → `Value::Bool`
+    /// - `Vec<u8>`, `&[u8]` → `Value::Bytes`
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// db.kv_put("name", "Alice")?;
+    /// db.kv_put("age", 30i64)?;
+    /// db.kv_put("score", 95.5)?;
+    /// db.kv_put("active", true)?;
+    /// ```
+    pub fn kv_put(&self, key: &str, value: impl Into<Value>) -> Result<u64> {
         match self.executor.execute(Command::KvPut {
             run: self.run_id(),
             key: key.to_string(),
-            value,
+            value: value.into(),
         })? {
             Output::Version(v) => Ok(v),
             _ => Err(Error::Internal {

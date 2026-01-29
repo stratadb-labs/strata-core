@@ -1,7 +1,7 @@
 //! Session tests: verify transactional session lifecycle and routing.
 
 use crate::{Command, Error, Output, Session};
-use strata_core::Value;
+use crate::Value;
 use strata_engine::Database;
 use std::sync::Arc;
 

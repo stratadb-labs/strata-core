@@ -1,8 +1,7 @@
 //! JSON document store operations.
 
 use super::Strata;
-use strata_core::Value;
-use crate::{Command, Error, Output, Result};
+use crate::{Command, Error, Output, Result, Value};
 use crate::types::*;
 
 impl Strata {
@@ -11,12 +10,12 @@ impl Strata {
     // =========================================================================
 
     /// Set a JSON value at a path.
-    pub fn json_set(&self, key: &str, path: &str, value: Value) -> Result<u64> {
+    pub fn json_set(&self, key: &str, path: &str, value: impl Into<Value>) -> Result<u64> {
         match self.executor.execute(Command::JsonSet {
             run: self.run_id(),
             key: key.to_string(),
             path: path.to_string(),
-            value,
+            value: value.into(),
         })? {
             Output::Version(v) => Ok(v),
             _ => Err(Error::Internal {
@@ -54,12 +53,12 @@ impl Strata {
     }
 
     /// Merge a value at a path (RFC 7396 JSON Merge Patch).
-    pub fn json_merge(&self, key: &str, path: &str, patch: Value) -> Result<u64> {
+    pub fn json_merge(&self, key: &str, path: &str, patch: impl Into<Value>) -> Result<u64> {
         match self.executor.execute(Command::JsonMerge {
             run: self.run_id(),
             key: key.to_string(),
             path: path.to_string(),
-            patch,
+            patch: patch.into(),
         })? {
             Output::Version(v) => Ok(v),
             _ => Err(Error::Internal {
@@ -154,14 +153,14 @@ impl Strata {
         key: &str,
         expected_version: u64,
         path: &str,
-        value: Value,
+        value: impl Into<Value>,
     ) -> Result<u64> {
         match self.executor.execute(Command::JsonCas {
             run: self.run_id(),
             key: key.to_string(),
             expected_version,
             path: path.to_string(),
-            value,
+            value: value.into(),
         })? {
             Output::Version(v) => Ok(v),
             _ => Err(Error::Internal {
@@ -171,11 +170,11 @@ impl Strata {
     }
 
     /// Query documents by exact field match.
-    pub fn json_query(&self, path: &str, value: Value, limit: u64) -> Result<Vec<String>> {
+    pub fn json_query(&self, path: &str, value: impl Into<Value>, limit: u64) -> Result<Vec<String>> {
         match self.executor.execute(Command::JsonQuery {
             run: self.run_id(),
             path: path.to_string(),
-            value,
+            value: value.into(),
             limit,
         })? {
             Output::Keys(keys) => Ok(keys),

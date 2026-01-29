@@ -5,7 +5,7 @@
 
 use crate::types::*;
 use crate::{Command, Executor, Output};
-use strata_core::Value;
+use crate::Value;
 use std::sync::Arc;
 
 /// Create a test executor with an in-memory database.
