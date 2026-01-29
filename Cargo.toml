@@ -91,11 +91,7 @@ comparison-benchmarks = ["dep:redb", "dep:heed", "dep:rusqlite"]
 usearch-enabled = ["dep:usearch"]
 
 [dependencies]
-strata-core = { path = "crates/core" }
-strata-storage = { path = "crates/storage" }
-strata-concurrency = { path = "crates/concurrency" }
-strata-durability = { path = "crates/durability" }
-strata-engine = { path = "crates/engine" }
+strata-executor = { path = "crates/executor" }
 thiserror = { workspace = true }
 serde_json = { workspace = true }
 uuid = { workspace = true }
@@ -114,8 +110,13 @@ serde = { workspace = true }
 rustc-hash = { workspace = true }
 proptest = { workspace = true }
 parking_lot = { workspace = true }
+# Internal crates for testing only
+strata-core = { path = "crates/core" }
+strata-storage = { path = "crates/storage" }
+strata-concurrency = { path = "crates/concurrency" }
+strata-durability = { path = "crates/durability" }
+strata-engine = { path = "crates/engine" }
 strata-intelligence = { path = "crates/intelligence" }
-strata-executor = { path = "crates/executor" }
 uuid = { workspace = true }
 crc32fast = "1.3"
 base64 = "0.21"

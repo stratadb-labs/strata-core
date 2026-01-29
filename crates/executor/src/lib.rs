@@ -59,12 +59,12 @@
 //! 4. **Serialization is lossless** - JSON round-trip preserves exact values
 //! 5. **No executable code** - Commands are data, not closures
 
-pub mod bridge;
+pub(crate) mod bridge;
 mod command;
 mod convert;
 mod error;
 mod executor;
-pub mod json;
+pub(crate) mod json;
 mod output;
 mod session;
 mod api;

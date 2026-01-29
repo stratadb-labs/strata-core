@@ -640,11 +640,11 @@ impl Database {
         Ok(db)
     }
 
-    /// Get reference to the storage layer
+    /// Get reference to the storage layer (internal use only)
     ///
-    /// Use this to perform read/write operations on the database.
-    /// The returned reference can also be used to create O(1) lazy snapshots.
-    pub fn storage(&self) -> &Arc<ShardedStore> {
+    /// This is for internal engine use. External users should use
+    /// primitives (KVStore, EventLog, etc.) which go through transactions.
+    pub(crate) fn storage(&self) -> &Arc<ShardedStore> {
         &self.storage
     }
 
