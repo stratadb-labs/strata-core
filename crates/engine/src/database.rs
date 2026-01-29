@@ -573,14 +573,16 @@ impl Database {
         // Canonicalize path for consistent registry keys
         let canonical_path = data_dir.canonicalize().map_err(StrataError::from)?;
 
+        // Hold lock for entire operation to prevent TOCTOU race condition
+        // This ensures only one thread creates a database for a given path.
+        // For the common case (database already open), this is still fast.
+        let mut registry = OPEN_DATABASES.lock().unwrap();
+
         // Check registry for existing instance
-        {
-            let registry = OPEN_DATABASES.lock().unwrap();
-            if let Some(weak) = registry.get(&canonical_path) {
-                if let Some(db) = weak.upgrade() {
-                    info!(path = ?canonical_path, "Returning existing database instance");
-                    return Ok(db);
-                }
+        if let Some(weak) = registry.get(&canonical_path) {
+            if let Some(db) = weak.upgrade() {
+                info!(path = ?canonical_path, "Returning existing database instance");
+                return Ok(db);
             }
         }
 
@@ -623,11 +625,11 @@ impl Database {
             extensions: DashMap::new(),
         });
 
-        // Register in global registry
-        {
-            let mut registry = OPEN_DATABASES.lock().unwrap();
-            registry.insert(canonical_path, Arc::downgrade(&db));
-        }
+        // Register in global registry (lock already held)
+        registry.insert(canonical_path, Arc::downgrade(&db));
+
+        // Release lock before running primitive recovery (may be slow)
+        drop(registry);
 
         // Run primitive recovery (e.g., VectorStore)
         // This must happen AFTER KV recovery completes, as primitives may
@@ -2787,6 +2789,155 @@ mod tests {
                 .unwrap();
             assert_eq!(db.durability_mode(), DurabilityMode::None);
         }
+    }
+
+    // ========================================================================
+    // Singleton Registry Tests
+    // ========================================================================
+
+    #[test]
+    fn test_open_same_path_returns_same_instance() {
+        let temp_dir = TempDir::new().unwrap();
+        let db_path = temp_dir.path().join("singleton_test");
+
+        // Open database twice with same path
+        let db1 = Database::open(&db_path).unwrap();
+        let db2 = Database::open(&db_path).unwrap();
+
+        // Both should be the same Arc (same pointer)
+        assert!(Arc::ptr_eq(&db1, &db2));
+    }
+
+    #[test]
+    fn test_open_different_paths_returns_different_instances() {
+        let temp_dir = TempDir::new().unwrap();
+        let path1 = temp_dir.path().join("db1");
+        let path2 = temp_dir.path().join("db2");
+
+        let db1 = Database::open(&path1).unwrap();
+        let db2 = Database::open(&path2).unwrap();
+
+        // Should be different instances
+        assert!(!Arc::ptr_eq(&db1, &db2));
+    }
+
+    #[test]
+    fn test_registry_cleanup_on_drop() {
+        let temp_dir = TempDir::new().unwrap();
+        let db_path = temp_dir.path().join("cleanup_test");
+
+        // Open and get the canonical path
+        let canonical_path = {
+            let db = Database::open(&db_path).unwrap();
+            db.data_dir().to_path_buf()
+        };
+        // db is dropped here, should be removed from registry
+
+        // Registry should be empty for this path (weak reference expired)
+        {
+            let registry = OPEN_DATABASES.lock().unwrap();
+            if let Some(weak) = registry.get(&canonical_path) {
+                // Weak reference should not upgrade (db was dropped)
+                assert!(weak.upgrade().is_none());
+            }
+            // Or entry was already cleaned up by Drop
+        }
+
+        // Opening again should create a new instance
+        let db_new = Database::open(&db_path).unwrap();
+        assert!(db_new.data_dir().exists());
+    }
+
+    #[test]
+    fn test_ephemeral_not_registered() {
+        // Create two ephemeral databases
+        let db1 = Database::ephemeral().unwrap();
+        let db2 = Database::ephemeral().unwrap();
+
+        // They should be different instances (not shared via registry)
+        assert!(!Arc::ptr_eq(&db1, &db2));
+    }
+
+    #[test]
+    fn test_builder_open_uses_registry() {
+        let temp_dir = TempDir::new().unwrap();
+        let db_path = temp_dir.path().join("builder_singleton");
+
+        // Open via builder
+        let db1 = Database::builder()
+            .path(&db_path)
+            .no_durability()
+            .open()
+            .unwrap();
+
+        // Open via Database::open
+        let db2 = Database::open(&db_path).unwrap();
+
+        // Should be same instance
+        assert!(Arc::ptr_eq(&db1, &db2));
+    }
+
+    #[test]
+    fn test_open_temp_creates_unique_instances() {
+        // open_temp always creates unique paths
+        let db1 = Database::builder().no_durability().open_temp().unwrap();
+        let db2 = Database::builder().no_durability().open_temp().unwrap();
+
+        // Should be different instances (different temp paths)
+        assert!(!Arc::ptr_eq(&db1, &db2));
+    }
+
+    #[test]
+    fn test_concurrent_open_same_path() {
+        use std::thread;
+
+        let temp_dir = TempDir::new().unwrap();
+        let db_path = temp_dir.path().join("concurrent_test");
+
+        // Pre-create the database
+        let _ = Database::open(&db_path).unwrap();
+
+        // Spawn multiple threads that all try to open the same path
+        let handles: Vec<_> = (0..10)
+            .map(|_| {
+                let path = db_path.clone();
+                thread::spawn(move || Database::open(&path).unwrap())
+            })
+            .collect();
+
+        // Collect all Arc<Database> results
+        let databases: Vec<_> = handles.into_iter().map(|h| h.join().unwrap()).collect();
+
+        // All should be the same instance
+        let first = &databases[0];
+        for db in &databases[1..] {
+            assert!(Arc::ptr_eq(first, db));
+        }
+    }
+
+    #[test]
+    fn test_shared_database_operations() {
+        let temp_dir = TempDir::new().unwrap();
+        let db_path = temp_dir.path().join("shared_ops_test");
+
+        let run_id = RunId::new();
+        let ns = create_test_namespace(run_id);
+
+        // Open same database in two "agents"
+        let db1 = Database::open(&db_path).unwrap();
+        let db2 = Database::open(&db_path).unwrap();
+
+        // Write via db1
+        let key = Key::new_kv(ns.clone(), "shared_key");
+        db1.transaction(run_id, |txn| {
+            txn.put(key.clone(), Value::String("from db1".into()))?;
+            Ok(())
+        })
+        .unwrap();
+
+        // Read via db2 - should see the write
+        let value = db2.storage().get(&key).unwrap().unwrap();
+        assert_eq!(value.value, Value::String("from db1".into()));
     }
 
 }
