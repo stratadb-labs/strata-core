@@ -349,18 +349,6 @@ fn value_to_json_scalar(value: &Value) -> strata_engine::JsonScalar {
 // RunStatus Conversion
 // =============================================================================
 
-/// Convert executor RunStatus to engine RunStatus.
-pub fn to_engine_run_status(status: crate::types::RunStatus) -> strata_engine::RunStatus {
-    match status {
-        crate::types::RunStatus::Active => strata_engine::RunStatus::Active,
-        crate::types::RunStatus::Completed => strata_engine::RunStatus::Completed,
-        crate::types::RunStatus::Failed => strata_engine::RunStatus::Failed,
-        crate::types::RunStatus::Cancelled => strata_engine::RunStatus::Cancelled,
-        crate::types::RunStatus::Paused => strata_engine::RunStatus::Paused,
-        crate::types::RunStatus::Archived => strata_engine::RunStatus::Archived,
-    }
-}
-
 /// Convert engine RunStatus to executor RunStatus.
 pub fn from_engine_run_status(status: strata_engine::RunStatus) -> crate::types::RunStatus {
     match status {

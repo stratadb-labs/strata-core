@@ -193,21 +193,6 @@ impl From<CanonicalValue> for Value {
     }
 }
 
-/// Convert a Command to canonical JSON string.
-pub fn to_json_string<T: Serialize>(value: &T) -> Result<String, serde_json::Error> {
-    serde_json::to_string(value)
-}
-
-/// Convert a Command to canonical pretty-printed JSON string.
-pub fn to_json_string_pretty<T: Serialize>(value: &T) -> Result<String, serde_json::Error> {
-    serde_json::to_string_pretty(value)
-}
-
-/// Parse a Command from JSON string.
-pub fn from_json_str<'a, T: Deserialize<'a>>(s: &'a str) -> Result<T, serde_json::Error> {
-    serde_json::from_str(s)
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
