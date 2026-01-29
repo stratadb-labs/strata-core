@@ -27,7 +27,7 @@ use crate::types::*;
 /// | JSON | 17 | JSON document operations |
 /// | Event | 4 | Event log operations (MVP) |
 /// | State | 4 | State cell operations (MVP) |
-/// | Vector | 19 | Vector store operations |
+/// | Vector | 7 | Vector store operations (MVP) |
 /// | Run | 5 | Run lifecycle operations (MVP) |
 /// | Transaction | 5 | Transaction control |
 /// | Retention | 3 | Retention policy |
@@ -213,7 +213,9 @@ pub enum Command {
         value: Value,
     },
 
-    // ==================== Vector (19) ====================
+    // ==================== Vector (7 MVP) ====================
+    // MVP: upsert, get, delete, search, create_collection, delete_collection, list_collections
+
     /// Insert or update a vector.
     /// Returns: `Output::Version`
     VectorUpsert {
@@ -255,14 +257,6 @@ pub enum Command {
         metric: Option<DistanceMetric>,
     },
 
-    /// Get collection information.
-    /// Returns: `Output::MaybeCollectionInfo`
-    VectorGetCollection {
-        #[serde(default, skip_serializing_if = "Option::is_none")]
-        run: Option<RunId>,
-        collection: String,
-    },
-
     /// Create a collection with explicit configuration.
     /// Returns: `Output::Version`
     VectorCreateCollection {
@@ -282,94 +276,10 @@ pub enum Command {
     },
 
     /// List all collections in a run.
-    /// Returns: `Output::CollectionInfos`
+    /// Returns: `Output::VectorCollectionList`
     VectorListCollections {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         run: Option<RunId>,
-    },
-
-    /// Check if a collection exists.
-    /// Returns: `Output::Bool`
-    VectorCollectionExists {
-        #[serde(default, skip_serializing_if = "Option::is_none")]
-        run: Option<RunId>,
-        collection: String,
-    },
-
-    /// Get the count of vectors in a collection.
-    /// Returns: `Output::Uint`
-    VectorCount {
-        #[serde(default, skip_serializing_if = "Option::is_none")]
-        run: Option<RunId>,
-        collection: String,
-    },
-
-    /// Batch insert or update vectors.
-    /// Returns: `Output::VectorBatchResults`
-    VectorUpsertBatch {
-        #[serde(default, skip_serializing_if = "Option::is_none")]
-        run: Option<RunId>,
-        collection: String,
-        vectors: Vec<VectorEntry>,
-    },
-
-    /// Batch get vectors.
-    /// Returns: `Output::MaybeVectorDatas`
-    VectorGetBatch {
-        #[serde(default, skip_serializing_if = "Option::is_none")]
-        run: Option<RunId>,
-        collection: String,
-        keys: Vec<String>,
-    },
-
-    /// Batch delete vectors.
-    /// Returns: `Output::Bools`
-    VectorDeleteBatch {
-        #[serde(default, skip_serializing_if = "Option::is_none")]
-        run: Option<RunId>,
-        collection: String,
-        keys: Vec<String>,
-    },
-
-    /// Get version history for a vector.
-    /// Returns: `Output::VectorHistoryResult`
-    VectorHistory {
-        #[serde(default, skip_serializing_if = "Option::is_none")]
-        run: Option<RunId>,
-        collection: String,
-        key: String,
-        limit: Option<u64>,
-        before_version: Option<u64>,
-    },
-
-    /// Get a vector at a specific version.
-    /// Returns: `Output::MaybeVectorData`
-    VectorGetAt {
-        #[serde(default, skip_serializing_if = "Option::is_none")]
-        run: Option<RunId>,
-        collection: String,
-        key: String,
-        version: u64,
-    },
-
-    /// List all vector keys in a collection.
-    /// Returns: `Output::Keys`
-    VectorListKeys {
-        #[serde(default, skip_serializing_if = "Option::is_none")]
-        run: Option<RunId>,
-        collection: String,
-        limit: Option<u64>,
-        cursor: Option<String>,
-    },
-
-    /// Scan vectors in a collection.
-    /// Returns: `Output::VectorScanResult`
-    VectorScan {
-        #[serde(default, skip_serializing_if = "Option::is_none")]
-        run: Option<RunId>,
-        collection: String,
-        limit: Option<u64>,
-        cursor: Option<String>,
     },
 
     // ==================== Run (5 MVP) ====================
@@ -519,24 +429,14 @@ impl Command {
             | Command::StateRead { run, .. }
             | Command::StateCas { run, .. }
             | Command::StateInit { run, .. }
-            // Vector
+            // Vector (7 MVP)
             | Command::VectorUpsert { run, .. }
             | Command::VectorGet { run, .. }
             | Command::VectorDelete { run, .. }
             | Command::VectorSearch { run, .. }
-            | Command::VectorGetCollection { run, .. }
             | Command::VectorCreateCollection { run, .. }
             | Command::VectorDeleteCollection { run, .. }
             | Command::VectorListCollections { run, .. }
-            | Command::VectorCollectionExists { run, .. }
-            | Command::VectorCount { run, .. }
-            | Command::VectorUpsertBatch { run, .. }
-            | Command::VectorGetBatch { run, .. }
-            | Command::VectorDeleteBatch { run, .. }
-            | Command::VectorHistory { run, .. }
-            | Command::VectorGetAt { run, .. }
-            | Command::VectorListKeys { run, .. }
-            | Command::VectorScan { run, .. }
             // Retention
             | Command::RetentionApply { run, .. }
             | Command::RetentionStats { run, .. }

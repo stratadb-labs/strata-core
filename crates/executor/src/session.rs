@@ -85,19 +85,9 @@ impl Session {
             | Command::VectorGet { .. }
             | Command::VectorDelete { .. }
             | Command::VectorSearch { .. }
-            | Command::VectorGetCollection { .. }
             | Command::VectorCreateCollection { .. }
             | Command::VectorDeleteCollection { .. }
             | Command::VectorListCollections { .. }
-            | Command::VectorCollectionExists { .. }
-            | Command::VectorCount { .. }
-            | Command::VectorUpsertBatch { .. }
-            | Command::VectorGetBatch { .. }
-            | Command::VectorDeleteBatch { .. }
-            | Command::VectorHistory { .. }
-            | Command::VectorGetAt { .. }
-            | Command::VectorListKeys { .. }
-            | Command::VectorScan { .. }
             | Command::Ping
             | Command::Info
             | Command::Flush

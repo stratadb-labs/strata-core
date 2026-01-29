@@ -166,21 +166,6 @@ pub struct VectorMatch {
     pub metadata: Option<Value>,
 }
 
-/// Vector batch entry (for batch operations)
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct VectorEntry {
-    pub key: String,
-    pub embedding: Vec<f32>,
-    pub metadata: Option<Value>,
-}
-
-/// Vector batch result entry
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct VectorBatchEntry {
-    pub key: String,
-    pub result: Result<u64, String>, // version or error message
-}
-
 /// Vector collection information
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct CollectionInfo {

@@ -345,11 +345,6 @@ fn test_output_strings() {
 }
 
 #[test]
-fn test_output_bools() {
-    test_output_round_trip(Output::Bools(vec![true, false, true]));
-}
-
-#[test]
 fn test_output_versions() {
     test_output_round_trip(Output::Versions(vec![1, 2, 3, 4, 5]));
 }
@@ -392,16 +387,6 @@ fn test_output_vector_matches() {
         score: 0.95,
         metadata: Some(Value::String("test".to_string())),
     }]));
-}
-
-#[test]
-fn test_output_vector_get_collection() {
-    test_output_round_trip(Output::VectorGetCollection(Some(CollectionInfo {
-        name: "embeddings".to_string(),
-        dimension: 384,
-        metric: DistanceMetric::Cosine,
-        count: 1000,
-    })));
 }
 
 #[test]

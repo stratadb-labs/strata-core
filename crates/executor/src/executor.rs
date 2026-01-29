@@ -227,10 +227,6 @@ impl Executor {
                     metric,
                 )
             }
-            Command::VectorGetCollection { run, collection } => {
-                let run = run.expect("resolved by resolve_default_run");
-                crate::handlers::vector::vector_get_collection(&self.primitives, run, collection)
-            }
             Command::VectorCreateCollection {
                 run,
                 collection,
@@ -253,82 +249,6 @@ impl Executor {
             Command::VectorListCollections { run } => {
                 let run = run.expect("resolved by resolve_default_run");
                 crate::handlers::vector::vector_list_collections(&self.primitives, run)
-            }
-            Command::VectorCollectionExists { run, collection } => {
-                let run = run.expect("resolved by resolve_default_run");
-                crate::handlers::vector::vector_collection_exists(&self.primitives, run, collection)
-            }
-            Command::VectorCount { run, collection } => {
-                let run = run.expect("resolved by resolve_default_run");
-                crate::handlers::vector::vector_count(&self.primitives, run, collection)
-            }
-            Command::VectorUpsertBatch {
-                run,
-                collection,
-                vectors,
-            } => {
-                let run = run.expect("resolved by resolve_default_run");
-                crate::handlers::vector::vector_upsert_batch(&self.primitives, run, collection, vectors)
-            }
-            Command::VectorGetBatch {
-                run,
-                collection,
-                keys,
-            } => {
-                let run = run.expect("resolved by resolve_default_run");
-                crate::handlers::vector::vector_get_batch(&self.primitives, run, collection, keys)
-            }
-            Command::VectorDeleteBatch {
-                run,
-                collection,
-                keys,
-            } => {
-                let run = run.expect("resolved by resolve_default_run");
-                crate::handlers::vector::vector_delete_batch(&self.primitives, run, collection, keys)
-            }
-            Command::VectorHistory {
-                run,
-                collection,
-                key,
-                limit,
-                before_version,
-            } => {
-                let run = run.expect("resolved by resolve_default_run");
-                crate::handlers::vector::vector_history(
-                    &self.primitives,
-                    run,
-                    collection,
-                    key,
-                    limit,
-                    before_version,
-                )
-            }
-            Command::VectorGetAt {
-                run,
-                collection,
-                key,
-                version,
-            } => {
-                let run = run.expect("resolved by resolve_default_run");
-                crate::handlers::vector::vector_get_at(&self.primitives, run, collection, key, version)
-            }
-            Command::VectorListKeys {
-                run,
-                collection,
-                limit,
-                cursor,
-            } => {
-                let run = run.expect("resolved by resolve_default_run");
-                crate::handlers::vector::vector_list_keys(&self.primitives, run, collection, limit, cursor)
-            }
-            Command::VectorScan {
-                run,
-                collection,
-                limit,
-                cursor,
-            } => {
-                let run = run.expect("resolved by resolve_default_run");
-                crate::handlers::vector::vector_scan(&self.primitives, run, collection, limit, cursor)
             }
 
             // Run commands (5 MVP)

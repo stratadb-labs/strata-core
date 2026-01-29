@@ -79,9 +79,6 @@ pub enum Output {
     /// List of strings (tags, stream names, etc.)
     Strings(Vec<String>),
 
-    /// List of booleans (batch delete results)
-    Bools(Vec<bool>),
-
     // ==================== Scan Results ====================
     /// KV scan result with cursor
     KvScanResult {
@@ -111,21 +108,6 @@ pub enum Output {
     // ==================== Vector-specific ====================
     /// Single vector data
     VectorData(Option<VersionedVectorData>),
-
-    /// Multiple vector data
-    VectorDataList(Vec<Option<VersionedVectorData>>),
-
-    /// Vector history
-    VectorDataHistory(Vec<VersionedVectorData>),
-
-    /// Vector scan result
-    VectorKeyValues(Vec<(String, VectorData)>),
-
-    /// Vector batch upsert result
-    VectorBatchResult(Vec<VectorBatchEntry>),
-
-    /// Vector collection info
-    VectorGetCollection(Option<CollectionInfo>),
 
     /// List of vector collections
     VectorCollectionList(Vec<CollectionInfo>),
