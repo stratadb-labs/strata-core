@@ -698,7 +698,7 @@ mod tests {
 
     fn setup() -> (TempDir, Arc<Database>, StateCell) {
         let temp_dir = TempDir::new().unwrap();
-        let db = Arc::new(Database::open(temp_dir.path()).unwrap());
+        let db = Database::open(temp_dir.path()).unwrap();
         let sc = StateCell::new(db.clone());
         (temp_dir, db, sc)
     }

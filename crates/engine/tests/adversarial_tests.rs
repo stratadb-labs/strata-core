@@ -41,7 +41,7 @@ use tempfile::TempDir;
 
 fn setup() -> (Arc<Database>, TempDir, RunId) {
     let temp_dir = TempDir::new().unwrap();
-    let db = Arc::new(Database::open(temp_dir.path()).unwrap());
+    let db = Database::open(temp_dir.path()).unwrap();
     let run_id = RunId::new();
     (db, temp_dir, run_id)
 }
@@ -1046,12 +1046,12 @@ fn test_run_isolation_comprehensive() {
 
     // Verify isolation
     assert_eq!(
-        kv.get(&run_a, "key").unwrap().unwrap().value,
+        kv.get(&run_a, "key").unwrap().unwrap(),
         Value::Int(1),
         "Run A should see its own KV value"
     );
     assert_eq!(
-        kv.get(&run_b, "key").unwrap().unwrap().value,
+        kv.get(&run_b, "key").unwrap().unwrap(),
         Value::Int(2),
         "Run B should see its own KV value"
     );
@@ -1068,12 +1068,12 @@ fn test_run_isolation_comprehensive() {
     );
 
     assert_eq!(
-        state_cell.read(&run_a, "cell").unwrap().unwrap().value.value,
+        state_cell.read(&run_a, "cell").unwrap().unwrap().value,
         Value::Int(100),
         "Run A should see its own state"
     );
     assert_eq!(
-        state_cell.read(&run_b, "cell").unwrap().unwrap().value.value,
+        state_cell.read(&run_b, "cell").unwrap().unwrap().value,
         Value::Int(200),
         "Run B should see its own state"
     );
@@ -1094,7 +1094,7 @@ fn test_persistence_across_reopen() {
 
     // Write data
     {
-        let db = Arc::new(Database::open(temp_dir.path()).unwrap());
+        let db = Database::open(temp_dir.path()).unwrap();
         let kv = KVStore::new(db.clone());
         let event_log = EventLog::new(db.clone());
         let state_cell = StateCell::new(db.clone());
@@ -1113,7 +1113,7 @@ fn test_persistence_across_reopen() {
 
     // Reopen and verify
     {
-        let db = Arc::new(Database::open(temp_dir.path()).unwrap());
+        let db = Database::open(temp_dir.path()).unwrap();
         let kv = KVStore::new(db.clone());
         let event_log = EventLog::new(db.clone());
         let state_cell = StateCell::new(db.clone());

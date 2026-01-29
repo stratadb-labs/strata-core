@@ -39,7 +39,7 @@ use std::sync::Arc;
 /// # Example
 ///
 /// ```ignore
-/// let db = Arc::new(Database::open("/path/to/data")?);
+/// let db = Database::open("/path/to/data")?;
 /// let kv = KVStore::new(db);
 /// let run_id = RunId::new();
 ///
@@ -203,7 +203,7 @@ mod tests {
 
     fn setup() -> (TempDir, Arc<Database>, KVStore) {
         let temp_dir = TempDir::new().unwrap();
-        let db = Arc::new(Database::open(temp_dir.path()).unwrap());
+        let db = Database::open(temp_dir.path()).unwrap();
         let kv = KVStore::new(db.clone());
         (temp_dir, db, kv)
     }
@@ -406,9 +406,9 @@ mod tests {
         kv.put(&run_id, "bool", Value::Bool(true)).unwrap();
         assert_eq!(kv.get(&run_id, "bool").unwrap(), Some(Value::Bool(true)));
 
-        // Null
+        // Null - Note: Value::Null is a tombstone, so storing it is equivalent to delete
         kv.put(&run_id, "null", Value::Null).unwrap();
-        assert_eq!(kv.get(&run_id, "null").unwrap(), Some(Value::Null));
+        assert_eq!(kv.get(&run_id, "null").unwrap(), None);
 
         // Bytes
         kv.put(&run_id, "bytes", Value::Bytes(vec![1, 2, 3]))

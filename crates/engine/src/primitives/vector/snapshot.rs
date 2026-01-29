@@ -348,7 +348,7 @@ mod tests {
 
     fn setup() -> (TempDir, Arc<Database>, VectorStore) {
         let temp_dir = TempDir::new().unwrap();
-        let db = Arc::new(Database::open(temp_dir.path()).unwrap());
+        let db = Database::open(temp_dir.path()).unwrap();
         let store = VectorStore::new(db.clone());
         (temp_dir, db, store)
     }

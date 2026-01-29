@@ -29,7 +29,7 @@ fn string_payload(s: &str) -> Value {
 
 fn setup() -> (Arc<Database>, TempDir) {
     let temp_dir = TempDir::new().unwrap();
-    let db = Arc::new(Database::open(temp_dir.path()).unwrap());
+    let db = Database::open(temp_dir.path()).unwrap();
     (db, temp_dir)
 }
 
@@ -188,11 +188,11 @@ fn test_cross_run_query_isolation() {
     // (run2 only has key0-key4, run1 has key0-key9)
     // Actually both have overlapping key names, but different values
     assert_eq!(
-        state_cell.read(&run1, "state").unwrap().unwrap().value.value,
+        state_cell.read(&run1, "state").unwrap().unwrap().value,
         Value::String("run1".into())
     );
     assert_eq!(
-        state_cell.read(&run2, "state").unwrap().unwrap().value.value,
+        state_cell.read(&run2, "state").unwrap().unwrap().value,
         Value::String("run2".into())
     );
 }

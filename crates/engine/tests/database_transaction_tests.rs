@@ -154,7 +154,7 @@ fn test_e2e_transaction_with_delete() {
 
     // Verify changes
     assert!(db.get(&key1).unwrap().is_none());
-    assert_eq!(db.get(&key2).unwrap().unwrap().value, Value::Int(20));
+    assert_eq!(db.get(&key2).unwrap().unwrap(), Value::Int(20));
 }
 
 #[test]
@@ -226,7 +226,7 @@ fn test_e2e_nested_value_types() {
 #[test]
 fn test_concurrent_transactions_different_keys() {
     let temp_dir = TempDir::new().unwrap();
-    let db = Arc::new(Database::open(temp_dir.path().join("db")).unwrap());
+    let db = Database::open(temp_dir.path().join("db")).unwrap();
 
     let run_id = RunId::new();
     let ns = create_ns(run_id);
@@ -260,7 +260,7 @@ fn test_concurrent_transactions_different_keys() {
 fn test_concurrent_transactions_same_key_blind_write() {
     // Per spec Section 3.2: Blind writes don't conflict
     let temp_dir = TempDir::new().unwrap();
-    let db = Arc::new(Database::open(temp_dir.path().join("db")).unwrap());
+    let db = Database::open(temp_dir.path().join("db")).unwrap();
 
     let run_id = RunId::new();
     let ns = create_ns(run_id);
@@ -291,7 +291,7 @@ fn test_concurrent_transactions_same_key_blind_write() {
 fn test_concurrent_writes_different_keys_no_conflicts() {
     // Multiple threads writing to different keys should never conflict
     let temp_dir = TempDir::new().unwrap();
-    let db = Arc::new(Database::open(temp_dir.path().join("db")).unwrap());
+    let db = Database::open(temp_dir.path().join("db")).unwrap();
 
     let run_id = RunId::new();
     let ns = create_ns(run_id);
@@ -373,7 +373,7 @@ fn test_retry_simulated_conflict() {
 
     assert!(result.is_ok());
     assert_eq!(attempts.load(Ordering::Relaxed), 3); // Tried 3 times
-    assert_eq!(db.get(&key).unwrap().unwrap().value, Value::Int(42));
+    assert_eq!(db.get(&key).unwrap().unwrap(), Value::Int(42));
 }
 
 // ============================================================================
@@ -577,7 +577,7 @@ fn test_m1_cas_operations() {
     db.cas(run_id, key.clone(), version, Value::Int(2)).unwrap();
 
     // Verify
-    assert_eq!(db.get(&key).unwrap().unwrap().value, Value::Int(2));
+    assert_eq!(db.get(&key).unwrap().unwrap(), Value::Int(2));
 
     // Try with wrong version - should fail
     let result = db.cas(run_id, key.clone(), version, Value::Int(3));
@@ -617,7 +617,7 @@ fn test_m1_sequence_of_operations() {
         if i % 2 == 0 {
             assert!(db.get(&key).unwrap().is_none());
         } else {
-            assert_eq!(db.get(&key).unwrap().unwrap().value, Value::Int(i as i64));
+            assert_eq!(db.get(&key).unwrap().unwrap(), Value::Int(i as i64));
         }
     }
 }
@@ -729,7 +729,7 @@ fn test_many_keys_in_single_transaction() {
     // Verify all exist
     for i in 0..100 {
         let key = Key::new_kv(ns.clone(), &format!("batch_key_{}", i));
-        assert_eq!(db.get(&key).unwrap().unwrap().value, Value::Int(i as i64));
+        assert_eq!(db.get(&key).unwrap().unwrap(), Value::Int(i as i64));
     }
 }
 
@@ -752,7 +752,7 @@ fn test_overwrite_in_same_transaction() {
     .unwrap();
 
     // Should have final value
-    assert_eq!(db.get(&key).unwrap().unwrap().value, Value::Int(3));
+    assert_eq!(db.get(&key).unwrap().unwrap(), Value::Int(3));
 }
 
 #[test]
@@ -776,7 +776,7 @@ fn test_delete_then_write_in_same_transaction() {
     .unwrap();
 
     // Should have new value
-    assert_eq!(db.get(&key).unwrap().unwrap().value, Value::Int(200));
+    assert_eq!(db.get(&key).unwrap().unwrap(), Value::Int(200));
 }
 
 #[test]

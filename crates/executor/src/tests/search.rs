@@ -11,7 +11,7 @@ use strata_engine::Database;
 use std::sync::Arc;
 
 fn create_executor() -> Executor {
-    let db = Arc::new(Database::builder().no_durability().open_temp().unwrap());
+    let db = Database::builder().no_durability().open_temp().unwrap();
     Executor::new(db)
 }
 

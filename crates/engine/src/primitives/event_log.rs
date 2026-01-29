@@ -286,7 +286,7 @@ fn from_stored_value<T: for<'de> Deserialize<'de>>(
 /// use strata_core::types::RunId;
 /// use strata_core::value::Value;
 ///
-/// let db = Arc::new(Database::open("/path/to/data")?);
+/// let db = Database::open("/path/to/data")?;
 /// let log = EventLog::new(db);
 /// let run_id = RunId::new();
 ///
@@ -1164,7 +1164,7 @@ mod tests {
 
     fn setup() -> (TempDir, Arc<Database>, EventLog) {
         let temp_dir = TempDir::new().unwrap();
-        let db = Arc::new(Database::open(temp_dir.path()).unwrap());
+        let db = Database::open(temp_dir.path()).unwrap();
         let log = EventLog::new(db.clone());
         (temp_dir, db, log)
     }

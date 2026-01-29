@@ -197,7 +197,7 @@ fn test_concurrent_transactions_use_pool() {
     use std::thread;
 
     let temp_dir = TempDir::new().unwrap();
-    let db = Arc::new(Database::open(temp_dir.path().join("db")).unwrap());
+    let db = Database::open(temp_dir.path().join("db")).unwrap();
 
     // Note: Each thread has its own thread-local pool
     // This test verifies that multiple threads can use pooling independently

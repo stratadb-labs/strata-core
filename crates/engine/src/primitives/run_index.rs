@@ -1498,7 +1498,7 @@ mod tests {
     fn create_test_db() -> (Arc<Database>, TempDir) {
         let temp_dir = TempDir::new().unwrap();
         let db = Database::open(temp_dir.path()).unwrap();
-        (Arc::new(db), temp_dir)
+        (db, temp_dir)
     }
 
     /// Helper to create an empty object payload for EventLog tests
@@ -2097,11 +2097,11 @@ mod tests {
             // Verify isolation
             // get() returns Versioned<Value>
             assert_eq!(
-                kv.get(&run_id1, "key").unwrap().map(|v| v.value),
+                kv.get(&run_id1, "key").unwrap(),
                 Some(Value::String("run1-value".into()))
             );
             assert_eq!(
-                kv.get(&run_id2, "key").unwrap().map(|v| v.value),
+                kv.get(&run_id2, "key").unwrap(),
                 Some(Value::String("run2-value".into()))
             );
 
@@ -2110,7 +2110,7 @@ mod tests {
 
             assert!(kv.get(&run_id1, "key").unwrap().is_none());
             assert_eq!(
-                kv.get(&run_id2, "key").unwrap().map(|v| v.value),
+                kv.get(&run_id2, "key").unwrap(),
                 Some(Value::String("run2-value".into()))
             );
         }
@@ -2421,10 +2421,10 @@ mod tests {
             // Verify data exists in target
             let target_run_id = RunId::from_string(&imported_meta.value.run_id).unwrap();
             let val1 = target_kv.get(&target_run_id, "key1").unwrap().unwrap();
-            assert_eq!(val1.value, Value::String("value1".into()));
+            assert_eq!(val1, Value::String("value1".into()));
 
             let val2 = target_kv.get(&target_run_id, "key2").unwrap().unwrap();
-            assert_eq!(val2.value, Value::Int(42));
+            assert_eq!(val2, Value::Int(42));
         }
 
         #[test]
@@ -2597,27 +2597,25 @@ mod tests {
             let target_run_id = RunId::from_string(&imported.value.run_id).unwrap();
 
             assert_eq!(
-                target_kv.get(&target_run_id, "string").unwrap().unwrap().value,
+                target_kv.get(&target_run_id, "string").unwrap().unwrap(),
                 Value::String("hello".into())
             );
             assert_eq!(
-                target_kv.get(&target_run_id, "int").unwrap().unwrap().value,
+                target_kv.get(&target_run_id, "int").unwrap().unwrap(),
                 Value::Int(12345)
             );
             assert_eq!(
-                target_kv.get(&target_run_id, "bool").unwrap().unwrap().value,
+                target_kv.get(&target_run_id, "bool").unwrap().unwrap(),
                 Value::Bool(true)
             );
             // Float comparison
-            if let Value::Float(f) = target_kv.get(&target_run_id, "float").unwrap().unwrap().value {
+            if let Value::Float(f) = target_kv.get(&target_run_id, "float").unwrap().unwrap() {
                 assert!((f - 3.14).abs() < 0.001);
             } else {
                 panic!("Expected Float");
             }
-            assert_eq!(
-                target_kv.get(&target_run_id, "null").unwrap().unwrap().value,
-                Value::Null
-            );
+            // Note: Value::Null is a tombstone, so it's not stored
+            assert!(target_kv.get(&target_run_id, "null").unwrap().is_none());
         }
 
         // ========== Stronger Tests ==========
@@ -2703,7 +2701,7 @@ mod tests {
 
             // Verify binary data is preserved exactly
             let retrieved = target_kv.get(&target_run_id, "binary").unwrap().unwrap();
-            assert_eq!(retrieved.value, Value::Bytes(binary_data));
+            assert_eq!(retrieved, Value::Bytes(binary_data));
         }
 
         #[test]
@@ -2755,11 +2753,11 @@ mod tests {
 
             // Verify nested structure is preserved
             assert_eq!(
-                target_kv.get(&target_run_id, "nested").unwrap().unwrap().value,
+                target_kv.get(&target_run_id, "nested").unwrap().unwrap(),
                 nested
             );
             assert_eq!(
-                target_kv.get(&target_run_id, "array").unwrap().unwrap().value,
+                target_kv.get(&target_run_id, "array").unwrap().unwrap(),
                 array
             );
         }
@@ -2824,7 +2822,7 @@ mod tests {
 
             // Should have the data that was there at export
             assert_eq!(
-                target_kv.get(&target_run_id, "before").unwrap().unwrap().value,
+                target_kv.get(&target_run_id, "before").unwrap().unwrap(),
                 Value::String("exported".into())
             );
         }
@@ -2870,7 +2868,7 @@ mod tests {
                 let key = format!("key_{:03}", i);
                 let val = target_kv.get(&target_run_id, &key).unwrap()
                     .unwrap_or_else(|| panic!("Missing key: {}", key));
-                assert_eq!(val.value, Value::Int(i), "Wrong value for key: {}", key);
+                assert_eq!(val, Value::Int(i), "Wrong value for key: {}", key);
             }
         }
 
@@ -2911,7 +2909,7 @@ mod tests {
 
             // key1 should have final value (3)
             assert_eq!(
-                target_kv.get(&target_run_id, "key1").unwrap().unwrap().value,
+                target_kv.get(&target_run_id, "key1").unwrap().unwrap(),
                 Value::Int(3)
             );
 
@@ -2920,7 +2918,7 @@ mod tests {
 
             // key3 should exist
             assert_eq!(
-                target_kv.get(&target_run_id, "key3").unwrap().unwrap().value,
+                target_kv.get(&target_run_id, "key3").unwrap().unwrap(),
                 Value::Bool(true)
             );
         }
@@ -2955,13 +2953,13 @@ mod tests {
 
             // Verify existing run data is untouched
             let existing_val = target_kv.get(&existing_run_id, "existing").unwrap().unwrap();
-            assert_eq!(existing_val.value, Value::String("keep-me".into()));
+            assert_eq!(existing_val, Value::String("keep-me".into()));
 
             // Verify imported run data exists
             let imported = target_run_index.get_run("new-run").unwrap().unwrap();
             let imported_run_id = RunId::from_string(&imported.value.run_id).unwrap();
             let imported_val = target_kv.get(&imported_run_id, "imported").unwrap().unwrap();
-            assert_eq!(imported_val.value, Value::String("new-data".into()));
+            assert_eq!(imported_val, Value::String("new-data".into()));
         }
 
         #[test]
@@ -2998,13 +2996,13 @@ mod tests {
             let target_run_id = RunId::from_string(&imported.value.run_id).unwrap();
 
             // All special keys should work
-            assert_eq!(target_kv.get(&target_run_id, "key with spaces").unwrap().unwrap().value, Value::Int(1));
-            assert_eq!(target_kv.get(&target_run_id, "key/with/slashes").unwrap().unwrap().value, Value::Int(2));
-            assert_eq!(target_kv.get(&target_run_id, "key:with:colons").unwrap().unwrap().value, Value::Int(3));
-            assert_eq!(target_kv.get(&target_run_id, "key.with.dots").unwrap().unwrap().value, Value::Int(4));
-            assert_eq!(target_kv.get(&target_run_id, "key\twith\ttabs").unwrap().unwrap().value, Value::Int(5));
-            assert_eq!(target_kv.get(&target_run_id, "日本語キー").unwrap().unwrap().value, Value::Int(6));
-            assert_eq!(target_kv.get(&target_run_id, "emoji🔑").unwrap().unwrap().value, Value::Int(7));
+            assert_eq!(target_kv.get(&target_run_id, "key with spaces").unwrap().unwrap(), Value::Int(1));
+            assert_eq!(target_kv.get(&target_run_id, "key/with/slashes").unwrap().unwrap(), Value::Int(2));
+            assert_eq!(target_kv.get(&target_run_id, "key:with:colons").unwrap().unwrap(), Value::Int(3));
+            assert_eq!(target_kv.get(&target_run_id, "key.with.dots").unwrap().unwrap(), Value::Int(4));
+            assert_eq!(target_kv.get(&target_run_id, "key\twith\ttabs").unwrap().unwrap(), Value::Int(5));
+            assert_eq!(target_kv.get(&target_run_id, "日本語キー").unwrap().unwrap(), Value::Int(6));
+            assert_eq!(target_kv.get(&target_run_id, "emoji🔑").unwrap().unwrap(), Value::Int(7));
         }
     }
 
@@ -3220,7 +3218,7 @@ mod tests {
             let imported = target_run_index.get_run("workflow-test").unwrap().unwrap();
             let target_run_id = RunId::from_string(&imported.value.run_id).unwrap();
             let val = target_kv.get(&target_run_id, "data").unwrap().unwrap();
-            assert_eq!(val.value, Value::String("important".into()));
+            assert_eq!(val, Value::String("important".into()));
         }
 
         #[test]

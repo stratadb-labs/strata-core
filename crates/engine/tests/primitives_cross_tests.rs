@@ -30,7 +30,7 @@ fn int_payload(v: i64) -> Value {
 
 fn setup() -> (Arc<Database>, TempDir, RunId) {
     let temp_dir = TempDir::new().unwrap();
-    let db = Arc::new(Database::open(temp_dir.path()).unwrap());
+    let db = Database::open(temp_dir.path()).unwrap();
     let run_id = RunId::new();
     (db, temp_dir, run_id)
 }

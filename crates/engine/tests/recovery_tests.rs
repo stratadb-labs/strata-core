@@ -28,7 +28,7 @@ fn int_payload(v: i64) -> Value {
 
 fn setup() -> (Arc<Database>, TempDir, RunId) {
     let temp_dir = TempDir::new().unwrap();
-    let db = Arc::new(Database::open(temp_dir.path()).unwrap());
+    let db = Database::open(temp_dir.path()).unwrap();
     let run_id = RunId::new();
     (db, temp_dir, run_id)
 }
@@ -63,7 +63,7 @@ fn test_kv_survives_recovery() {
     drop(db);
 
     // Recovery
-    let db = Arc::new(Database::open(&path).unwrap());
+    let db = Database::open(&path).unwrap();
     let kv = KVStore::new(db.clone());
 
     // Data survived
@@ -109,7 +109,7 @@ fn test_kv_list_survives_recovery() {
     drop(db);
 
     // Recovery
-    let db = Arc::new(Database::open(&path).unwrap());
+    let db = Database::open(&path).unwrap();
     let kv = KVStore::new(db.clone());
 
     // List still works
@@ -160,7 +160,7 @@ fn test_event_log_chain_survives_recovery() {
     drop(db);
 
     // Recovery
-    let db = Arc::new(Database::open(&path).unwrap());
+    let db = Database::open(&path).unwrap();
     let event_log = EventLog::new(db.clone());
 
     // Chain is intact
@@ -214,7 +214,7 @@ fn test_event_log_range_survives_recovery() {
     drop(db);
 
     // Recovery
-    let db = Arc::new(Database::open(&path).unwrap());
+    let db = Database::open(&path).unwrap();
     let event_log = EventLog::new(db.clone());
 
     // Range query works
@@ -257,7 +257,7 @@ fn test_state_cell_version_survives_recovery() {
     drop(db);
 
     // Recovery
-    let db = Arc::new(Database::open(&path).unwrap());
+    let db = Database::open(&path).unwrap();
     let state_cell = StateCell::new(db.clone());
 
     // Version is correct (4, not 1)
@@ -297,7 +297,7 @@ fn test_state_cell_set_survives_recovery() {
     drop(db);
 
     // Recovery
-    let db = Arc::new(Database::open(&path).unwrap());
+    let db = Database::open(&path).unwrap();
     let state_cell = StateCell::new(db.clone());
 
     // Value preserved
@@ -311,7 +311,7 @@ fn test_state_cell_set_survives_recovery() {
 fn test_run_index_status_survives_recovery() {
     let temp_dir = TempDir::new().unwrap();
     let path = get_path(&temp_dir);
-    let db = Arc::new(Database::open(&path).unwrap());
+    let db = Database::open(&path).unwrap();
 
     let run_index = RunIndex::new(db.clone());
 
@@ -343,7 +343,7 @@ fn test_run_index_status_survives_recovery() {
     drop(db);
 
     // Recovery
-    let db = Arc::new(Database::open(&path).unwrap());
+    let db = Database::open(&path).unwrap();
     let run_index = RunIndex::new(db.clone());
 
     // Status preserved
@@ -359,7 +359,7 @@ fn test_run_index_status_survives_recovery() {
 fn test_run_index_query_survives_recovery() {
     let temp_dir = TempDir::new().unwrap();
     let path = get_path(&temp_dir);
-    let db = Arc::new(Database::open(&path).unwrap());
+    let db = Database::open(&path).unwrap();
 
     let run_index = RunIndex::new(db.clone());
 
@@ -381,7 +381,7 @@ fn test_run_index_query_survives_recovery() {
     drop(db);
 
     // Recovery
-    let db = Arc::new(Database::open(&path).unwrap());
+    let db = Database::open(&path).unwrap();
     let run_index = RunIndex::new(db.clone());
 
     // Query by status works
@@ -400,7 +400,7 @@ fn test_run_index_query_survives_recovery() {
 fn test_run_delete_survives_recovery() {
     let temp_dir = TempDir::new().unwrap();
     let path = get_path(&temp_dir);
-    let db = Arc::new(Database::open(&path).unwrap());
+    let db = Database::open(&path).unwrap();
 
     let run_index = RunIndex::new(db.clone());
     let kv = KVStore::new(db.clone());
@@ -424,7 +424,7 @@ fn test_run_delete_survives_recovery() {
     drop(db);
 
     // Recovery
-    let db = Arc::new(Database::open(&path).unwrap());
+    let db = Database::open(&path).unwrap();
     let run_index = RunIndex::new(db.clone());
     let kv = KVStore::new(db.clone());
 
@@ -465,7 +465,7 @@ fn test_cross_primitive_transaction_survives_recovery() {
     drop(db);
 
     // Recovery
-    let db = Arc::new(Database::open(&path).unwrap());
+    let db = Database::open(&path).unwrap();
     let kv = KVStore::new(db.clone());
     let event_log = EventLog::new(db.clone());
     let state_cell = StateCell::new(db.clone());
@@ -489,14 +489,14 @@ fn test_multiple_recovery_cycles() {
 
     // Cycle 1: Create and populate
     {
-        let db = Arc::new(Database::open(&path).unwrap());
+        let db = Database::open(&path).unwrap();
         let kv = KVStore::new(db.clone());
         kv.put(&run_id, "cycle1", Value::Int(1)).unwrap();
     }
 
     // Cycle 2: Add more data
     {
-        let db = Arc::new(Database::open(&path).unwrap());
+        let db = Database::open(&path).unwrap();
         let kv = KVStore::new(db.clone());
 
         // Verify cycle 1 data
@@ -508,7 +508,7 @@ fn test_multiple_recovery_cycles() {
 
     // Cycle 3: Add more data
     {
-        let db = Arc::new(Database::open(&path).unwrap());
+        let db = Database::open(&path).unwrap();
         let kv = KVStore::new(db.clone());
 
         // Verify all previous data
@@ -521,7 +521,7 @@ fn test_multiple_recovery_cycles() {
 
     // Final verification
     {
-        let db = Arc::new(Database::open(&path).unwrap());
+        let db = Database::open(&path).unwrap();
         let kv = KVStore::new(db.clone());
 
         assert_eq!(kv.get(&run_id, "cycle1").unwrap(), Some(Value::Int(1)));
@@ -539,7 +539,7 @@ fn test_all_primitives_recover_together() {
     // Phase 1: Create data for all primitives
     let run_id: RunId;
     {
-        let db = Arc::new(Database::open(&path).unwrap());
+        let db = Database::open(&path).unwrap();
         let run_index = RunIndex::new(db.clone());
         let kv = KVStore::new(db.clone());
         let event_log = EventLog::new(db.clone());
@@ -567,7 +567,7 @@ fn test_all_primitives_recover_together() {
 
     // Phase 2: Verify all recovered
     {
-        let db = Arc::new(Database::open(&path).unwrap());
+        let db = Database::open(&path).unwrap();
         let run_index = RunIndex::new(db.clone());
         let kv = KVStore::new(db.clone());
         let event_log = EventLog::new(db.clone());

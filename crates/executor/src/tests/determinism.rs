@@ -11,7 +11,7 @@ use std::sync::Arc;
 
 /// Create a test executor.
 fn create_test_executor() -> Executor {
-    let db = Arc::new(Database::builder().no_durability().open_temp().unwrap());
+    let db = Database::builder().no_durability().open_temp().unwrap();
     Executor::new(db)
 }
 

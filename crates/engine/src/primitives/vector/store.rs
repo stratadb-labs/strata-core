@@ -93,7 +93,7 @@ impl Default for VectorBackendState {
 /// use crate::database::Database;
 /// use strata_core::types::RunId;
 ///
-/// let db = Arc::new(Database::open("/path/to/data")?);
+/// let db = Database::open("/path/to/data")?;
 /// let store = VectorStore::new(db.clone());
 /// let run_id = RunId::new();
 ///
@@ -2620,7 +2620,7 @@ mod tests {
 
     fn setup() -> (TempDir, Arc<Database>, VectorStore) {
         let temp_dir = TempDir::new().unwrap();
-        let db = Arc::new(Database::open(temp_dir.path()).unwrap());
+        let db = Database::open(temp_dir.path()).unwrap();
         let store = VectorStore::new(db.clone());
         (temp_dir, db, store)
     }
@@ -2815,7 +2815,7 @@ mod tests {
 
         // Create collection
         {
-            let db = Arc::new(Database::open(temp_dir.path()).unwrap());
+            let db = Database::open(temp_dir.path()).unwrap();
             let store = VectorStore::new(db);
 
             let config = VectorConfig::new(512, DistanceMetric::DotProduct).unwrap();
@@ -2826,7 +2826,7 @@ mod tests {
 
         // Reopen database and verify collection exists
         {
-            let db = Arc::new(Database::open(temp_dir.path()).unwrap());
+            let db = Database::open(temp_dir.path()).unwrap();
             let store = VectorStore::new(db);
 
             let info = store.get_collection(run_id, "persistent").unwrap().unwrap().value;

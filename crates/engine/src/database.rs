@@ -22,6 +22,7 @@
 use crate::coordinator::{TransactionCoordinator, TransactionMetrics};
 use crate::transaction::TransactionPool;
 use dashmap::DashMap;
+use once_cell::sync::Lazy;
 use strata_concurrency::{
     validate_transaction, RecoveryCoordinator, TransactionContext, TransactionWALWriter,
 };
@@ -33,11 +34,28 @@ use strata_durability::wal::{DurabilityMode, WAL};
 use strata_storage::ShardedStore;
 use parking_lot::Mutex as ParkingMutex;
 use std::any::{Any, TypeId};
+use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::Arc;
+use std::sync::{Arc, Mutex, Weak};
 use std::time::Duration;
 use tracing::{info, warn};
+
+// =============================================================================
+// Global Database Registry
+// =============================================================================
+//
+// Ensures that opening the same database path multiple times returns the same
+// Arc<Database> instance. This is critical for thread safety - multiple agents
+// can safely share a database by opening the same path.
+//
+// The registry uses Weak references so databases are dropped when all Arc
+// references are gone. The Drop impl cleans up the registry entry.
+
+/// Global registry of open databases, keyed by canonical path.
+/// Uses Weak<Database> so the registry doesn't prevent database cleanup.
+static OPEN_DATABASES: Lazy<Mutex<HashMap<PathBuf, Weak<Database>>>> =
+    Lazy::new(|| Mutex::new(HashMap::new()));
 
 /// Configuration for transaction retry behavior
 ///
@@ -351,11 +369,16 @@ impl DatabaseBuilder {
     /// Open the database
     ///
     /// Uses the configured path, or generates a temporary path if none set.
+    /// Returns `Arc<Database>` for thread-safe sharing.
+    ///
+    /// # Thread Safety
+    ///
+    /// If the same path is opened multiple times, returns the same Arc<Database>.
     ///
     /// # Errors
     ///
     /// Returns error if directory creation, WAL opening, or recovery fails.
-    pub fn open(self) -> Result<Database> {
+    pub fn open(self) -> Result<Arc<Database>> {
         let path = self.path.unwrap_or_else(|| {
             std::env::temp_dir().join(format!("inmem-{}", uuid::Uuid::new_v4()))
         });
@@ -366,12 +389,13 @@ impl DatabaseBuilder {
     /// Open a temporary database
     ///
     /// Always generates a unique temporary path, ignoring any configured path.
+    /// Each call creates a new database (unique path = unique instance).
     /// Useful for tests.
     ///
     /// # Errors
     ///
     /// Returns error if directory creation, WAL opening, or recovery fails.
-    pub fn open_temp(self) -> Result<Database> {
+    pub fn open_temp(self) -> Result<Arc<Database>> {
         let path = std::env::temp_dir().join(format!("inmem-test-{}", uuid::Uuid::new_v4()));
         Database::open_with_mode(path, self.durability)
     }
@@ -477,13 +501,23 @@ impl Database {
     /// This is the main entry point for database initialization.
     /// Uses the default durability mode (Batched).
     ///
+    /// # Thread Safety
+    ///
+    /// Opening the same path from multiple threads returns the same `Arc<Database>`.
+    /// This ensures all threads share the same database instance, which is safe
+    /// because Database uses internal synchronization (DashMap, atomics, etc.).
+    ///
+    /// ```ignore
+    /// let db1 = Database::open("/data")?;
+    /// let db2 = Database::open("/data")?;  // Same Arc as db1
+    /// assert!(Arc::ptr_eq(&db1, &db2));
+    /// ```
+    ///
     /// # Flow
     ///
-    /// 1. Create/open data directory
-    /// 2. Open WAL file at `<path>/wal/current.wal`
-    /// 3. Create empty storage
-    /// 4. Replay WAL to restore state
-    /// 5. Return ready database
+    /// 1. Check registry for existing instance at this path
+    /// 2. If found, return the existing Arc<Database>
+    /// 3. Otherwise: create directory, open WAL, replay, register, return
     ///
     /// # Arguments
     ///
@@ -491,7 +525,7 @@ impl Database {
     ///
     /// # Returns
     ///
-    /// * `Ok(Database)` - Ready-to-use database instance
+    /// * `Ok(Arc<Database>)` - Ready-to-use database instance (shared if path was already open)
     /// * `Err` - If directory creation, WAL opening, or recovery fails
     ///
     /// # Example
@@ -500,15 +534,19 @@ impl Database {
     /// use strata_engine::Database;
     ///
     /// let db = Database::open("/path/to/data")?;
-    /// let storage = db.storage();
     /// ```
-    pub fn open<P: AsRef<Path>>(path: P) -> Result<Self> {
+    pub fn open<P: AsRef<Path>>(path: P) -> Result<Arc<Self>> {
         Self::open_with_mode(path, DurabilityMode::default())
     }
 
     /// Open database with specific durability mode
     ///
     /// Allows selecting between None, Strict, or Batched durability modes.
+    ///
+    /// # Thread Safety
+    ///
+    /// Uses a global registry to ensure the same path returns the same instance.
+    /// If a database at this path is already open, returns the existing Arc.
     ///
     /// # Arguments
     ///
@@ -517,7 +555,7 @@ impl Database {
     ///
     /// # Returns
     ///
-    /// * `Ok(Database)` - Ready-to-use database instance
+    /// * `Ok(Arc<Database>)` - Ready-to-use database instance
     /// * `Err` - If directory creation, WAL opening, or recovery fails
     ///
     /// # Recovery
@@ -527,12 +565,28 @@ impl Database {
     pub(crate) fn open_with_mode<P: AsRef<Path>>(
         path: P,
         durability_mode: DurabilityMode,
-    ) -> Result<Self> {
+    ) -> Result<Arc<Self>> {
+        // Create directory first so we can canonicalize the path
         let data_dir = path.as_ref().to_path_buf();
-
-        // Create data directory
         std::fs::create_dir_all(&data_dir).map_err(StrataError::from)?;
 
+        // Canonicalize path for consistent registry keys
+        let canonical_path = data_dir.canonicalize().map_err(StrataError::from)?;
+
+        // Hold lock for entire operation to prevent TOCTOU race condition
+        // This ensures only one thread creates a database for a given path.
+        // For the common case (database already open), this is still fast.
+        let mut registry = OPEN_DATABASES.lock().unwrap();
+
+        // Check registry for existing instance
+        if let Some(weak) = registry.get(&canonical_path) {
+            if let Some(db) = weak.upgrade() {
+                info!(path = ?canonical_path, "Returning existing database instance");
+                return Ok(db);
+            }
+        }
+
+        // Not in registry (or expired) - create new instance
         // Create WAL directory
         let wal_dir = data_dir.join("wal");
         std::fs::create_dir_all(&wal_dir).map_err(StrataError::from)?;
@@ -559,8 +613,8 @@ impl Database {
         // Create coordinator from recovery result (preserves version continuity)
         let coordinator = TransactionCoordinator::from_recovery(&result);
 
-        let db = Self {
-            data_dir,
+        let db = Arc::new(Self {
+            data_dir: canonical_path.clone(),
             storage: Arc::new(result.storage),
             wal: Some(Arc::new(ParkingMutex::new(wal))),
             persistence_mode: PersistenceMode::Disk,
@@ -569,7 +623,13 @@ impl Database {
             durability_mode,
             accepting_transactions: AtomicBool::new(true),
             extensions: DashMap::new(),
-        };
+        });
+
+        // Register in global registry (lock already held)
+        registry.insert(canonical_path, Arc::downgrade(&db));
+
+        // Release lock before running primitive recovery (may be slow)
+        drop(registry);
 
         // Run primitive recovery (e.g., VectorStore)
         // This must happen AFTER KV recovery completes, as primitives may
@@ -586,6 +646,7 @@ impl Database {
     /// - Has no WAL (write-ahead log)
     /// - Cannot recover after crash
     /// - Loses all data when dropped
+    /// - Is NOT registered in the global registry (each call creates a new instance)
     ///
     /// Use this for:
     /// - Unit tests that need maximum isolation
@@ -618,14 +679,14 @@ impl Database {
     /// | `ephemeral()` | None | None | No |
     /// | `builder().no_durability().open_temp()` | Yes (temp) | Yes (no sync) | Yes |
     /// | `builder().buffered().open_temp()` | Yes (temp) | Yes (sync) | Yes |
-    pub fn ephemeral() -> Result<Self> {
+    pub fn ephemeral() -> Result<Arc<Self>> {
         // Create fresh storage
         let storage = ShardedStore::new();
 
         // Create coordinator starting at version 1 (no recovery needed)
         let coordinator = TransactionCoordinator::new(1);
 
-        let db = Self {
+        let db = Arc::new(Self {
             data_dir: PathBuf::new(), // Empty path for ephemeral
             storage: Arc::new(storage),
             wal: None, // No WAL for ephemeral
@@ -635,7 +696,10 @@ impl Database {
             durability_mode: DurabilityMode::None, // Irrelevant but set for consistency
             accepting_transactions: AtomicBool::new(true),
             extensions: DashMap::new(),
-        };
+        });
+
+        // Note: Ephemeral databases are NOT registered in the global registry
+        // because they have no path and should always be independent instances
 
         Ok(db)
     }
@@ -1420,6 +1484,14 @@ impl Drop for Database {
         if self.accepting_transactions.load(Ordering::SeqCst) {
             if let Err(e) = self.shutdown() {
                 eprintln!("Warning: Error during database shutdown: {}", e);
+            }
+        }
+
+        // Remove from global registry (if registered)
+        // Only disk-backed databases with non-empty paths are registered
+        if self.persistence_mode == PersistenceMode::Disk && !self.data_dir.as_os_str().is_empty() {
+            if let Ok(mut registry) = OPEN_DATABASES.lock() {
+                registry.remove(&self.data_dir);
             }
         }
     }
@@ -2717,6 +2789,155 @@ mod tests {
                 .unwrap();
             assert_eq!(db.durability_mode(), DurabilityMode::None);
         }
+    }
+
+    // ========================================================================
+    // Singleton Registry Tests
+    // ========================================================================
+
+    #[test]
+    fn test_open_same_path_returns_same_instance() {
+        let temp_dir = TempDir::new().unwrap();
+        let db_path = temp_dir.path().join("singleton_test");
+
+        // Open database twice with same path
+        let db1 = Database::open(&db_path).unwrap();
+        let db2 = Database::open(&db_path).unwrap();
+
+        // Both should be the same Arc (same pointer)
+        assert!(Arc::ptr_eq(&db1, &db2));
+    }
+
+    #[test]
+    fn test_open_different_paths_returns_different_instances() {
+        let temp_dir = TempDir::new().unwrap();
+        let path1 = temp_dir.path().join("db1");
+        let path2 = temp_dir.path().join("db2");
+
+        let db1 = Database::open(&path1).unwrap();
+        let db2 = Database::open(&path2).unwrap();
+
+        // Should be different instances
+        assert!(!Arc::ptr_eq(&db1, &db2));
+    }
+
+    #[test]
+    fn test_registry_cleanup_on_drop() {
+        let temp_dir = TempDir::new().unwrap();
+        let db_path = temp_dir.path().join("cleanup_test");
+
+        // Open and get the canonical path
+        let canonical_path = {
+            let db = Database::open(&db_path).unwrap();
+            db.data_dir().to_path_buf()
+        };
+        // db is dropped here, should be removed from registry
+
+        // Registry should be empty for this path (weak reference expired)
+        {
+            let registry = OPEN_DATABASES.lock().unwrap();
+            if let Some(weak) = registry.get(&canonical_path) {
+                // Weak reference should not upgrade (db was dropped)
+                assert!(weak.upgrade().is_none());
+            }
+            // Or entry was already cleaned up by Drop
+        }
+
+        // Opening again should create a new instance
+        let db_new = Database::open(&db_path).unwrap();
+        assert!(db_new.data_dir().exists());
+    }
+
+    #[test]
+    fn test_ephemeral_not_registered() {
+        // Create two ephemeral databases
+        let db1 = Database::ephemeral().unwrap();
+        let db2 = Database::ephemeral().unwrap();
+
+        // They should be different instances (not shared via registry)
+        assert!(!Arc::ptr_eq(&db1, &db2));
+    }
+
+    #[test]
+    fn test_builder_open_uses_registry() {
+        let temp_dir = TempDir::new().unwrap();
+        let db_path = temp_dir.path().join("builder_singleton");
+
+        // Open via builder
+        let db1 = Database::builder()
+            .path(&db_path)
+            .no_durability()
+            .open()
+            .unwrap();
+
+        // Open via Database::open
+        let db2 = Database::open(&db_path).unwrap();
+
+        // Should be same instance
+        assert!(Arc::ptr_eq(&db1, &db2));
+    }
+
+    #[test]
+    fn test_open_temp_creates_unique_instances() {
+        // open_temp always creates unique paths
+        let db1 = Database::builder().no_durability().open_temp().unwrap();
+        let db2 = Database::builder().no_durability().open_temp().unwrap();
+
+        // Should be different instances (different temp paths)
+        assert!(!Arc::ptr_eq(&db1, &db2));
+    }
+
+    #[test]
+    fn test_concurrent_open_same_path() {
+        use std::thread;
+
+        let temp_dir = TempDir::new().unwrap();
+        let db_path = temp_dir.path().join("concurrent_test");
+
+        // Pre-create the database
+        let _ = Database::open(&db_path).unwrap();
+
+        // Spawn multiple threads that all try to open the same path
+        let handles: Vec<_> = (0..10)
+            .map(|_| {
+                let path = db_path.clone();
+                thread::spawn(move || Database::open(&path).unwrap())
+            })
+            .collect();
+
+        // Collect all Arc<Database> results
+        let databases: Vec<_> = handles.into_iter().map(|h| h.join().unwrap()).collect();
+
+        // All should be the same instance
+        let first = &databases[0];
+        for db in &databases[1..] {
+            assert!(Arc::ptr_eq(first, db));
+        }
+    }
+
+    #[test]
+    fn test_shared_database_operations() {
+        let temp_dir = TempDir::new().unwrap();
+        let db_path = temp_dir.path().join("shared_ops_test");
+
+        let run_id = RunId::new();
+        let ns = create_test_namespace(run_id);
+
+        // Open same database in two "agents"
+        let db1 = Database::open(&db_path).unwrap();
+        let db2 = Database::open(&db_path).unwrap();
+
+        // Write via db1
+        let key = Key::new_kv(ns.clone(), "shared_key");
+        db1.transaction(run_id, |txn| {
+            txn.put(key.clone(), Value::String("from db1".into()))?;
+            Ok(())
+        })
+        .unwrap();
+
+        // Read via db2 - should see the write
+        let value = db2.storage().get(&key).unwrap().unwrap();
+        assert_eq!(value.value, Value::String("from db1".into()));
     }
 
 }

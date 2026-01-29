@@ -80,7 +80,7 @@ mod tests {
     use crate::types::*;
 
     fn create_strata() -> Strata {
-        let db = Arc::new(Database::builder().no_durability().open_temp().unwrap());
+        let db = Database::builder().no_durability().open_temp().unwrap();
         Strata::new(db)
     }
 

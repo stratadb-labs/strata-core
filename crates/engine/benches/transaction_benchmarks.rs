@@ -85,7 +85,7 @@ fn bench_multi_threaded_no_conflict(c: &mut Criterion) {
             |b, &num_threads| {
                 b.iter_custom(|iters| {
                     let temp_dir = TempDir::new().unwrap();
-                    let db = Arc::new(Database::open(temp_dir.path().join("db")).unwrap());
+                    let db = Database::open(temp_dir.path().join("db")).unwrap();
                     let run_id = RunId::new();
 
                     let start = std::time::Instant::now();
@@ -136,7 +136,7 @@ fn bench_multi_threaded_with_conflict(c: &mut Criterion) {
             |b, &num_threads| {
                 b.iter_custom(|iters| {
                     let temp_dir = TempDir::new().unwrap();
-                    let db = Arc::new(Database::open(temp_dir.path().join("db")).unwrap());
+                    let db = Database::open(temp_dir.path().join("db")).unwrap();
                     let run_id = RunId::new();
                     let ns = create_ns(run_id);
                     let key = Key::new_kv(ns, "contested_key");

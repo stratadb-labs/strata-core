@@ -12,7 +12,7 @@ use std::sync::Arc;
 fn create_test_executor() -> Executor {
     use strata_engine::Database;
 
-    let db = Arc::new(Database::builder().no_durability().open_temp().unwrap());
+    let db = Database::builder().no_durability().open_temp().unwrap();
     Executor::new(db)
 }
 

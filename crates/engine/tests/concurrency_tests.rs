@@ -29,7 +29,7 @@ fn create_ns(run_id: RunId) -> Namespace {
 #[test]
 fn test_blind_writes_no_conflict() {
     let temp_dir = TempDir::new().unwrap();
-    let db = Arc::new(Database::open(temp_dir.path().join("db")).unwrap());
+    let db = Database::open(temp_dir.path().join("db")).unwrap();
 
     let run_id = RunId::new();
     let ns = create_ns(run_id);
@@ -78,7 +78,7 @@ fn test_blind_writes_no_conflict() {
 #[test]
 fn test_no_conflict_different_keys() {
     let temp_dir = TempDir::new().unwrap();
-    let db = Arc::new(Database::open(temp_dir.path().join("db")).unwrap());
+    let db = Database::open(temp_dir.path().join("db")).unwrap();
 
     let run_id = RunId::new();
     let ns = create_ns(run_id);
@@ -126,7 +126,7 @@ fn test_no_conflict_different_keys() {
 #[test]
 fn test_multi_threaded_contention() {
     let temp_dir = TempDir::new().unwrap();
-    let db = Arc::new(Database::open(temp_dir.path().join("db")).unwrap());
+    let db = Database::open(temp_dir.path().join("db")).unwrap();
 
     let run_id = RunId::new();
     let ns = create_ns(run_id);
@@ -181,7 +181,7 @@ fn test_multi_threaded_contention() {
 #[test]
 fn test_read_only_transactions_no_conflict() {
     let temp_dir = TempDir::new().unwrap();
-    let db = Arc::new(Database::open(temp_dir.path().join("db")).unwrap());
+    let db = Database::open(temp_dir.path().join("db")).unwrap();
 
     let run_id = RunId::new();
     let ns = create_ns(run_id);
@@ -239,7 +239,7 @@ fn test_read_only_transactions_no_conflict() {
 #[test]
 fn test_concurrent_disjoint_transactions() {
     let temp_dir = TempDir::new().unwrap();
-    let db = Arc::new(Database::open(temp_dir.path().join("db")).unwrap());
+    let db = Database::open(temp_dir.path().join("db")).unwrap();
 
     let run_id = RunId::new();
     let ns = create_ns(run_id);

@@ -39,7 +39,7 @@ fn int_payload(v: i64) -> Value {
 }
 
 fn setup() -> (Arc<Database>, RunId) {
-    let db = Arc::new(Database::builder().in_memory().open_temp().unwrap());
+    let db = Database::builder().in_memory().open_temp().unwrap();
     let run_id = RunId::new();
     (db, run_id)
 }

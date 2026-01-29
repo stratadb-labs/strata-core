@@ -47,7 +47,7 @@ fn create_ns(run_id: RunId) -> Namespace {
 fn setup_db() -> (TempDir, Arc<Database>, VectorStore) {
     ensure_recovery_registered();
     let temp_dir = TempDir::new().unwrap();
-    let db = Arc::new(Database::open(temp_dir.path()).unwrap());
+    let db = Database::open(temp_dir.path()).unwrap();
     let store = VectorStore::new(db.clone());
     (temp_dir, db, store)
 }
@@ -66,7 +66,7 @@ fn test_collection_survives_restart() {
 
     // Create collection
     {
-        let db = Arc::new(Database::open(&db_path).unwrap());
+        let db = Database::open(&db_path).unwrap();
         let store = VectorStore::new(db.clone());
 
         let config = VectorConfig::new(3, DistanceMetric::Cosine).unwrap();
@@ -81,7 +81,7 @@ fn test_collection_survives_restart() {
 
     // Reopen and verify collection exists
     {
-        let db = Arc::new(Database::open(&db_path).unwrap());
+        let db = Database::open(&db_path).unwrap();
         let store = VectorStore::new(db.clone());
 
         let info = store.get_collection(run_id, "test_col").unwrap();
@@ -104,7 +104,7 @@ fn test_multiple_collections_survive_restart() {
 
     // Create multiple collections with different configs
     {
-        let db = Arc::new(Database::open(&db_path).unwrap());
+        let db = Database::open(&db_path).unwrap();
         let store = VectorStore::new(db.clone());
 
         store
@@ -136,7 +136,7 @@ fn test_multiple_collections_survive_restart() {
 
     // Reopen and verify all collections
     {
-        let db = Arc::new(Database::open(&db_path).unwrap());
+        let db = Database::open(&db_path).unwrap();
         let store = VectorStore::new(db.clone());
 
         let collections = store.list_collections(run_id).unwrap();
@@ -171,7 +171,7 @@ fn test_vectors_survive_restart() {
 
     // Insert vectors
     {
-        let db = Arc::new(Database::open(&db_path).unwrap());
+        let db = Database::open(&db_path).unwrap();
         let store = VectorStore::new(db.clone());
 
         let config = VectorConfig::new(3, DistanceMetric::Cosine).unwrap();
@@ -199,7 +199,7 @@ fn test_vectors_survive_restart() {
 
     // Reopen and verify vectors
     {
-        let db = Arc::new(Database::open(&db_path).unwrap());
+        let db = Database::open(&db_path).unwrap();
         let store = VectorStore::new(db.clone());
 
         // Collection should exist with config
@@ -227,7 +227,7 @@ fn test_vector_metadata_survives_restart() {
 
     // Insert vectors with metadata
     {
-        let db = Arc::new(Database::open(&db_path).unwrap());
+        let db = Database::open(&db_path).unwrap();
         let store = VectorStore::new(db.clone());
 
         let config = VectorConfig::new(4, DistanceMetric::Cosine).unwrap();
@@ -266,7 +266,7 @@ fn test_vector_metadata_survives_restart() {
 
     // Reopen and check KV storage for metadata
     {
-        let db = Arc::new(Database::open(&db_path).unwrap());
+        let db = Database::open(&db_path).unwrap();
 
         // Vector records are stored in KV - verify they exist
         // The key format is based on Vector namespace
@@ -293,7 +293,7 @@ fn test_kv_and_vector_both_persist() {
 
     // Write to both KV and Vector
     {
-        let db = Arc::new(Database::open(&db_path).unwrap());
+        let db = Database::open(&db_path).unwrap();
         let store = VectorStore::new(db.clone());
 
         // Create vector collection
@@ -315,7 +315,7 @@ fn test_kv_and_vector_both_persist() {
 
     // Reopen and verify both
     {
-        let db = Arc::new(Database::open(&db_path).unwrap());
+        let db = Database::open(&db_path).unwrap();
         let store = VectorStore::new(db.clone());
 
         // Vector collection should exist
@@ -339,7 +339,7 @@ fn test_operation_sequence_survives_restart() {
 
     // Perform sequence of operations
     {
-        let db = Arc::new(Database::open(&db_path).unwrap());
+        let db = Database::open(&db_path).unwrap();
         let store = VectorStore::new(db.clone());
 
         // Create collection
@@ -384,7 +384,7 @@ fn test_operation_sequence_survives_restart() {
 
     // Reopen and verify state
     {
-        let db = Arc::new(Database::open(&db_path).unwrap());
+        let db = Database::open(&db_path).unwrap();
         let store = VectorStore::new(db.clone());
 
         // Collection should exist
@@ -408,7 +408,7 @@ fn test_run_isolation_survives_restart() {
 
     // Create collections in different runs
     {
-        let db = Arc::new(Database::open(&db_path).unwrap());
+        let db = Database::open(&db_path).unwrap();
         let store = VectorStore::new(db.clone());
 
         let config = VectorConfig::new(3, DistanceMetric::Cosine).unwrap();
@@ -432,7 +432,7 @@ fn test_run_isolation_survives_restart() {
 
     // Reopen and verify isolation
     {
-        let db = Arc::new(Database::open(&db_path).unwrap());
+        let db = Database::open(&db_path).unwrap();
         let store = VectorStore::new(db.clone());
 
         // Both runs should have their own collection
@@ -460,7 +460,7 @@ fn test_deleted_collection_stays_deleted() {
 
     // Create and delete collection
     {
-        let db = Arc::new(Database::open(&db_path).unwrap());
+        let db = Database::open(&db_path).unwrap();
         let store = VectorStore::new(db.clone());
 
         let config = VectorConfig::new(3, DistanceMetric::Cosine).unwrap();
@@ -480,7 +480,7 @@ fn test_deleted_collection_stays_deleted() {
 
     // Reopen and verify deleted
     {
-        let db = Arc::new(Database::open(&db_path).unwrap());
+        let db = Database::open(&db_path).unwrap();
         let store = VectorStore::new(db.clone());
 
         // Collection should NOT exist
@@ -692,7 +692,7 @@ fn test_concurrent_inserts_different_collections() {
 
     ensure_recovery_registered();
     let temp_dir = TempDir::new().unwrap();
-    let db = Arc::new(Database::open(temp_dir.path()).unwrap());
+    let db = Database::open(temp_dir.path()).unwrap();
     let store = VectorStore::new(db.clone());
     let run_id = RunId::new();
 

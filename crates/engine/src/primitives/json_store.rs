@@ -158,7 +158,7 @@ impl JsonDoc {
 /// use strata_core::types::RunId;
 /// use strata_core::primitives::json::JsonValue;
 ///
-/// let db = Arc::new(Database::builder().in_memory().open_temp()?);
+/// let db = Database::builder().in_memory().open_temp()?;
 /// let json = JsonStore::new(db);
 /// let run_id = RunId::new();
 ///
@@ -1651,7 +1651,7 @@ mod tests {
 
     #[test]
     fn test_jsonstore_is_clone() {
-        let db = Arc::new(Database::builder().in_memory().open_temp().unwrap());
+        let db = Database::builder().in_memory().open_temp().unwrap();
         let store1 = JsonStore::new(db.clone());
         let store2 = store1.clone();
         assert!(Arc::ptr_eq(store1.database(), store2.database()));
@@ -1665,7 +1665,7 @@ mod tests {
 
     #[test]
     fn test_key_for_run_isolation() {
-        let db = Arc::new(Database::builder().in_memory().open_temp().unwrap());
+        let db = Database::builder().in_memory().open_temp().unwrap();
         let store = JsonStore::new(db);
 
         let run1 = RunId::new();
@@ -1681,7 +1681,7 @@ mod tests {
 
     #[test]
     fn test_key_for_same_run() {
-        let db = Arc::new(Database::builder().in_memory().open_temp().unwrap());
+        let db = Database::builder().in_memory().open_temp().unwrap();
         let store = JsonStore::new(db);
 
         let run_id = RunId::new();
@@ -1749,7 +1749,7 @@ mod tests {
 
     #[test]
     fn test_serialize_deserialize_roundtrip() {
-        let db = Arc::new(Database::builder().in_memory().open_temp().unwrap());
+        let db = Database::builder().in_memory().open_temp().unwrap();
         let _store = JsonStore::new(db);
 
         let doc = JsonDoc::new("test-doc", JsonValue::from("test value"));
@@ -1766,7 +1766,7 @@ mod tests {
 
     #[test]
     fn test_serialize_complex_document() {
-        let db = Arc::new(Database::builder().in_memory().open_temp().unwrap());
+        let db = Database::builder().in_memory().open_temp().unwrap();
         let _store = JsonStore::new(db);
 
         let value: JsonValue = serde_json::json!({
@@ -1791,7 +1791,7 @@ mod tests {
 
     #[test]
     fn test_deserialize_invalid_type() {
-        let db = Arc::new(Database::builder().in_memory().open_temp().unwrap());
+        let db = Database::builder().in_memory().open_temp().unwrap();
         let _store = JsonStore::new(db);
 
         // Try to deserialize a non-bytes value
@@ -1803,7 +1803,7 @@ mod tests {
 
     #[test]
     fn test_deserialize_invalid_bytes() {
-        let db = Arc::new(Database::builder().in_memory().open_temp().unwrap());
+        let db = Database::builder().in_memory().open_temp().unwrap();
         let _store = JsonStore::new(db);
 
         // Try to deserialize garbage bytes
@@ -1815,7 +1815,7 @@ mod tests {
 
     #[test]
     fn test_serialized_size_is_compact() {
-        let db = Arc::new(Database::builder().in_memory().open_temp().unwrap());
+        let db = Database::builder().in_memory().open_temp().unwrap();
         let _store = JsonStore::new(db);
 
         let doc = JsonDoc::new("test-doc", JsonValue::from(42i64));
@@ -1838,7 +1838,7 @@ mod tests {
 
     #[test]
     fn test_create_document() {
-        let db = Arc::new(Database::builder().in_memory().open_temp().unwrap());
+        let db = Database::builder().in_memory().open_temp().unwrap();
         let store = JsonStore::new(db);
         let run_id = RunId::new();
         let doc_id = "test-doc";
@@ -1851,7 +1851,7 @@ mod tests {
 
     #[test]
     fn test_create_object_document() {
-        let db = Arc::new(Database::builder().in_memory().open_temp().unwrap());
+        let db = Database::builder().in_memory().open_temp().unwrap();
         let store = JsonStore::new(db);
         let run_id = RunId::new();
         let doc_id = "test-doc";
@@ -1868,7 +1868,7 @@ mod tests {
 
     #[test]
     fn test_create_duplicate_fails() {
-        let db = Arc::new(Database::builder().in_memory().open_temp().unwrap());
+        let db = Database::builder().in_memory().open_temp().unwrap();
         let store = JsonStore::new(db);
         let run_id = RunId::new();
         let doc_id = "test-doc";
@@ -1885,7 +1885,7 @@ mod tests {
 
     #[test]
     fn test_create_different_docs() {
-        let db = Arc::new(Database::builder().in_memory().open_temp().unwrap());
+        let db = Database::builder().in_memory().open_temp().unwrap();
         let store = JsonStore::new(db);
         let run_id = RunId::new();
 
@@ -1901,7 +1901,7 @@ mod tests {
 
     #[test]
     fn test_create_run_isolation() {
-        let db = Arc::new(Database::builder().in_memory().open_temp().unwrap());
+        let db = Database::builder().in_memory().open_temp().unwrap();
         let store = JsonStore::new(db);
 
         let run1 = RunId::new();
@@ -1918,7 +1918,7 @@ mod tests {
 
     #[test]
     fn test_create_null_value() {
-        let db = Arc::new(Database::builder().in_memory().open_temp().unwrap());
+        let db = Database::builder().in_memory().open_temp().unwrap();
         let store = JsonStore::new(db);
         let run_id = RunId::new();
         let doc_id = "test-doc";
@@ -1929,7 +1929,7 @@ mod tests {
 
     #[test]
     fn test_create_empty_object() {
-        let db = Arc::new(Database::builder().in_memory().open_temp().unwrap());
+        let db = Database::builder().in_memory().open_temp().unwrap();
         let store = JsonStore::new(db);
         let run_id = RunId::new();
         let doc_id = "test-doc";
@@ -1940,7 +1940,7 @@ mod tests {
 
     #[test]
     fn test_create_empty_array() {
-        let db = Arc::new(Database::builder().in_memory().open_temp().unwrap());
+        let db = Database::builder().in_memory().open_temp().unwrap();
         let store = JsonStore::new(db);
         let run_id = RunId::new();
         let doc_id = "test-doc";
@@ -1955,7 +1955,7 @@ mod tests {
 
     #[test]
     fn test_get_root() {
-        let db = Arc::new(Database::builder().in_memory().open_temp().unwrap());
+        let db = Database::builder().in_memory().open_temp().unwrap();
         let store = JsonStore::new(db);
         let run_id = RunId::new();
         let doc_id = "test-doc";
@@ -1970,7 +1970,7 @@ mod tests {
 
     #[test]
     fn test_get_at_path() {
-        let db = Arc::new(Database::builder().in_memory().open_temp().unwrap());
+        let db = Database::builder().in_memory().open_temp().unwrap();
         let store = JsonStore::new(db);
         let run_id = RunId::new();
         let doc_id = "test-doc";
@@ -1999,7 +1999,7 @@ mod tests {
 
     #[test]
     fn test_get_nested_path() {
-        let db = Arc::new(Database::builder().in_memory().open_temp().unwrap());
+        let db = Database::builder().in_memory().open_temp().unwrap();
         let store = JsonStore::new(db);
         let run_id = RunId::new();
         let doc_id = "test-doc";
@@ -2026,7 +2026,7 @@ mod tests {
 
     #[test]
     fn test_get_array_element() {
-        let db = Arc::new(Database::builder().in_memory().open_temp().unwrap());
+        let db = Database::builder().in_memory().open_temp().unwrap();
         let store = JsonStore::new(db);
         let run_id = RunId::new();
         let doc_id = "test-doc";
@@ -2049,7 +2049,7 @@ mod tests {
 
     #[test]
     fn test_get_missing_document() {
-        let db = Arc::new(Database::builder().in_memory().open_temp().unwrap());
+        let db = Database::builder().in_memory().open_temp().unwrap();
         let store = JsonStore::new(db);
         let run_id = RunId::new();
         let doc_id = "test-doc";
@@ -2060,7 +2060,7 @@ mod tests {
 
     #[test]
     fn test_get_missing_path() {
-        let db = Arc::new(Database::builder().in_memory().open_temp().unwrap());
+        let db = Database::builder().in_memory().open_temp().unwrap();
         let store = JsonStore::new(db);
         let run_id = RunId::new();
         let doc_id = "test-doc";
@@ -2075,7 +2075,7 @@ mod tests {
 
     #[test]
     fn test_get_doc() {
-        let db = Arc::new(Database::builder().in_memory().open_temp().unwrap());
+        let db = Database::builder().in_memory().open_temp().unwrap();
         let store = JsonStore::new(db);
         let run_id = RunId::new();
         let doc_id = "test-doc";
@@ -2093,7 +2093,7 @@ mod tests {
 
     #[test]
     fn test_get_doc_missing() {
-        let db = Arc::new(Database::builder().in_memory().open_temp().unwrap());
+        let db = Database::builder().in_memory().open_temp().unwrap();
         let store = JsonStore::new(db);
         let run_id = RunId::new();
         let doc_id = "test-doc";
@@ -2104,7 +2104,7 @@ mod tests {
 
     #[test]
     fn test_get_version() {
-        let db = Arc::new(Database::builder().in_memory().open_temp().unwrap());
+        let db = Database::builder().in_memory().open_temp().unwrap();
         let store = JsonStore::new(db);
         let run_id = RunId::new();
         let doc_id = "test-doc";
@@ -2119,7 +2119,7 @@ mod tests {
 
     #[test]
     fn test_get_version_missing() {
-        let db = Arc::new(Database::builder().in_memory().open_temp().unwrap());
+        let db = Database::builder().in_memory().open_temp().unwrap();
         let store = JsonStore::new(db);
         let run_id = RunId::new();
         let doc_id = "test-doc";
@@ -2130,7 +2130,7 @@ mod tests {
 
     #[test]
     fn test_exists() {
-        let db = Arc::new(Database::builder().in_memory().open_temp().unwrap());
+        let db = Database::builder().in_memory().open_temp().unwrap();
         let store = JsonStore::new(db);
         let run_id = RunId::new();
         let doc_id = "test-doc";
@@ -2146,7 +2146,7 @@ mod tests {
 
     #[test]
     fn test_exists_run_isolation() {
-        let db = Arc::new(Database::builder().in_memory().open_temp().unwrap());
+        let db = Database::builder().in_memory().open_temp().unwrap();
         let store = JsonStore::new(db);
 
         let run1 = RunId::new();
@@ -2168,7 +2168,7 @@ mod tests {
 
     #[test]
     fn test_set_at_root() {
-        let db = Arc::new(Database::builder().in_memory().open_temp().unwrap());
+        let db = Database::builder().in_memory().open_temp().unwrap();
         let store = JsonStore::new(db);
         let run_id = RunId::new();
         let doc_id = "test-doc";
@@ -2188,7 +2188,7 @@ mod tests {
 
     #[test]
     fn test_set_at_path() {
-        let db = Arc::new(Database::builder().in_memory().open_temp().unwrap());
+        let db = Database::builder().in_memory().open_temp().unwrap();
         let store = JsonStore::new(db);
         let run_id = RunId::new();
         let doc_id = "test-doc";
@@ -2216,7 +2216,7 @@ mod tests {
 
     #[test]
     fn test_set_nested_path() {
-        let db = Arc::new(Database::builder().in_memory().open_temp().unwrap());
+        let db = Database::builder().in_memory().open_temp().unwrap();
         let store = JsonStore::new(db);
         let run_id = RunId::new();
         let doc_id = "test-doc";
@@ -2245,7 +2245,7 @@ mod tests {
 
     #[test]
     fn test_set_increments_version() {
-        let db = Arc::new(Database::builder().in_memory().open_temp().unwrap());
+        let db = Database::builder().in_memory().open_temp().unwrap();
         let store = JsonStore::new(db);
         let run_id = RunId::new();
         let doc_id = "test-doc";
@@ -2276,7 +2276,7 @@ mod tests {
 
     #[test]
     fn test_set_missing_document() {
-        let db = Arc::new(Database::builder().in_memory().open_temp().unwrap());
+        let db = Database::builder().in_memory().open_temp().unwrap();
         let store = JsonStore::new(db);
         let run_id = RunId::new();
         let doc_id = "test-doc";
@@ -2292,7 +2292,7 @@ mod tests {
 
     #[test]
     fn test_set_overwrites_value() {
-        let db = Arc::new(Database::builder().in_memory().open_temp().unwrap());
+        let db = Database::builder().in_memory().open_temp().unwrap();
         let store = JsonStore::new(db);
         let run_id = RunId::new();
         let doc_id = "test-doc";
@@ -2320,7 +2320,7 @@ mod tests {
 
     #[test]
     fn test_set_array_element() {
-        let db = Arc::new(Database::builder().in_memory().open_temp().unwrap());
+        let db = Database::builder().in_memory().open_temp().unwrap();
         let store = JsonStore::new(db);
         let run_id = RunId::new();
         let doc_id = "test-doc";
@@ -2349,7 +2349,7 @@ mod tests {
 
     #[test]
     fn test_delete_at_path() {
-        let db = Arc::new(Database::builder().in_memory().open_temp().unwrap());
+        let db = Database::builder().in_memory().open_temp().unwrap();
         let store = JsonStore::new(db);
         let run_id = RunId::new();
         let doc_id = "test-doc";
@@ -2384,7 +2384,7 @@ mod tests {
 
     #[test]
     fn test_delete_at_nested_path() {
-        let db = Arc::new(Database::builder().in_memory().open_temp().unwrap());
+        let db = Database::builder().in_memory().open_temp().unwrap();
         let store = JsonStore::new(db);
         let run_id = RunId::new();
         let doc_id = "test-doc";
@@ -2425,7 +2425,7 @@ mod tests {
 
     #[test]
     fn test_delete_at_path_array_element() {
-        let db = Arc::new(Database::builder().in_memory().open_temp().unwrap());
+        let db = Database::builder().in_memory().open_temp().unwrap();
         let store = JsonStore::new(db);
         let run_id = RunId::new();
         let doc_id = "test-doc";
@@ -2456,7 +2456,7 @@ mod tests {
 
     #[test]
     fn test_delete_at_path_increments_version() {
-        let db = Arc::new(Database::builder().in_memory().open_temp().unwrap());
+        let db = Database::builder().in_memory().open_temp().unwrap();
         let store = JsonStore::new(db);
         let run_id = RunId::new();
         let doc_id = "test-doc";
@@ -2483,7 +2483,7 @@ mod tests {
 
     #[test]
     fn test_delete_at_path_missing_document() {
-        let db = Arc::new(Database::builder().in_memory().open_temp().unwrap());
+        let db = Database::builder().in_memory().open_temp().unwrap();
         let store = JsonStore::new(db);
         let run_id = RunId::new();
         let doc_id = "test-doc";
@@ -2494,7 +2494,7 @@ mod tests {
 
     #[test]
     fn test_delete_at_path_missing_path() {
-        let db = Arc::new(Database::builder().in_memory().open_temp().unwrap());
+        let db = Database::builder().in_memory().open_temp().unwrap();
         let store = JsonStore::new(db);
         let run_id = RunId::new();
         let doc_id = "test-doc";
@@ -2514,7 +2514,7 @@ mod tests {
 
     #[test]
     fn test_destroy_existing_document() {
-        let db = Arc::new(Database::builder().in_memory().open_temp().unwrap());
+        let db = Database::builder().in_memory().open_temp().unwrap();
         let store = JsonStore::new(db);
         let run_id = RunId::new();
         let doc_id = "test-doc";
@@ -2531,7 +2531,7 @@ mod tests {
 
     #[test]
     fn test_destroy_nonexistent_document() {
-        let db = Arc::new(Database::builder().in_memory().open_temp().unwrap());
+        let db = Database::builder().in_memory().open_temp().unwrap();
         let store = JsonStore::new(db);
         let run_id = RunId::new();
         let doc_id = "test-doc";
@@ -2542,7 +2542,7 @@ mod tests {
 
     #[test]
     fn test_destroy_run_isolation() {
-        let db = Arc::new(Database::builder().in_memory().open_temp().unwrap());
+        let db = Database::builder().in_memory().open_temp().unwrap();
         let store = JsonStore::new(db);
 
         let run1 = RunId::new();
@@ -2563,7 +2563,7 @@ mod tests {
 
     #[test]
     fn test_destroy_then_recreate() {
-        let db = Arc::new(Database::builder().in_memory().open_temp().unwrap());
+        let db = Database::builder().in_memory().open_temp().unwrap();
         let store = JsonStore::new(db);
         let run_id = RunId::new();
         let doc_id = "test-doc";
@@ -2586,7 +2586,7 @@ mod tests {
 
     #[test]
     fn test_destroy_complex_document() {
-        let db = Arc::new(Database::builder().in_memory().open_temp().unwrap());
+        let db = Database::builder().in_memory().open_temp().unwrap();
         let store = JsonStore::new(db);
         let run_id = RunId::new();
         let doc_id = "test-doc";
@@ -2612,7 +2612,7 @@ mod tests {
 
     #[test]
     fn test_destroy_idempotent() {
-        let db = Arc::new(Database::builder().in_memory().open_temp().unwrap());
+        let db = Database::builder().in_memory().open_temp().unwrap();
         let store = JsonStore::new(db);
         let run_id = RunId::new();
         let doc_id = "test-doc";

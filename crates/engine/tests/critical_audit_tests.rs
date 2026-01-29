@@ -42,7 +42,7 @@ fn test_issue_594_toctou_race_condition() {
     use strata_engine::Database;
 
     let temp_dir = TempDir::new().unwrap();
-    let db = Arc::new(Database::open(temp_dir.path().join("db")).unwrap());
+    let db = Database::open(temp_dir.path().join("db")).unwrap();
 
     let run_id = RunId::new();
     let ns = Namespace::new(

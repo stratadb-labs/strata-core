@@ -7,13 +7,13 @@ use std::sync::Arc;
 
 /// Create a test session with an ephemeral in-memory database.
 fn create_test_session() -> Session {
-    let db = Arc::new(Database::builder().no_durability().open_temp().unwrap());
+    let db = Database::builder().no_durability().open_temp().unwrap();
     Session::new(db)
 }
 
 /// Create a test session, returning the db handle too (for multi-session tests).
 fn create_test_db_and_session() -> (Arc<Database>, Session) {
-    let db = Arc::new(Database::builder().no_durability().open_temp().unwrap());
+    let db = Database::builder().no_durability().open_temp().unwrap();
     let session = Session::new(db.clone());
     (db, session)
 }

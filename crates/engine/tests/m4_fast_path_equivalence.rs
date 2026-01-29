@@ -31,7 +31,7 @@ fn int_payload(v: i64) -> Value {
 
 fn setup_db() -> (Arc<Database>, TempDir) {
     let temp_dir = TempDir::new().unwrap();
-    let db = Arc::new(Database::open(temp_dir.path()).unwrap());
+    let db = Database::open(temp_dir.path()).unwrap();
     (db, temp_dir)
 }
 
@@ -74,20 +74,20 @@ fn kv_fast_path_observes_latest_committed() {
 
     // Initial value
     kv.put(&run_id, "key", Value::Int(1)).unwrap();
-    assert_eq!(kv.get(&run_id, "key").unwrap().map(|v| v.value), Some(Value::Int(1)));
+    assert_eq!(kv.get(&run_id, "key").unwrap(), Some(Value::Int(1)));
 
     // Update value
     kv.put(&run_id, "key", Value::Int(2)).unwrap();
-    assert_eq!(kv.get(&run_id, "key").unwrap().map(|v| v.value), Some(Value::Int(2)));
+    assert_eq!(kv.get(&run_id, "key").unwrap(), Some(Value::Int(2)));
 
     // Update again
     kv.put(&run_id, "key", Value::Int(3)).unwrap();
-    assert_eq!(kv.get(&run_id, "key").unwrap().map(|v| v.value), Some(Value::Int(3)));
+    assert_eq!(kv.get(&run_id, "key").unwrap(), Some(Value::Int(3)));
 
     // Fast path and transaction should agree on value
     assert_eq!(
-        kv.get(&run_id, "key").unwrap().map(|v| v.value),
-        kv.get_in_transaction(&run_id, "key").unwrap().map(|v| v.value)
+        kv.get(&run_id, "key").unwrap(),
+        kv.get_in_transaction(&run_id, "key").unwrap()
     );
 }
 
@@ -247,8 +247,8 @@ fn all_primitives_run_isolation() {
     sc.init(&run2, "cell", Value::Int(2)).unwrap();
 
     // Fast path reads should maintain run isolation
-    assert_eq!(kv.get(&run1, "key").unwrap().map(|v| v.value), Some(Value::Int(1)));
-    assert_eq!(kv.get(&run2, "key").unwrap().map(|v| v.value), Some(Value::Int(2)));
+    assert_eq!(kv.get(&run1, "key").unwrap(), Some(Value::Int(1)));
+    assert_eq!(kv.get(&run2, "key").unwrap(), Some(Value::Int(2)));
 
     let event1 = log.read(&run1, 0).unwrap().unwrap();
     let event2 = log.read(&run2, 0).unwrap().unwrap();
@@ -271,17 +271,17 @@ fn fast_path_observes_committed_data_only() {
     kv.put(&run_id, "key", Value::Int(1)).unwrap();
 
     // Fast path should see the committed value
-    assert_eq!(kv.get(&run_id, "key").unwrap().map(|v| v.value), Some(Value::Int(1)));
+    assert_eq!(kv.get(&run_id, "key").unwrap(), Some(Value::Int(1)));
 
     // Update in a new transaction
     kv.put(&run_id, "key", Value::Int(2)).unwrap();
 
     // Fast path should see the new committed value
-    assert_eq!(kv.get(&run_id, "key").unwrap().map(|v| v.value), Some(Value::Int(2)));
+    assert_eq!(kv.get(&run_id, "key").unwrap(), Some(Value::Int(2)));
 
     // Transaction read should match
     assert_eq!(
-        kv.get_in_transaction(&run_id, "key").unwrap().map(|v| v.value),
+        kv.get_in_transaction(&run_id, "key").unwrap(),
         Some(Value::Int(2))
     );
 }
