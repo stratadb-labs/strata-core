@@ -1,63 +1,50 @@
 //! # Strata Executor
 //!
-//! The Command Execution Layer for Strata database.
+//! The public API for StrataDB - an embedded database for AI applications.
 //!
-//! This crate provides a standardized interface between all external APIs
-//! (Rust, Python, CLI, MCP) and the core database engine. Every operation
-//! in Strata is represented as a typed, serializable [`Command`] that is
-//! executed by the [`Executor`] to produce a typed [`Output`] or [`Error`].
+//! This is the only crate users need to import. It provides:
+//! - [`Strata`] - The main database interface with 6 data primitives
+//! - [`Value`] - The universal value type for all data
+//! - [`Command`]/[`Output`] - Low-level command interface (for SDKs)
 //!
-//! ## Architecture
-//!
-//! ```text
-//! Rust SDK     Python SDK     CLI     MCP Server
-//!      │            │          │           │
-//!      └────────────┴──────────┴───────────┘
-//!                        │
-//!           ┌────────────┴────────────┐
-//!           │     Command (enum)      │  ← Typed, serializable
-//!           │     106 variants        │
-//!           └────────────┬────────────┘
-//!                        │
-//!           ┌────────────┴────────────┐
-//!           │       Executor          │  ← Stateless dispatch
-//!           │   execute(cmd) -> Result│
-//!           └────────────┬────────────┘
-//!                        │
-//!           ┌────────────┴────────────┐
-//!           │     Output (enum)       │  ← Typed results
-//!           │     ~40 variants        │
-//!           └─────────────────────────┘
-//! ```
-//!
-//! ## Example
+//! ## Quick Start
 //!
 //! ```ignore
-//! use strata_executor::{Command, Output, Executor, RunId};
-//! use strata_core::Value;
+//! use strata_executor::{Strata, Value};
 //!
-//! let executor = Executor::new(substrate);
+//! // Open a database
+//! let mut db = Strata::open("/path/to/data")?;
 //!
-//! // Execute a KV put command
-//! let cmd = Command::KvPut {
-//!     run: RunId::default(),
-//!     key: "user:123".into(),
-//!     value: Value::String("Alice".into()),
-//! };
+//! // Store data
+//! db.kv_put("user:123", Value::String("Alice".into()))?;
 //!
-//! match executor.execute(cmd)? {
-//!     Output::Version(v) => println!("Stored at version {}", v),
-//!     _ => unreachable!(),
-//! }
+//! // Retrieve data
+//! let value = db.kv_get("user:123")?;
 //! ```
 //!
-//! ## Design Principles
+//! ## Data Primitives
 //!
-//! 1. **Commands are complete** - Every primitive operation has a Command variant
-//! 2. **Commands are self-contained** - All context is in the command, no implicit state
-//! 3. **Executor is stateless** - Pure dispatch to primitives
-//! 4. **Serialization is lossless** - JSON round-trip preserves exact values
-//! 5. **No executable code** - Commands are data, not closures
+//! | Primitive | Use Case |
+//! |-----------|----------|
+//! | **KV** | General key-value storage |
+//! | **StateCell** | Mutable state with compare-and-swap |
+//! | **EventLog** | Immutable append-only streams |
+//! | **JSONStore** | Structured documents with paths |
+//! | **VectorStore** | Embeddings & similarity search |
+//! | **Run** | Data isolation (like git branches) |
+//!
+//! ## Run Context
+//!
+//! Data is isolated by "runs" (like git branches). Use `create_run()` and `set_run()`:
+//!
+//! ```ignore
+//! db.create_run("experiment-1")?;    // Create a new blank run
+//! db.set_run("experiment-1")?;       // Switch to it
+//! db.kv_put("key", Value::Int(42))?; // Data goes to experiment-1
+//!
+//! db.set_run("default")?;            // Switch back
+//! // Data from experiment-1 is not visible here
+//! ```
 
 pub(crate) mod bridge;
 mod command;
@@ -77,14 +64,21 @@ mod handlers;
 #[cfg(test)]
 mod tests;
 
-// Re-export public API
+// =============================================================================
+// Public API - Everything users need is re-exported here
+// =============================================================================
+
+// Core types
 pub use command::Command;
 pub use error::Error;
 pub use executor::Executor;
 pub use output::Output;
 pub use session::Session;
-pub use api::Strata;
+pub use api::{Strata, Runs, RunDiff};
 pub use types::*;
+
+// Re-export Value from strata_core so users don't need to import it
+pub use strata_core::Value;
 
 /// Result type for executor operations
 pub type Result<T> = std::result::Result<T, Error>;

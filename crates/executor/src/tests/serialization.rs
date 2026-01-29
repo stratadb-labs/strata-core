@@ -5,7 +5,7 @@
 
 use crate::types::*;
 use crate::{Command, Output};
-use strata_core::Value;
+use crate::Value;
 
 /// Helper to test round-trip serialization of a Command.
 fn test_command_round_trip(cmd: Command) {
@@ -261,22 +261,6 @@ fn test_command_run_list() {
         state: Some(RunStatus::Active),
         limit: Some(10),
         offset: Some(0),
-    });
-}
-
-#[test]
-fn test_command_run_add_tags() {
-    test_command_round_trip(Command::RunAddTags {
-        run: RunId::from("default"),
-        tags: vec!["test".to_string(), "important".to_string()],
-    });
-}
-
-#[test]
-fn test_command_run_set_retention() {
-    test_command_round_trip(Command::RunSetRetention {
-        run: RunId::from("default"),
-        policy: RetentionPolicyInfo::KeepLast { count: 100 },
     });
 }
 

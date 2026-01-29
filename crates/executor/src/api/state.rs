@@ -1,8 +1,7 @@
 //! State cell operations.
 
 use super::Strata;
-use strata_core::Value;
-use crate::{Command, Error, Output, Result};
+use crate::{Command, Error, Output, Result, Value};
 use crate::types::*;
 
 impl Strata {
@@ -11,11 +10,11 @@ impl Strata {
     // =========================================================================
 
     /// Set a state cell value.
-    pub fn state_set(&self, cell: &str, value: Value) -> Result<u64> {
+    pub fn state_set(&self, cell: &str, value: impl Into<Value>) -> Result<u64> {
         match self.executor.execute(Command::StateSet {
-            run: None,
+            run: self.run_id(),
             cell: cell.to_string(),
-            value,
+            value: value.into(),
         })? {
             Output::Version(v) => Ok(v),
             _ => Err(Error::Internal {
@@ -27,7 +26,7 @@ impl Strata {
     /// Get a state cell value.
     pub fn state_read(&self, cell: &str) -> Result<Option<VersionedValue>> {
         match self.executor.execute(Command::StateRead {
-            run: None,
+            run: self.run_id(),
             cell: cell.to_string(),
         })? {
             Output::MaybeVersioned(v) => Ok(v),
@@ -42,13 +41,13 @@ impl Strata {
         &self,
         cell: &str,
         expected_counter: Option<u64>,
-        value: Value,
+        value: impl Into<Value>,
     ) -> Result<Option<u64>> {
         match self.executor.execute(Command::StateCas {
-            run: None,
+            run: self.run_id(),
             cell: cell.to_string(),
             expected_counter,
-            value,
+            value: value.into(),
         })? {
             Output::MaybeVersion(v) => Ok(v),
             _ => Err(Error::Internal {
@@ -60,7 +59,7 @@ impl Strata {
     /// Delete a state cell.
     pub fn state_delete(&self, cell: &str) -> Result<bool> {
         match self.executor.execute(Command::StateDelete {
-            run: None,
+            run: self.run_id(),
             cell: cell.to_string(),
         })? {
             Output::Bool(deleted) => Ok(deleted),
@@ -73,7 +72,7 @@ impl Strata {
     /// Check if a state cell exists.
     pub fn state_exists(&self, cell: &str) -> Result<bool> {
         match self.executor.execute(Command::StateExists {
-            run: None,
+            run: self.run_id(),
             cell: cell.to_string(),
         })? {
             Output::Bool(exists) => Ok(exists),
@@ -91,7 +90,7 @@ impl Strata {
         before: Option<u64>,
     ) -> Result<Vec<VersionedValue>> {
         match self.executor.execute(Command::StateHistory {
-            run: None,
+            run: self.run_id(),
             cell: cell.to_string(),
             limit,
             before,
@@ -104,11 +103,11 @@ impl Strata {
     }
 
     /// Initialize a state cell (only if it doesn't exist).
-    pub fn state_init(&self, cell: &str, value: Value) -> Result<u64> {
+    pub fn state_init(&self, cell: &str, value: impl Into<Value>) -> Result<u64> {
         match self.executor.execute(Command::StateInit {
-            run: None,
+            run: self.run_id(),
             cell: cell.to_string(),
-            value,
+            value: value.into(),
         })? {
             Output::Version(v) => Ok(v),
             _ => Err(Error::Internal {
@@ -120,7 +119,7 @@ impl Strata {
     /// List all state cell names.
     pub fn state_list(&self) -> Result<Vec<String>> {
         match self.executor.execute(Command::StateList {
-            run: None,
+            run: self.run_id(),
         })? {
             Output::Strings(names) => Ok(names),
             _ => Err(Error::Internal {

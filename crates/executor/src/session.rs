@@ -79,27 +79,8 @@ impl Session {
             Command::RunCreate { .. }
             | Command::RunGet { .. }
             | Command::RunList { .. }
-            | Command::RunComplete { .. }
-            | Command::RunUpdateMetadata { .. }
             | Command::RunExists { .. }
-            | Command::RunPause { .. }
-            | Command::RunResume { .. }
-            | Command::RunFail { .. }
-            | Command::RunCancel { .. }
-            | Command::RunArchive { .. }
             | Command::RunDelete { .. }
-            | Command::RunQueryByStatus { .. }
-            | Command::RunQueryByTag { .. }
-            | Command::RunCount { .. }
-            | Command::RunSearch { .. }
-            | Command::RunAddTags { .. }
-            | Command::RunRemoveTags { .. }
-            | Command::RunGetTags { .. }
-            | Command::RunCreateChild { .. }
-            | Command::RunGetChildren { .. }
-            | Command::RunGetParent { .. }
-            | Command::RunSetRetention { .. }
-            | Command::RunGetRetention { .. }
             | Command::VectorUpsert { .. }
             | Command::VectorGet { .. }
             | Command::VectorDelete { .. }

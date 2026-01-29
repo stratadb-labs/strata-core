@@ -1,8 +1,7 @@
 //! JSON document store operations.
 
 use super::Strata;
-use strata_core::Value;
-use crate::{Command, Error, Output, Result};
+use crate::{Command, Error, Output, Result, Value};
 use crate::types::*;
 
 impl Strata {
@@ -11,12 +10,12 @@ impl Strata {
     // =========================================================================
 
     /// Set a JSON value at a path.
-    pub fn json_set(&self, key: &str, path: &str, value: Value) -> Result<u64> {
+    pub fn json_set(&self, key: &str, path: &str, value: impl Into<Value>) -> Result<u64> {
         match self.executor.execute(Command::JsonSet {
-            run: None,
+            run: self.run_id(),
             key: key.to_string(),
             path: path.to_string(),
-            value,
+            value: value.into(),
         })? {
             Output::Version(v) => Ok(v),
             _ => Err(Error::Internal {
@@ -28,7 +27,7 @@ impl Strata {
     /// Get a JSON value at a path.
     pub fn json_get(&self, key: &str, path: &str) -> Result<Option<VersionedValue>> {
         match self.executor.execute(Command::JsonGet {
-            run: None,
+            run: self.run_id(),
             key: key.to_string(),
             path: path.to_string(),
         })? {
@@ -42,7 +41,7 @@ impl Strata {
     /// Delete a value at a path from a JSON document.
     pub fn json_delete(&self, key: &str, path: &str) -> Result<u64> {
         match self.executor.execute(Command::JsonDelete {
-            run: None,
+            run: self.run_id(),
             key: key.to_string(),
             path: path.to_string(),
         })? {
@@ -54,12 +53,12 @@ impl Strata {
     }
 
     /// Merge a value at a path (RFC 7396 JSON Merge Patch).
-    pub fn json_merge(&self, key: &str, path: &str, patch: Value) -> Result<u64> {
+    pub fn json_merge(&self, key: &str, path: &str, patch: impl Into<Value>) -> Result<u64> {
         match self.executor.execute(Command::JsonMerge {
-            run: None,
+            run: self.run_id(),
             key: key.to_string(),
             path: path.to_string(),
-            patch,
+            patch: patch.into(),
         })? {
             Output::Version(v) => Ok(v),
             _ => Err(Error::Internal {
@@ -76,7 +75,7 @@ impl Strata {
         before: Option<u64>,
     ) -> Result<Vec<VersionedValue>> {
         match self.executor.execute(Command::JsonHistory {
-            run: None,
+            run: self.run_id(),
             key: key.to_string(),
             limit,
             before,
@@ -91,7 +90,7 @@ impl Strata {
     /// Check if a JSON document exists.
     pub fn json_exists(&self, key: &str) -> Result<bool> {
         match self.executor.execute(Command::JsonExists {
-            run: None,
+            run: self.run_id(),
             key: key.to_string(),
         })? {
             Output::Bool(exists) => Ok(exists),
@@ -104,7 +103,7 @@ impl Strata {
     /// Get the current version of a JSON document.
     pub fn json_get_version(&self, key: &str) -> Result<Option<u64>> {
         match self.executor.execute(Command::JsonGetVersion {
-            run: None,
+            run: self.run_id(),
             key: key.to_string(),
         })? {
             Output::MaybeVersion(v) => Ok(v),
@@ -117,7 +116,7 @@ impl Strata {
     /// Full-text search across JSON documents.
     pub fn json_search(&self, query: &str, k: u64) -> Result<Vec<JsonSearchHit>> {
         match self.executor.execute(Command::JsonSearch {
-            run: None,
+            run: self.run_id(),
             query: query.to_string(),
             k,
         })? {
@@ -136,7 +135,7 @@ impl Strata {
         limit: u64,
     ) -> Result<(Vec<String>, Option<String>)> {
         match self.executor.execute(Command::JsonList {
-            run: None,
+            run: self.run_id(),
             prefix,
             cursor,
             limit,
@@ -154,14 +153,14 @@ impl Strata {
         key: &str,
         expected_version: u64,
         path: &str,
-        value: Value,
+        value: impl Into<Value>,
     ) -> Result<u64> {
         match self.executor.execute(Command::JsonCas {
-            run: None,
+            run: self.run_id(),
             key: key.to_string(),
             expected_version,
             path: path.to_string(),
-            value,
+            value: value.into(),
         })? {
             Output::Version(v) => Ok(v),
             _ => Err(Error::Internal {
@@ -171,11 +170,11 @@ impl Strata {
     }
 
     /// Query documents by exact field match.
-    pub fn json_query(&self, path: &str, value: Value, limit: u64) -> Result<Vec<String>> {
+    pub fn json_query(&self, path: &str, value: impl Into<Value>, limit: u64) -> Result<Vec<String>> {
         match self.executor.execute(Command::JsonQuery {
-            run: None,
+            run: self.run_id(),
             path: path.to_string(),
-            value,
+            value: value.into(),
             limit,
         })? {
             Output::Keys(keys) => Ok(keys),
@@ -188,7 +187,7 @@ impl Strata {
     /// Count JSON documents in the store.
     pub fn json_count(&self) -> Result<u64> {
         match self.executor.execute(Command::JsonCount {
-            run: None,
+            run: self.run_id(),
         })? {
             Output::Uint(count) => Ok(count),
             _ => Err(Error::Internal {
@@ -200,7 +199,7 @@ impl Strata {
     /// Batch get multiple JSON documents.
     pub fn json_batch_get(&self, keys: Vec<String>) -> Result<Vec<Option<VersionedValue>>> {
         match self.executor.execute(Command::JsonBatchGet {
-            run: None,
+            run: self.run_id(),
             keys,
         })? {
             Output::Values(vals) => Ok(vals),
@@ -213,7 +212,7 @@ impl Strata {
     /// Batch create multiple JSON documents atomically.
     pub fn json_batch_create(&self, docs: Vec<(String, Value)>) -> Result<Vec<u64>> {
         match self.executor.execute(Command::JsonBatchCreate {
-            run: None,
+            run: self.run_id(),
             docs,
         })? {
             Output::Versions(versions) => Ok(versions),
@@ -226,7 +225,7 @@ impl Strata {
     /// Atomically push values to an array at path.
     pub fn json_array_push(&self, key: &str, path: &str, values: Vec<Value>) -> Result<u64> {
         match self.executor.execute(Command::JsonArrayPush {
-            run: None,
+            run: self.run_id(),
             key: key.to_string(),
             path: path.to_string(),
             values,
@@ -241,7 +240,7 @@ impl Strata {
     /// Atomically increment a numeric value at path.
     pub fn json_increment(&self, key: &str, path: &str, delta: f64) -> Result<f64> {
         match self.executor.execute(Command::JsonIncrement {
-            run: None,
+            run: self.run_id(),
             key: key.to_string(),
             path: path.to_string(),
             delta,
@@ -256,7 +255,7 @@ impl Strata {
     /// Atomically pop a value from an array at path.
     pub fn json_array_pop(&self, key: &str, path: &str) -> Result<Option<Value>> {
         match self.executor.execute(Command::JsonArrayPop {
-            run: None,
+            run: self.run_id(),
             key: key.to_string(),
             path: path.to_string(),
         })? {

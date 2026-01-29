@@ -486,7 +486,7 @@ impl Executor {
                 crate::handlers::vector::vector_scan(&self.primitives, run, collection, limit, cursor)
             }
 
-            // Run commands
+            // Run commands (5 MVP)
             Command::RunCreate { run_id, metadata } => {
                 crate::handlers::run::run_create(&self.primitives, run_id, metadata)
             }
@@ -496,53 +496,8 @@ impl Executor {
                 limit,
                 offset,
             } => crate::handlers::run::run_list(&self.primitives, state, limit, offset),
-            Command::RunComplete { run } => crate::handlers::run::run_complete(&self.primitives, run),
-            Command::RunUpdateMetadata { run, metadata } => {
-                crate::handlers::run::run_update_metadata(&self.primitives, run, metadata)
-            }
             Command::RunExists { run } => crate::handlers::run::run_exists(&self.primitives, run),
-            Command::RunPause { run } => crate::handlers::run::run_pause(&self.primitives, run),
-            Command::RunResume { run } => crate::handlers::run::run_resume(&self.primitives, run),
-            Command::RunFail { run, error } => {
-                crate::handlers::run::run_fail(&self.primitives, run, error)
-            }
-            Command::RunCancel { run } => crate::handlers::run::run_cancel(&self.primitives, run),
-            Command::RunArchive { run } => crate::handlers::run::run_archive(&self.primitives, run),
             Command::RunDelete { run } => crate::handlers::run::run_delete(&self.primitives, run),
-            Command::RunQueryByStatus { state } => {
-                crate::handlers::run::run_query_by_status(&self.primitives, state)
-            }
-            Command::RunQueryByTag { tag } => {
-                crate::handlers::run::run_query_by_tag(&self.primitives, tag)
-            }
-            Command::RunCount { status } => {
-                crate::handlers::run::run_count(&self.primitives, status)
-            }
-            Command::RunSearch { query, limit } => {
-                crate::handlers::run::run_search(&self.primitives, query, limit)
-            }
-            Command::RunAddTags { run, tags } => {
-                crate::handlers::run::run_add_tags(&self.primitives, run, tags)
-            }
-            Command::RunRemoveTags { run, tags } => {
-                crate::handlers::run::run_remove_tags(&self.primitives, run, tags)
-            }
-            Command::RunGetTags { run } => crate::handlers::run::run_get_tags(&self.primitives, run),
-            Command::RunCreateChild { parent, metadata } => {
-                crate::handlers::run::run_create_child(&self.primitives, parent, metadata)
-            }
-            Command::RunGetChildren { parent } => {
-                crate::handlers::run::run_get_children(&self.primitives, parent)
-            }
-            Command::RunGetParent { run } => {
-                crate::handlers::run::run_get_parent(&self.primitives, run)
-            }
-            Command::RunSetRetention { run, policy } => {
-                crate::handlers::run::run_set_retention(&self.primitives, run, policy)
-            }
-            Command::RunGetRetention { run } => {
-                crate::handlers::run::run_get_retention(&self.primitives, run)
-            }
 
             // Transaction commands - handled by Session, not Executor
             Command::TxnBegin { .. }

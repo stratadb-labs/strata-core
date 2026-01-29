@@ -22,8 +22,9 @@ Users access primitives through `Strata`, not by constructing primitives directl
 
 ```rust
 // User code
-let db = Strata::open("/path/to/data")?;
-db.checkout_run("my-agent-session")?;
+let mut db = Strata::open("/path/to/data")?;
+db.create_run("my-agent-session")?;
+db.set_run("my-agent-session")?;
 
 db.kv_put("key", value)?;           // KV primitive
 db.state_set("cell", value)?;       // State primitive

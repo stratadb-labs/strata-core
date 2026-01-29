@@ -1,8 +1,7 @@
 //! Vector store operations.
 
 use super::Strata;
-use strata_core::Value;
-use crate::{Command, Error, Output, Result};
+use crate::{Command, Error, Output, Result, Value};
 use crate::types::*;
 
 impl Strata {
@@ -18,7 +17,7 @@ impl Strata {
         metric: DistanceMetric,
     ) -> Result<u64> {
         match self.executor.execute(Command::VectorCreateCollection {
-            run: None,
+            run: self.run_id(),
             collection: collection.to_string(),
             dimension,
             metric,
@@ -39,7 +38,7 @@ impl Strata {
         metadata: Option<Value>,
     ) -> Result<u64> {
         match self.executor.execute(Command::VectorUpsert {
-            run: None,
+            run: self.run_id(),
             collection: collection.to_string(),
             key: key.to_string(),
             vector,
@@ -55,7 +54,7 @@ impl Strata {
     /// Get a vector by key.
     pub fn vector_get(&self, collection: &str, key: &str) -> Result<Option<VersionedVectorData>> {
         match self.executor.execute(Command::VectorGet {
-            run: None,
+            run: self.run_id(),
             collection: collection.to_string(),
             key: key.to_string(),
         })? {
@@ -69,7 +68,7 @@ impl Strata {
     /// Delete a vector.
     pub fn vector_delete(&self, collection: &str, key: &str) -> Result<bool> {
         match self.executor.execute(Command::VectorDelete {
-            run: None,
+            run: self.run_id(),
             collection: collection.to_string(),
             key: key.to_string(),
         })? {
@@ -88,7 +87,7 @@ impl Strata {
         k: u64,
     ) -> Result<Vec<VectorMatch>> {
         match self.executor.execute(Command::VectorSearch {
-            run: None,
+            run: self.run_id(),
             collection: collection.to_string(),
             query,
             k,
@@ -112,7 +111,7 @@ impl Strata {
         metric: Option<DistanceMetric>,
     ) -> Result<Vec<VectorMatch>> {
         match self.executor.execute(Command::VectorSearch {
-            run: None,
+            run: self.run_id(),
             collection: collection.to_string(),
             query,
             k,
@@ -129,7 +128,7 @@ impl Strata {
     /// Get collection information.
     pub fn vector_get_collection(&self, collection: &str) -> Result<Option<CollectionInfo>> {
         match self.executor.execute(Command::VectorGetCollection {
-            run: None,
+            run: self.run_id(),
             collection: collection.to_string(),
         })? {
             Output::VectorGetCollection(info) => Ok(info),
@@ -142,7 +141,7 @@ impl Strata {
     /// Delete a collection.
     pub fn vector_delete_collection(&self, collection: &str) -> Result<bool> {
         match self.executor.execute(Command::VectorDeleteCollection {
-            run: None,
+            run: self.run_id(),
             collection: collection.to_string(),
         })? {
             Output::Bool(dropped) => Ok(dropped),
@@ -155,7 +154,7 @@ impl Strata {
     /// List all collections.
     pub fn vector_list_collections(&self) -> Result<Vec<CollectionInfo>> {
         match self.executor.execute(Command::VectorListCollections {
-            run: None,
+            run: self.run_id(),
         })? {
             Output::VectorCollectionList(infos) => Ok(infos),
             _ => Err(Error::Internal {
@@ -167,7 +166,7 @@ impl Strata {
     /// Check if a collection exists.
     pub fn vector_collection_exists(&self, collection: &str) -> Result<bool> {
         match self.executor.execute(Command::VectorCollectionExists {
-            run: None,
+            run: self.run_id(),
             collection: collection.to_string(),
         })? {
             Output::Bool(exists) => Ok(exists),
@@ -180,7 +179,7 @@ impl Strata {
     /// Get the count of vectors in a collection.
     pub fn vector_count(&self, collection: &str) -> Result<u64> {
         match self.executor.execute(Command::VectorCount {
-            run: None,
+            run: self.run_id(),
             collection: collection.to_string(),
         })? {
             Output::Uint(count) => Ok(count),
@@ -197,7 +196,7 @@ impl Strata {
         vectors: Vec<VectorEntry>,
     ) -> Result<Vec<VectorBatchEntry>> {
         match self.executor.execute(Command::VectorUpsertBatch {
-            run: None,
+            run: self.run_id(),
             collection: collection.to_string(),
             vectors,
         })? {
@@ -215,7 +214,7 @@ impl Strata {
         keys: Vec<String>,
     ) -> Result<Vec<Option<VersionedVectorData>>> {
         match self.executor.execute(Command::VectorGetBatch {
-            run: None,
+            run: self.run_id(),
             collection: collection.to_string(),
             keys,
         })? {
@@ -229,7 +228,7 @@ impl Strata {
     /// Batch delete vectors.
     pub fn vector_delete_batch(&self, collection: &str, keys: Vec<String>) -> Result<Vec<bool>> {
         match self.executor.execute(Command::VectorDeleteBatch {
-            run: None,
+            run: self.run_id(),
             collection: collection.to_string(),
             keys,
         })? {
@@ -249,7 +248,7 @@ impl Strata {
         before_version: Option<u64>,
     ) -> Result<Vec<VersionedVectorData>> {
         match self.executor.execute(Command::VectorHistory {
-            run: None,
+            run: self.run_id(),
             collection: collection.to_string(),
             key: key.to_string(),
             limit,
@@ -270,7 +269,7 @@ impl Strata {
         version: u64,
     ) -> Result<Option<VersionedVectorData>> {
         match self.executor.execute(Command::VectorGetAt {
-            run: None,
+            run: self.run_id(),
             collection: collection.to_string(),
             key: key.to_string(),
             version,
@@ -290,7 +289,7 @@ impl Strata {
         cursor: Option<String>,
     ) -> Result<Vec<String>> {
         match self.executor.execute(Command::VectorListKeys {
-            run: None,
+            run: self.run_id(),
             collection: collection.to_string(),
             limit,
             cursor,
@@ -310,7 +309,7 @@ impl Strata {
         cursor: Option<String>,
     ) -> Result<Vec<(String, VectorData)>> {
         match self.executor.execute(Command::VectorScan {
-            run: None,
+            run: self.run_id(),
             collection: collection.to_string(),
             limit,
             cursor,

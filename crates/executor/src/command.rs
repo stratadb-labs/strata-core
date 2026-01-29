@@ -28,7 +28,7 @@ use crate::types::*;
 /// | Event | 11 | Event log operations |
 /// | State | 8 | State cell operations |
 /// | Vector | 19 | Vector store operations |
-/// | Run | 24 | Run lifecycle operations |
+/// | Run | 5 | Run lifecycle operations (MVP) |
 /// | Transaction | 5 | Transaction control |
 /// | Retention | 3 | Retention policy |
 /// | Database | 4 | Database-level operations |
@@ -584,39 +584,26 @@ pub enum Command {
         cursor: Option<String>,
     },
 
-    // ==================== Run (24) ====================
+    // ==================== Run (5 MVP) ====================
     /// Create a new run.
-    /// Returns: `Output::RunCreated`
+    /// Returns: `Output::RunWithVersion`
     RunCreate {
         run_id: Option<String>,
         metadata: Option<Value>,
     },
 
     /// Get run info.
-    /// Returns: `Output::MaybeRunInfo`
+    /// Returns: `Output::RunInfoVersioned` or `Output::Maybe(None)`
     RunGet {
         run: RunId,
     },
 
     /// List all runs.
-    /// Returns: `Output::RunInfos`
+    /// Returns: `Output::RunInfoList`
     RunList {
         state: Option<RunStatus>,
         limit: Option<u64>,
         offset: Option<u64>,
-    },
-
-    /// Close a run (mark as completed).
-    /// Returns: `Output::Version`
-    RunComplete {
-        run: RunId,
-    },
-
-    /// Update run metadata.
-    /// Returns: `Output::Version`
-    RunUpdateMetadata {
-        run: RunId,
-        metadata: Value,
     },
 
     /// Check if a run exists.
@@ -625,117 +612,9 @@ pub enum Command {
         run: RunId,
     },
 
-    /// Pause a run.
-    /// Returns: `Output::Version`
-    RunPause {
-        run: RunId,
-    },
-
-    /// Resume a paused run.
-    /// Returns: `Output::Version`
-    RunResume {
-        run: RunId,
-    },
-
-    /// Fail a run with an error message.
-    /// Returns: `Output::Version`
-    RunFail {
-        run: RunId,
-        error: String,
-    },
-
-    /// Cancel a run.
-    /// Returns: `Output::Version`
-    RunCancel {
-        run: RunId,
-    },
-
-    /// Archive a run (soft delete).
-    /// Returns: `Output::Version`
-    RunArchive {
-        run: RunId,
-    },
-
-    /// Delete a run and all its data.
+    /// Delete a run and all its data (cascading delete).
     /// Returns: `Output::Unit`
     RunDelete {
-        run: RunId,
-    },
-
-    /// Query runs by status.
-    /// Returns: `Output::RunInfos`
-    RunQueryByStatus {
-        state: RunStatus,
-    },
-
-    /// Query runs by tag.
-    /// Returns: `Output::RunInfos`
-    RunQueryByTag {
-        tag: String,
-    },
-
-    /// Count runs.
-    /// Returns: `Output::Uint`
-    RunCount {
-        status: Option<RunStatus>,
-    },
-
-    /// Search runs (metadata and index only).
-    /// Returns: `Output::RunInfos`
-    RunSearch {
-        query: String,
-        limit: Option<u64>,
-    },
-
-    /// Add tags to a run.
-    /// Returns: `Output::Version`
-    RunAddTags {
-        run: RunId,
-        tags: Vec<String>,
-    },
-
-    /// Remove tags from a run.
-    /// Returns: `Output::Version`
-    RunRemoveTags {
-        run: RunId,
-        tags: Vec<String>,
-    },
-
-    /// Get tags for a run.
-    /// Returns: `Output::Strings`
-    RunGetTags {
-        run: RunId,
-    },
-
-    /// Create a child run.
-    /// Returns: `Output::RunCreated`
-    RunCreateChild {
-        parent: RunId,
-        metadata: Option<Value>,
-    },
-
-    /// Get child runs.
-    /// Returns: `Output::RunInfos`
-    RunGetChildren {
-        parent: RunId,
-    },
-
-    /// Get parent run.
-    /// Returns: `Output::MaybeRunId`
-    RunGetParent {
-        run: RunId,
-    },
-
-    /// Set retention policy for a run.
-    /// Returns: `Output::Version`
-    RunSetRetention {
-        run: RunId,
-        policy: RetentionPolicyInfo,
-    },
-
-    /// Get retention policy for a run.
-    /// Returns: `Output::RetentionPolicy`
-    RunGetRetention {
         run: RunId,
     },
 
@@ -905,32 +784,13 @@ impl Command {
                 resolve!(run);
             }
 
-            // Run lifecycle, Transaction, and Database commands have no
+            // Run lifecycle (5 MVP), Transaction, and Database commands have no
             // optional run to resolve.
             Command::RunCreate { .. }
             | Command::RunGet { .. }
             | Command::RunList { .. }
-            | Command::RunComplete { .. }
-            | Command::RunUpdateMetadata { .. }
             | Command::RunExists { .. }
-            | Command::RunPause { .. }
-            | Command::RunResume { .. }
-            | Command::RunFail { .. }
-            | Command::RunCancel { .. }
-            | Command::RunArchive { .. }
             | Command::RunDelete { .. }
-            | Command::RunQueryByStatus { .. }
-            | Command::RunQueryByTag { .. }
-            | Command::RunCount { .. }
-            | Command::RunSearch { .. }
-            | Command::RunAddTags { .. }
-            | Command::RunRemoveTags { .. }
-            | Command::RunGetTags { .. }
-            | Command::RunCreateChild { .. }
-            | Command::RunGetChildren { .. }
-            | Command::RunGetParent { .. }
-            | Command::RunSetRetention { .. }
-            | Command::RunGetRetention { .. }
             | Command::TxnCommit
             | Command::TxnRollback
             | Command::TxnInfo

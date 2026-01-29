@@ -5,7 +5,7 @@
 
 use crate::types::*;
 use crate::{Command, Executor, Output};
-use strata_core::Value;
+use crate::Value;
 use strata_engine::Database;
 use std::sync::Arc;
 
