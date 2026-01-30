@@ -17,6 +17,7 @@
 // Module declarations
 pub mod contract; // contract types
 pub mod error;
+pub mod primitive_ext; // extension trait for primitives to integrate with storage/durability
 pub mod primitives; // primitive types (Event, State, Vector, JSON types)
 pub mod run_types; // Run lifecycle types
 pub mod search_types; // search types (EntityRef/PrimitiveType re-exports only; types moved to engine)
@@ -37,6 +38,12 @@ pub use value::Value;
 pub use contract::{
     EntityRef, PrimitiveType, RunName, RunNameError, Timestamp, Version, Versioned,
     VersionedValue, MAX_RUN_NAME_LENGTH,
+};
+
+// Re-export primitive extension trait and helpers
+pub use primitive_ext::{
+    is_future_wal_type, is_vector_wal_type, primitive_for_wal_type, primitive_type_ids, wal_ranges,
+    PrimitiveExtError, PrimitiveStorageExt,
 };
 
 // Re-export primitive types at crate root for convenience
