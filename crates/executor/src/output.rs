@@ -167,4 +167,14 @@ pub enum Output {
 
     /// Search results across primitives
     SearchResults(Vec<SearchResultHit>),
+
+    // ==================== Bundle ====================
+    /// Run export result
+    RunExported(RunExportResult),
+
+    /// Run import result
+    RunImported(RunImportResult),
+
+    /// Bundle validation result
+    BundleValidated(BundleValidateResult),
 }

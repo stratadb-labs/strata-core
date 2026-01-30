@@ -16,7 +16,7 @@
 //! # Usage
 //!
 //! ```ignore
-//! use strata_storage::codec::{StorageCodec, IdentityCodec};
+//! use strata_durability::codec::{StorageCodec, IdentityCodec};
 //!
 //! let codec = IdentityCodec;
 //! let data = b"hello world";

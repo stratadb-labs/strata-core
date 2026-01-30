@@ -284,6 +284,17 @@ impl Executor {
                 })
             }
 
+            // Bundle commands
+            Command::RunExport { run_id, path } => {
+                crate::handlers::run::run_export(&self.primitives, run_id, path)
+            }
+            Command::RunImport { path } => {
+                crate::handlers::run::run_import(&self.primitives, path)
+            }
+            Command::RunBundleValidate { path } => {
+                crate::handlers::run::run_bundle_validate(path)
+            }
+
             // Intelligence commands
             Command::Search { run, query, k, primitives } => {
                 let run = run.expect("resolved by resolve_default_run");

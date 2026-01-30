@@ -7,7 +7,6 @@
 //! See `docs/architecture/M2_TRANSACTION_SEMANTICS.md` for the full specification.
 
 use crate::validation::{validate_transaction, ValidationResult};
-use crate::wal_writer::TransactionWALWriter;
 use strata_core::StrataResult;
 use strata_core::primitives::json::{get_at_path, JsonPatch, JsonPath, JsonValue};
 use strata_core::traits::{SnapshotView, Storage};
@@ -1144,52 +1143,6 @@ impl TransactionContext {
         }
 
         Ok(result)
-    }
-
-    /// Write all transaction operations to WAL
-    ///
-    /// Per spec Section 5:
-    /// - Write/Delete entries for all buffered operations
-    /// - Version numbers are preserved exactly
-    ///
-    /// # Arguments
-    /// * `wal_writer` - WAL writer configured for this transaction
-    /// * `commit_version` - Version to assign to all writes
-    ///
-    /// # Preconditions
-    /// - Transaction must be in Committed state (validation passed)
-    ///
-    /// # Errors
-    /// - StrataError::invalid_input if transaction is not in Committed state
-    /// - Errors from WAL write operations
-    pub fn write_to_wal(
-        &self,
-        wal_writer: &mut TransactionWALWriter,
-        commit_version: u64,
-    ) -> StrataResult<()> {
-        if !self.is_committed() {
-            return Err(StrataError::invalid_input(format!(
-                "Cannot write to WAL: transaction {} is {:?}, must be Committed",
-                self.txn_id, self.status
-            )));
-        }
-
-        // Write puts
-        for (key, value) in &self.write_set {
-            wal_writer.write_put(key.clone(), value.clone(), commit_version)?;
-        }
-
-        // Write deletes
-        for key in &self.delete_set {
-            wal_writer.write_delete(key.clone(), commit_version)?;
-        }
-
-        // Write CAS operations (as puts with the new value)
-        for cas_op in &self.cas_set {
-            wal_writer.write_put(cas_op.key.clone(), cas_op.new_value.clone(), commit_version)?;
-        }
-
-        Ok(())
     }
 
     // === Introspection ===

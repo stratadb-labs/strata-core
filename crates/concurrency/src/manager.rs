@@ -18,23 +18,24 @@
 //! 3. IF conflicts: abort() and return error
 //! 4. mark_committed() - Change state to Committed
 //! 5. Allocate commit_version (increment global version)
-//! 6. write_begin() to WAL - BeginTxn entry
-//! 7. write_to_wal() - Write/Delete entries with commit_version
-//! 8. write_commit() to WAL - CommitTxn entry (DURABILITY POINT)
-//! 9. apply_writes() to storage - Apply to in-memory storage
-//! 10. Return Ok(commit_version)
+//! 6. Build TransactionPayload from write/delete/cas sets
+//! 7. Append single WalRecord to segmented WAL (DURABILITY POINT)
+//! 8. apply_writes() to storage - Apply to in-memory storage
+//! 9. Return Ok(commit_version)
 //! ```
 //!
-//! If crash occurs before step 8: Transaction is not durable, discarded on recovery.
-//! If crash occurs after step 8: Transaction is durable, replayed on recovery.
+//! If crash occurs before step 7: Transaction is not durable, discarded on recovery.
+//! If crash occurs after step 7: Transaction is durable, replayed on recovery.
 
-use crate::wal_writer::TransactionWALWriter;
+use crate::payload::TransactionPayload;
 use crate::{CommitError, TransactionContext, TransactionStatus};
 use dashmap::DashMap;
 use parking_lot::Mutex;
 use strata_core::traits::Storage;
 use strata_core::types::RunId;
-use strata_durability::wal::WAL;
+use strata_durability::format::WalRecord;
+use strata_durability::now_micros;
+use strata_durability::wal::WalWriter;
 use std::sync::atomic::{AtomicU64, Ordering};
 
 /// Manages transaction lifecycle and atomic commits
@@ -178,7 +179,7 @@ impl TransactionManager {
         &self,
         txn: &mut TransactionContext,
         store: &S,
-        wal: Option<&WAL>,
+        mut wal: Option<&mut WalWriter>,
     ) -> std::result::Result<u64, CommitError> {
         // Acquire per-run commit lock to prevent TOCTOU race between validation and apply
         // This ensures no other transaction on the same run can modify storage between
@@ -199,30 +200,26 @@ impl TransactionManager {
         let commit_version = self.allocate_version();
 
         // Step 3: Write to WAL (durability) - only when WAL is provided
-        if let Some(wal) = wal {
-            let mut wal_writer = TransactionWALWriter::new(wal, txn.txn_id, txn.run_id);
+        // Single WalRecord per committed transaction (no BeginTxn/CommitTxn framing)
+        if let Some(wal) = wal.as_mut() {
+            let payload = TransactionPayload::from_transaction(txn, commit_version);
+            let record = WalRecord::new(
+                txn.txn_id,
+                *txn.run_id.as_bytes(),
+                now_micros(),
+                payload.to_bytes(),
+            );
 
-            // Write BeginTxn
-            if let Err(e) = wal_writer.write_begin() {
-                // WAL write failed - revert transaction state
+            if let Err(e) = wal.append(&record) {
                 txn.status = TransactionStatus::Aborted {
                     reason: format!("WAL write failed: {}", e),
                 };
                 return Err(CommitError::WALError(e.to_string()));
             }
 
-            // Write all operations
-            if let Err(e) = txn.write_to_wal(&mut wal_writer, commit_version) {
+            if let Err(e) = wal.flush() {
                 txn.status = TransactionStatus::Aborted {
-                    reason: format!("WAL write failed: {}", e),
-                };
-                return Err(CommitError::WALError(e.to_string()));
-            }
-
-            // Write CommitTxn - DURABILITY POINT
-            if let Err(e) = wal_writer.write_commit() {
-                txn.status = TransactionStatus::Aborted {
-                    reason: format!("WAL commit failed: {}", e),
+                    reason: format!("WAL flush failed: {}", e),
                 };
                 return Err(CommitError::WALError(e.to_string()));
             }
@@ -272,10 +269,11 @@ mod tests {
     use crate::TransactionContext;
     use strata_core::types::{Key, Namespace};
     use strata_core::value::Value;
-    use strata_durability::wal::DurabilityMode;
+    use strata_durability::codec::IdentityCodec;
+    use strata_durability::wal::{DurabilityMode, WalConfig};
     use strata_storage::ShardedStore;
     use std::sync::Arc;
-    use std::thread;
+    use parking_lot::Mutex as ParkingMutex;
     use tempfile::TempDir;
 
     fn create_test_namespace(run_id: RunId) -> Namespace {
@@ -289,6 +287,17 @@ mod tests {
 
     fn create_test_key(ns: &Namespace, name: &str) -> Key {
         Key::new_kv(ns.clone(), name)
+    }
+
+    fn create_test_wal(dir: &std::path::Path) -> WalWriter {
+        WalWriter::new(
+            dir.to_path_buf(),
+            [0u8; 16],
+            DurabilityMode::Strict,
+            WalConfig::for_testing(),
+            Box::new(IdentityCodec),
+        )
+        .unwrap()
     }
 
     #[test]
@@ -326,9 +335,10 @@ mod tests {
     fn test_per_run_commit_locks_allow_parallel_different_runs() {
         // This test verifies that commits on different runs can proceed in parallel
         // by checking that both commits complete and produce unique versions
+        // Note: WalWriter requires &mut so we use a Mutex for shared access from threads
         let temp_dir = TempDir::new().unwrap();
-        let wal_path = temp_dir.path().join("parallel.wal");
-        let wal = Arc::new(WAL::open(&wal_path, DurabilityMode::Strict).unwrap());
+        let wal_dir = temp_dir.path().join("wal");
+        let wal = Arc::new(ParkingMutex::new(create_test_wal(&wal_dir)));
         let store = Arc::new(ShardedStore::new());
         let manager = Arc::new(TransactionManager::new(0));
 
@@ -353,16 +363,18 @@ mod tests {
         let store_clone = Arc::clone(&store);
         let wal_clone = Arc::clone(&wal);
 
-        let handle1 = thread::spawn(move || {
-            manager_clone.commit(&mut txn1, store_clone.as_ref(), Some(wal_clone.as_ref()))
+        let handle1 = std::thread::spawn(move || {
+            let mut guard = wal_clone.lock();
+            manager_clone.commit(&mut txn1, store_clone.as_ref(), Some(&mut *guard))
         });
 
         let manager_clone2 = Arc::clone(&manager);
         let store_clone2 = Arc::clone(&store);
         let wal_clone2 = Arc::clone(&wal);
 
-        let handle2 = thread::spawn(move || {
-            manager_clone2.commit(&mut txn2, store_clone2.as_ref(), Some(wal_clone2.as_ref()))
+        let handle2 = std::thread::spawn(move || {
+            let mut guard = wal_clone2.lock();
+            manager_clone2.commit(&mut txn2, store_clone2.as_ref(), Some(&mut *guard))
         });
 
         let v1 = handle1.join().unwrap().unwrap();
@@ -383,10 +395,10 @@ mod tests {
         // This test verifies that commits on the same run are serialized
         // (one completes before the other starts its critical section)
         let temp_dir = TempDir::new().unwrap();
-        let wal_path = temp_dir.path().join("serial.wal");
-        let wal = Arc::new(WAL::open(&wal_path, DurabilityMode::Strict).unwrap());
+        let wal_dir = temp_dir.path().join("wal");
+        let mut wal = create_test_wal(&wal_dir);
         let store = Arc::new(ShardedStore::new());
-        let manager = Arc::new(TransactionManager::new(0));
+        let manager = TransactionManager::new(0);
 
         let run_id = RunId::new();
         let ns = create_test_namespace(run_id);
@@ -398,7 +410,7 @@ mod tests {
             let snapshot = store.snapshot();
             let mut txn = TransactionContext::with_snapshot(1, run_id, Box::new(snapshot));
             txn.put(key1.clone(), Value::Int(100)).unwrap();
-            let v = manager.commit(&mut txn, store.as_ref(), Some(wal.as_ref())).unwrap();
+            let v = manager.commit(&mut txn, store.as_ref(), Some(&mut wal)).unwrap();
             assert_eq!(v, 1);
         }
 
@@ -407,7 +419,7 @@ mod tests {
             let snapshot = store.snapshot();
             let mut txn = TransactionContext::with_snapshot(2, run_id, Box::new(snapshot));
             txn.put(key2.clone(), Value::Int(200)).unwrap();
-            let v = manager.commit(&mut txn, store.as_ref(), Some(wal.as_ref())).unwrap();
+            let v = manager.commit(&mut txn, store.as_ref(), Some(&mut wal)).unwrap();
             assert_eq!(v, 2);
         }
 
@@ -425,8 +437,8 @@ mod tests {
     fn test_many_parallel_commits_different_runs() {
         // Stress test: many parallel commits on different runs
         let temp_dir = TempDir::new().unwrap();
-        let wal_path = temp_dir.path().join("stress.wal");
-        let wal = Arc::new(WAL::open(&wal_path, DurabilityMode::Strict).unwrap());
+        let wal_dir = temp_dir.path().join("wal");
+        let wal = Arc::new(ParkingMutex::new(create_test_wal(&wal_dir)));
         let store = Arc::new(ShardedStore::new());
         let manager = Arc::new(TransactionManager::new(0));
 
@@ -438,7 +450,7 @@ mod tests {
             let store_clone = Arc::clone(&store);
             let wal_clone = Arc::clone(&wal);
 
-            handles.push(thread::spawn(move || {
+            handles.push(std::thread::spawn(move || {
                 let run_id = RunId::new();
                 let ns = create_test_namespace(run_id);
                 let key = create_test_key(&ns, &format!("key_{}", i));
@@ -447,7 +459,8 @@ mod tests {
                 let mut txn = TransactionContext::with_snapshot(i as u64 + 1, run_id, Box::new(snapshot));
                 txn.put(key, Value::Int(i as i64)).unwrap();
 
-                manager_clone.commit(&mut txn, store_clone.as_ref(), Some(wal_clone.as_ref()))
+                let mut guard = wal_clone.lock();
+                manager_clone.commit(&mut txn, store_clone.as_ref(), Some(&mut *guard))
             }));
         }
 
@@ -467,18 +480,13 @@ mod tests {
     }
 
     /// Test that scan_prefix tracks deleted keys in read_set for conflict detection.
-    ///
-    /// When a key exists in snapshot but is in delete_set, scan_prefix should
-    /// still track it in read_set. This ensures that if another transaction
-    /// modifies the key, the conflict is detected and the delete doesn't
-    /// silently overwrite concurrent updates.
     #[test]
     fn test_scan_prefix_deleted_key_conflict_detection() {
         let temp_dir = TempDir::new().unwrap();
-        let wal_path = temp_dir.path().join("scan_delete.wal");
-        let wal = Arc::new(WAL::open(&wal_path, DurabilityMode::Strict).unwrap());
+        let wal_dir = temp_dir.path().join("wal");
+        let mut wal = create_test_wal(&wal_dir);
         let store = Arc::new(ShardedStore::new());
-        let manager = Arc::new(TransactionManager::new(0));
+        let manager = TransactionManager::new(0);
 
         let run_id = RunId::new();
         let ns = create_test_namespace(run_id);
@@ -492,7 +500,7 @@ mod tests {
             let mut setup_txn = TransactionContext::with_snapshot(1, run_id, Box::new(snapshot));
             setup_txn.put(key_alice.clone(), Value::Int(100)).unwrap();
             setup_txn.put(key_bob.clone(), Value::Int(200)).unwrap();
-            manager.commit(&mut setup_txn, store.as_ref(), Some(wal.as_ref())).unwrap();
+            manager.commit(&mut setup_txn, store.as_ref(), Some(&mut wal)).unwrap();
         }
 
         // T1: Delete alice (blind), then scan
@@ -512,11 +520,11 @@ mod tests {
             // T2 reads alice first (creates read_set entry)
             let _ = txn2.get(&key_alice).unwrap();
             txn2.put(key_alice.clone(), Value::Int(999)).unwrap();
-            manager.commit(&mut txn2, store.as_ref(), Some(wal.as_ref())).unwrap();
+            manager.commit(&mut txn2, store.as_ref(), Some(&mut wal)).unwrap();
         }
 
         // T1 commits - should FAIL because alice was modified after T1 observed it in scan
-        let result = manager.commit(&mut txn1, store.as_ref(), Some(wal.as_ref()));
+        let result = manager.commit(&mut txn1, store.as_ref(), Some(&mut wal));
 
         // Conflict should be detected: T1 scanned and saw alice at v1, but T2 updated it to v2
         assert!(result.is_err(), "Should detect conflict when scanned deleted key is modified");
@@ -527,14 +535,13 @@ mod tests {
     }
 
     /// Test that blind delete without scan does NOT cause conflict (by design).
-    /// This ensures we didn't break the "blind writes don't conflict" semantics.
     #[test]
     fn test_blind_delete_no_conflict() {
         let temp_dir = TempDir::new().unwrap();
-        let wal_path = temp_dir.path().join("blind_delete.wal");
-        let wal = Arc::new(WAL::open(&wal_path, DurabilityMode::Strict).unwrap());
+        let wal_dir = temp_dir.path().join("wal");
+        let mut wal = create_test_wal(&wal_dir);
         let store = Arc::new(ShardedStore::new());
-        let manager = Arc::new(TransactionManager::new(0));
+        let manager = TransactionManager::new(0);
 
         let run_id = RunId::new();
         let ns = create_test_namespace(run_id);
@@ -545,7 +552,7 @@ mod tests {
             let snapshot = store.snapshot();
             let mut setup_txn = TransactionContext::with_snapshot(1, run_id, Box::new(snapshot));
             setup_txn.put(key_alice.clone(), Value::Int(100)).unwrap();
-            manager.commit(&mut setup_txn, store.as_ref(), Some(wal.as_ref())).unwrap();
+            manager.commit(&mut setup_txn, store.as_ref(), Some(&mut wal)).unwrap();
         }
 
         // T1: Blind delete alice (no read, no scan)
@@ -559,11 +566,11 @@ mod tests {
             let mut txn2 = TransactionContext::with_snapshot(3, run_id, Box::new(snapshot2));
             let _ = txn2.get(&key_alice).unwrap();
             txn2.put(key_alice.clone(), Value::Int(999)).unwrap();
-            manager.commit(&mut txn2, store.as_ref(), Some(wal.as_ref())).unwrap();
+            manager.commit(&mut txn2, store.as_ref(), Some(&mut wal)).unwrap();
         }
 
         // T1 commits - should SUCCEED because blind writes don't conflict
-        let result = manager.commit(&mut txn1, store.as_ref(), Some(wal.as_ref()));
+        let result = manager.commit(&mut txn1, store.as_ref(), Some(&mut wal));
         assert!(result.is_ok(), "Blind delete should succeed (no read_set entry)");
 
         // T1's delete overwrites T2's update - this is expected for blind writes

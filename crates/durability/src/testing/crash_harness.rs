@@ -14,7 +14,7 @@
 //! # Example
 //!
 //! ```ignore
-//! use strata_storage::testing::{CrashConfig, CrashPoint, CrashType};
+//! use strata_durability::testing::{CrashConfig, CrashPoint, CrashType};
 //!
 //! let config = CrashConfig::default();
 //! // Use with storage layer components for crash testing

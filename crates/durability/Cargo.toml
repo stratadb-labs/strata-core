@@ -10,8 +10,6 @@ publish = false
 
 [dependencies]
 strata-core = { path = "../core" }
-strata-storage = { path = "../storage" }
-bincode = { workspace = true }
 parking_lot = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }

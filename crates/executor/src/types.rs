@@ -256,6 +256,36 @@ pub struct DatabaseInfo {
 }
 
 // =============================================================================
+// Bundle Types
+// =============================================================================
+
+/// Information about a run export operation
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct RunExportResult {
+    pub run_id: String,
+    pub path: String,
+    pub entry_count: u64,
+    pub bundle_size: u64,
+}
+
+/// Information about a run import operation
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct RunImportResult {
+    pub run_id: String,
+    pub transactions_applied: u64,
+    pub keys_written: u64,
+}
+
+/// Information about bundle validation
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct BundleValidateResult {
+    pub run_id: String,
+    pub format_version: u32,
+    pub entry_count: u64,
+    pub checksums_valid: bool,
+}
+
+// =============================================================================
 // Intelligence Types
 // =============================================================================
 

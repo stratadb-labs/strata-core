@@ -37,8 +37,8 @@ use tracing::info;
 ///
 /// Takes a reference to the Database and performs recovery for a specific
 /// primitive's runtime state. The function should:
-/// 1. Access the WAL via `db.wal()`
-/// 2. Replay relevant entries into the primitive's extension state
+/// 1. Scan the KV store for relevant entries (already recovered from WAL)
+/// 2. Rebuild runtime state into the primitive's extension state
 /// 3. Return Ok(()) on success or an error on failure
 ///
 /// Recovery functions are stateless - they use the Database's extension

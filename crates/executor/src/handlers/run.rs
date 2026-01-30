@@ -123,6 +123,60 @@ pub fn run_delete(p: &Arc<Primitives>, run: RunId) -> Result<Output> {
     Ok(Output::Unit)
 }
 
+// =============================================================================
+// Bundle Handlers
+// =============================================================================
+
+/// Handle RunExport command.
+pub fn run_export(p: &Arc<Primitives>, run_id: String, path: String) -> Result<Output> {
+    let export_path = std::path::Path::new(&path);
+    let info = strata_engine::bundle::export_run(&p.db, &run_id, export_path).map_err(|e| {
+        Error::Io {
+            reason: format!("Export failed: {}", e),
+        }
+    })?;
+
+    Ok(Output::RunExported(crate::types::RunExportResult {
+        run_id: info.run_id,
+        path: info.path.to_string_lossy().to_string(),
+        entry_count: info.entry_count,
+        bundle_size: info.bundle_size,
+    }))
+}
+
+/// Handle RunImport command.
+pub fn run_import(p: &Arc<Primitives>, path: String) -> Result<Output> {
+    let import_path = std::path::Path::new(&path);
+    let info = strata_engine::bundle::import_run(&p.db, import_path).map_err(|e| {
+        Error::Io {
+            reason: format!("Import failed: {}", e),
+        }
+    })?;
+
+    Ok(Output::RunImported(crate::types::RunImportResult {
+        run_id: info.run_id,
+        transactions_applied: info.transactions_applied,
+        keys_written: info.keys_written,
+    }))
+}
+
+/// Handle RunBundleValidate command.
+pub fn run_bundle_validate(path: String) -> Result<Output> {
+    let validate_path = std::path::Path::new(&path);
+    let info = strata_engine::bundle::validate_bundle(validate_path).map_err(|e| {
+        Error::Io {
+            reason: format!("Validation failed: {}", e),
+        }
+    })?;
+
+    Ok(Output::BundleValidated(crate::types::BundleValidateResult {
+        run_id: info.run_id,
+        format_version: info.format_version,
+        entry_count: info.entry_count,
+        checksums_valid: info.checksums_valid,
+    }))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

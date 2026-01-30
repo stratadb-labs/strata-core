@@ -1,22 +1,21 @@
-//! RunBundle archive writer
+//! RunBundle archive writer (v2)
 //!
 //! Creates .runbundle.tar.zst archives containing:
 //! - MANIFEST.json - Format metadata and checksums
 //! - RUN.json - Run metadata
-//! - WAL.runlog - Run-scoped WAL entries
+//! - WAL.runlog - Run-scoped transaction payloads (msgpack v2 format)
 
 use crate::run_bundle::error::{RunBundleError, RunBundleResult};
 use crate::run_bundle::types::{
     paths, xxh3_hex, BundleContents, BundleManifest, BundleRunInfo, ExportOptions, RunExportInfo,
 };
-use crate::run_bundle::wal_log::WalLogWriter;
-use crate::wal::WALEntry;
+use crate::run_bundle::wal_log::{RunlogPayload, WalLogWriter};
 use std::fs::{self, File};
 use std::io::{BufWriter, Write};
 use std::path::Path;
 use tar::{Builder, Header};
 
-/// Writer for RunBundle archives
+/// Writer for RunBundle archives (v2)
 ///
 /// Creates .runbundle.tar.zst files with atomic write semantics.
 pub struct RunBundleWriter {
@@ -43,7 +42,7 @@ impl RunBundleWriter {
     pub fn write(
         &self,
         run_info: &BundleRunInfo,
-        wal_entries: &[WALEntry],
+        payloads: &[RunlogPayload],
         path: &Path,
     ) -> RunBundleResult<RunExportInfo> {
         // Create temp file path
@@ -57,7 +56,7 @@ impl RunBundleWriter {
         }
 
         // Try to write, clean up on failure
-        match self.write_inner(run_info, wal_entries, &temp_path) {
+        match self.write_inner(run_info, payloads, &temp_path) {
             Ok(info) => {
                 // Atomic rename
                 fs::rename(&temp_path, path)?;
@@ -78,12 +77,12 @@ impl RunBundleWriter {
     fn write_inner(
         &self,
         run_info: &BundleRunInfo,
-        wal_entries: &[WALEntry],
+        payloads: &[RunlogPayload],
         path: &Path,
     ) -> RunBundleResult<RunExportInfo> {
         // Prepare file contents
         let run_json = serde_json::to_vec_pretty(run_info)?;
-        let (wal_data, wal_info) = WalLogWriter::write_to_vec(wal_entries)?;
+        let (wal_data, wal_info) = WalLogWriter::write_to_vec(payloads)?;
 
         // Build manifest with checksums
         let mut manifest = BundleManifest::new(
@@ -167,11 +166,11 @@ impl RunBundleWriter {
     pub fn write_to_vec(
         &self,
         run_info: &BundleRunInfo,
-        wal_entries: &[WALEntry],
+        payloads: &[RunlogPayload],
     ) -> RunBundleResult<(Vec<u8>, RunExportInfo)> {
         // Prepare file contents
         let run_json = serde_json::to_vec_pretty(run_info)?;
-        let (wal_data, wal_info) = WalLogWriter::write_to_vec(wal_entries)?;
+        let (wal_data, wal_info) = WalLogWriter::write_to_vec(payloads)?;
 
         // Build manifest with checksums
         let mut manifest = BundleManifest::new(
@@ -226,11 +225,10 @@ impl RunBundleWriter {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::run_bundle::wal_log::RunlogPayload;
     use crate::run_bundle::types::RUNBUNDLE_FORMAT_VERSION;
-    use crate::wal::WALEntry;
     use strata_core::types::{Key, Namespace, RunId, TypeTag};
     use strata_core::value::Value;
-    use strata_core::Timestamp;
     use std::io::Read;
     use tempfile::tempdir;
 
@@ -248,22 +246,27 @@ mod tests {
         }
     }
 
-    fn make_test_entries() -> Vec<WALEntry> {
+    fn make_test_payloads() -> Vec<RunlogPayload> {
         let run_id = RunId::new();
         let ns = Namespace::for_run(run_id);
         vec![
-            WALEntry::BeginTxn {
-                txn_id: 1,
-                run_id,
-                timestamp: Timestamp::now(),
-            },
-            WALEntry::Write {
-                run_id,
-                key: Key::new(ns.clone(), TypeTag::KV, b"key1".to_vec()),
-                value: Value::String("value1".to_string()),
+            RunlogPayload {
+                run_id: run_id.to_string(),
                 version: 1,
+                puts: vec![
+                    (
+                        Key::new(ns.clone(), TypeTag::KV, b"key1".to_vec()),
+                        Value::String("value1".to_string()),
+                    ),
+                ],
+                deletes: vec![],
             },
-            WALEntry::CommitTxn { txn_id: 1, run_id },
+            RunlogPayload {
+                run_id: run_id.to_string(),
+                version: 2,
+                puts: vec![],
+                deletes: vec![Key::new(ns, TypeTag::KV, b"key1".to_vec())],
+            },
         ]
     }
 
@@ -271,13 +274,13 @@ mod tests {
     fn test_write_to_vec() {
         let writer = RunBundleWriter::with_defaults();
         let run_info = make_test_run_info();
-        let entries = make_test_entries();
+        let payloads = make_test_payloads();
 
-        let (data, info) = writer.write_to_vec(&run_info, &entries).unwrap();
+        let (data, info) = writer.write_to_vec(&run_info, &payloads).unwrap();
 
         assert!(!data.is_empty());
         assert_eq!(info.run_id, run_info.run_id);
-        assert_eq!(info.wal_entry_count, 3);
+        assert_eq!(info.wal_entry_count, 2);
         assert!(info.bundle_size_bytes > 0);
         assert!(!info.checksum.is_empty());
     }
@@ -289,13 +292,13 @@ mod tests {
 
         let writer = RunBundleWriter::with_defaults();
         let run_info = make_test_run_info();
-        let entries = make_test_entries();
+        let payloads = make_test_payloads();
 
-        let info = writer.write(&run_info, &entries, &path).unwrap();
+        let info = writer.write(&run_info, &payloads, &path).unwrap();
 
         assert!(path.exists());
         assert_eq!(info.path, path);
-        assert_eq!(info.wal_entry_count, 3);
+        assert_eq!(info.wal_entry_count, 2);
 
         // Verify file is valid zstd
         let data = fs::read(&path).unwrap();
@@ -312,10 +315,10 @@ mod tests {
 
         let writer = RunBundleWriter::with_defaults();
         let run_info = make_test_run_info();
-        let entries = make_test_entries();
+        let payloads = make_test_payloads();
 
         // Should create parent directory
-        let info = writer.write(&run_info, &entries, &path).unwrap();
+        let info = writer.write(&run_info, &payloads, &path).unwrap();
         assert!(path.exists());
         assert_eq!(info.path, path);
 
@@ -328,9 +331,9 @@ mod tests {
     fn test_tar_structure() {
         let writer = RunBundleWriter::with_defaults();
         let run_info = make_test_run_info();
-        let entries = make_test_entries();
+        let payloads = make_test_payloads();
 
-        let (data, _) = writer.write_to_vec(&run_info, &entries).unwrap();
+        let (data, _) = writer.write_to_vec(&run_info, &payloads).unwrap();
 
         // Decompress
         let mut decoder = zstd::Decoder::new(&data[..]).unwrap();
@@ -354,9 +357,9 @@ mod tests {
     fn test_manifest_contains_checksums() {
         let writer = RunBundleWriter::with_defaults();
         let run_info = make_test_run_info();
-        let entries = make_test_entries();
+        let payloads = make_test_payloads();
 
-        let (data, _) = writer.write_to_vec(&run_info, &entries).unwrap();
+        let (data, _) = writer.write_to_vec(&run_info, &payloads).unwrap();
 
         // Decompress and extract manifest
         let mut decoder = zstd::Decoder::new(&data[..]).unwrap();
@@ -390,9 +393,9 @@ mod tests {
     fn test_run_json_content() {
         let writer = RunBundleWriter::with_defaults();
         let run_info = make_test_run_info();
-        let entries = make_test_entries();
+        let payloads = make_test_payloads();
 
-        let (data, _) = writer.write_to_vec(&run_info, &entries).unwrap();
+        let (data, _) = writer.write_to_vec(&run_info, &payloads).unwrap();
 
         // Decompress and extract RUN.json
         let mut decoder = zstd::Decoder::new(&data[..]).unwrap();
@@ -426,9 +429,9 @@ mod tests {
     fn test_empty_entries() {
         let writer = RunBundleWriter::with_defaults();
         let run_info = make_test_run_info();
-        let entries: Vec<WALEntry> = vec![];
+        let payloads: Vec<RunlogPayload> = vec![];
 
-        let (data, info) = writer.write_to_vec(&run_info, &entries).unwrap();
+        let (data, info) = writer.write_to_vec(&run_info, &payloads).unwrap();
 
         assert!(!data.is_empty());
         assert_eq!(info.wal_entry_count, 0);
@@ -438,13 +441,11 @@ mod tests {
     fn test_reproducible_output() {
         let writer = RunBundleWriter::with_defaults();
         let run_info = make_test_run_info();
-        let entries = make_test_entries();
+        let payloads = make_test_payloads();
 
-        let (_data1, info1) = writer.write_to_vec(&run_info, &entries).unwrap();
-        let (_data2, info2) = writer.write_to_vec(&run_info, &entries).unwrap();
+        let (_data1, info1) = writer.write_to_vec(&run_info, &payloads).unwrap();
+        let (_data2, info2) = writer.write_to_vec(&run_info, &payloads).unwrap();
 
-        // Note: Due to timestamps in WAL entries, data won't be identical
-        // But checksums of the same input should be consistent
         assert_eq!(info1.wal_entry_count, info2.wal_entry_count);
     }
 
@@ -453,20 +454,23 @@ mod tests {
         let writer = RunBundleWriter::with_defaults();
         let run_info = make_test_run_info();
 
-        // Create entries with repetitive data (compresses well)
+        // Create payloads with repetitive data (compresses well)
         let run_id = RunId::new();
         let ns = Namespace::for_run(run_id);
-        let mut entries = Vec::new();
+        let mut payloads = Vec::new();
         for i in 0..100 {
-            entries.push(WALEntry::Write {
-                run_id,
-                key: Key::new(ns.clone(), TypeTag::KV, format!("key{}", i).into_bytes()),
-                value: Value::String("a]".repeat(1000)),
+            payloads.push(RunlogPayload {
+                run_id: run_id.to_string(),
                 version: i as u64,
+                puts: vec![(
+                    Key::new(ns.clone(), TypeTag::KV, format!("key{}", i).into_bytes()),
+                    Value::String("a]".repeat(1000)),
+                )],
+                deletes: vec![],
             });
         }
 
-        let (compressed, _) = writer.write_to_vec(&run_info, &entries).unwrap();
+        let (compressed, _) = writer.write_to_vec(&run_info, &payloads).unwrap();
 
         // Decompress to get uncompressed size
         let mut decoder = zstd::Decoder::new(&compressed[..]).unwrap();

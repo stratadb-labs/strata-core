@@ -44,6 +44,7 @@ pub use transaction::{Transaction, TransactionPool, MAX_POOL_SIZE};
 pub use strata_concurrency::TransactionContext;
 pub use transaction_ops::TransactionOps;
 
+pub mod bundle;
 pub mod primitives;
 pub mod search;
 
@@ -80,6 +81,9 @@ pub use primitives::{
     // Recovery
     register_vector_recovery,
 };
+
+// Re-export bundle types at crate root
+pub use bundle::{ExportInfo, ImportInfo, BundleInfo};
 
 #[cfg(feature = "perf-trace")]
 pub use instrumentation::{PerfBreakdown, PerfStats};

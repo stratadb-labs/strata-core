@@ -14,7 +14,7 @@ use strata_core::StrataError;
 use strata_core::StrataResult;
 use strata_core::traits::Storage;
 use strata_core::types::RunId;
-use strata_durability::wal::WAL;
+use strata_durability::wal::WalWriter;
 use strata_storage::ShardedStore;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
@@ -143,7 +143,7 @@ impl TransactionCoordinator {
         &self,
         txn: &mut TransactionContext,
         store: &S,
-        wal: Option<&WAL>,
+        wal: Option<&mut WalWriter>,
     ) -> StrataResult<u64> {
         match self.manager.commit(txn, store, wal) {
             Ok(version) => {

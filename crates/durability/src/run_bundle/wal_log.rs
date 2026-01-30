@@ -1,51 +1,71 @@
-//! WAL.runlog reader and writer
+//! WAL.runlog reader and writer (v2 — TransactionPayload / msgpack)
 //!
-//! This module handles the binary format for run-scoped WAL entries
+//! This module handles the binary format for run-scoped transaction payloads
 //! within a RunBundle archive.
 //!
-//! ## Format
+//! ## Format (v2)
 //!
 //! ```text
 //! ┌─────────────────────────────────────────────────────────────────┐
 //! │ Header (16 bytes)                                               │
 //! ├─────────────────────────────────────────────────────────────────┤
 //! │ Magic: "STRATA_WAL" (10 bytes)                                  │
-//! │ Version: u16 (2 bytes, LE)                                      │
+//! │ Version: u16 (2 bytes, LE) — must be 2                         │
 //! │ Entry Count: u32 (4 bytes, LE)                                  │
 //! ├─────────────────────────────────────────────────────────────────┤
 //! │ Entries (variable)                                              │
 //! ├─────────────────────────────────────────────────────────────────┤
 //! │ For each entry:                                                 │
 //! │   Length: u32 (4 bytes, LE)                                     │
-//! │   Data: [u8; length] (bincode-serialized WALEntry)              │
+//! │   Data: [u8; length] (msgpack-serialized RunlogPayload)         │
 //! │   CRC32: u32 (4 bytes, LE)                                      │
 //! └─────────────────────────────────────────────────────────────────┘
 //! ```
 
 use crate::run_bundle::error::{RunBundleError, RunBundleResult};
 use crate::run_bundle::types::{xxh3_hex, WAL_RUNLOG_MAGIC, WAL_RUNLOG_VERSION};
-use crate::wal::WALEntry;
-use strata_core::types::RunId;
+use serde::{Deserialize, Serialize};
+use strata_core::types::Key;
+use strata_core::value::Value;
 use std::io::{Read, Write};
 
 /// Header size in bytes: magic (10) + version (2) + count (4)
 const HEADER_SIZE: usize = 16;
 
 // =============================================================================
-// WAL Filtering
+// RunlogPayload — the v2 record type
 // =============================================================================
 
-/// Filter WAL entries to only include those belonging to a specific run
+/// A single committed transaction's data for inclusion in a run bundle.
 ///
-/// This filters out:
-/// - Checkpoint entries (they don't belong to any single run)
-/// - Entries belonging to other runs
-pub fn filter_wal_for_run(entries: &[WALEntry], run_id: &RunId) -> Vec<WALEntry> {
-    entries
-        .iter()
-        .filter(|entry| entry.run_id() == Some(*run_id))
-        .cloned()
-        .collect()
+/// This is the v2 replacement for the legacy `WALEntry`-based format.
+/// Each `RunlogPayload` represents one committed transaction with its
+/// puts and deletes. Transaction framing (BeginTxn/CommitTxn) is not
+/// needed because bundles only contain committed data.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct RunlogPayload {
+    /// The run this payload belongs to
+    pub run_id: String,
+    /// Commit version of this transaction
+    pub version: u64,
+    /// Key-value pairs written in this transaction
+    pub puts: Vec<(Key, Value)>,
+    /// Keys deleted in this transaction
+    pub deletes: Vec<Key>,
+}
+
+impl RunlogPayload {
+    /// Serialize to MessagePack bytes.
+    pub fn to_bytes(&self) -> Vec<u8> {
+        rmp_serde::to_vec(self).expect("RunlogPayload serialization should not fail")
+    }
+
+    /// Deserialize from MessagePack bytes.
+    pub fn from_bytes(bytes: &[u8]) -> RunBundleResult<Self> {
+        rmp_serde::from_slice(bytes).map_err(|e| {
+            RunBundleError::serialization(format!("msgpack decode RunlogPayload: {}", e))
+        })
+    }
 }
 
 // =============================================================================
@@ -63,26 +83,28 @@ pub struct WalLogInfo {
     pub checksum: String,
 }
 
-/// Writer for WAL.runlog format
+/// Writer for WAL.runlog format (v2)
 pub struct WalLogWriter;
 
 impl WalLogWriter {
-    /// Write WAL entries to a writer in .runlog format
+    /// Write payloads to a writer in .runlog v2 format
     ///
     /// Returns information about the written data including checksum.
-    pub fn write<W: Write>(entries: &[WALEntry], mut writer: W) -> RunBundleResult<WalLogInfo> {
+    pub fn write<W: Write>(
+        payloads: &[RunlogPayload],
+        mut writer: W,
+    ) -> RunBundleResult<WalLogInfo> {
         let mut buffer = Vec::new();
 
         // Write header
         buffer.extend_from_slice(WAL_RUNLOG_MAGIC);
         buffer.extend_from_slice(&WAL_RUNLOG_VERSION.to_le_bytes());
-        buffer.extend_from_slice(&(entries.len() as u32).to_le_bytes());
+        buffer.extend_from_slice(&(payloads.len() as u32).to_le_bytes());
 
         // Write entries
-        for entry in entries {
-            // Serialize entry with bincode
-            let entry_data = bincode::serialize(entry)
-                .map_err(|e| RunBundleError::serialization(format!("bincode encode: {}", e)))?;
+        for payload in payloads {
+            // Serialize entry with msgpack
+            let entry_data = payload.to_bytes();
 
             // Calculate CRC32 of entry data
             let crc = crc32fast::hash(&entry_data);
@@ -103,18 +125,18 @@ impl WalLogWriter {
             .map_err(RunBundleError::from)?;
 
         Ok(WalLogInfo {
-            entry_count: entries.len() as u64,
+            entry_count: payloads.len() as u64,
             bytes_written,
             checksum,
         })
     }
 
-    /// Write WAL entries to a Vec<u8>
+    /// Write payloads to a Vec<u8>
     ///
     /// Convenience method for testing and in-memory operations.
-    pub fn write_to_vec(entries: &[WALEntry]) -> RunBundleResult<(Vec<u8>, WalLogInfo)> {
+    pub fn write_to_vec(payloads: &[RunlogPayload]) -> RunBundleResult<(Vec<u8>, WalLogInfo)> {
         let mut buffer = Vec::new();
-        let info = Self::write(entries, &mut buffer)?;
+        let info = Self::write(payloads, &mut buffer)?;
         Ok((buffer, info))
     }
 }
@@ -123,14 +145,14 @@ impl WalLogWriter {
 // Reader
 // =============================================================================
 
-/// Reader for WAL.runlog format
+/// Reader for WAL.runlog format (v2)
 pub struct WalLogReader;
 
 impl WalLogReader {
-    /// Read all WAL entries from a reader
+    /// Read all payloads from a reader
     ///
     /// Validates the header and CRC32 of each entry.
-    pub fn read<R: Read>(mut reader: R) -> RunBundleResult<Vec<WALEntry>> {
+    pub fn read<R: Read>(mut reader: R) -> RunBundleResult<Vec<RunlogPayload>> {
         // Read header
         let mut header = [0u8; HEADER_SIZE];
         reader
@@ -158,75 +180,18 @@ impl WalLogReader {
         let entry_count = u32::from_le_bytes([header[12], header[13], header[14], header[15]]);
 
         // Read entries
-        let mut entries = Vec::with_capacity(entry_count as usize);
+        let mut payloads = Vec::with_capacity(entry_count as usize);
         for i in 0..entry_count {
-            // Read length
-            let mut len_bytes = [0u8; 4];
-            reader.read_exact(&mut len_bytes).map_err(|e| {
-                RunBundleError::InvalidWalEntry {
-                    index: i as usize,
-                    reason: format!("failed to read length: {}", e),
-                }
-            })?;
-            let len = u32::from_le_bytes(len_bytes) as usize;
-
-            // Sanity check on length
-            if len > 100 * 1024 * 1024 {
-                // 100MB max per entry
-                return Err(RunBundleError::InvalidWalEntry {
-                    index: i as usize,
-                    reason: format!("entry length {} exceeds maximum", len),
-                });
-            }
-
-            // Read entry data
-            let mut data = vec![0u8; len];
-            reader.read_exact(&mut data).map_err(|e| {
-                RunBundleError::InvalidWalEntry {
-                    index: i as usize,
-                    reason: format!("failed to read data: {}", e),
-                }
-            })?;
-
-            // Read and verify CRC32
-            let mut crc_bytes = [0u8; 4];
-            reader.read_exact(&mut crc_bytes).map_err(|e| {
-                RunBundleError::InvalidWalEntry {
-                    index: i as usize,
-                    reason: format!("failed to read crc: {}", e),
-                }
-            })?;
-            let expected_crc = u32::from_le_bytes(crc_bytes);
-            let actual_crc = crc32fast::hash(&data);
-
-            if expected_crc != actual_crc {
-                return Err(RunBundleError::InvalidWalEntry {
-                    index: i as usize,
-                    reason: format!(
-                        "CRC mismatch: expected {:08x}, got {:08x}",
-                        expected_crc, actual_crc
-                    ),
-                });
-            }
-
-            // Deserialize entry
-            let entry: WALEntry = bincode::deserialize(&data).map_err(|e| {
-                RunBundleError::InvalidWalEntry {
-                    index: i as usize,
-                    reason: format!("bincode decode: {}", e),
-                }
-            })?;
-
-            entries.push(entry);
+            payloads.push(read_single_entry(&mut reader, i as usize)?);
         }
 
-        Ok(entries)
+        Ok(payloads)
     }
 
-    /// Read WAL entries from a byte slice
+    /// Read payloads from a byte slice
     ///
     /// Convenience method for testing and in-memory operations.
-    pub fn read_from_slice(data: &[u8]) -> RunBundleResult<Vec<WALEntry>> {
+    pub fn read_from_slice(data: &[u8]) -> RunBundleResult<Vec<RunlogPayload>> {
         Self::read(std::io::Cursor::new(data))
     }
 
@@ -259,53 +224,7 @@ impl WalLogReader {
 
         // Validate each entry's CRC without deserializing
         for i in 0..entry_count {
-            // Read length
-            let mut len_bytes = [0u8; 4];
-            reader.read_exact(&mut len_bytes).map_err(|e| {
-                RunBundleError::InvalidWalEntry {
-                    index: i as usize,
-                    reason: format!("failed to read length: {}", e),
-                }
-            })?;
-            let len = u32::from_le_bytes(len_bytes) as usize;
-
-            // Sanity check
-            if len > 100 * 1024 * 1024 {
-                return Err(RunBundleError::InvalidWalEntry {
-                    index: i as usize,
-                    reason: format!("entry length {} exceeds maximum", len),
-                });
-            }
-
-            // Read entry data
-            let mut data = vec![0u8; len];
-            reader.read_exact(&mut data).map_err(|e| {
-                RunBundleError::InvalidWalEntry {
-                    index: i as usize,
-                    reason: format!("failed to read data: {}", e),
-                }
-            })?;
-
-            // Read and verify CRC32
-            let mut crc_bytes = [0u8; 4];
-            reader.read_exact(&mut crc_bytes).map_err(|e| {
-                RunBundleError::InvalidWalEntry {
-                    index: i as usize,
-                    reason: format!("failed to read crc: {}", e),
-                }
-            })?;
-            let expected_crc = u32::from_le_bytes(crc_bytes);
-            let actual_crc = crc32fast::hash(&data);
-
-            if expected_crc != actual_crc {
-                return Err(RunBundleError::InvalidWalEntry {
-                    index: i as usize,
-                    reason: format!(
-                        "CRC mismatch: expected {:08x}, got {:08x}",
-                        expected_crc, actual_crc
-                    ),
-                });
-            }
+            validate_single_entry(&mut reader, i as usize)?;
         }
 
         Ok(entry_count)
@@ -336,7 +255,7 @@ impl WalLogReader {
 // Streaming Reader (for large files)
 // =============================================================================
 
-/// Iterator over WAL entries for streaming reads
+/// Iterator over RunlogPayload entries for streaming reads
 pub struct WalLogIterator<R: Read> {
     reader: R,
     remaining: u32,
@@ -370,7 +289,7 @@ impl<R: Read> WalLogIterator<R> {
 }
 
 impl<R: Read> Iterator for WalLogIterator<R> {
-    type Item = RunBundleResult<WALEntry>;
+    type Item = RunBundleResult<RunlogPayload>;
 
     fn next(&mut self) -> Option<Self::Item> {
         if self.remaining == 0 {
@@ -389,8 +308,12 @@ impl<R: Read> Iterator for WalLogIterator<R> {
     }
 }
 
-/// Read a single entry from a reader
-fn read_single_entry<R: Read>(reader: &mut R, index: usize) -> RunBundleResult<WALEntry> {
+// =============================================================================
+// Internal helpers
+// =============================================================================
+
+/// Read a single entry from a reader (length + data + CRC)
+fn read_single_entry<R: Read>(reader: &mut R, index: usize) -> RunBundleResult<RunlogPayload> {
     // Read length
     let mut len_bytes = [0u8; 4];
     reader.read_exact(&mut len_bytes).map_err(|e| {
@@ -440,103 +363,161 @@ fn read_single_entry<R: Read>(reader: &mut R, index: usize) -> RunBundleResult<W
     }
 
     // Deserialize
-    bincode::deserialize(&data).map_err(|e| RunBundleError::InvalidWalEntry {
+    RunlogPayload::from_bytes(&data).map_err(|e| RunBundleError::InvalidWalEntry {
         index,
-        reason: format!("bincode decode: {}", e),
+        reason: format!("msgpack decode: {}", e),
     })
+}
+
+/// Validate a single entry's CRC without deserializing
+fn validate_single_entry<R: Read>(reader: &mut R, index: usize) -> RunBundleResult<()> {
+    // Read length
+    let mut len_bytes = [0u8; 4];
+    reader.read_exact(&mut len_bytes).map_err(|e| {
+        RunBundleError::InvalidWalEntry {
+            index,
+            reason: format!("failed to read length: {}", e),
+        }
+    })?;
+    let len = u32::from_le_bytes(len_bytes) as usize;
+
+    // Sanity check
+    if len > 100 * 1024 * 1024 {
+        return Err(RunBundleError::InvalidWalEntry {
+            index,
+            reason: format!("entry length {} exceeds maximum", len),
+        });
+    }
+
+    // Read entry data
+    let mut data = vec![0u8; len];
+    reader.read_exact(&mut data).map_err(|e| {
+        RunBundleError::InvalidWalEntry {
+            index,
+            reason: format!("failed to read data: {}", e),
+        }
+    })?;
+
+    // Read and verify CRC32
+    let mut crc_bytes = [0u8; 4];
+    reader.read_exact(&mut crc_bytes).map_err(|e| {
+        RunBundleError::InvalidWalEntry {
+            index,
+            reason: format!("failed to read crc: {}", e),
+        }
+    })?;
+    let expected_crc = u32::from_le_bytes(crc_bytes);
+    let actual_crc = crc32fast::hash(&data);
+
+    if expected_crc != actual_crc {
+        return Err(RunBundleError::InvalidWalEntry {
+            index,
+            reason: format!(
+                "CRC mismatch: expected {:08x}, got {:08x}",
+                expected_crc, actual_crc
+            ),
+        });
+    }
+
+    Ok(())
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use strata_core::types::{Key, Namespace, TypeTag};
+    use strata_core::types::{Key, Namespace, RunId, TypeTag};
     use strata_core::value::Value;
-    use strata_core::Timestamp;
 
-    fn make_test_run_id() -> RunId {
-        RunId::new()
+    fn make_test_run_id() -> (RunId, String) {
+        let run_id = RunId::new();
+        let run_id_str = run_id.to_string();
+        (run_id, run_id_str)
     }
 
-    fn make_test_entries(run_id: RunId) -> Vec<WALEntry> {
+    fn make_test_payloads(run_id_str: &str) -> Vec<RunlogPayload> {
+        let run_id = RunId::from_string(run_id_str).unwrap_or_else(|| RunId::new());
         let ns = Namespace::for_run(run_id);
         vec![
-            WALEntry::BeginTxn {
-                txn_id: 1,
-                run_id,
-                timestamp: Timestamp::now(),
-            },
-            WALEntry::Write {
-                run_id,
-                key: Key::new(ns.clone(), TypeTag::KV, b"key1".to_vec()),
-                value: Value::String("value1".to_string()),
+            RunlogPayload {
+                run_id: run_id_str.to_string(),
                 version: 1,
+                puts: vec![
+                    (
+                        Key::new(ns.clone(), TypeTag::KV, b"key1".to_vec()),
+                        Value::String("value1".to_string()),
+                    ),
+                    (
+                        Key::new(ns.clone(), TypeTag::KV, b"key2".to_vec()),
+                        Value::Int(42),
+                    ),
+                ],
+                deletes: vec![],
             },
-            WALEntry::Write {
-                run_id,
-                key: Key::new(ns.clone(), TypeTag::KV, b"key2".to_vec()),
-                value: Value::Int(42),
+            RunlogPayload {
+                run_id: run_id_str.to_string(),
                 version: 2,
+                puts: vec![],
+                deletes: vec![Key::new(ns, TypeTag::KV, b"key1".to_vec())],
             },
-            WALEntry::CommitTxn { txn_id: 1, run_id },
         ]
     }
 
     #[test]
     fn test_write_read_roundtrip() {
-        let run_id = make_test_run_id();
-        let entries = make_test_entries(run_id);
+        let (_run_id, run_id_str) = make_test_run_id();
+        let payloads = make_test_payloads(&run_id_str);
 
         // Write
-        let (data, info) = WalLogWriter::write_to_vec(&entries).unwrap();
+        let (data, info) = WalLogWriter::write_to_vec(&payloads).unwrap();
 
-        assert_eq!(info.entry_count, 4);
+        assert_eq!(info.entry_count, 2);
         assert!(info.bytes_written > HEADER_SIZE as u64);
         assert!(!info.checksum.is_empty());
 
         // Read
-        let read_entries = WalLogReader::read_from_slice(&data).unwrap();
+        let read_payloads = WalLogReader::read_from_slice(&data).unwrap();
 
-        assert_eq!(read_entries.len(), entries.len());
-        for (original, read) in entries.iter().zip(read_entries.iter()) {
+        assert_eq!(read_payloads.len(), payloads.len());
+        for (original, read) in payloads.iter().zip(read_payloads.iter()) {
             assert_eq!(original, read);
         }
     }
 
     #[test]
     fn test_empty_entries() {
-        let entries: Vec<WALEntry> = vec![];
+        let payloads: Vec<RunlogPayload> = vec![];
 
-        let (data, info) = WalLogWriter::write_to_vec(&entries).unwrap();
+        let (data, info) = WalLogWriter::write_to_vec(&payloads).unwrap();
 
         assert_eq!(info.entry_count, 0);
         assert_eq!(info.bytes_written, HEADER_SIZE as u64);
 
-        let read_entries = WalLogReader::read_from_slice(&data).unwrap();
-        assert!(read_entries.is_empty());
+        let read_payloads = WalLogReader::read_from_slice(&data).unwrap();
+        assert!(read_payloads.is_empty());
     }
 
     #[test]
     fn test_validate_only() {
-        let run_id = make_test_run_id();
-        let entries = make_test_entries(run_id);
+        let (_run_id, run_id_str) = make_test_run_id();
+        let payloads = make_test_payloads(&run_id_str);
 
-        let (data, _) = WalLogWriter::write_to_vec(&entries).unwrap();
+        let (data, _) = WalLogWriter::write_to_vec(&payloads).unwrap();
 
         // Validate without full parse
         let count = WalLogReader::validate(std::io::Cursor::new(&data)).unwrap();
-        assert_eq!(count, 4);
+        assert_eq!(count, 2);
     }
 
     #[test]
     fn test_read_header() {
-        let run_id = make_test_run_id();
-        let entries = make_test_entries(run_id);
+        let (_run_id, run_id_str) = make_test_run_id();
+        let payloads = make_test_payloads(&run_id_str);
 
-        let (data, _) = WalLogWriter::write_to_vec(&entries).unwrap();
+        let (data, _) = WalLogWriter::write_to_vec(&payloads).unwrap();
 
         let (version, count) = WalLogReader::read_header(std::io::Cursor::new(&data)).unwrap();
         assert_eq!(version, WAL_RUNLOG_VERSION);
-        assert_eq!(count, 4);
+        assert_eq!(count, 2);
     }
 
     #[test]
@@ -550,10 +531,10 @@ mod tests {
 
     #[test]
     fn test_corrupted_entry_crc() {
-        let run_id = make_test_run_id();
-        let entries = make_test_entries(run_id);
+        let (_run_id, run_id_str) = make_test_run_id();
+        let payloads = make_test_payloads(&run_id_str);
 
-        let (mut data, _) = WalLogWriter::write_to_vec(&entries).unwrap();
+        let (mut data, _) = WalLogWriter::write_to_vec(&payloads).unwrap();
 
         // Corrupt a byte in the first entry's data
         if data.len() > HEADER_SIZE + 10 {
@@ -569,84 +550,26 @@ mod tests {
 
     #[test]
     fn test_streaming_iterator() {
-        let run_id = make_test_run_id();
-        let entries = make_test_entries(run_id);
+        let (_run_id, run_id_str) = make_test_run_id();
+        let payloads = make_test_payloads(&run_id_str);
 
-        let (data, _) = WalLogWriter::write_to_vec(&entries).unwrap();
+        let (data, _) = WalLogWriter::write_to_vec(&payloads).unwrap();
 
         let iter = WalLogIterator::new(std::io::Cursor::new(&data)).unwrap();
-        assert_eq!(iter.entry_count(), 4);
+        assert_eq!(iter.entry_count(), 2);
 
-        let read_entries: Vec<WALEntry> = iter.map(|r| r.unwrap()).collect();
-        assert_eq!(read_entries.len(), entries.len());
-    }
-
-    #[test]
-    fn test_filter_wal_for_run() {
-        let run1 = make_test_run_id();
-        let run2 = make_test_run_id();
-
-        let entries = vec![
-            WALEntry::BeginTxn {
-                txn_id: 1,
-                run_id: run1,
-                timestamp: Timestamp::now(),
-            },
-            WALEntry::BeginTxn {
-                txn_id: 2,
-                run_id: run2,
-                timestamp: Timestamp::now(),
-            },
-            WALEntry::CommitTxn {
-                txn_id: 1,
-                run_id: run1,
-            },
-            WALEntry::CommitTxn {
-                txn_id: 2,
-                run_id: run2,
-            },
-        ];
-
-        let run1_entries = filter_wal_for_run(&entries, &run1);
-        assert_eq!(run1_entries.len(), 2);
-        assert!(run1_entries.iter().all(|e| e.run_id() == Some(run1)));
-
-        let run2_entries = filter_wal_for_run(&entries, &run2);
-        assert_eq!(run2_entries.len(), 2);
-        assert!(run2_entries.iter().all(|e| e.run_id() == Some(run2)));
-    }
-
-    #[test]
-    fn test_filter_excludes_checkpoint() {
-        let run_id = make_test_run_id();
-
-        let entries = vec![
-            WALEntry::BeginTxn {
-                txn_id: 1,
-                run_id,
-                timestamp: Timestamp::now(),
-            },
-            WALEntry::Checkpoint {
-                snapshot_id: uuid::Uuid::new_v4(),
-                version: 100,
-                active_runs: vec![run_id],
-            },
-            WALEntry::CommitTxn { txn_id: 1, run_id },
-        ];
-
-        let filtered = filter_wal_for_run(&entries, &run_id);
-        assert_eq!(filtered.len(), 2);
-        assert!(filtered.iter().all(|e| !e.is_checkpoint()));
+        let read_payloads: Vec<RunlogPayload> = iter.map(|r| r.unwrap()).collect();
+        assert_eq!(read_payloads.len(), payloads.len());
     }
 
     #[test]
     fn test_checksum_consistency() {
-        let run_id = make_test_run_id();
-        let entries = make_test_entries(run_id);
+        let (_run_id, run_id_str) = make_test_run_id();
+        let payloads = make_test_payloads(&run_id_str);
 
         // Write twice, checksums should match
-        let (data1, info1) = WalLogWriter::write_to_vec(&entries).unwrap();
-        let (data2, info2) = WalLogWriter::write_to_vec(&entries).unwrap();
+        let (data1, info1) = WalLogWriter::write_to_vec(&payloads).unwrap();
+        let (data2, info2) = WalLogWriter::write_to_vec(&payloads).unwrap();
 
         assert_eq!(info1.checksum, info2.checksum);
         assert_eq!(data1, data2);
@@ -654,24 +577,28 @@ mod tests {
 
     #[test]
     fn test_large_entry() {
-        let run_id = make_test_run_id();
+        let run_id = RunId::new();
+        let run_id_str = run_id.to_string();
         let ns = Namespace::for_run(run_id);
 
-        // Create entry with large value
+        // Create payload with large value
         let large_value = "x".repeat(1024 * 1024); // 1MB string
-        let entries = vec![WALEntry::Write {
-            run_id,
-            key: Key::new(ns, TypeTag::KV, b"large_key".to_vec()),
-            value: Value::String(large_value),
+        let payloads = vec![RunlogPayload {
+            run_id: run_id_str,
             version: 1,
+            puts: vec![(
+                Key::new(ns, TypeTag::KV, b"large_key".to_vec()),
+                Value::String(large_value),
+            )],
+            deletes: vec![],
         }];
 
-        let (data, info) = WalLogWriter::write_to_vec(&entries).unwrap();
+        let (data, info) = WalLogWriter::write_to_vec(&payloads).unwrap();
         assert!(info.bytes_written > 1024 * 1024);
 
-        let read_entries = WalLogReader::read_from_slice(&data).unwrap();
-        assert_eq!(read_entries.len(), 1);
-        assert_eq!(entries[0], read_entries[0]);
+        let read_payloads = WalLogReader::read_from_slice(&data).unwrap();
+        assert_eq!(read_payloads.len(), 1);
+        assert_eq!(payloads[0], read_payloads[0]);
     }
 
     // ========================================================================
@@ -699,11 +626,26 @@ mod tests {
     }
 
     #[test]
-    fn test_entry_count_mismatch_more_declared() {
-        let run_id = make_test_run_id();
-        let entries = make_test_entries(run_id);
+    fn test_v1_version_rejected() {
+        let mut data = vec![0u8; HEADER_SIZE];
+        data[0..10].copy_from_slice(WAL_RUNLOG_MAGIC);
+        // Set version to 1 (old format)
+        data[10..12].copy_from_slice(&1u16.to_le_bytes());
+        data[12..16].copy_from_slice(&0u32.to_le_bytes());
 
-        let (mut data, _) = WalLogWriter::write_to_vec(&entries).unwrap();
+        let result = WalLogReader::read_from_slice(&data);
+        assert!(matches!(
+            result,
+            Err(RunBundleError::UnsupportedVersion { version: 1 })
+        ));
+    }
+
+    #[test]
+    fn test_entry_count_mismatch_more_declared() {
+        let (_run_id, run_id_str) = make_test_run_id();
+        let payloads = make_test_payloads(&run_id_str);
+
+        let (mut data, _) = WalLogWriter::write_to_vec(&payloads).unwrap();
 
         // Bump entry count to 999 (more than actual)
         data[12..16].copy_from_slice(&999u32.to_le_bytes());
@@ -714,29 +656,11 @@ mod tests {
     }
 
     #[test]
-    fn test_filter_nonexistent_run() {
-        let run_id = make_test_run_id();
-        let other_run = make_test_run_id();
-        let entries = make_test_entries(run_id);
-
-        let filtered = filter_wal_for_run(&entries, &other_run);
-        assert!(filtered.is_empty());
-    }
-
-    #[test]
-    fn test_filter_empty_entries() {
-        let run_id = make_test_run_id();
-        let entries: Vec<WALEntry> = vec![];
-        let filtered = filter_wal_for_run(&entries, &run_id);
-        assert!(filtered.is_empty());
-    }
-
-    #[test]
     fn test_iterator_stops_on_corruption() {
-        let run_id = make_test_run_id();
-        let entries = make_test_entries(run_id);
+        let (_run_id, run_id_str) = make_test_run_id();
+        let payloads = make_test_payloads(&run_id_str);
 
-        let (mut data, _) = WalLogWriter::write_to_vec(&entries).unwrap();
+        let (mut data, _) = WalLogWriter::write_to_vec(&payloads).unwrap();
 
         // Corrupt a data byte in the second entry area
         let corrupt_pos = HEADER_SIZE + 30;
@@ -755,77 +679,65 @@ mod tests {
     }
 
     #[test]
-    fn test_vector_entries_in_runlog() {
-        let run_id = make_test_run_id();
-
-        let entries = vec![
-            WALEntry::VectorCollectionCreate {
-                run_id,
-                collection: "col".to_string(),
-                dimension: 128,
-                metric: 0,
-                version: 1,
-            },
-            WALEntry::VectorUpsert {
-                run_id,
-                collection: "col".to_string(),
-                key: "k1".to_string(),
-                vector_id: 1,
-                embedding: vec![0.1; 128],
-                metadata: None,
-                version: 2,
-                source_ref: None,
-            },
-            WALEntry::VectorDelete {
-                run_id,
-                collection: "col".to_string(),
-                key: "k1".to_string(),
-                vector_id: 1,
-                version: 3,
-            },
-            WALEntry::VectorCollectionDelete {
-                run_id,
-                collection: "col".to_string(),
-                version: 4,
-            },
-        ];
-
-        let (data, info) = WalLogWriter::write_to_vec(&entries).unwrap();
-        assert_eq!(info.entry_count, 4);
-
-        let read_entries = WalLogReader::read_from_slice(&data).unwrap();
-        assert_eq!(read_entries.len(), 4);
-
-        for (original, read) in entries.iter().zip(read_entries.iter()) {
-            assert_eq!(original, read);
-        }
-    }
-
-    #[test]
     fn test_checksum_changes_with_different_data() {
-        let run_id = make_test_run_id();
+        let run_id = RunId::new();
+        let run_id_str = run_id.to_string();
         let ns = Namespace::for_run(run_id);
 
-        let entries1 = vec![WALEntry::Write {
-            run_id,
-            key: Key::new(ns.clone(), TypeTag::KV, b"key1".to_vec()),
-            value: Value::Int(1),
+        let payloads1 = vec![RunlogPayload {
+            run_id: run_id_str.clone(),
             version: 1,
+            puts: vec![(
+                Key::new(ns.clone(), TypeTag::KV, b"key1".to_vec()),
+                Value::Int(1),
+            )],
+            deletes: vec![],
         }];
 
-        let entries2 = vec![WALEntry::Write {
-            run_id,
-            key: Key::new(ns, TypeTag::KV, b"key1".to_vec()),
-            value: Value::Int(2), // Different value
+        let payloads2 = vec![RunlogPayload {
+            run_id: run_id_str,
             version: 1,
+            puts: vec![(
+                Key::new(ns, TypeTag::KV, b"key1".to_vec()),
+                Value::Int(2), // Different value
+            )],
+            deletes: vec![],
         }];
 
-        let (_, info1) = WalLogWriter::write_to_vec(&entries1).unwrap();
-        let (_, info2) = WalLogWriter::write_to_vec(&entries2).unwrap();
+        let (_, info1) = WalLogWriter::write_to_vec(&payloads1).unwrap();
+        let (_, info2) = WalLogWriter::write_to_vec(&payloads2).unwrap();
 
         assert_ne!(
             info1.checksum, info2.checksum,
             "Different data should produce different checksums"
         );
+    }
+
+    #[test]
+    fn test_payload_with_deletes() {
+        let run_id = RunId::new();
+        let run_id_str = run_id.to_string();
+        let ns = Namespace::for_run(run_id);
+
+        let payloads = vec![RunlogPayload {
+            run_id: run_id_str,
+            version: 5,
+            puts: vec![(
+                Key::new(ns.clone(), TypeTag::KV, b"kept".to_vec()),
+                Value::String("still here".to_string()),
+            )],
+            deletes: vec![
+                Key::new(ns.clone(), TypeTag::KV, b"removed1".to_vec()),
+                Key::new(ns, TypeTag::KV, b"removed2".to_vec()),
+            ],
+        }];
+
+        let (data, _) = WalLogWriter::write_to_vec(&payloads).unwrap();
+        let read = WalLogReader::read_from_slice(&data).unwrap();
+
+        assert_eq!(read.len(), 1);
+        assert_eq!(read[0].puts.len(), 1);
+        assert_eq!(read[0].deletes.len(), 2);
+        assert_eq!(read[0].version, 5);
     }
 }

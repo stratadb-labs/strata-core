@@ -379,6 +379,26 @@ pub enum Command {
     /// Trigger compaction
     Compact,
 
+    // ==================== Bundle (3) ====================
+    /// Export a run to a .runbundle.tar.zst archive.
+    /// Returns: `Output::RunExported`
+    RunExport {
+        run_id: String,
+        path: String,
+    },
+
+    /// Import a run from a .runbundle.tar.zst archive.
+    /// Returns: `Output::RunImported`
+    RunImport {
+        path: String,
+    },
+
+    /// Validate a .runbundle.tar.zst archive without importing.
+    /// Returns: `Output::BundleValidated`
+    RunBundleValidate {
+        path: String,
+    },
+
     // ==================== Intelligence (1) ====================
 
     /// Search across multiple primitives.
@@ -462,7 +482,10 @@ impl Command {
             | Command::Ping
             | Command::Info
             | Command::Flush
-            | Command::Compact => {}
+            | Command::Compact
+            | Command::RunExport { .. }
+            | Command::RunImport { .. }
+            | Command::RunBundleValidate { .. } => {}
         }
     }
 }

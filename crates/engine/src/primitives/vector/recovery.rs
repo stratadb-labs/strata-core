@@ -3,38 +3,28 @@
 //! Registers VectorStore as a recovery participant so that vector state
 //! (in-memory backends with embeddings) is restored when the Database reopens.
 //!
-//! ## Usage
-//!
-//! Call `register_vector_recovery()` once during application startup,
-//! before opening any Database:
-//!
-//! ```ignore
-//! use strata_primitives::vector::register_vector_recovery;
-//!
-//! // Call once at startup
-//! register_vector_recovery();
-//!
-//! // Now Database::open() will automatically recover vector state
-//! let db = Database::open("/path/to/data")?;
-//! ```
-//!
 //! ## How It Works
 //!
 //! 1. `register_vector_recovery()` registers a recovery function with the engine
 //! 2. When `Database::open()` runs, it calls all registered recovery participants
-//! 3. The vector recovery function creates a VectorStore and calls `recover()`
-//! 4. `recover()` replays WAL entries into `VectorBackendState` (stored in Database extensions)
+//! 3. The vector recovery function scans KV store for vector config and data entries
+//! 4. For each collection config found, it creates a backend and loads embeddings
 //! 5. The Database is ready with all vector embeddings restored
+//!
+//! ## KV-Based Recovery (Phase 3)
+//!
+//! Vector data is already persisted through KV transactions. Recovery rebuilds
+//! in-memory indices by scanning the KV store after KV recovery completes.
+//! This eliminates the need for separate WALEntry::Vector* variants.
 
 use strata_core::StrataResult;
-use strata_core::StrataError;
 use crate::recovery::{register_recovery_participant, RecoveryParticipant};
 use crate::database::Database;
 use tracing::info;
 
 /// Recovery function for VectorStore
 ///
-/// Called by Database during startup to restore vector state from WAL.
+/// Called by Database during startup to restore vector state from KV store.
 fn recover_vector_state(db: &Database) -> StrataResult<()> {
     recover_from_db(db)
 }
@@ -42,15 +32,14 @@ fn recover_vector_state(db: &Database) -> StrataResult<()> {
 /// Internal recovery implementation that works with &Database
 fn recover_from_db(db: &Database) -> StrataResult<()> {
     use super::{
-        CollectionId, DistanceMetric, IndexBackendFactory, VectorBackendState, VectorConfig,
-        VectorId,
+        CollectionId, IndexBackendFactory, VectorBackendState, VectorId, VectorConfig,
     };
-    use strata_durability::wal::WALEntry;
-    use std::collections::{HashMap, HashSet};
+    use strata_core::traits::SnapshotView;
+    use strata_core::types::{Key, Namespace};
+    use strata_core::value::Value;
 
-    // Skip if InMemory mode (no WAL)
-    // Skip recovery for ephemeral databases (no WAL)
-    if !db.durability_mode().requires_wal() || db.is_ephemeral() {
+    // Skip recovery for ephemeral databases
+    if db.is_ephemeral() {
         return Ok(());
     }
 
@@ -58,173 +47,121 @@ fn recover_from_db(db: &Database) -> StrataResult<()> {
     let state = db.extension::<VectorBackendState>();
     let factory = IndexBackendFactory::default();
 
-    // Read all WAL entries
-    let wal = match db.wal() {
-        Some(w) => w,
-        None => return Ok(()), // Ephemeral database - no recovery needed
-    };
-    let wal_guard = wal.lock();
-    let entries = wal_guard
-        .read_all()
-        .map_err(|e| StrataError::storage(format!("WAL read failed: {}", e)))?;
-    drop(wal_guard);
-
-    // Track transactions
-    struct TxnState {
-        entries: Vec<WALEntry>,
-        committed: bool,
-    }
-    let mut transactions: HashMap<u64, TxnState> = HashMap::new();
-    let mut active_txn: HashMap<strata_core::types::RunId, u64> = HashMap::new();
-    let mut entries_in_txn: HashSet<usize> = HashSet::new();
-
-    // First pass: group transactional entries
-    for (idx, entry) in entries.iter().enumerate() {
-        match entry {
-            WALEntry::BeginTxn { txn_id, run_id, .. } => {
-                transactions.insert(
-                    *txn_id,
-                    TxnState {
-                        entries: Vec::new(),
-                        committed: false,
-                    },
-                );
-                active_txn.insert(*run_id, *txn_id);
-                entries_in_txn.insert(idx);
-            }
-            WALEntry::CommitTxn { txn_id, .. } => {
-                if let Some(txn) = transactions.get_mut(txn_id) {
-                    txn.committed = true;
-                }
-                entries_in_txn.insert(idx);
-            }
-            WALEntry::AbortTxn { txn_id, run_id } => {
-                transactions.remove(txn_id);
-                if active_txn.get(run_id) == Some(txn_id) {
-                    active_txn.remove(run_id);
-                }
-                entries_in_txn.insert(idx);
-            }
-            WALEntry::VectorCollectionCreate { run_id, .. }
-            | WALEntry::VectorCollectionDelete { run_id, .. }
-            | WALEntry::VectorUpsert { run_id, .. }
-            | WALEntry::VectorDelete { run_id, .. } => {
-                if let Some(&txn_id) = active_txn.get(run_id) {
-                    if let Some(txn) = transactions.get_mut(&txn_id) {
-                        txn.entries.push(entry.clone());
-                        entries_in_txn.insert(idx);
-                    }
-                }
-            }
-            _ => {}
-        }
-    }
-
+    let snapshot = db.storage().create_snapshot();
     let mut stats = super::RecoveryStats::default();
 
-    // Helper to replay a single entry
-    let replay_entry = |entry: &WALEntry, stats: &mut super::RecoveryStats| -> StrataResult<()> {
-        match entry {
-            WALEntry::VectorCollectionCreate {
-                run_id,
-                collection,
-                dimension,
-                metric,
-                ..
-            } => {
-                let config = VectorConfig {
-                    dimension: *dimension,
-                    metric: DistanceMetric::from_byte(*metric).ok_or_else(|| {
-                        StrataError::storage(format!("Invalid metric: {}", metric))
-                    })?,
-                    storage_dtype: super::StorageDtype::F32,
+    // Iterate all run_ids in storage
+    for run_id in db.storage().run_ids() {
+        let ns = Namespace::for_run(run_id);
+
+        // Scan for vector config entries in this run
+        let config_prefix = Key::new_vector_config_prefix(ns.clone());
+        let config_entries = match snapshot.scan_prefix(&config_prefix) {
+            Ok(entries) => entries,
+            Err(e) => {
+                tracing::warn!(
+                    run_id = ?run_id,
+                    error = %e,
+                    "Failed to scan vector configs during recovery"
+                );
+                continue;
+            }
+        };
+
+        for (key, versioned) in &config_entries {
+            // Parse the collection config from the KV value
+            let config_bytes = match &versioned.value {
+                Value::Bytes(b) => b,
+                _ => continue,
+            };
+
+            // Decode the CollectionRecord
+            let record = match super::CollectionRecord::from_bytes(config_bytes) {
+                Ok(r) => r,
+                Err(e) => {
+                    tracing::warn!(
+                        key = ?key,
+                        error = %e,
+                        "Failed to decode collection record during recovery, skipping"
+                    );
+                    continue;
+                }
+            };
+
+            // Extract collection name from the key's user_key
+            let collection_name = match key.user_key_string() {
+                Some(name) => name,
+                None => continue,
+            };
+
+            let config: VectorConfig = match record.config.try_into() {
+                Ok(c) => c,
+                Err(e) => {
+                    tracing::warn!(
+                        collection = %collection_name,
+                        error = %e,
+                        "Failed to convert collection config during recovery, skipping"
+                    );
+                    continue;
+                }
+            };
+            let collection_id = CollectionId::new(run_id, &collection_name);
+
+            // Create backend for this collection
+            let backend = factory.create(&config);
+            state.backends.write().insert(collection_id.clone(), backend);
+            stats.collections_created += 1;
+
+            // Scan for all vector entries in this collection
+            let vector_prefix = Key::new_vector(ns.clone(), &collection_name, "");
+            let vector_entries = match snapshot.scan_prefix(&vector_prefix) {
+                Ok(entries) => entries,
+                Err(e) => {
+                    tracing::warn!(
+                        collection = %collection_name,
+                        error = %e,
+                        "Failed to scan vectors during recovery"
+                    );
+                    continue;
+                }
+            };
+
+            for (_vec_key, vec_versioned) in &vector_entries {
+                let vec_bytes = match &vec_versioned.value {
+                    Value::Bytes(b) => b,
+                    _ => continue,
                 };
-                let collection_id = CollectionId::new(*run_id, collection);
-                let backend = factory.create(&config);
-                state.backends.write().insert(collection_id, backend);
-                stats.collections_created += 1;
-            }
-            WALEntry::VectorCollectionDelete {
-                run_id,
-                collection,
-                ..
-            } => {
-                let collection_id = CollectionId::new(*run_id, collection);
-                state.backends.write().remove(&collection_id);
-                stats.collections_deleted += 1;
-            }
-            WALEntry::VectorUpsert {
-                run_id,
-                collection,
-                vector_id,
-                embedding,
-                ..
-            } => {
-                let collection_id = CollectionId::new(*run_id, collection);
-                let vid = VectorId::new(*vector_id);
+
+                // Decode the VectorRecord
+                let vec_record = match super::VectorRecord::from_bytes(vec_bytes) {
+                    Ok(r) => r,
+                    Err(e) => {
+                        tracing::warn!(
+                            error = %e,
+                            "Failed to decode vector record during recovery, skipping"
+                        );
+                        continue;
+                    }
+                };
+
+                // Insert into the backend
+                let vid = VectorId::new(vec_record.vector_id);
                 let mut backends = state.backends.write();
                 if let Some(backend) = backends.get_mut(&collection_id) {
-                    // Use insert_with_id to maintain VectorId monotonicity
-                    let _ = backend.insert_with_id(vid, embedding);
+                    let _ = backend.insert_with_id(vid, &vec_record.embedding);
                     stats.vectors_upserted += 1;
                 }
             }
-            WALEntry::VectorDelete {
-                run_id,
-                collection,
-                vector_id,
-                ..
-            } => {
-                let collection_id = CollectionId::new(*run_id, collection);
-                let vid = VectorId::new(*vector_id);
-                let mut backends = state.backends.write();
-                if let Some(backend) = backends.get_mut(&collection_id) {
-                    let _ = backend.delete(vid);
-                    stats.vectors_deleted += 1;
-                }
-            }
-            _ => {}
-        }
-        Ok(())
-    };
-
-    // Second pass: replay committed transactional entries
-    let mut committed_txns: Vec<_> = transactions
-        .into_iter()
-        .filter(|(_, txn)| txn.committed)
-        .collect();
-    committed_txns.sort_by_key(|(txn_id, _)| *txn_id);
-
-    for (_txn_id, txn) in committed_txns {
-        for entry in txn.entries {
-            replay_entry(&entry, &mut stats)?;
         }
     }
 
-    // Third pass: replay standalone entries (not in any transaction)
-    for (idx, entry) in entries.iter().enumerate() {
-        if entries_in_txn.contains(&idx) {
-            continue;
-        }
-
-        match entry {
-            WALEntry::VectorCollectionCreate { .. }
-            | WALEntry::VectorCollectionDelete { .. }
-            | WALEntry::VectorUpsert { .. }
-            | WALEntry::VectorDelete { .. } => {
-                replay_entry(entry, &mut stats)?;
-            }
-            _ => {}
-        }
+    if stats.collections_created > 0 || stats.vectors_upserted > 0 {
+        info!(
+            collections_created = stats.collections_created,
+            vectors_upserted = stats.vectors_upserted,
+            "Vector recovery complete (KV-based)"
+        );
     }
-
-    info!(
-        collections_created = stats.collections_created,
-        collections_deleted = stats.collections_deleted,
-        vectors_upserted = stats.vectors_upserted,
-        vectors_deleted = stats.vectors_deleted,
-        "Vector recovery complete"
-    );
 
     Ok(())
 }
@@ -234,20 +171,6 @@ fn recover_from_db(db: &Database) -> StrataResult<()> {
 /// Call this once during application startup, before opening any Database.
 /// This ensures that vector state (in-memory backends with embeddings) is
 /// automatically restored when a Database is reopened.
-///
-/// # Example
-///
-/// ```ignore
-/// use strata_primitives::vector::register_vector_recovery;
-///
-/// fn main() {
-///     // Register recovery participant before any Database operations
-///     register_vector_recovery();
-///
-///     // Now Database::open() will recover vector state
-///     let db = Database::open("/path/to/data").unwrap();
-/// }
-/// ```
 pub fn register_vector_recovery() {
     register_recovery_participant(RecoveryParticipant::new("vector", recover_vector_state));
 }

@@ -10,21 +10,10 @@ publish = false
 
 [dependencies]
 strata-core = { path = "../core" }
-chrono = { workspace = true }
-parking_lot = { workspace = true }
 dashmap = { workspace = true }
 rustc-hash = { workspace = true }
-smallvec = { workspace = true }
-serde = { workspace = true }
 thiserror = { workspace = true }
-tracing = { workspace = true }
-uuid = { workspace = true }
-
-# WAL and storage format dependencies
-crc32fast = "1.3"
-byteorder = { workspace = true }
 
 [dev-dependencies]
 proptest = { workspace = true }
 rand = { workspace = true }
-tempfile = { workspace = true }

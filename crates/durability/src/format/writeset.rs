@@ -367,8 +367,7 @@ impl Writeset {
             }
             0x04 => {
                 // TraceStore was removed - skip over the trace_id string for backwards compatibility
-                let (_trace_id, consumed) = Self::read_string(&bytes[cursor..])?;
-                cursor += consumed;
+                let (_trace_id, _consumed) = Self::read_string(&bytes[cursor..])?;
                 Err(WritesetError::InvalidEntityRef) // Trace entities no longer supported
             }
             ENTITY_RUN => Ok((EntityRef::Run { run_id }, cursor)),

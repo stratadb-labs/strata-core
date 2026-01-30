@@ -7,7 +7,7 @@ use std::collections::HashMap;
 use std::path::PathBuf;
 
 /// Current RunBundle format version
-pub const RUNBUNDLE_FORMAT_VERSION: u32 = 1;
+pub const RUNBUNDLE_FORMAT_VERSION: u32 = 2;
 
 /// File extension for RunBundle archives
 pub const RUNBUNDLE_EXTENSION: &str = ".runbundle.tar.zst";
@@ -36,7 +36,7 @@ pub mod paths {
 pub const WAL_RUNLOG_MAGIC: &[u8; 10] = b"STRATA_WAL";
 
 /// WAL.runlog format version
-pub const WAL_RUNLOG_VERSION: u16 = 1;
+pub const WAL_RUNLOG_VERSION: u16 = 2;
 
 // =============================================================================
 // MANIFEST.json

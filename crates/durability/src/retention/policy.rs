@@ -13,7 +13,7 @@
 //! # Example
 //!
 //! ```ignore
-//! use strata_storage::retention::{RetentionPolicy, CompositeBuilder};
+//! use strata_durability::retention::{RetentionPolicy, CompositeBuilder};
 //! use std::time::Duration;
 //!
 //! // Keep all versions (default)

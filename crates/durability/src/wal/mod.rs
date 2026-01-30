@@ -1,0 +1,19 @@
+//! WAL (Write-Ahead Log) module
+//!
+//! - `mode`: DurabilityMode (None, Strict, Batched)
+//! - `config`: WAL configuration (WalConfig, WalConfigError)
+//! - `writer`: Segmented WAL writer (WalWriter)
+//! - `reader`: Segmented WAL reader (WalReader)
+
+pub mod mode;
+pub mod config;
+pub mod reader;
+pub mod writer;
+
+// Canonical DurabilityMode
+pub use mode::DurabilityMode;
+
+// Segmented WAL types (primary API)
+pub use config::{WalConfig, WalConfigError};
+pub use reader::{TruncateInfo, WalReader, WalReaderError};
+pub use writer::WalWriter;

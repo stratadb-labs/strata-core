@@ -15,17 +15,17 @@
 
 pub(crate) mod conflict;
 pub mod manager;
+pub mod payload;
 pub mod recovery;
 pub mod snapshot;
 pub mod transaction;
 pub(crate) mod validation;
-pub mod wal_writer;
 
 pub use manager::TransactionManager;
+pub use payload::TransactionPayload;
 pub use recovery::{RecoveryCoordinator, RecoveryResult, RecoveryStats};
 pub use snapshot::ClonedSnapshotView;
 pub use transaction::{CommitError, JsonStoreExt, TransactionContext, TransactionStatus};
-pub use wal_writer::TransactionWALWriter;
 
 // Re-export the SnapshotView trait from core for convenience
 pub use strata_core::traits::SnapshotView;

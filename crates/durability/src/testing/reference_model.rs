@@ -6,7 +6,7 @@
 //! # Example
 //!
 //! ```ignore
-//! use strata_storage::testing::ReferenceModel;
+//! use strata_durability::testing::ReferenceModel;
 //!
 //! let mut model = ReferenceModel::new();
 //! model.kv_put("run1", "key1", b"value1".to_vec());

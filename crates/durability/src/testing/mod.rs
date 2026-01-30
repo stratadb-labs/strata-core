@@ -8,7 +8,7 @@
 //! # Example
 //!
 //! ```ignore
-//! use strata_storage::testing::{CrashConfig, CrashPoint, ReferenceModel};
+//! use strata_durability::testing::{CrashConfig, CrashPoint, ReferenceModel};
 //!
 //! // Track expected state with reference model
 //! let mut model = ReferenceModel::new();

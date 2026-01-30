@@ -35,7 +35,8 @@ use strata_concurrency::{RecoveryCoordinator, TransactionContext};
 use strata_core::StrataResult;
 use strata_core::types::RunId;
 use strata_core::StrataError;
-use strata_durability::wal::{DurabilityMode, WAL};
+use strata_durability::codec::IdentityCodec;
+use strata_durability::wal::{DurabilityMode, WalConfig, WalWriter};
 use strata_storage::ShardedStore;
 use std::any::{Any, TypeId};
 use std::path::{Path, PathBuf};
@@ -131,10 +132,10 @@ pub struct Database {
     /// Sharded storage with O(1) lazy snapshots (thread-safe)
     storage: Arc<ShardedStore>,
 
-    /// Write-ahead log (protected by mutex for exclusive access)
+    /// Segmented WAL writer (protected by mutex for exclusive access)
     /// None for ephemeral databases (no disk I/O)
     /// Using parking_lot::Mutex to avoid lock poisoning on panic
-    wal: Option<Arc<ParkingMutex<WAL>>>,
+    wal_writer: Option<Arc<ParkingMutex<WalWriter>>>,
 
     /// Persistence mode (ephemeral vs disk-backed)
     persistence_mode: PersistenceMode,
@@ -276,24 +277,27 @@ impl Database {
         let wal_dir = data_dir.join("wal");
         std::fs::create_dir_all(&wal_dir).map_err(StrataError::from)?;
 
-        let wal_path = wal_dir.join("current.wal");
-
         // Use RecoveryCoordinator for proper transaction-aware recovery
-        // This replays the WAL and initializes version tracking
-        let recovery = RecoveryCoordinator::new(wal_path.clone());
+        // This reads all WalRecords from the segmented WAL directory
+        let recovery = RecoveryCoordinator::new(wal_dir.clone());
         let result = recovery.recover()?;
 
         info!(
             txns_replayed = result.stats.txns_replayed,
             writes_applied = result.stats.writes_applied,
             deletes_applied = result.stats.deletes_applied,
-            incomplete_txns = result.stats.incomplete_txns,
             final_version = result.stats.final_version,
             "Recovery complete"
         );
 
-        // Re-open WAL for appending (recovery opened read-only)
-        let wal = WAL::open(&wal_path, durability_mode)?;
+        // Open segmented WAL writer for appending
+        let wal_writer = WalWriter::new(
+            wal_dir,
+            [0u8; 16], // database UUID placeholder
+            durability_mode,
+            WalConfig::default(),
+            Box::new(IdentityCodec),
+        )?;
 
         // Create coordinator from recovery result (preserves version continuity)
         let coordinator = TransactionCoordinator::from_recovery(&result);
@@ -301,7 +305,7 @@ impl Database {
         let db = Arc::new(Self {
             data_dir: canonical_path.clone(),
             storage: Arc::new(result.storage),
-            wal: Some(Arc::new(ParkingMutex::new(wal))),
+            wal_writer: Some(Arc::new(ParkingMutex::new(wal_writer))),
             persistence_mode: PersistenceMode::Disk,
             coordinator,
             durability_mode,
@@ -373,7 +377,7 @@ impl Database {
         let db = Arc::new(Self {
             data_dir: PathBuf::new(), // Empty path for ephemeral
             storage: Arc::new(storage),
-            wal: None, // No WAL for ephemeral
+            wal_writer: None, // No WAL for ephemeral
             persistence_mode: PersistenceMode::Ephemeral,
             coordinator,
             durability_mode: DurabilityMode::None, // Irrelevant but set for consistency
@@ -404,12 +408,12 @@ impl Database {
         &self.data_dir
     }
 
-    /// Get access to the WAL for appending entries
+    /// Get access to the WAL writer for appending records
     ///
-    /// Returns an Arc to the Mutex-protected WAL, or None for ephemeral databases.
-    /// Lock the mutex to append entries.
-    pub(crate) fn wal(&self) -> Option<Arc<ParkingMutex<WAL>>> {
-        self.wal.as_ref().map(Arc::clone)
+    /// Returns an Arc to the Mutex-protected WalWriter, or None for ephemeral databases.
+    /// Lock the mutex to append records.
+    pub(crate) fn wal_writer(&self) -> Option<Arc<ParkingMutex<WalWriter>>> {
+        self.wal_writer.as_ref().map(Arc::clone)
     }
 
     /// Check if this is an ephemeral (no-disk) database
@@ -507,13 +511,43 @@ impl Database {
     ///
     /// For ephemeral databases, this is a no-op.
     pub(crate) fn flush(&self) -> StrataResult<()> {
-        if let Some(ref wal) = self.wal {
-            let wal = wal.lock();
-            wal.fsync()
+        if let Some(ref wal) = self.wal_writer {
+            let mut wal = wal.lock();
+            wal.flush().map_err(StrataError::from)
         } else {
             // Ephemeral mode - no-op
             Ok(())
         }
+    }
+
+    // ========================================================================
+    // Checkpoint & Compaction (future work)
+    // ========================================================================
+
+    /// Create a snapshot checkpoint of the current database state.
+    ///
+    /// Checkpoints serialize all primitive state to a crash-safe snapshot file,
+    /// update the manifest watermark, and optionally trigger WAL compaction.
+    ///
+    /// See: `docs/architecture/STORAGE_DURABILITY_ARCHITECTURE.md` Section 6.3
+    ///
+    /// TODO: Wire to `DatabaseHandle::checkpoint()` and `CheckpointCoordinator`
+    /// once the full checkpoint flow is implemented.
+    pub fn checkpoint(&self) -> StrataResult<()> {
+        Err(StrataError::internal("checkpoint() not yet implemented"))
+    }
+
+    /// Compact WAL segments that are no longer needed for recovery.
+    ///
+    /// Removes closed WAL segments whose max transaction ID is at or below the
+    /// latest snapshot watermark. The active segment is never removed.
+    ///
+    /// See: `docs/architecture/STORAGE_DURABILITY_ARCHITECTURE.md` Section 5.6
+    ///
+    /// TODO: Wire to `DatabaseHandle::compact()` and `WalOnlyCompactor`
+    /// once the full compaction flow is implemented.
+    pub fn compact(&self) -> StrataResult<()> {
+        Err(StrataError::internal("compact() not yet implemented"))
     }
 
     // ========================================================================
@@ -777,12 +811,12 @@ impl Database {
         txn: &mut TransactionContext,
         durability: DurabilityMode,
     ) -> StrataResult<u64> {
-        let wal_guard = if durability.requires_wal() {
-            self.wal.as_ref().map(|w| w.lock())
+        let mut wal_guard = if durability.requires_wal() {
+            self.wal_writer.as_ref().map(|w| w.lock())
         } else {
             None
         };
-        let wal_ref = wal_guard.as_deref();
+        let wal_ref = wal_guard.as_deref_mut();
 
         self.coordinator.commit(txn, self.storage.as_ref(), wal_ref)
     }
@@ -843,18 +877,45 @@ impl Drop for Database {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use strata_concurrency::TransactionPayload;
     use strata_core::types::{Key, Namespace};
     use strata_core::value::Value;
     use strata_core::Storage;
-    use strata_core::contract::Timestamp;
-    use strata_durability::wal::WALEntry;
+    use strata_durability::format::WalRecord;
+    use strata_durability::now_micros;
     use tempfile::TempDir;
 
-    fn now() -> Timestamp {
-        Timestamp::from(std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .unwrap()
-            .as_micros() as u64)
+    /// Helper: write a committed transaction to the segmented WAL
+    fn write_wal_txn(
+        wal_dir: &std::path::Path,
+        txn_id: u64,
+        run_id: RunId,
+        puts: Vec<(Key, Value)>,
+        deletes: Vec<Key>,
+        version: u64,
+    ) {
+        let mut wal = WalWriter::new(
+            wal_dir.to_path_buf(),
+            [0u8; 16],
+            DurabilityMode::Strict,
+            WalConfig::for_testing(),
+            Box::new(IdentityCodec),
+        )
+        .unwrap();
+
+        let payload = TransactionPayload {
+            version,
+            puts,
+            deletes,
+        };
+        let record = WalRecord::new(
+            txn_id,
+            *run_id.as_bytes(),
+            now_micros(),
+            payload.to_bytes(),
+        );
+        wal.append(&record).unwrap();
+        wal.flush().unwrap();
     }
 
     #[test]
@@ -891,29 +952,18 @@ mod tests {
             run_id,
         );
 
-        // Write directly to WAL (simulating a crash recovery scenario)
+        // Write directly to segmented WAL (simulating a crash recovery scenario)
         {
-            std::fs::create_dir_all(db_path.join("wal")).unwrap();
-            let mut wal =
-                WAL::open(db_path.join("wal/current.wal"), DurabilityMode::Strict).unwrap();
-
-            wal.append(&WALEntry::BeginTxn {
-                txn_id: 1,
+            let wal_dir = db_path.join("wal");
+            std::fs::create_dir_all(&wal_dir).unwrap();
+            write_wal_txn(
+                &wal_dir,
+                1,
                 run_id,
-                timestamp: now(),
-            })
-            .unwrap();
-
-            wal.append(&WALEntry::Write {
-                run_id,
-                key: Key::new_kv(ns.clone(), "key1"),
-                value: Value::Bytes(b"value1".to_vec()),
-                version: 1,
-            })
-            .unwrap();
-
-            wal.append(&WALEntry::CommitTxn { txn_id: 1, run_id })
-                .unwrap();
+                vec![(Key::new_kv(ns.clone(), "key1"), Value::Bytes(b"value1".to_vec()))],
+                vec![],
+                1,
+            );
         }
 
         // Open database (should replay WAL)
@@ -943,37 +993,20 @@ mod tests {
             run_id,
         );
 
-        // Open database, write via WAL, close
+        // Open database, write via transaction, close
         {
             let db = Database::open(&db_path).unwrap();
 
-            // Write to WAL (disk-backed database always has WAL)
-            let wal = db.wal().expect("disk-backed database should have WAL");
-            let mut wal_guard = wal.lock();
+            db.transaction(run_id, |txn| {
+                txn.put(
+                    Key::new_kv(ns.clone(), "persistent"),
+                    Value::Bytes(b"data".to_vec()),
+                )?;
+                Ok(())
+            })
+            .unwrap();
 
-            wal_guard
-                .append(&WALEntry::BeginTxn {
-                    txn_id: 1,
-                    run_id,
-                    timestamp: now(),
-                })
-                .unwrap();
-
-            wal_guard
-                .append(&WALEntry::Write {
-                    run_id,
-                    key: Key::new_kv(ns.clone(), "persistent"),
-                    value: Value::Bytes(b"data".to_vec()),
-                    version: 1,
-                })
-                .unwrap();
-
-            wal_guard
-                .append(&WALEntry::CommitTxn { txn_id: 1, run_id })
-                .unwrap();
-
-            drop(wal_guard); // Release lock
-            db.flush().unwrap(); // Ensure written to disk
+            db.flush().unwrap();
         }
 
         // Reopen database
@@ -993,7 +1026,10 @@ mod tests {
     }
 
     #[test]
-    fn test_recovery_discards_incomplete() {
+    fn test_partial_record_discarded() {
+        // With the segmented WAL, partial records (crash mid-write) are
+        // automatically discarded by the reader. There are no "incomplete
+        // transactions" since each WalRecord = one committed transaction.
         let temp_dir = TempDir::new().unwrap();
         let db_path = temp_dir.path().join("db");
 
@@ -1005,36 +1041,37 @@ mod tests {
             run_id,
         );
 
-        // Write incomplete transaction to WAL (simulates crash)
+        // Write one valid record, then append garbage to simulate crash
         {
-            std::fs::create_dir_all(db_path.join("wal")).unwrap();
-            let mut wal =
-                WAL::open(db_path.join("wal/current.wal"), DurabilityMode::Strict).unwrap();
-
-            wal.append(&WALEntry::BeginTxn {
-                txn_id: 1,
+            let wal_dir = db_path.join("wal");
+            std::fs::create_dir_all(&wal_dir).unwrap();
+            write_wal_txn(
+                &wal_dir,
+                1,
                 run_id,
-                timestamp: now(),
-            })
-            .unwrap();
+                vec![(Key::new_kv(ns.clone(), "valid"), Value::Int(42))],
+                vec![],
+                1,
+            );
 
-            wal.append(&WALEntry::Write {
-                run_id,
-                key: Key::new_kv(ns.clone(), "incomplete"),
-                value: Value::Bytes(b"never_committed".to_vec()),
-                version: 1,
-            })
-            .unwrap();
-
-            // NO CommitTxn - simulates crash
+            // Append garbage to simulate crash mid-write of second record
+            let segment_path =
+                strata_durability::format::WalSegment::segment_path(&wal_dir, 1);
+            use std::io::Write;
+            let mut file = std::fs::OpenOptions::new()
+                .append(true)
+                .open(&segment_path)
+                .unwrap();
+            file.write_all(&[0xFF; 20]).unwrap();
         }
 
-        // Open database (recovery should discard incomplete transaction)
+        // Open database (should recover valid record, skip garbage)
         let db = Database::open(&db_path).unwrap();
 
-        // Incomplete transaction should NOT be in storage
-        let key = Key::new_kv(ns, "incomplete");
-        assert!(db.storage().get(&key).unwrap().is_none());
+        // Valid transaction should be present
+        let key = Key::new_kv(ns.clone(), "valid");
+        let val = db.storage().get(&key).unwrap().unwrap();
+        assert_eq!(val.value, Value::Int(42));
     }
 
     #[test]
@@ -1042,21 +1079,18 @@ mod tests {
         let temp_dir = TempDir::new().unwrap();
         let db_path = temp_dir.path().join("db");
 
-        // Create corrupted WAL
+        // Create WAL directory but with no valid segment files
+        // (the segmented WAL will find no segments and return empty)
         {
             std::fs::create_dir_all(db_path.join("wal")).unwrap();
-            let wal_path = db_path.join("wal/current.wal");
-
-            // Write garbage data - WAL decoder will stop at first invalid entry
-            std::fs::write(&wal_path, b"CORRUPTED_DATA_NOT_VALID_WAL").unwrap();
         }
 
-        // Open should succeed with empty storage (corrupted entries are skipped)
+        // Open should succeed with empty storage (no segments found)
         let result = Database::open(&db_path);
         assert!(result.is_ok());
 
         let db = result.unwrap();
-        // Storage should be empty since no valid entries could be decoded
+        // Storage should be empty since no valid segments exist
         assert_eq!(db.storage().current_version(), 0);
     }
 

@@ -1,4 +1,4 @@
-//! RunBundle archive reader
+//! RunBundle archive reader (v2)
 //!
 //! Reads .runbundle.tar.zst archives and validates their contents.
 
@@ -6,15 +6,14 @@ use crate::run_bundle::error::{RunBundleError, RunBundleResult};
 use crate::run_bundle::types::{
     paths, xxh3_hex, BundleManifest, BundleRunInfo, BundleVerifyInfo, RUNBUNDLE_FORMAT_VERSION,
 };
-use crate::run_bundle::wal_log::WalLogReader;
-use crate::wal::WALEntry;
+use crate::run_bundle::wal_log::{RunlogPayload, WalLogReader};
 use std::collections::HashMap;
 use std::fs::File;
 use std::io::{BufReader, Read};
 use std::path::Path;
 use tar::Archive;
 
-/// Reader for RunBundle archives
+/// Reader for RunBundle archives (v2)
 ///
 /// Reads and validates .runbundle.tar.zst files.
 pub struct RunBundleReader;
@@ -103,14 +102,14 @@ impl RunBundleReader {
         Ok(run_info)
     }
 
-    /// Read and parse WAL entries
-    pub fn read_wal_entries(path: &Path) -> RunBundleResult<Vec<WALEntry>> {
+    /// Read and parse WAL payloads
+    pub fn read_wal_entries(path: &Path) -> RunBundleResult<Vec<RunlogPayload>> {
         let data = Self::extract_file(path, "WAL.runlog")?;
         WalLogReader::read_from_slice(&data)
     }
 
-    /// Read and parse WAL entries with checksum validation
-    pub fn read_wal_entries_validated(path: &Path) -> RunBundleResult<Vec<WALEntry>> {
+    /// Read and parse WAL payloads with checksum validation
+    pub fn read_wal_entries_validated(path: &Path) -> RunBundleResult<Vec<RunlogPayload>> {
         let files = Self::extract_all_files(path)?;
 
         let manifest_data = files
@@ -153,12 +152,12 @@ impl RunBundleReader {
 
         let manifest: BundleManifest = serde_json::from_slice(manifest_data)?;
         let run_info: BundleRunInfo = serde_json::from_slice(run_data)?;
-        let wal_entries = WalLogReader::read_from_slice(wal_data)?;
+        let payloads = WalLogReader::read_from_slice(wal_data)?;
 
         Ok(BundleContents {
             manifest,
             run_info,
-            wal_entries,
+            payloads,
         })
     }
 
@@ -280,8 +279,8 @@ impl RunBundleReader {
         Err(RunBundleError::missing_file("RUN.json"))
     }
 
-    /// Read WAL entries from a byte slice (for testing)
-    pub fn read_wal_entries_from_bytes(data: &[u8]) -> RunBundleResult<Vec<WALEntry>> {
+    /// Read WAL payloads from a byte slice (for testing)
+    pub fn read_wal_entries_from_bytes(data: &[u8]) -> RunBundleResult<Vec<RunlogPayload>> {
         let decoder = zstd::Decoder::new(data)
             .map_err(|e| RunBundleError::compression(format!("zstd decode: {}", e)))?;
 
@@ -307,26 +306,25 @@ impl RunBundleReader {
     }
 }
 
-/// Complete bundle contents after reading
+/// Complete bundle contents after reading (v2)
 #[derive(Debug)]
 pub struct BundleContents {
     /// Bundle manifest
     pub manifest: BundleManifest,
     /// Run metadata
     pub run_info: BundleRunInfo,
-    /// WAL entries
-    pub wal_entries: Vec<WALEntry>,
+    /// Transaction payloads
+    pub payloads: Vec<RunlogPayload>,
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::run_bundle::writer::RunBundleWriter;
+    use crate::run_bundle::wal_log::RunlogPayload;
     use crate::run_bundle::types::ExportOptions;
-    use crate::wal::WALEntry;
     use strata_core::types::{Key, Namespace, RunId, TypeTag};
     use strata_core::value::Value;
-    use strata_core::Timestamp;
     use tempfile::tempdir;
 
     fn make_test_run_info() -> BundleRunInfo {
@@ -343,31 +341,34 @@ mod tests {
         }
     }
 
-    fn make_test_entries() -> Vec<WALEntry> {
+    fn make_test_payloads() -> Vec<RunlogPayload> {
         let run_id = RunId::new();
         let ns = Namespace::for_run(run_id);
         vec![
-            WALEntry::BeginTxn {
-                txn_id: 1,
-                run_id,
-                timestamp: Timestamp::now(),
-            },
-            WALEntry::Write {
-                run_id,
-                key: Key::new(ns.clone(), TypeTag::KV, b"key1".to_vec()),
-                value: Value::String("value1".to_string()),
+            RunlogPayload {
+                run_id: run_id.to_string(),
                 version: 1,
+                puts: vec![(
+                    Key::new(ns.clone(), TypeTag::KV, b"key1".to_vec()),
+                    Value::String("value1".to_string()),
+                )],
+                deletes: vec![],
             },
-            WALEntry::CommitTxn { txn_id: 1, run_id },
+            RunlogPayload {
+                run_id: run_id.to_string(),
+                version: 2,
+                puts: vec![],
+                deletes: vec![Key::new(ns, TypeTag::KV, b"key1".to_vec())],
+            },
         ]
     }
 
-    fn create_test_bundle() -> (Vec<u8>, BundleRunInfo, Vec<WALEntry>) {
+    fn create_test_bundle() -> (Vec<u8>, BundleRunInfo, Vec<RunlogPayload>) {
         let writer = RunBundleWriter::new(&ExportOptions::default());
         let run_info = make_test_run_info();
-        let entries = make_test_entries();
-        let (data, _) = writer.write_to_vec(&run_info, &entries).unwrap();
-        (data, run_info, entries)
+        let payloads = make_test_payloads();
+        let (data, _) = writer.write_to_vec(&run_info, &payloads).unwrap();
+        (data, run_info, payloads)
     }
 
     #[test]
@@ -394,11 +395,11 @@ mod tests {
 
     #[test]
     fn test_read_wal_entries_from_bytes() {
-        let (data, _, expected_entries) = create_test_bundle();
+        let (data, _, expected_payloads) = create_test_bundle();
 
-        let entries = RunBundleReader::read_wal_entries_from_bytes(&data).unwrap();
+        let payloads = RunBundleReader::read_wal_entries_from_bytes(&data).unwrap();
 
-        assert_eq!(entries.len(), expected_entries.len());
+        assert_eq!(payloads.len(), expected_payloads.len());
     }
 
     #[test]
@@ -408,14 +409,14 @@ mod tests {
 
         let writer = RunBundleWriter::new(&ExportOptions::default());
         let run_info = make_test_run_info();
-        let entries = make_test_entries();
-        writer.write(&run_info, &entries, &path).unwrap();
+        let payloads = make_test_payloads();
+        writer.write(&run_info, &payloads, &path).unwrap();
 
         let verify_info = RunBundleReader::validate(&path).unwrap();
 
         assert_eq!(verify_info.run_id, run_info.run_id);
         assert_eq!(verify_info.format_version, RUNBUNDLE_FORMAT_VERSION);
-        assert_eq!(verify_info.wal_entry_count, 3);
+        assert_eq!(verify_info.wal_entry_count, 2);
         assert!(verify_info.checksums_valid);
     }
 
@@ -426,13 +427,13 @@ mod tests {
 
         let writer = RunBundleWriter::new(&ExportOptions::default());
         let run_info = make_test_run_info();
-        let entries = make_test_entries();
-        writer.write(&run_info, &entries, &path).unwrap();
+        let payloads = make_test_payloads();
+        writer.write(&run_info, &payloads, &path).unwrap();
 
         let manifest = RunBundleReader::read_manifest(&path).unwrap();
 
         assert_eq!(manifest.format_version, RUNBUNDLE_FORMAT_VERSION);
-        assert_eq!(manifest.contents.wal_entry_count, 3);
+        assert_eq!(manifest.contents.wal_entry_count, 2);
     }
 
     #[test]
@@ -442,8 +443,8 @@ mod tests {
 
         let writer = RunBundleWriter::new(&ExportOptions::default());
         let expected_run_info = make_test_run_info();
-        let entries = make_test_entries();
-        writer.write(&expected_run_info, &entries, &path).unwrap();
+        let payloads = make_test_payloads();
+        writer.write(&expected_run_info, &payloads, &path).unwrap();
 
         let run_info = RunBundleReader::read_run_info(&path).unwrap();
 
@@ -458,12 +459,12 @@ mod tests {
 
         let writer = RunBundleWriter::new(&ExportOptions::default());
         let run_info = make_test_run_info();
-        let entries = make_test_entries();
-        writer.write(&run_info, &entries, &path).unwrap();
+        let payloads = make_test_payloads();
+        writer.write(&run_info, &payloads, &path).unwrap();
 
-        let read_entries = RunBundleReader::read_wal_entries(&path).unwrap();
+        let read_payloads = RunBundleReader::read_wal_entries(&path).unwrap();
 
-        assert_eq!(read_entries.len(), entries.len());
+        assert_eq!(read_payloads.len(), payloads.len());
     }
 
     #[test]
@@ -473,12 +474,12 @@ mod tests {
 
         let writer = RunBundleWriter::new(&ExportOptions::default());
         let run_info = make_test_run_info();
-        let entries = make_test_entries();
-        writer.write(&run_info, &entries, &path).unwrap();
+        let payloads = make_test_payloads();
+        writer.write(&run_info, &payloads, &path).unwrap();
 
-        let read_entries = RunBundleReader::read_wal_entries_validated(&path).unwrap();
+        let read_payloads = RunBundleReader::read_wal_entries_validated(&path).unwrap();
 
-        assert_eq!(read_entries.len(), entries.len());
+        assert_eq!(read_payloads.len(), payloads.len());
     }
 
     #[test]
@@ -488,14 +489,14 @@ mod tests {
 
         let writer = RunBundleWriter::new(&ExportOptions::default());
         let run_info = make_test_run_info();
-        let entries = make_test_entries();
-        writer.write(&run_info, &entries, &path).unwrap();
+        let payloads = make_test_payloads();
+        writer.write(&run_info, &payloads, &path).unwrap();
 
         let contents = RunBundleReader::read_all(&path).unwrap();
 
         assert_eq!(contents.run_info.run_id, run_info.run_id);
-        assert_eq!(contents.wal_entries.len(), entries.len());
-        assert_eq!(contents.manifest.contents.wal_entry_count, 3);
+        assert_eq!(contents.payloads.len(), payloads.len());
+        assert_eq!(contents.manifest.contents.wal_entry_count, 2);
     }
 
     #[test]
@@ -526,12 +527,12 @@ mod tests {
 
         let writer = RunBundleWriter::new(&ExportOptions::default());
         let run_info = make_test_run_info();
-        let entries: Vec<WALEntry> = vec![];
-        writer.write(&run_info, &entries, &path).unwrap();
+        let payloads: Vec<RunlogPayload> = vec![];
+        writer.write(&run_info, &payloads, &path).unwrap();
 
         let contents = RunBundleReader::read_all(&path).unwrap();
 
-        assert!(contents.wal_entries.is_empty());
+        assert!(contents.payloads.is_empty());
         assert_eq!(contents.manifest.contents.wal_entry_count, 0);
     }
 
@@ -543,9 +544,9 @@ mod tests {
         // Write
         let writer = RunBundleWriter::new(&ExportOptions::default());
         let original_run_info = make_test_run_info();
-        let original_entries = make_test_entries();
+        let original_payloads = make_test_payloads();
         writer
-            .write(&original_run_info, &original_entries, &path)
+            .write(&original_run_info, &original_payloads, &path)
             .unwrap();
 
         // Read back
@@ -556,10 +557,10 @@ mod tests {
         assert_eq!(contents.run_info.name, original_run_info.name);
         assert_eq!(contents.run_info.state, original_run_info.state);
         assert_eq!(contents.run_info.tags, original_run_info.tags);
-        assert_eq!(contents.wal_entries.len(), original_entries.len());
+        assert_eq!(contents.payloads.len(), original_payloads.len());
 
-        // Verify WAL entries match
-        for (original, read) in original_entries.iter().zip(contents.wal_entries.iter()) {
+        // Verify payloads match
+        for (original, read) in original_payloads.iter().zip(contents.payloads.iter()) {
             assert_eq!(original, read);
         }
     }
