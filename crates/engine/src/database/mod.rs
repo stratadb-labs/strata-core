@@ -521,6 +521,36 @@ impl Database {
     }
 
     // ========================================================================
+    // Checkpoint & Compaction (future work)
+    // ========================================================================
+
+    /// Create a snapshot checkpoint of the current database state.
+    ///
+    /// Checkpoints serialize all primitive state to a crash-safe snapshot file,
+    /// update the manifest watermark, and optionally trigger WAL compaction.
+    ///
+    /// See: `docs/architecture/STORAGE_DURABILITY_ARCHITECTURE.md` Section 6.3
+    ///
+    /// TODO: Wire to `DatabaseHandle::checkpoint()` and `CheckpointCoordinator`
+    /// once the full checkpoint flow is implemented.
+    pub fn checkpoint(&self) -> StrataResult<()> {
+        Err(StrataError::internal("checkpoint() not yet implemented"))
+    }
+
+    /// Compact WAL segments that are no longer needed for recovery.
+    ///
+    /// Removes closed WAL segments whose max transaction ID is at or below the
+    /// latest snapshot watermark. The active segment is never removed.
+    ///
+    /// See: `docs/architecture/STORAGE_DURABILITY_ARCHITECTURE.md` Section 5.6
+    ///
+    /// TODO: Wire to `DatabaseHandle::compact()` and `WalOnlyCompactor`
+    /// once the full compaction flow is implemented.
+    pub fn compact(&self) -> StrataResult<()> {
+        Err(StrataError::internal("compact() not yet implemented"))
+    }
+
+    // ========================================================================
     // Transaction API
     // ========================================================================
 
