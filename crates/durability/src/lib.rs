@@ -1,6 +1,6 @@
 //! Durability layer for Strata
 //!
-//! This crate implements write-ahead logging and snapshots:
+//! This crate handles everything that touches disk:
 //!
 //! - WAL: Append-only write-ahead log with MVCC support
 //! - WALEntry types: BeginTxn, Write, Delete, CommitTxn, etc.
@@ -8,6 +8,11 @@
 //! - Durability modes: Strict, Batched (default), None
 //! - Snapshot creation and loading
 //! - Recovery: Replay WAL from last snapshot
+//! - Binary on-disk formats (segmented WAL, snapshots, manifest)
+//! - Storage codec abstraction (encryption/compression extension point)
+//! - WAL segment compaction
+//! - Version retention policies
+//! - Crash testing infrastructure
 //!
 //! ## WAL Entry Types
 //!
@@ -19,7 +24,7 @@
 #![warn(missing_docs)]
 #![warn(clippy::all)]
 
-// Module declarations
+// === Existing modules ===
 pub mod encoding; // Entry encoding/decoding with CRC
 pub mod recovery; // WAL replay logic
 pub mod run_bundle; // Portable execution artifacts (RunBundle)
@@ -27,7 +32,18 @@ pub mod snapshot; // Snapshot writer and serialization
 pub mod snapshot_types; // Snapshot envelope and header types
 pub mod wal; // WALEntry types, File operations, Durability modes
 
-// Re-export commonly used types
+// === Modules moved from storage crate (Phase 1 consolidation) ===
+pub mod codec; // Storage codec abstraction (identity, future encryption/compression)
+pub mod compaction; // WAL segment cleanup and tombstone tracking
+pub mod disk_snapshot; // Crash-safe snapshot I/O and checkpoint coordination
+pub mod format; // Binary on-disk formats (WAL segments, snapshots, manifest, writesets)
+pub mod retention; // Version retention policies (KeepAll, KeepLast, KeepFor, Composite)
+pub mod testing; // Crash test harness and reference model
+
+// === Phase 2: Database lifecycle coordination ===
+pub mod database; // Database handle, config, paths (DatabaseHandle, DatabaseConfig, etc.)
+
+// === Existing re-exports ===
 pub use encoding::{decode_entry, encode_entry};
 pub use recovery::{
     replay_wal, replay_wal_with_options, validate_transactions, ReplayOptions, ReplayProgress,
@@ -50,3 +66,67 @@ pub use run_bundle::{
     RunBundleResult, RunBundleWriter, RunExportInfo, WalLogInfo, WalLogIterator, WalLogReader,
     WalLogWriter, RUNBUNDLE_EXTENSION, RUNBUNDLE_FORMAT_VERSION,
 };
+
+// === Re-exports from moved modules ===
+
+// Codec
+pub use codec::{get_codec, CodecError, IdentityCodec, StorageCodec};
+
+// Disk snapshot
+pub use disk_snapshot::{
+    CheckpointCoordinator, CheckpointData, CheckpointError, LoadedSection, LoadedSnapshot,
+    SnapshotInfo as DiskSnapshotInfo, SnapshotReadError,
+    SnapshotReader as DiskSnapshotReader, SnapshotSection,
+    SnapshotWriter as DiskSnapshotWriter,
+};
+
+// Format types
+pub use format::{
+    // Snapshot format
+    find_latest_snapshot, list_snapshots, parse_snapshot_id, primitive_tags, snapshot_path,
+    // Watermark tracking
+    CheckpointInfo,
+    // Primitive serialization
+    EventSnapshotEntry, JsonSnapshotEntry, KvSnapshotEntry,
+    // MANIFEST format
+    Manifest, ManifestError, ManifestManager,
+    // WAL format
+    Mutation, PrimitiveSerializeError, RunSnapshotEntry, SectionHeader, SegmentHeader,
+    SnapshotHeader as FormatSnapshotHeader, SnapshotHeaderError, SnapshotSerializer,
+    SnapshotWatermark, StateSnapshotEntry, VectorCollectionSnapshotEntry, VectorSnapshotEntry,
+    WalRecord, WalRecordError, WalSegment, WatermarkError, Writeset, WritesetError,
+    MANIFEST_FORMAT_VERSION, MANIFEST_MAGIC, SEGMENT_FORMAT_VERSION, SEGMENT_HEADER_SIZE,
+    SEGMENT_MAGIC, SNAPSHOT_FORMAT_VERSION, SNAPSHOT_HEADER_SIZE as FORMAT_SNAPSHOT_HEADER_SIZE,
+    SNAPSHOT_MAGIC as FORMAT_SNAPSHOT_MAGIC, WAL_RECORD_FORMAT_VERSION,
+};
+
+// Retention
+pub use retention::{CompositeBuilder, RetentionPolicy, RetentionPolicyError};
+
+// Compaction
+pub use compaction::{
+    CompactInfo, CompactMode, CompactionError, Tombstone, TombstoneError, TombstoneIndex,
+    TombstoneReason, WalOnlyCompactor,
+};
+
+// Testing utilities
+pub use testing::{
+    CrashConfig, CrashPoint, CrashTestError, CrashTestResult, CrashType, DataState, Operation,
+    ReferenceModel, StateMismatch, VerificationResult,
+};
+
+// === Phase 2 re-exports: Database lifecycle ===
+pub use database::{
+    ConfigError, DatabaseConfig, DatabaseHandle, DatabaseHandleError, DatabasePathError,
+    DatabasePaths,
+};
+
+// WAL segmented types (new in Phase 2)
+pub use wal::{TruncateInfo, WalConfig, WalConfigError, WalReader, WalReaderError, WalWriter};
+
+// Recovery coordinator types (new in Phase 2)
+pub use recovery::{
+    RecoveryCoordinator, RecoveryError, RecoveryPlan,
+    RecoveryResult as SegmentedRecoveryResult, RecoverySnapshot,
+};
+pub use recovery::{WalReplayError, WalReplayer};
