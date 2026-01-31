@@ -101,6 +101,22 @@ impl Strata {
         }
     }
 
+    /// Get the full version history for a JSON document.
+    ///
+    /// Returns all versions of the document, newest first, or None if the
+    /// document doesn't exist.
+    pub fn json_getv(&self, key: &str) -> Result<Option<Vec<crate::types::VersionedValue>>> {
+        match self.executor.execute(Command::JsonGetv {
+            run: self.branch_id(),
+            key: key.to_string(),
+        })? {
+            Output::VersionHistory(h) => Ok(h),
+            _ => Err(Error::Internal {
+                reason: "Unexpected output for JsonGetv".into(),
+            }),
+        }
+    }
+
     /// Delete a JSON document or value at a path.
     ///
     /// Use "$" as the path to delete the entire document.

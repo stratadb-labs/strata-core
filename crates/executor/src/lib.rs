@@ -80,5 +80,8 @@ pub use types::*;
 // Re-export Value from strata_core so users don't need to import it
 pub use strata_core::Value;
 
+// Re-export engine types needed for advanced database configuration
+pub use strata_engine::{Database, DatabaseBuilder, DurabilityMode};
+
 /// Result type for executor operations
 pub type Result<T> = std::result::Result<T, Error>;

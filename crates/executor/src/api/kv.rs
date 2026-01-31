@@ -75,6 +75,33 @@ impl Strata {
         }
     }
 
+    /// Get the full version history for a key.
+    ///
+    /// Returns all versions of the key, newest first, or None if the key
+    /// doesn't exist.
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// db.kv_put("counter", 1i64)?;
+    /// db.kv_put("counter", 2i64)?;
+    /// db.kv_put("counter", 3i64)?;
+    ///
+    /// let history = db.kv_getv("counter")?.unwrap();
+    /// assert_eq!(history[0].value, Value::Int(3)); // newest first
+    /// ```
+    pub fn kv_getv(&self, key: &str) -> Result<Option<Vec<crate::types::VersionedValue>>> {
+        match self.executor.execute(Command::KvGetv {
+            run: self.branch_id(),
+            key: key.to_string(),
+        })? {
+            Output::VersionHistory(h) => Ok(h),
+            _ => Err(Error::Internal {
+                reason: "Unexpected output for KvGetv".into(),
+            }),
+        }
+    }
+
     /// List keys with optional prefix filter.
     ///
     /// Returns all keys matching the prefix (or all keys if prefix is None).

@@ -37,6 +37,22 @@ impl Strata {
         }
     }
 
+    /// Get the full version history for a state cell.
+    ///
+    /// Returns all versions of the cell, newest first, or None if the cell
+    /// doesn't exist.
+    pub fn state_readv(&self, cell: &str) -> Result<Option<Vec<crate::types::VersionedValue>>> {
+        match self.executor.execute(Command::StateReadv {
+            run: self.branch_id(),
+            cell: cell.to_string(),
+        })? {
+            Output::VersionHistory(h) => Ok(h),
+            _ => Err(Error::Internal {
+                reason: "Unexpected output for StateReadv".into(),
+            }),
+        }
+    }
+
     /// Compare-and-swap on a state cell.
     pub fn state_cas(
         &self,
