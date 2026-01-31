@@ -21,7 +21,7 @@ version = "0.1.0"
 edition = "2021"
 rust-version = "1.70"
 authors = ["Strata contributors"]
-license = "MIT"
+license = "Apache-2.0"
 repository = "https://github.com/anibjoshi/strata"
 
 [workspace.dependencies]

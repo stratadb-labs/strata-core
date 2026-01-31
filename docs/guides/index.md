@@ -1,0 +1,20 @@
+# Guides
+
+Detailed walkthroughs for each StrataDB feature.
+
+## Per-Primitive Guides
+
+- **[KV Store](kv-store.md)** — key-value operations, prefix filtering, versioned reads
+- **[Event Log](event-log.md)** — append-only event streams, reading by type
+- **[State Cell](state-cell.md)** — mutable state with CAS, coordination patterns
+- **[JSON Store](json-store.md)** — structured documents with path-level access
+- **[Vector Store](vector-store.md)** — collections, similarity search, metadata filtering
+- **[Run Management](run-management.md)** — creating, switching, listing, and deleting runs
+
+## Cross-Cutting Guides
+
+- **[Sessions and Transactions](sessions-and-transactions.md)** — multi-operation atomicity
+- **[Search](search.md)** — hybrid keyword + semantic search
+- **[Database Configuration](database-configuration.md)** — opening methods, durability modes
+- **[Run Bundles](run-bundles.md)** — exporting and importing runs
+- **[Error Handling](error-handling.md)** — error categories and patterns
