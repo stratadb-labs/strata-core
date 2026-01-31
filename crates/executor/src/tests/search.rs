@@ -8,7 +8,6 @@
 use crate::{Command, Executor, Output};
 use crate::Value;
 use strata_engine::Database;
-use std::sync::Arc;
 
 fn create_executor() -> Executor {
     let db = Database::ephemeral().unwrap();

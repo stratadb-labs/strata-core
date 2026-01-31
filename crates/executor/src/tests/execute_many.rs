@@ -6,7 +6,6 @@
 use crate::types::*;
 use crate::{Command, Executor, Output};
 use crate::Value;
-use std::sync::Arc;
 
 /// Create a test executor with an ephemeral in-memory database.
 fn create_test_executor() -> Executor {

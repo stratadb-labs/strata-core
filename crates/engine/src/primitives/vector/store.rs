@@ -401,7 +401,7 @@ impl VectorStore {
         }
 
         // Serialize metadata to bytes for WAL storage (before it's consumed)
-        let metadata_bytes = metadata
+        let _metadata_bytes = metadata
             .as_ref()
             .map(serde_json::to_vec)
             .transpose()

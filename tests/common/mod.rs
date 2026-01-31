@@ -4,6 +4,7 @@
 //! Import via `mod common;` from any test's main.rs.
 
 #![allow(dead_code)]
+#![allow(unused_imports)]
 
 pub use strata_core::{JsonPath, JsonValue, RunId, Value, Version};
 pub use strata_engine::{

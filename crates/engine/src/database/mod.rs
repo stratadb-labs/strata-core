@@ -27,7 +27,7 @@ pub use builder::DatabaseBuilder;
 pub use registry::OPEN_DATABASES;
 pub use transactions::RetryConfig;
 
-use crate::coordinator::{TransactionCoordinator, TransactionMetrics};
+use crate::coordinator::TransactionCoordinator;
 use crate::transaction::TransactionPool;
 use dashmap::DashMap;
 use parking_lot::Mutex as ParkingMutex;
@@ -420,52 +420,14 @@ impl Database {
         self.storage.get_history(key, limit, before_version)
     }
 
-    /// Get the data directory path
-    pub(crate) fn data_dir(&self) -> &Path {
-        &self.data_dir
-    }
-
-    /// Get access to the WAL writer for appending records
-    ///
-    /// Returns an Arc to the Mutex-protected WalWriter, or None for ephemeral databases.
-    /// Lock the mutex to append records.
-    pub(crate) fn wal_writer(&self) -> Option<Arc<ParkingMutex<WalWriter>>> {
-        self.wal_writer.as_ref().map(Arc::clone)
-    }
-
     /// Check if this is an ephemeral (no-disk) database
     pub fn is_ephemeral(&self) -> bool {
         self.persistence_mode == PersistenceMode::Ephemeral
     }
 
-    /// Get the persistence mode
-    pub(crate) fn persistence_mode(&self) -> PersistenceMode {
-        self.persistence_mode
-    }
-
-    /// Get the current durability mode
-    pub(crate) fn durability_mode(&self) -> DurabilityMode {
-        self.durability_mode
-    }
-
     /// Check if the database is currently open and accepting transactions
     pub fn is_open(&self) -> bool {
         self.accepting_transactions.load(Ordering::SeqCst)
-    }
-
-    /// Get the transaction coordinator (for metrics/testing)
-    pub(crate) fn coordinator(&self) -> &TransactionCoordinator {
-        &self.coordinator
-    }
-
-    /// Get transaction metrics
-    ///
-    /// Returns statistics about transaction lifecycle including:
-    /// - Active count
-    /// - Total started/committed/aborted
-    /// - Commit rate
-    pub(crate) fn metrics(&self) -> TransactionMetrics {
-        self.coordinator.metrics()
     }
 
     // ========================================================================
@@ -951,9 +913,6 @@ mod tests {
 
         // Should work for operations
         assert!(db.is_ephemeral());
-
-        // Data dir should be empty path
-        assert!(db.data_dir().as_os_str().is_empty());
     }
 
     #[test]
@@ -1120,7 +1079,7 @@ mod tests {
             let db =
                 Database::open_with_mode(temp_dir.path().join("strict"), DurabilityMode::Strict)
                     .unwrap();
-            assert!(db.data_dir().exists());
+            assert!(!db.is_ephemeral());
         }
 
         // Batched mode
@@ -1133,7 +1092,7 @@ mod tests {
                 },
             )
             .unwrap();
-            assert!(db.data_dir().exists());
+            assert!(!db.is_ephemeral());
         }
 
         // None mode
@@ -1143,18 +1102,8 @@ mod tests {
                 DurabilityMode::None,
             )
             .unwrap();
-            assert!(db.data_dir().exists());
+            assert!(!db.is_ephemeral());
         }
-    }
-
-    #[test]
-    fn test_data_dir_accessor() {
-        let temp_dir = TempDir::new().unwrap();
-        let db_path = temp_dir.path().join("db");
-
-        let db = Database::open(&db_path).unwrap();
-
-        assert_eq!(db.data_dir(), db_path.canonicalize().unwrap());
     }
 
     #[test]
@@ -1293,46 +1242,6 @@ mod tests {
         // Verify committed
         let stored = db.storage().get(&key).unwrap().unwrap();
         assert_eq!(stored.value, Value::Int(123));
-    }
-
-    #[test]
-    fn test_transaction_metrics() {
-        let temp_dir = TempDir::new().unwrap();
-        let db = Database::open(temp_dir.path().join("db")).unwrap();
-
-        let run_id = RunId::new();
-        let ns = create_test_namespace(run_id);
-
-        // Initial metrics should be zero
-        let initial_metrics = db.metrics();
-        assert_eq!(initial_metrics.total_started, 0);
-        assert_eq!(initial_metrics.total_committed, 0);
-        assert_eq!(initial_metrics.total_aborted, 0);
-
-        // Commit a transaction
-        db.transaction(run_id, |txn| {
-            txn.put(Key::new_kv(ns.clone(), "key1"), Value::Int(1))?;
-            Ok(())
-        })
-        .unwrap();
-
-        let after_commit = db.metrics();
-        assert_eq!(after_commit.total_started, 1);
-        assert_eq!(after_commit.total_committed, 1);
-        assert_eq!(after_commit.total_aborted, 0);
-        assert_eq!(after_commit.commit_rate, 1.0);
-
-        // Abort a transaction
-        let _: StrataResult<()> = db.transaction(run_id, |txn| {
-            txn.put(Key::new_kv(ns.clone(), "key2"), Value::Int(2))?;
-            Err(StrataError::invalid_input("intentional abort".to_string()))
-        });
-
-        let after_abort = db.metrics();
-        assert_eq!(after_abort.total_started, 2);
-        assert_eq!(after_abort.total_committed, 1);
-        assert_eq!(after_abort.total_aborted, 1);
-        assert_eq!(after_abort.commit_rate, 0.5);
     }
 
     // ========================================================================
@@ -1506,28 +1415,14 @@ mod tests {
     }
 
     #[test]
-    fn test_database_builder_default() {
-        let builder = DatabaseBuilder::new();
-        assert!(builder.get_path().is_none());
-    }
-
-    #[test]
-    fn test_database_builder_path() {
-        let builder = DatabaseBuilder::new().path("/tmp/test");
-        assert_eq!(
-            builder.get_path(),
-            Some(&std::path::PathBuf::from("/tmp/test"))
-        );
-    }
-
-    #[test]
     fn test_database_builder_open_with_path() {
         let temp_dir = TempDir::new().unwrap();
         let db_path = temp_dir.path().join("builder_test");
 
         let db = Database::builder().path(&db_path).strict().open().unwrap();
 
-        assert_eq!(db.data_dir(), db_path.canonicalize().unwrap());
+        assert!(!db.is_ephemeral());
+        assert!(db_path.exists());
     }
 
     #[test]
@@ -1537,28 +1432,4 @@ mod tests {
         assert!(result.is_err());
     }
 
-    #[test]
-    fn test_durability_mode_accessor() {
-        let temp_dir = TempDir::new().unwrap();
-
-        // Test with Strict mode
-        {
-            let db = Database::builder()
-                .path(temp_dir.path().join("strict"))
-                .strict()
-                .open()
-                .unwrap();
-            assert_eq!(db.durability_mode(), DurabilityMode::Strict);
-        }
-
-        // Test with no-durability mode (InMemory durability)
-        {
-            let db = Database::builder()
-                .path(temp_dir.path().join("no_durability"))
-                .no_durability()
-                .open()
-                .unwrap();
-            assert_eq!(db.durability_mode(), DurabilityMode::None);
-        }
-    }
 }

@@ -114,7 +114,6 @@ fn missing_wal_file_starts_fresh() {
     test_db.reopen();
 
     // Database should start fresh — old data is gone
-    let kv = test_db.kv();
     assert_db_healthy(&test_db.db, &run_id);
 }
 

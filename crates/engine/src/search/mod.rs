@@ -9,7 +9,7 @@
 mod types;
 mod searchable;
 mod index;
-mod tokenizer;
+pub mod tokenizer;
 
 pub use types::{
     EntityRef, PrimitiveType,

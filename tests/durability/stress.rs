@@ -4,7 +4,6 @@
 //! Run with: cargo test --test durability stress -- --ignored
 
 use crate::common::*;
-use std::sync::Arc;
 use std::thread;
 use std::time::{Duration, Instant};
 

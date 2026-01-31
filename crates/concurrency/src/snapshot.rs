@@ -90,13 +90,6 @@ impl ClonedSnapshotView {
         }
     }
 
-    /// Create a snapshot from an existing Arc (for sharing between snapshots)
-    ///
-    /// This is useful when multiple transactions need the same snapshot data.
-    pub(crate) fn from_arc(version: u64, data: Arc<BTreeMap<Key, VersionedValue>>) -> Self {
-        ClonedSnapshotView { version, data }
-    }
-
     /// Create an empty snapshot at a given version
     ///
     /// Useful for testing or for transactions that start with no data.
@@ -410,27 +403,6 @@ mod tests {
 
         assert_eq!(snapshot1.version(), 100);
         assert_eq!(snapshot2.version(), 200);
-    }
-
-    #[test]
-    fn test_snapshots_can_share_data_via_arc() {
-        let ns = create_test_namespace();
-        let key = create_test_key(&ns, b"key");
-
-        let mut data = BTreeMap::new();
-        data.insert(key.clone(), create_versioned_value(b"shared", 1));
-        let arc_data = Arc::new(data);
-
-        // Create two snapshots sharing the same data
-        let snapshot1 = ClonedSnapshotView::from_arc(100, Arc::clone(&arc_data));
-        let snapshot2 = ClonedSnapshotView::from_arc(100, Arc::clone(&arc_data));
-
-        // Both see the same data
-        let v1 = snapshot1.get(&key).unwrap().unwrap();
-        let v2 = snapshot2.get(&key).unwrap().unwrap();
-
-        assert_eq!(v1.value, v2.value);
-        assert_eq!(snapshot1.version(), snapshot2.version());
     }
 
     // === Thread Safety Tests ===

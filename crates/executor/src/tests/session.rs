@@ -3,19 +3,11 @@
 use crate::{Command, Error, Output, Session};
 use crate::Value;
 use strata_engine::Database;
-use std::sync::Arc;
 
 /// Create a test session with an ephemeral in-memory database.
 fn create_test_session() -> Session {
     let db = Database::ephemeral().unwrap();
     Session::new(db)
-}
-
-/// Create a test session, returning the db handle too (for multi-session tests).
-fn create_test_db_and_session() -> (Arc<Database>, Session) {
-    let db = Database::ephemeral().unwrap();
-    let session = Session::new(db.clone());
-    (db, session)
 }
 
 // =============================================================================
