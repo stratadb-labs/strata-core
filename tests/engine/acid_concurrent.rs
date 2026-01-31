@@ -195,6 +195,11 @@ fn concurrent_cross_primitive_transactions() {
 /// Shared key + Barrier(2) forcing simultaneous conflict.
 /// 2 threads: both read "shared", write KV + event + state.
 /// Assert: at most 1 winner; winner's primitives are all-or-nothing.
+///
+/// The barrier is placed INSIDE the transaction closure so both transactions
+/// have already acquired their snapshots before either begins reading.
+/// Without this, one transaction could fully commit before the other even
+/// starts, allowing the second to read the updated value without conflict.
 #[test]
 fn concurrent_cross_primitive_conflict_atomicity() {
     let test_db = TestDb::new_in_memory();
@@ -211,9 +216,10 @@ fn concurrent_cross_primitive_conflict_atomicity() {
         let barrier = barrier.clone();
 
         thread::spawn(move || {
-            barrier.wait();
-
             let result = db.transaction(run_id, |txn| {
+                // Barrier inside the closure: both transactions have snapshots
+                // before either reads, guaranteeing they see the same version.
+                barrier.wait();
                 let _current = txn.kv_get("shared")?;
                 txn.kv_put("shared", Value::Int(1))?;
                 txn.event_append("conflict_test", event_payload(Value::Int(i)))?;

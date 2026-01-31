@@ -4,7 +4,7 @@
 
 use crate::common::*;
 use std::sync::atomic::{AtomicU64, Ordering};
-use std::sync::Arc;
+use std::sync::{Arc, Barrier};
 use std::thread;
 
 // ============================================================================
@@ -220,17 +220,24 @@ fn concurrent_cas_exactly_one_wins() {
 
     let success_count = Arc::new(AtomicU64::new(0));
     let db = test_db.db.clone();
+    let barrier = Arc::new(Barrier::new(4));
 
     let handles: Vec<_> = (0..4).map(|_| {
         let db = db.clone();
         let success = success_count.clone();
+        let barrier = barrier.clone();
 
         thread::spawn(move || {
             let state = StateCell::new(db);
 
-            // Try to CAS from 0 to 1
+            // Read the current version
             let current = state.readv(&run_id, "counter").unwrap().unwrap();
             let version = current.version();
+
+            // Barrier: all threads have read the same version before any CAS.
+            // Without this, a thread could complete its CAS before others read,
+            // allowing them to see the updated version and CAS successfully.
+            barrier.wait();
 
             if state.cas(&run_id, "counter", version, Value::Int(1)).is_ok() {
                 success.fetch_add(1, Ordering::SeqCst);
