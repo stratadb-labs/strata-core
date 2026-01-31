@@ -253,7 +253,7 @@ impl Fuser for RRFFuser {
 mod tests {
     use super::*;
     use strata_engine::search::{EntityRef, SearchStats};
-    use strata_core::types::RunId;
+    use strata_core::types::BranchId;
 
     fn make_hit(doc_ref: EntityRef, score: f32, rank: u32) -> SearchHit {
         SearchHit {
@@ -273,9 +273,9 @@ mod tests {
     }
 
     /// Helper to create a KV EntityRef
-    fn make_kv_doc_ref(run_id: &RunId, key: &str) -> EntityRef {
+    fn make_kv_doc_ref(branch_id: &BranchId, key: &str) -> EntityRef {
         EntityRef::Kv {
-            run_id: run_id.clone(),
+            branch_id: branch_id.clone(),
             key: key.to_string(),
         }
     }
@@ -292,8 +292,8 @@ mod tests {
     fn test_simple_fuser_single_primitive() {
         let fuser = SimpleFuser::new();
 
-        let run_id = RunId::new();
-        let doc_ref = make_kv_doc_ref(&run_id, "test");
+        let branch_id = BranchId::new();
+        let doc_ref = make_kv_doc_ref(&branch_id, "test");
         let hits = vec![
             make_hit(doc_ref.clone(), 0.8, 1),
             make_hit(doc_ref.clone(), 0.5, 2),
@@ -311,17 +311,17 @@ mod tests {
     fn test_simple_fuser_multiple_primitives() {
         let fuser = SimpleFuser::new();
 
-        let run_id = RunId::new();
+        let branch_id = BranchId::new();
 
-        let kv_ref = make_kv_doc_ref(&run_id, "test");
-        let run_ref = EntityRef::Run { run_id: run_id.clone() };
+        let kv_ref = make_kv_doc_ref(&branch_id, "test");
+        let run_ref = EntityRef::Branch { branch_id: branch_id.clone() };
 
         let kv_hits = vec![make_hit(kv_ref, 0.7, 1)];
         let run_hits = vec![make_hit(run_ref, 0.9, 1)];
 
         let results = vec![
             (PrimitiveType::Kv, make_response(kv_hits)),
-            (PrimitiveType::Run, make_response(run_hits)),
+            (PrimitiveType::Branch, make_response(run_hits)),
         ];
 
         let result = fuser.fuse(results, 10);
@@ -337,8 +337,8 @@ mod tests {
     fn test_simple_fuser_respects_k() {
         let fuser = SimpleFuser::new();
 
-        let run_id = RunId::new();
-        let doc_ref = make_kv_doc_ref(&run_id, "test");
+        let branch_id = BranchId::new();
+        let doc_ref = make_kv_doc_ref(&branch_id, "test");
         let hits: Vec<_> = (0..10)
             .map(|i| make_hit(doc_ref.clone(), 1.0 - i as f32 * 0.1, i + 1))
             .collect();
@@ -379,9 +379,9 @@ mod tests {
     fn test_rrf_fuser_single_list() {
         let fuser = RRFFuser::default();
 
-        let run_id = RunId::new();
-        let doc_ref_a = make_kv_doc_ref(&run_id, "a");
-        let doc_ref_b = make_kv_doc_ref(&run_id, "b");
+        let branch_id = BranchId::new();
+        let doc_ref_a = make_kv_doc_ref(&branch_id, "a");
+        let doc_ref_b = make_kv_doc_ref(&branch_id, "b");
 
         let hits = vec![
             make_hit(doc_ref_a, 0.9, 1),
@@ -399,8 +399,8 @@ mod tests {
     fn test_rrf_fuser_deduplication() {
         let fuser = RRFFuser::default();
 
-        let run_id = RunId::new();
-        let doc_ref_shared = make_kv_doc_ref(&run_id, "shared");
+        let branch_id = BranchId::new();
+        let doc_ref_shared = make_kv_doc_ref(&branch_id, "shared");
 
         // Same EntityRef in both lists
         let list1_hits = vec![make_hit(doc_ref_shared.clone(), 0.9, 1)];
@@ -425,10 +425,10 @@ mod tests {
     fn test_rrf_fuser_documents_in_both_lists_rank_higher() {
         let fuser = RRFFuser::default();
 
-        let run_id = RunId::new();
-        let doc_ref_a = make_kv_doc_ref(&run_id, "in_both");
-        let doc_ref_b = make_kv_doc_ref(&run_id, "only_list1");
-        let doc_ref_c = make_kv_doc_ref(&run_id, "only_list2");
+        let branch_id = BranchId::new();
+        let doc_ref_a = make_kv_doc_ref(&branch_id, "in_both");
+        let doc_ref_b = make_kv_doc_ref(&branch_id, "only_list1");
+        let doc_ref_c = make_kv_doc_ref(&branch_id, "only_list2");
 
         let list1_hits = vec![
             make_hit(doc_ref_a.clone(), 0.9, 1),
@@ -458,10 +458,10 @@ mod tests {
     fn test_rrf_fuser_respects_k() {
         let fuser = RRFFuser::default();
 
-        let run_id = RunId::new();
+        let branch_id = BranchId::new();
         let hits: Vec<_> = (0..10)
             .map(|i| {
-                let doc_ref = make_kv_doc_ref(&run_id, &format!("key{}", i));
+                let doc_ref = make_kv_doc_ref(&branch_id, &format!("key{}", i));
                 make_hit(doc_ref, 1.0 - i as f32 * 0.1, (i + 1) as u32)
             })
             .collect();
@@ -477,10 +477,10 @@ mod tests {
     fn test_rrf_fuser_determinism() {
         let fuser = RRFFuser::default();
 
-        let run_id = RunId::new();
-        let doc_ref_a = make_kv_doc_ref(&run_id, "det_a");
-        let doc_ref_b = make_kv_doc_ref(&run_id, "det_b");
-        let doc_ref_c = make_kv_doc_ref(&run_id, "det_c");
+        let branch_id = BranchId::new();
+        let doc_ref_a = make_kv_doc_ref(&branch_id, "det_a");
+        let doc_ref_b = make_kv_doc_ref(&branch_id, "det_b");
+        let doc_ref_c = make_kv_doc_ref(&branch_id, "det_c");
 
         let make_results = || {
             vec![
@@ -518,8 +518,8 @@ mod tests {
         let fuser = RRFFuser::new(10);
         assert_eq!(fuser.k_rrf(), 10);
 
-        let run_id = RunId::new();
-        let doc_ref = make_kv_doc_ref(&run_id, "custom_k");
+        let branch_id = BranchId::new();
+        let doc_ref = make_kv_doc_ref(&branch_id, "custom_k");
         let hits = vec![make_hit(doc_ref, 0.9, 1)];
         let results = vec![(PrimitiveType::Kv, make_response(hits))];
 

@@ -7,22 +7,22 @@ use serde::{Deserialize, Serialize};
 use strata_core::Value;
 
 // =============================================================================
-// Run Types
+// Branch Types
 // =============================================================================
 
-/// Run identifier.
+/// Branch identifier.
 ///
-/// Can be "default" for the default run, or a UUID string for named runs.
+/// Can be "default" for the default branch, or a UUID string for named branches.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
-pub struct RunId(pub String);
+pub struct BranchId(pub String);
 
-impl RunId {
-    /// Create a RunId for the default run.
+impl BranchId {
+    /// Create a BranchId for the default branch.
     pub fn default() -> Self {
-        RunId("default".to_string())
+        BranchId("default".to_string())
     }
 
-    /// Check if this is the default run.
+    /// Check if this is the default branch.
     pub fn is_default(&self) -> bool {
         self.0 == "default"
     }
@@ -33,34 +33,34 @@ impl RunId {
     }
 }
 
-impl Default for RunId {
+impl Default for BranchId {
     fn default() -> Self {
         Self::default()
     }
 }
 
-impl From<String> for RunId {
+impl From<String> for BranchId {
     fn from(s: String) -> Self {
-        RunId(s)
+        BranchId(s)
     }
 }
 
-impl From<&str> for RunId {
+impl From<&str> for BranchId {
     fn from(s: &str) -> Self {
-        RunId(s.to_string())
+        BranchId(s.to_string())
     }
 }
 
-impl std::fmt::Display for RunId {
+impl std::fmt::Display for BranchId {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "{}", self.0)
     }
 }
 
-/// Run status
+/// Branch status
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
-pub enum RunStatus {
+pub enum BranchStatus {
     Active,
     Paused,
     Completed,
@@ -69,22 +69,22 @@ pub enum RunStatus {
     Archived,
 }
 
-/// Run information
+/// Branch information
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct RunInfo {
-    pub id: RunId,
-    pub status: RunStatus,
+pub struct BranchInfo {
+    pub id: BranchId,
+    pub status: BranchStatus,
     pub metadata: Option<Value>,
     pub created_at: u64,
     pub updated_at: u64,
-    pub parent_id: Option<RunId>,
+    pub parent_id: Option<BranchId>,
     pub tags: Vec<String>,
 }
 
-/// Versioned run information
+/// Versioned branch information
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct VersionedRunInfo {
-    pub info: RunInfo,
+pub struct VersionedBranchInfo {
+    pub info: BranchInfo,
     pub version: u64,
     pub timestamp: u64,
 }
@@ -261,8 +261,8 @@ pub struct DatabaseInfo {
 
 /// Information about a run export operation
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct RunExportResult {
-    pub run_id: String,
+pub struct BranchExportResult {
+    pub branch_id: String,
     pub path: String,
     pub entry_count: u64,
     pub bundle_size: u64,
@@ -270,8 +270,8 @@ pub struct RunExportResult {
 
 /// Information about a run import operation
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct RunImportResult {
-    pub run_id: String,
+pub struct BranchImportResult {
+    pub branch_id: String,
     pub transactions_applied: u64,
     pub keys_written: u64,
 }
@@ -279,7 +279,7 @@ pub struct RunImportResult {
 /// Information about bundle validation
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct BundleValidateResult {
-    pub run_id: String,
+    pub branch_id: String,
     pub format_version: u32,
     pub entry_count: u64,
     pub checksums_valid: bool,

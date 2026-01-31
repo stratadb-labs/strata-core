@@ -41,17 +41,17 @@ use crate::types::*;
 /// field.
 ///
 /// Run lifecycle commands (RunGet, RunComplete, RunDelete, etc.) keep a required
-/// `run: RunId` since they explicitly operate on a specific run.
+/// `run: BranchId` since they explicitly operate on a specific run.
 ///
 /// # Example
 ///
 /// ```ignore
-/// use strata_executor::{Command, RunId};
+/// use strata_executor::{Command, BranchId};
 /// use strata_core::Value;
 ///
 /// // Explicit run
 /// let cmd = Command::KvPut {
-///     run: Some(RunId::default()),
+///     run: Some(BranchId::default()),
 ///     key: "foo".into(),
 ///     value: Value::Int(42),
 /// };
@@ -71,7 +71,7 @@ pub enum Command {
     /// Returns: `Output::Version`
     KvPut {
         #[serde(default, skip_serializing_if = "Option::is_none")]
-        run: Option<RunId>,
+        run: Option<BranchId>,
         key: String,
         value: Value,
     },
@@ -80,7 +80,7 @@ pub enum Command {
     /// Returns: `Output::MaybeValue`
     KvGet {
         #[serde(default, skip_serializing_if = "Option::is_none")]
-        run: Option<RunId>,
+        run: Option<BranchId>,
         key: String,
     },
 
@@ -88,7 +88,7 @@ pub enum Command {
     /// Returns: `Output::Bool` (true if key existed)
     KvDelete {
         #[serde(default, skip_serializing_if = "Option::is_none")]
-        run: Option<RunId>,
+        run: Option<BranchId>,
         key: String,
     },
 
@@ -96,7 +96,7 @@ pub enum Command {
     /// Returns: `Output::Keys`
     KvList {
         #[serde(default, skip_serializing_if = "Option::is_none")]
-        run: Option<RunId>,
+        run: Option<BranchId>,
         prefix: Option<String>,
     },
 
@@ -104,7 +104,7 @@ pub enum Command {
     /// Returns: `Output::VersionHistory`
     KvGetv {
         #[serde(default, skip_serializing_if = "Option::is_none")]
-        run: Option<RunId>,
+        run: Option<BranchId>,
         key: String,
     },
 
@@ -113,7 +113,7 @@ pub enum Command {
     /// Returns: `Output::Version`
     JsonSet {
         #[serde(default, skip_serializing_if = "Option::is_none")]
-        run: Option<RunId>,
+        run: Option<BranchId>,
         key: String,
         path: String,
         value: Value,
@@ -123,7 +123,7 @@ pub enum Command {
     /// Returns: `Output::MaybeVersioned`
     JsonGet {
         #[serde(default, skip_serializing_if = "Option::is_none")]
-        run: Option<RunId>,
+        run: Option<BranchId>,
         key: String,
         path: String,
     },
@@ -132,7 +132,7 @@ pub enum Command {
     /// Returns: `Output::Uint` (count of elements removed)
     JsonDelete {
         #[serde(default, skip_serializing_if = "Option::is_none")]
-        run: Option<RunId>,
+        run: Option<BranchId>,
         key: String,
         path: String,
     },
@@ -141,7 +141,7 @@ pub enum Command {
     /// Returns: `Output::VersionHistory`
     JsonGetv {
         #[serde(default, skip_serializing_if = "Option::is_none")]
-        run: Option<RunId>,
+        run: Option<BranchId>,
         key: String,
     },
 
@@ -149,7 +149,7 @@ pub enum Command {
     /// Returns: `Output::JsonListResult`
     JsonList {
         #[serde(default, skip_serializing_if = "Option::is_none")]
-        run: Option<RunId>,
+        run: Option<BranchId>,
         prefix: Option<String>,
         cursor: Option<String>,
         limit: u64,
@@ -162,7 +162,7 @@ pub enum Command {
     /// Returns: `Output::Version`
     EventAppend {
         #[serde(default, skip_serializing_if = "Option::is_none")]
-        run: Option<RunId>,
+        run: Option<BranchId>,
         event_type: String,
         payload: Value,
     },
@@ -171,7 +171,7 @@ pub enum Command {
     /// Returns: `Output::MaybeVersioned`
     EventRead {
         #[serde(default, skip_serializing_if = "Option::is_none")]
-        run: Option<RunId>,
+        run: Option<BranchId>,
         sequence: u64,
     },
 
@@ -179,7 +179,7 @@ pub enum Command {
     /// Returns: `Output::VersionedValues`
     EventReadByType {
         #[serde(default, skip_serializing_if = "Option::is_none")]
-        run: Option<RunId>,
+        run: Option<BranchId>,
         event_type: String,
     },
 
@@ -187,7 +187,7 @@ pub enum Command {
     /// Returns: `Output::Uint`
     EventLen {
         #[serde(default, skip_serializing_if = "Option::is_none")]
-        run: Option<RunId>,
+        run: Option<BranchId>,
     },
 
     // ==================== State (4 MVP) ====================
@@ -197,7 +197,7 @@ pub enum Command {
     /// Returns: `Output::Version`
     StateSet {
         #[serde(default, skip_serializing_if = "Option::is_none")]
-        run: Option<RunId>,
+        run: Option<BranchId>,
         cell: String,
         value: Value,
     },
@@ -206,7 +206,7 @@ pub enum Command {
     /// Returns: `Output::MaybeVersioned`
     StateRead {
         #[serde(default, skip_serializing_if = "Option::is_none")]
-        run: Option<RunId>,
+        run: Option<BranchId>,
         cell: String,
     },
 
@@ -214,7 +214,7 @@ pub enum Command {
     /// Returns: `Output::MaybeVersion`
     StateCas {
         #[serde(default, skip_serializing_if = "Option::is_none")]
-        run: Option<RunId>,
+        run: Option<BranchId>,
         cell: String,
         expected_counter: Option<u64>,
         value: Value,
@@ -224,7 +224,7 @@ pub enum Command {
     /// Returns: `Output::VersionHistory`
     StateReadv {
         #[serde(default, skip_serializing_if = "Option::is_none")]
-        run: Option<RunId>,
+        run: Option<BranchId>,
         cell: String,
     },
 
@@ -232,7 +232,7 @@ pub enum Command {
     /// Returns: `Output::Version`
     StateInit {
         #[serde(default, skip_serializing_if = "Option::is_none")]
-        run: Option<RunId>,
+        run: Option<BranchId>,
         cell: String,
         value: Value,
     },
@@ -244,7 +244,7 @@ pub enum Command {
     /// Returns: `Output::Version`
     VectorUpsert {
         #[serde(default, skip_serializing_if = "Option::is_none")]
-        run: Option<RunId>,
+        run: Option<BranchId>,
         collection: String,
         key: String,
         vector: Vec<f32>,
@@ -255,7 +255,7 @@ pub enum Command {
     /// Returns: `Output::MaybeVectorData`
     VectorGet {
         #[serde(default, skip_serializing_if = "Option::is_none")]
-        run: Option<RunId>,
+        run: Option<BranchId>,
         collection: String,
         key: String,
     },
@@ -264,7 +264,7 @@ pub enum Command {
     /// Returns: `Output::Bool`
     VectorDelete {
         #[serde(default, skip_serializing_if = "Option::is_none")]
-        run: Option<RunId>,
+        run: Option<BranchId>,
         collection: String,
         key: String,
     },
@@ -273,7 +273,7 @@ pub enum Command {
     /// Returns: `Output::VectorMatches`
     VectorSearch {
         #[serde(default, skip_serializing_if = "Option::is_none")]
-        run: Option<RunId>,
+        run: Option<BranchId>,
         collection: String,
         query: Vec<f32>,
         k: u64,
@@ -285,7 +285,7 @@ pub enum Command {
     /// Returns: `Output::Version`
     VectorCreateCollection {
         #[serde(default, skip_serializing_if = "Option::is_none")]
-        run: Option<RunId>,
+        run: Option<BranchId>,
         collection: String,
         dimension: u64,
         metric: DistanceMetric,
@@ -295,7 +295,7 @@ pub enum Command {
     /// Returns: `Output::Bool`
     VectorDeleteCollection {
         #[serde(default, skip_serializing_if = "Option::is_none")]
-        run: Option<RunId>,
+        run: Option<BranchId>,
         collection: String,
     },
 
@@ -303,41 +303,41 @@ pub enum Command {
     /// Returns: `Output::VectorCollectionList`
     VectorListCollections {
         #[serde(default, skip_serializing_if = "Option::is_none")]
-        run: Option<RunId>,
+        run: Option<BranchId>,
     },
 
     // ==================== Run (5 MVP) ====================
     /// Create a new run.
-    /// Returns: `Output::RunWithVersion`
-    RunCreate {
-        run_id: Option<String>,
+    /// Returns: `Output::BranchWithVersion`
+    BranchCreate {
+        branch_id: Option<String>,
         metadata: Option<Value>,
     },
 
     /// Get run info.
-    /// Returns: `Output::RunInfoVersioned` or `Output::Maybe(None)`
-    RunGet {
-        run: RunId,
+    /// Returns: `Output::BranchInfoVersioned` or `Output::Maybe(None)`
+    BranchGet {
+        run: BranchId,
     },
 
     /// List all runs.
-    /// Returns: `Output::RunInfoList`
-    RunList {
-        state: Option<RunStatus>,
+    /// Returns: `Output::BranchInfoList`
+    BranchList {
+        state: Option<BranchStatus>,
         limit: Option<u64>,
         offset: Option<u64>,
     },
 
     /// Check if a run exists.
     /// Returns: `Output::Bool`
-    RunExists {
-        run: RunId,
+    BranchExists {
+        run: BranchId,
     },
 
     /// Delete a run and all its data (cascading delete).
     /// Returns: `Output::Unit`
-    RunDelete {
-        run: RunId,
+    BranchDelete {
+        run: BranchId,
     },
 
     // ==================== Transaction (5) ====================
@@ -345,7 +345,7 @@ pub enum Command {
     /// Returns: `Output::TxnBegun`
     TxnBegin {
         #[serde(default, skip_serializing_if = "Option::is_none")]
-        run: Option<RunId>,
+        run: Option<BranchId>,
         options: Option<TxnOptions>,
     },
 
@@ -373,21 +373,21 @@ pub enum Command {
     /// Returns: `Output::RetentionResult`
     RetentionApply {
         #[serde(default, skip_serializing_if = "Option::is_none")]
-        run: Option<RunId>,
+        run: Option<BranchId>,
     },
 
     /// Get retention statistics.
     /// Returns: `Output::RetentionStats`
     RetentionStats {
         #[serde(default, skip_serializing_if = "Option::is_none")]
-        run: Option<RunId>,
+        run: Option<BranchId>,
     },
 
     /// Preview what would be deleted by retention policy.
     /// Returns: `Output::RetentionPreview`
     RetentionPreview {
         #[serde(default, skip_serializing_if = "Option::is_none")]
-        run: Option<RunId>,
+        run: Option<BranchId>,
     },
 
     // ==================== Database (4) ====================
@@ -405,21 +405,21 @@ pub enum Command {
 
     // ==================== Bundle (3) ====================
     /// Export a run to a .runbundle.tar.zst archive.
-    /// Returns: `Output::RunExported`
-    RunExport {
-        run_id: String,
+    /// Returns: `Output::BranchExported`
+    BranchExport {
+        branch_id: String,
         path: String,
     },
 
     /// Import a run from a .runbundle.tar.zst archive.
-    /// Returns: `Output::RunImported`
-    RunImport {
+    /// Returns: `Output::BranchImported`
+    BranchImport {
         path: String,
     },
 
     /// Validate a .runbundle.tar.zst archive without importing.
     /// Returns: `Output::BundleValidated`
-    RunBundleValidate {
+    BranchBundleValidate {
         path: String,
     },
 
@@ -429,7 +429,7 @@ pub enum Command {
     /// Returns: `Output::SearchResults`
     Search {
         #[serde(default, skip_serializing_if = "Option::is_none")]
-        run: Option<RunId>,
+        run: Option<BranchId>,
         query: String,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         k: Option<u64>,
@@ -442,12 +442,12 @@ impl Command {
     /// Fill in the default run for any data command where run is `None`.
     ///
     /// Called by the executor before dispatch so handlers always receive a
-    /// concrete `RunId`.
-    pub fn resolve_default_run(&mut self) {
+    /// concrete `BranchId`.
+    pub fn resolve_default_branch(&mut self) {
         macro_rules! resolve {
             ($run:expr) => {
                 if $run.is_none() {
-                    *$run = Some(RunId::default());
+                    *$run = Some(BranchId::default());
                 }
             };
         }
@@ -497,11 +497,11 @@ impl Command {
 
             // Run lifecycle (5 MVP), Transaction, and Database commands have no
             // optional run to resolve.
-            Command::RunCreate { .. }
-            | Command::RunGet { .. }
-            | Command::RunList { .. }
-            | Command::RunExists { .. }
-            | Command::RunDelete { .. }
+            Command::BranchCreate { .. }
+            | Command::BranchGet { .. }
+            | Command::BranchList { .. }
+            | Command::BranchExists { .. }
+            | Command::BranchDelete { .. }
             | Command::TxnCommit
             | Command::TxnRollback
             | Command::TxnInfo
@@ -510,9 +510,9 @@ impl Command {
             | Command::Info
             | Command::Flush
             | Command::Compact
-            | Command::RunExport { .. }
-            | Command::RunImport { .. }
-            | Command::RunBundleValidate { .. } => {}
+            | Command::BranchExport { .. }
+            | Command::BranchImport { .. }
+            | Command::BranchBundleValidate { .. } => {}
         }
     }
 }

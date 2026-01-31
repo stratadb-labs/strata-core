@@ -50,9 +50,9 @@ fn recover_from_db(db: &Database) -> StrataResult<()> {
     let snapshot = db.storage().create_snapshot();
     let mut stats = super::RecoveryStats::default();
 
-    // Iterate all run_ids in storage
-    for run_id in db.storage().run_ids() {
-        let ns = Namespace::for_run(run_id);
+    // Iterate all branch_ids in storage
+    for branch_id in db.storage().branch_ids() {
+        let ns = Namespace::for_branch(branch_id);
 
         // Scan for vector config entries in this run
         let config_prefix = Key::new_vector_config_prefix(ns.clone());
@@ -60,7 +60,7 @@ fn recover_from_db(db: &Database) -> StrataResult<()> {
             Ok(entries) => entries,
             Err(e) => {
                 tracing::warn!(
-                    run_id = ?run_id,
+                    branch_id = ?branch_id,
                     error = %e,
                     "Failed to scan vector configs during recovery"
                 );
@@ -105,7 +105,7 @@ fn recover_from_db(db: &Database) -> StrataResult<()> {
                     continue;
                 }
             };
-            let collection_id = CollectionId::new(run_id, &collection_name);
+            let collection_id = CollectionId::new(branch_id, &collection_name);
 
             // Create backend for this collection
             let backend = factory.create(&config);

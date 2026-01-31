@@ -22,11 +22,11 @@ fn event_payload(data: Value) -> Value {
 #[test]
 fn kv_put_get_same_across_modes() {
     test_across_modes("kv_put_get", |db| {
-        let run_id = RunId::new();
+        let branch_id = BranchId::new();
         let kv = KVStore::new(db);
 
-        kv.put(&run_id, "key", Value::Int(42)).unwrap();
-        let result = kv.get(&run_id, "key").unwrap();
+        kv.put(&branch_id, "key", Value::Int(42)).unwrap();
+        let result = kv.get(&branch_id, "key").unwrap();
 
         result
     });
@@ -35,25 +35,25 @@ fn kv_put_get_same_across_modes() {
 #[test]
 fn kv_delete_same_across_modes() {
     test_across_modes("kv_delete", |db| {
-        let run_id = RunId::new();
+        let branch_id = BranchId::new();
         let kv = KVStore::new(db);
 
-        kv.put(&run_id, "key", Value::Int(1)).unwrap();
-        let deleted = kv.delete(&run_id, "key").unwrap();
+        kv.put(&branch_id, "key", Value::Int(1)).unwrap();
+        let deleted = kv.delete(&branch_id, "key").unwrap();
 
-        (deleted, kv.get(&run_id, "key").unwrap().is_none())
+        (deleted, kv.get(&branch_id, "key").unwrap().is_none())
     });
 }
 
 #[test]
 fn eventlog_append_same_across_modes() {
     test_across_modes("eventlog_append", |db| {
-        let run_id = RunId::new();
+        let branch_id = BranchId::new();
         let event = EventLog::new(db);
 
-        event.append(&run_id, "test_type", event_payload(Value::String("payload".into()))).unwrap();
-        let len = event.len(&run_id).unwrap();
-        let first = event.read(&run_id, 0).unwrap();
+        event.append(&branch_id, "test_type", event_payload(Value::String("payload".into()))).unwrap();
+        let len = event.len(&branch_id).unwrap();
+        let first = event.read(&branch_id, 0).unwrap();
 
         (len, first.map(|e| e.value.event_type.clone()))
     });
@@ -62,29 +62,29 @@ fn eventlog_append_same_across_modes() {
 #[test]
 fn statecell_cas_same_across_modes() {
     test_across_modes("statecell_cas", |db| {
-        let run_id = RunId::new();
+        let branch_id = BranchId::new();
         let state = StateCell::new(db);
 
-        state.init(&run_id, "cell", Value::Int(1)).unwrap();
-        let read = state.readv(&run_id, "cell").unwrap();
+        state.init(&branch_id, "cell", Value::Int(1)).unwrap();
+        let read = state.readv(&branch_id, "cell").unwrap();
         let version = read.as_ref().map(|v| v.version()).unwrap_or(Version::from(0u64));
 
-        let cas_result = state.cas(&run_id, "cell", version, Value::Int(2));
+        let cas_result = state.cas(&branch_id, "cell", version, Value::Int(2));
 
-        (cas_result.is_ok(), state.read(&run_id, "cell").unwrap())
+        (cas_result.is_ok(), state.read(&branch_id, "cell").unwrap())
     });
 }
 
 #[test]
 fn json_create_get_same_across_modes() {
     test_across_modes("json_create_get", |db| {
-        let run_id = RunId::new();
+        let branch_id = BranchId::new();
         let json = JsonStore::new(db);
 
         let doc_value = serde_json::json!({"name": "test", "count": 42});
-        json.create(&run_id, "doc1", doc_value.clone().into()).unwrap();
+        json.create(&branch_id, "doc1", doc_value.clone().into()).unwrap();
 
-        let result = json.get(&run_id, "doc1", &JsonPath::root()).unwrap();
+        let result = json.get(&branch_id, "doc1", &JsonPath::root()).unwrap();
 
         // Return serialized JSON for comparison
         result.map(|v| serde_json::to_string(&v).unwrap_or_default())
@@ -141,34 +141,34 @@ fn strict_mode_is_persistent() {
 #[test]
 fn transaction_atomicity_in_memory() {
     let test_db = TestDb::new_in_memory();
-    let run_id = test_db.run_id;
+    let branch_id = test_db.branch_id;
 
     // Atomic transaction using extension trait
-    test_db.db.transaction(run_id, |txn| {
+    test_db.db.transaction(branch_id, |txn| {
         txn.kv_put("a", Value::Int(1))?;
         txn.kv_put("b", Value::Int(2))?;
         Ok(())
     }).unwrap();
 
     let kv = test_db.kv();
-    assert_eq!(kv.get(&run_id, "a").unwrap(), Some(Value::Int(1)));
-    assert_eq!(kv.get(&run_id, "b").unwrap(), Some(Value::Int(2)));
+    assert_eq!(kv.get(&branch_id, "a").unwrap(), Some(Value::Int(1)));
+    assert_eq!(kv.get(&branch_id, "b").unwrap(), Some(Value::Int(2)));
 }
 
 #[test]
 fn transaction_atomicity_buffered() {
     let test_db = TestDb::new(); // TestDb::new() uses temp dir with durability
-    let run_id = test_db.run_id;
+    let branch_id = test_db.branch_id;
 
-    test_db.db.transaction(run_id, |txn| {
+    test_db.db.transaction(branch_id, |txn| {
         txn.kv_put("a", Value::Int(1))?;
         txn.kv_put("b", Value::Int(2))?;
         Ok(())
     }).unwrap();
 
     let kv = test_db.kv();
-    assert_eq!(kv.get(&run_id, "a").unwrap(), Some(Value::Int(1)));
-    assert_eq!(kv.get(&run_id, "b").unwrap(), Some(Value::Int(2)));
+    assert_eq!(kv.get(&branch_id, "a").unwrap(), Some(Value::Int(1)));
+    assert_eq!(kv.get(&branch_id, "b").unwrap(), Some(Value::Int(2)));
 }
 
 #[test]
@@ -179,17 +179,17 @@ fn transaction_atomicity_strict() {
         .strict()
         .open()
         .expect("strict database");
-    let run_id = RunId::new();
+    let branch_id = BranchId::new();
 
-    db.transaction(run_id, |txn| {
+    db.transaction(branch_id, |txn| {
         txn.kv_put("a", Value::Int(1))?;
         txn.kv_put("b", Value::Int(2))?;
         Ok(())
     }).unwrap();
 
     let kv = KVStore::new(db);
-    assert_eq!(kv.get(&run_id, "a").unwrap(), Some(Value::Int(1)));
-    assert_eq!(kv.get(&run_id, "b").unwrap(), Some(Value::Int(2)));
+    assert_eq!(kv.get(&branch_id, "a").unwrap(), Some(Value::Int(1)));
+    assert_eq!(kv.get(&branch_id, "b").unwrap(), Some(Value::Int(2)));
 }
 
 // ============================================================================
@@ -199,28 +199,28 @@ fn transaction_atomicity_strict() {
 #[test]
 fn all_primitives_work_in_all_modes() {
     test_across_modes("all_primitives", |db| {
-        let run_id = RunId::new();
+        let branch_id = BranchId::new();
 
         let kv = KVStore::new(db.clone());
         let event = EventLog::new(db.clone());
         let state = StateCell::new(db.clone());
         let json = JsonStore::new(db.clone());
-        let run_idx = RunIndex::new(db.clone());
+        let run_idx = BranchIndex::new(db.clone());
 
         // KV
-        kv.put(&run_id, "k", Value::Int(1)).unwrap();
+        kv.put(&branch_id, "k", Value::Int(1)).unwrap();
 
         // Event
-        event.append(&run_id, "e", event_payload(Value::Int(2))).unwrap();
+        event.append(&branch_id, "e", event_payload(Value::Int(2))).unwrap();
 
         // State
-        state.init(&run_id, "s", Value::Int(3)).unwrap();
+        state.init(&branch_id, "s", Value::Int(3)).unwrap();
 
         // JSON
-        json.create(&run_id, "j", serde_json::json!({"x": 4}).into()).unwrap();
+        json.create(&branch_id, "j", serde_json::json!({"x": 4}).into()).unwrap();
 
-        // RunIndex
-        run_idx.create_run("test_run").unwrap();
+        // BranchIndex
+        run_idx.create_branch("test_run").unwrap();
 
         // All succeeded
         true

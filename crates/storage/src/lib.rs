@@ -4,7 +4,7 @@
 //!
 //! - ShardedStore: DashMap + HashMap with MVCC version chains
 //! - Lock-free reads via DashMap
-//! - Per-RunId sharding (no cross-run contention)
+//! - Per-BranchId sharding (no cross-run contention)
 //! - FxHashMap for O(1) lookups
 //!
 //! Persistence and durability are handled by the `strata-durability` crate.
@@ -19,7 +19,7 @@ pub mod sharded;
 pub mod stored_value;
 pub mod ttl;
 
-pub use index::{RunIndex, TypeIndex};
+pub use index::{BranchIndex, TypeIndex};
 pub use primitive_ext::{
     is_future_wal_type, is_vector_wal_type, primitive_for_wal_type, primitive_type_ids, wal_ranges,
     PrimitiveExtError, PrimitiveStorageExt,

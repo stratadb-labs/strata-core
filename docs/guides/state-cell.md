@@ -132,9 +132,9 @@ let count = current.as_int().unwrap();
 // In a real application, you'd retry on CAS failure
 ```
 
-## Run Isolation
+## Branch Isolation
 
-State cells are isolated by run, like all primitives.
+State cells are isolated by branch, like all primitives.
 
 ## Transactions
 

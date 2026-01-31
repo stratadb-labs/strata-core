@@ -14,7 +14,7 @@ Search is available via the `Command::Search` interface:
 use stratadb::{Command, Output};
 
 let output = db.executor().execute(Command::Search {
-    run: None,              // Uses current run
+    branch: None,              // Uses current branch
     query: "error handling".into(),
     k: Some(10),            // Return top 10 results
     primitives: None,       // Search all primitives
@@ -66,16 +66,16 @@ Restrict search to specific primitives:
 
 ```rust
 let output = db.executor().execute(Command::Search {
-    run: None,
+    branch: None,
     query: "configuration".into(),
     k: Some(10),
     primitives: Some(vec!["kv".into(), "json".into()]), // Only KV and JSON
 })?;
 ```
 
-## Run Isolation
+## Branch Isolation
 
-Search results are scoped to the current run. Data from other runs is not included.
+Search results are scoped to the current branch. Data from other branches is not included.
 
 ## Next
 

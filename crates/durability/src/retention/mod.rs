@@ -49,12 +49,12 @@ pub mod system_namespace {
     }
 
     /// Generate retention policy key for a run
-    pub fn retention_policy_key(run_id: &[u8; 16]) -> String {
-        format!("{}{}", RETENTION_POLICY_PREFIX, hex_encode(run_id))
+    pub fn retention_policy_key(branch_id: &[u8; 16]) -> String {
+        format!("{}{}", RETENTION_POLICY_PREFIX, hex_encode(branch_id))
     }
 
     /// Extract run ID from retention policy key
-    pub fn run_id_from_retention_key(key: &str) -> Option<[u8; 16]> {
+    pub fn branch_id_from_retention_key(key: &str) -> Option<[u8; 16]> {
         if !is_retention_policy_key(key) {
             return None;
         }
@@ -100,8 +100,8 @@ mod tests {
 
     #[test]
     fn test_retention_policy_key_format() {
-        let run_id = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16];
-        let key = system_namespace::retention_policy_key(&run_id);
+        let branch_id = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16];
+        let key = system_namespace::retention_policy_key(&branch_id);
 
         assert!(system_namespace::is_retention_policy_key(&key));
         assert!(key.starts_with("_system/retention_policy/"));
@@ -110,27 +110,27 @@ mod tests {
 
     #[test]
     fn test_run_id_extraction() {
-        let run_id = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16];
-        let key = system_namespace::retention_policy_key(&run_id);
+        let branch_id = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16];
+        let key = system_namespace::retention_policy_key(&branch_id);
 
-        let extracted = system_namespace::run_id_from_retention_key(&key);
-        assert_eq!(extracted, Some(run_id));
+        let extracted = system_namespace::branch_id_from_retention_key(&key);
+        assert_eq!(extracted, Some(branch_id));
     }
 
     #[test]
     fn test_run_id_extraction_invalid() {
         // Not a retention key
-        assert!(system_namespace::run_id_from_retention_key("user/key").is_none());
+        assert!(system_namespace::branch_id_from_retention_key("user/key").is_none());
 
         // Invalid hex
         assert!(
-            system_namespace::run_id_from_retention_key("_system/retention_policy/invalid")
+            system_namespace::branch_id_from_retention_key("_system/retention_policy/invalid")
                 .is_none()
         );
 
         // Wrong length
         assert!(
-            system_namespace::run_id_from_retention_key("_system/retention_policy/0102").is_none()
+            system_namespace::branch_id_from_retention_key("_system/retention_policy/0102").is_none()
         );
     }
 }

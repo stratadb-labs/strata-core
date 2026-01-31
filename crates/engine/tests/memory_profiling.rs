@@ -3,17 +3,17 @@
 //! Documents ClonedSnapshotView memory overhead
 //! and TransactionContext footprint.
 
-use strata_core::types::{Key, Namespace, RunId};
+use strata_core::types::{Key, Namespace, BranchId};
 use strata_core::value::Value;
 use strata_engine::Database;
 use tempfile::TempDir;
 
-fn create_ns(run_id: RunId) -> Namespace {
+fn create_ns(branch_id: BranchId) -> Namespace {
     Namespace::new(
         "tenant".to_string(),
         "app".to_string(),
         "agent".to_string(),
-        run_id,
+        branch_id,
     )
 }
 
@@ -22,13 +22,13 @@ fn create_ns(run_id: RunId) -> Namespace {
 fn test_read_set_memory_growth() {
     let temp_dir = TempDir::new().unwrap();
     let db = Database::open(temp_dir.path().join("db")).unwrap();
-    let run_id = RunId::new();
-    let ns = create_ns(run_id);
+    let branch_id = BranchId::new();
+    let ns = create_ns(branch_id);
 
     // Pre-populate with data
     for i in 0..1000 {
         let key = Key::new_kv(ns.clone(), format!("key_{}", i));
-        db.transaction(run_id, |txn| {
+        db.transaction(branch_id, |txn| {
             txn.put(key.clone(), Value::Int(i as i64))?;
             Ok(())
         })
@@ -37,7 +37,7 @@ fn test_read_set_memory_growth() {
 
     // Read increasing numbers of keys
     for read_count in [10, 100, 500, 1000] {
-        let result = db.transaction(run_id, |txn| {
+        let result = db.transaction(branch_id, |txn| {
             for i in 0..read_count {
                 let key = Key::new_kv(ns.clone(), format!("key_{}", i));
                 txn.get(&key)?;
@@ -56,12 +56,12 @@ fn test_read_set_memory_growth() {
 fn test_write_set_memory_growth() {
     let temp_dir = TempDir::new().unwrap();
     let db = Database::open(temp_dir.path().join("db")).unwrap();
-    let run_id = RunId::new();
-    let ns = create_ns(run_id);
+    let branch_id = BranchId::new();
+    let ns = create_ns(branch_id);
 
     // Write increasing numbers of keys
     for write_count in [10, 100, 500, 1000] {
-        let result = db.transaction(run_id, |txn| {
+        let result = db.transaction(branch_id, |txn| {
             for i in 0..write_count {
                 let key = Key::new_kv(ns.clone(), format!("batch_{}_key_{}", write_count, i));
                 txn.put(key, Value::Int(i as i64))?;
@@ -79,12 +79,12 @@ fn test_write_set_memory_growth() {
 fn test_no_memory_leaks() {
     let temp_dir = TempDir::new().unwrap();
     let db = Database::open(temp_dir.path().join("db")).unwrap();
-    let run_id = RunId::new();
-    let ns = create_ns(run_id);
+    let branch_id = BranchId::new();
+    let ns = create_ns(branch_id);
 
     // Run many transactions
     for round in 0..100 {
-        let result = db.transaction(run_id, |txn| {
+        let result = db.transaction(branch_id, |txn| {
             for i in 0..100 {
                 let key = Key::new_kv(ns.clone(), format!("round_{}_key_{}", round, i));
                 txn.put(key, Value::Int(i as i64))?;
@@ -103,12 +103,12 @@ fn test_no_memory_leaks() {
 fn test_aborted_transaction_cleanup() {
     let temp_dir = TempDir::new().unwrap();
     let db = Database::open(temp_dir.path().join("db")).unwrap();
-    let run_id = RunId::new();
-    let ns = create_ns(run_id);
+    let branch_id = BranchId::new();
+    let ns = create_ns(branch_id);
 
     // Create and abort many transactions
     for round in 0..100 {
-        let result: Result<(), strata_core::StrataError> = db.transaction(run_id, |txn| {
+        let result: Result<(), strata_core::StrataError> = db.transaction(branch_id, |txn| {
             for i in 0..100 {
                 let key = Key::new_kv(ns.clone(), format!("abort_{}_key_{}", round, i));
                 txn.put(key, Value::Int(i as i64))?;
@@ -131,13 +131,13 @@ fn test_aborted_transaction_cleanup() {
 fn test_large_value_memory() {
     let temp_dir = TempDir::new().unwrap();
     let db = Database::open(temp_dir.path().join("db")).unwrap();
-    let run_id = RunId::new();
-    let ns = create_ns(run_id);
+    let branch_id = BranchId::new();
+    let ns = create_ns(branch_id);
 
     // Write a large string value
     let large_string = "x".repeat(100_000); // 100KB string
 
-    let result = db.transaction(run_id, |txn| {
+    let result = db.transaction(branch_id, |txn| {
         let key = Key::new_kv(ns.clone(), "large_value");
         txn.put(key, Value::String(large_string.clone()))?;
         Ok(())
@@ -147,7 +147,7 @@ fn test_large_value_memory() {
     println!("Successfully wrote 100KB value");
 
     // Read it back via transaction
-    let read_result = db.transaction(run_id, |txn| {
+    let read_result = db.transaction(branch_id, |txn| {
         let key = Key::new_kv(ns.clone(), "large_value");
         txn.get(&key)
     }).unwrap().unwrap();
@@ -181,8 +181,8 @@ fn document_memory_characteristics() {
     println!();
 
     println!("Recommended Limits:");
-    println!("  - Data size: < 100MB per RunId");
-    println!("  - Concurrent transactions: < 100 per RunId");
+    println!("  - Data size: < 100MB per BranchId");
+    println!("  - Concurrent transactions: < 100 per BranchId");
     println!("  - Transaction duration: < 1 second");
     println!();
 

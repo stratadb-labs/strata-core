@@ -15,7 +15,7 @@
 //! ## Usage
 //!
 //! ```rust,ignore
-//! db.transaction(&run_id, |txn| {
+//! db.transaction(&branch_id, |txn| {
 //!     // Read from KV
 //!     let config = txn.kv_get("config")?;
 //!
@@ -30,7 +30,7 @@
 //! ```
 
 use strata_core::{
-    Event, JsonPath, JsonValue, MetadataFilter, RunMetadata, RunStatus, State,
+    Event, JsonPath, JsonValue, MetadataFilter, BranchMetadata, BranchStatus, State,
     StrataError, Value, VectorEntry, VectorMatch, Version, Versioned,
 };
 
@@ -175,10 +175,10 @@ pub trait TransactionOps {
     // =========================================================================
 
     /// Get run metadata (the current run)
-    fn run_metadata(&self) -> Result<Option<Versioned<RunMetadata>>, StrataError>;
+    fn branch_metadata(&self) -> Result<Option<Versioned<BranchMetadata>>, StrataError>;
 
     /// Update run status
-    fn run_update_status(&mut self, status: RunStatus) -> Result<Version, StrataError>;
+    fn branch_update_status(&mut self, status: BranchStatus) -> Result<Version, StrataError>;
 }
 
 #[cfg(test)]
@@ -314,12 +314,12 @@ mod tests {
         }
 
         // Run operations
-        fn run_metadata(&self) -> Result<Option<Versioned<RunMetadata>>, StrataError> {
-            Err(StrataError::Internal { message: "run_metadata not implemented in mock".to_string() })
+        fn branch_metadata(&self) -> Result<Option<Versioned<BranchMetadata>>, StrataError> {
+            Err(StrataError::Internal { message: "branch_metadata not implemented in mock".to_string() })
         }
 
-        fn run_update_status(&mut self, _status: RunStatus) -> Result<Version, StrataError> {
-            Err(StrataError::Internal { message: "run_update_status not implemented in mock".to_string() })
+        fn branch_update_status(&mut self, _status: BranchStatus) -> Result<Version, StrataError> {
+            Err(StrataError::Internal { message: "branch_update_status not implemented in mock".to_string() })
         }
     }
 
@@ -432,7 +432,7 @@ mod tests {
         assert!(result.is_err());
 
         // Run operations should return unimplemented error
-        let result = ops.run_metadata();
+        let result = ops.branch_metadata();
         assert!(result.is_err());
     }
 

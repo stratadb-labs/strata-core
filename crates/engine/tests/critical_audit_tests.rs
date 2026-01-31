@@ -37,24 +37,24 @@ use tempfile::TempDir;
 /// EXPECTED: With enough iterations, this should show lost updates.
 #[test]
 fn test_issue_594_toctou_race_condition() {
-    use strata_core::types::{Key, Namespace, RunId};
+    use strata_core::types::{Key, Namespace, BranchId};
     use strata_core::value::Value;
     use strata_engine::Database;
 
     let temp_dir = TempDir::new().unwrap();
     let db = Database::open(temp_dir.path().join("db")).unwrap();
 
-    let run_id = RunId::new();
+    let branch_id = BranchId::new();
     let ns = Namespace::new(
         "tenant".to_string(),
         "app".to_string(),
         "agent".to_string(),
-        run_id,
+        branch_id,
     );
     let key = Key::new_kv(ns, "counter");
 
     // Initialize counter
-    db.put(run_id, key.clone(), Value::Int(0)).unwrap();
+    db.put(branch_id, key.clone(), Value::Int(0)).unwrap();
 
     let success_count = Arc::new(AtomicU64::new(0));
     let iterations = 100;
@@ -74,7 +74,7 @@ fn test_issue_594_toctou_race_condition() {
 
                 for _ in 0..iterations {
                     // Each thread tries to increment the counter
-                    let result = db.transaction(run_id, |txn| {
+                    let result = db.transaction(branch_id, |txn| {
                         // txn.get returns Option<Value> directly (not VersionedValue)
                         let current = txn.get(&key)?.unwrap_or(Value::Int(0));
                         let new_val = match current {

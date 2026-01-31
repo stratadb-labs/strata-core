@@ -8,15 +8,15 @@
 use strata_core::traits::{SnapshotView, Storage};
 use strata_core::types::{Key, Namespace};
 use strata_core::value::Value;
-use strata_core::RunId;
+use strata_core::BranchId;
 use strata_storage::sharded::ShardedStore;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Barrier};
 use std::thread;
 use std::time::Instant;
 
-fn create_test_key(run_id: RunId, name: &str) -> Key {
-    let ns = Namespace::for_run(run_id);
+fn create_test_key(branch_id: BranchId, name: &str) -> Key {
+    let ns = Namespace::for_branch(branch_id);
     Key::new_kv(ns, name)
 }
 
@@ -27,8 +27,8 @@ fn create_test_key(run_id: RunId, name: &str) -> Key {
 #[test]
 fn snapshot_captures_current_version() {
     let store = Arc::new(ShardedStore::new());
-    let run_id = RunId::new();
-    let key = create_test_key(run_id, "capture");
+    let branch_id = BranchId::new();
+    let key = create_test_key(branch_id, "capture");
 
     // Put value
     Storage::put(&*store, key.clone(), Value::Int(42), None).unwrap();
@@ -45,11 +45,11 @@ fn snapshot_captures_current_version() {
 #[test]
 fn snapshot_acquisition_is_fast() {
     let store = Arc::new(ShardedStore::new());
-    let run_id = RunId::new();
+    let branch_id = BranchId::new();
 
     // Populate store with data
     for i in 0..1000 {
-        let key = create_test_key(run_id, &format!("key_{}", i));
+        let key = create_test_key(branch_id, &format!("key_{}", i));
         Storage::put(&*store, key, Value::Int(i), None).unwrap();
     }
 
@@ -72,8 +72,8 @@ fn snapshot_acquisition_is_fast() {
 #[test]
 fn multiple_snapshots_independent() {
     let store = Arc::new(ShardedStore::new());
-    let run_id = RunId::new();
-    let key = create_test_key(run_id, "multi_snap");
+    let branch_id = BranchId::new();
+    let key = create_test_key(branch_id, "multi_snap");
 
     // Initial value
     Storage::put(&*store, key.clone(), Value::Int(1), None).unwrap();
@@ -109,8 +109,8 @@ fn multiple_snapshots_independent() {
 #[test]
 fn snapshot_ignores_concurrent_writes() {
     let store = Arc::new(ShardedStore::new());
-    let run_id = RunId::new();
-    let key = create_test_key(run_id, "concurrent");
+    let branch_id = BranchId::new();
+    let key = create_test_key(branch_id, "concurrent");
 
     // Initial value
     Storage::put(&*store, key.clone(), Value::Int(100), None).unwrap();
@@ -134,8 +134,8 @@ fn snapshot_ignores_concurrent_writes() {
 #[test]
 fn snapshot_sees_pre_delete_value() {
     let store = Arc::new(ShardedStore::new());
-    let run_id = RunId::new();
-    let key = create_test_key(run_id, "pre_delete");
+    let branch_id = BranchId::new();
+    let key = create_test_key(branch_id, "pre_delete");
 
     // Put value
     Storage::put(&*store, key.clone(), Value::Int(42), None).unwrap();
@@ -159,8 +159,8 @@ fn snapshot_sees_pre_delete_value() {
 #[test]
 fn repeated_reads_return_same_value() {
     let store = Arc::new(ShardedStore::new());
-    let run_id = RunId::new();
-    let key = create_test_key(run_id, "repeated");
+    let branch_id = BranchId::new();
+    let key = create_test_key(branch_id, "repeated");
 
     Storage::put(&*store, key.clone(), Value::Int(42), None).unwrap();
 
@@ -178,11 +178,11 @@ fn repeated_reads_return_same_value() {
 #[test]
 fn multi_key_consistency_within_snapshot() {
     let store = Arc::new(ShardedStore::new());
-    let run_id = RunId::new();
+    let branch_id = BranchId::new();
 
     // Put related values
-    let key_a = create_test_key(run_id, "balance_a");
-    let key_b = create_test_key(run_id, "balance_b");
+    let key_a = create_test_key(branch_id, "balance_a");
+    let key_b = create_test_key(branch_id, "balance_b");
 
     Storage::put(&*store, key_a.clone(), Value::Int(100), None).unwrap();
     Storage::put(&*store, key_b.clone(), Value::Int(200), None).unwrap();
@@ -219,11 +219,11 @@ fn multi_key_consistency_within_snapshot() {
 #[test]
 fn concurrent_readers_dont_block() {
     let store = Arc::new(ShardedStore::new());
-    let run_id = RunId::new();
+    let branch_id = BranchId::new();
 
     // Populate
     for i in 0..100 {
-        let key = create_test_key(run_id, &format!("key_{}", i));
+        let key = create_test_key(branch_id, &format!("key_{}", i));
         Storage::put(&*store, key, Value::Int(i), None).unwrap();
     }
 
@@ -239,7 +239,7 @@ fn concurrent_readers_dont_block() {
                 let mut reads = 0u64;
                 for _ in 0..1000 {
                     for i in 0..100 {
-                        let key = create_test_key(run_id, &format!("key_{}", i));
+                        let key = create_test_key(branch_id, &format!("key_{}", i));
                         let _ = SnapshotView::get(&snapshot, &key);
                         reads += 1;
                     }
@@ -256,11 +256,11 @@ fn concurrent_readers_dont_block() {
 #[test]
 fn snapshot_survives_store_modifications() {
     let store = Arc::new(ShardedStore::new());
-    let run_id = RunId::new();
+    let branch_id = BranchId::new();
 
     // Initial population
     for i in 0..10 {
-        let key = create_test_key(run_id, &format!("key_{}", i));
+        let key = create_test_key(branch_id, &format!("key_{}", i));
         Storage::put(&*store, key, Value::Int(i), None).unwrap();
     }
 
@@ -274,7 +274,7 @@ fn snapshot_survives_store_modifications() {
         let mut counter = 0i64;
         while !stop_clone.load(Ordering::Relaxed) {
             for i in 0..10 {
-                let key = create_test_key(run_id, &format!("key_{}", i));
+                let key = create_test_key(branch_id, &format!("key_{}", i));
                 let _ = Storage::put(&*store_clone, key, Value::Int(counter), None);
             }
             counter += 1;
@@ -287,7 +287,7 @@ fn snapshot_survives_store_modifications() {
     // Read from snapshot while writer is active
     for _ in 0..100 {
         for i in 0..10 {
-            let key = create_test_key(run_id, &format!("key_{}", i));
+            let key = create_test_key(branch_id, &format!("key_{}", i));
             let result = SnapshotView::get(&snapshot, &key).unwrap();
             // Should see original value (0-9)
             let value = result.unwrap().value;
@@ -308,8 +308,8 @@ fn snapshot_survives_store_modifications() {
 #[test]
 fn snapshot_cache_provides_isolation() {
     let store = Arc::new(ShardedStore::new());
-    let run_id = RunId::new();
-    let key = create_test_key(run_id, "cached");
+    let branch_id = BranchId::new();
+    let key = create_test_key(branch_id, "cached");
 
     // Put value
     Storage::put(&*store, key.clone(), Value::Int(100), None).unwrap();
@@ -335,8 +335,8 @@ fn snapshot_cache_provides_isolation() {
 #[test]
 fn snapshot_scan_sees_consistent_state() {
     let store = Arc::new(ShardedStore::new());
-    let run_id = RunId::new();
-    let ns = Namespace::for_run(run_id);
+    let branch_id = BranchId::new();
+    let ns = Namespace::for_branch(branch_id);
 
     // Put values with common prefix
     for i in 0..10 {
@@ -367,8 +367,8 @@ fn snapshot_scan_sees_consistent_state() {
 #[test]
 fn snapshot_list_sees_all_keys() {
     let store = Arc::new(ShardedStore::new());
-    let run_id = RunId::new();
-    let ns = Namespace::for_run(run_id);
+    let branch_id = BranchId::new();
+    let ns = Namespace::for_branch(branch_id);
 
     // Put 5 values
     for i in 0..5 {

@@ -8,7 +8,7 @@ use strata_core::Version;
 
 use crate::bridge::{self, Primitives};
 use crate::convert::convert_result;
-use crate::types::{RunId, VersionedValue};
+use crate::types::{BranchId, VersionedValue};
 use crate::{Output, Result};
 
 // =============================================================================
@@ -18,18 +18,18 @@ use crate::{Output, Result};
 /// Handle EventAppend command.
 pub fn event_append(
     p: &Arc<Primitives>,
-    run: RunId,
+    run: BranchId,
     event_type: String,
     payload: strata_core::Value,
 ) -> Result<Output> {
-    let core_run = bridge::to_core_run_id(&run)?;
+    let core_run = bridge::to_core_branch_id(&run)?;
     let version = convert_result(p.event.append(&core_run, &event_type, payload))?;
     Ok(Output::Version(bridge::extract_version(&version)))
 }
 
 /// Handle EventRead command.
-pub fn event_read(p: &Arc<Primitives>, run: RunId, sequence: u64) -> Result<Output> {
-    let core_run = bridge::to_core_run_id(&run)?;
+pub fn event_read(p: &Arc<Primitives>, run: BranchId, sequence: u64) -> Result<Output> {
+    let core_run = bridge::to_core_branch_id(&run)?;
     let event = convert_result(p.event.read(&core_run, sequence))?;
 
     let result = event.map(|e| VersionedValue {
@@ -44,10 +44,10 @@ pub fn event_read(p: &Arc<Primitives>, run: RunId, sequence: u64) -> Result<Outp
 /// Handle EventReadByType command.
 pub fn event_read_by_type(
     p: &Arc<Primitives>,
-    run: RunId,
+    run: BranchId,
     event_type: String,
 ) -> Result<Output> {
-    let core_run = bridge::to_core_run_id(&run)?;
+    let core_run = bridge::to_core_branch_id(&run)?;
     let events = convert_result(p.event.read_by_type(&core_run, &event_type))?;
 
     let versioned: Vec<VersionedValue> = events
@@ -66,8 +66,8 @@ pub fn event_read_by_type(
 }
 
 /// Handle EventLen command.
-pub fn event_len(p: &Arc<Primitives>, run: RunId) -> Result<Output> {
-    let core_run = bridge::to_core_run_id(&run)?;
+pub fn event_len(p: &Arc<Primitives>, run: BranchId) -> Result<Output> {
+    let core_run = bridge::to_core_branch_id(&run)?;
     let count = convert_result(p.event.len(&core_run))?;
     Ok(Output::Uint(count))
 }

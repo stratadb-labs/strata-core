@@ -11,14 +11,14 @@ fn test_r6_search_consistent_view() {
     let vector = test_db.vector();
 
     vector
-        .create_collection(test_db.run_id, "embeddings", config_minilm())
+        .create_collection(test_db.branch_id, "embeddings", config_minilm())
         .unwrap();
 
     // Insert initial vectors
     for i in 0..50 {
         vector
             .insert(
-                test_db.run_id,
+                test_db.branch_id,
                 "embeddings",
                 &format!("key_{}", i),
                 &seeded_random_vector(384, i as u64),
@@ -31,12 +31,12 @@ fn test_r6_search_consistent_view() {
 
     // First search
     let results1 = vector
-        .search(test_db.run_id, "embeddings", &query, 50, None)
+        .search(test_db.branch_id, "embeddings", &query, 50, None)
         .unwrap();
 
     // Second search immediately after (before any modifications)
     let results2 = vector
-        .search(test_db.run_id, "embeddings", &query, 50, None)
+        .search(test_db.branch_id, "embeddings", &query, 50, None)
         .unwrap();
 
     // Both should return identical results
@@ -53,13 +53,13 @@ fn test_r6_search_isolation() {
     let vector = test_db.vector();
 
     vector
-        .create_collection(test_db.run_id, "embeddings", config_minilm())
+        .create_collection(test_db.branch_id, "embeddings", config_minilm())
         .unwrap();
 
     for i in 0..30 {
         vector
             .insert(
-                test_db.run_id,
+                test_db.branch_id,
                 "embeddings",
                 &format!("key_{}", i),
                 &seeded_random_vector(384, i as u64),
@@ -70,13 +70,13 @@ fn test_r6_search_isolation() {
 
     // Search before modification
     let query = seeded_random_vector(384, 12345);
-    let count_before = vector.count(test_db.run_id, "embeddings").unwrap();
+    let count_before = vector.count(test_db.branch_id, "embeddings").unwrap();
 
     // Modify after search started (add vectors)
     for i in 30..40 {
         vector
             .insert(
-                test_db.run_id,
+                test_db.branch_id,
                 "embeddings",
                 &format!("key_{}", i),
                 &seeded_random_vector(384, i as u64),
@@ -85,7 +85,7 @@ fn test_r6_search_isolation() {
             .unwrap();
     }
 
-    let count_after = vector.count(test_db.run_id, "embeddings").unwrap();
+    let count_after = vector.count(test_db.branch_id, "embeddings").unwrap();
 
     // Count should reflect modifications
     assert_eq!(count_before, 30);
@@ -99,14 +99,14 @@ fn test_r6_search_transaction_isolation() {
     let vector = test_db.vector();
 
     vector
-        .create_collection(test_db.run_id, "embeddings", config_minilm())
+        .create_collection(test_db.branch_id, "embeddings", config_minilm())
         .unwrap();
 
     // Insert committed vectors
     for i in 0..20 {
         vector
             .insert(
-                test_db.run_id,
+                test_db.branch_id,
                 "embeddings",
                 &format!("committed_{}", i),
                 &seeded_random_vector(384, i as u64),
@@ -118,7 +118,7 @@ fn test_r6_search_transaction_isolation() {
     // Search should find 20 vectors
     let query = seeded_random_vector(384, 77777);
     let results = vector
-        .search(test_db.run_id, "embeddings", &query, 100, None)
+        .search(test_db.branch_id, "embeddings", &query, 100, None)
         .unwrap();
 
     assert_eq!(results.len(), 20, "R6: Should find all committed vectors");
@@ -128,20 +128,20 @@ fn test_r6_search_transaction_isolation() {
 #[test]
 fn test_r6_search_consistent_after_recovery() {
     let mut test_db = TestDb::new_strict();
-    let run_id = test_db.run_id;
+    let branch_id = test_db.branch_id;
     let query = seeded_random_vector(384, 55555);
 
     let results_before;
     {
         let vector = test_db.vector();
         vector
-            .create_collection(run_id, "embeddings", config_minilm())
+            .create_collection(branch_id, "embeddings", config_minilm())
             .unwrap();
 
         for i in 0..40 {
             vector
                 .insert(
-                    run_id,
+                    branch_id,
                     "embeddings",
                     &format!("key_{}", i),
                     &seeded_random_vector(384, i as u64),
@@ -150,14 +150,14 @@ fn test_r6_search_consistent_after_recovery() {
                 .unwrap();
         }
 
-        results_before = vector.search(run_id, "embeddings", &query, 40, None).unwrap();
+        results_before = vector.search(branch_id, "embeddings", &query, 40, None).unwrap();
     }
 
     // Restart
     test_db.reopen();
 
     let vector = test_db.vector();
-    let results_after = vector.search(run_id, "embeddings", &query, 40, None).unwrap();
+    let results_after = vector.search(branch_id, "embeddings", &query, 40, None).unwrap();
 
     // Results should be identical
     let keys_before: Vec<&str> = results_before.iter().map(|r| r.key.as_str()).collect();

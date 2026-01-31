@@ -14,8 +14,8 @@ pub use strata_core::primitives::{
 // Re-export EntityRef for source reference linking
 pub use strata_core::EntityRef;
 
-// Re-export RunId for CollectionId usage
-pub use strata_core::types::RunId;
+// Re-export BranchId for CollectionId usage
+pub use strata_core::types::BranchId;
 
 // ============================================================================
 // VectorRecord and CollectionRecord (Implementation types)
@@ -510,19 +510,19 @@ mod tests {
 
     #[test]
     fn test_collection_id() {
-        let run_id = RunId::new();
-        let id = CollectionId::new(run_id, "my_collection");
+        let branch_id = BranchId::new();
+        let id = CollectionId::new(branch_id, "my_collection");
 
-        assert_eq!(id.run_id, run_id);
+        assert_eq!(id.branch_id, branch_id);
         assert_eq!(id.name, "my_collection");
     }
 
     #[test]
     fn test_collection_id_equality() {
-        let run_id = RunId::new();
-        let id1 = CollectionId::new(run_id, "collection1");
-        let id2 = CollectionId::new(run_id, "collection1");
-        let id3 = CollectionId::new(run_id, "collection2");
+        let branch_id = BranchId::new();
+        let id1 = CollectionId::new(branch_id, "collection1");
+        let id2 = CollectionId::new(branch_id, "collection1");
+        let id3 = CollectionId::new(branch_id, "collection2");
 
         assert_eq!(id1, id2);
         assert_ne!(id1, id3);
@@ -531,12 +531,12 @@ mod tests {
     #[test]
     fn test_collection_id_hash() {
         use std::collections::HashSet;
-        let run_id = RunId::new();
+        let branch_id = BranchId::new();
 
         let mut set = HashSet::new();
-        set.insert(CollectionId::new(run_id, "collection1"));
-        set.insert(CollectionId::new(run_id, "collection2"));
-        set.insert(CollectionId::new(run_id, "collection1")); // Duplicate
+        set.insert(CollectionId::new(branch_id, "collection1"));
+        set.insert(CollectionId::new(branch_id, "collection2"));
+        set.insert(CollectionId::new(branch_id, "collection1")); // Duplicate
 
         assert_eq!(set.len(), 2);
     }

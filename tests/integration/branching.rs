@@ -14,18 +14,18 @@ fn data_isolated_between_runs() {
     let test_db = TestDb::new();
     let kv = test_db.kv();
 
-    let run_a = RunId::new();
-    let run_b = RunId::new();
+    let branch_a = BranchId::new();
+    let branch_b = BranchId::new();
 
     // Write to run A
-    kv.put(&run_a, "key", Value::String("value_a".into())).unwrap();
+    kv.put(&branch_a, "key", Value::String("value_a".into())).unwrap();
 
     // Write to run B
-    kv.put(&run_b, "key", Value::String("value_b".into())).unwrap();
+    kv.put(&branch_b, "key", Value::String("value_b".into())).unwrap();
 
     // Each run sees only its own data
-    let val_a = kv.get(&run_a, "key").unwrap().unwrap();
-    let val_b = kv.get(&run_b, "key").unwrap().unwrap();
+    let val_a = kv.get(&branch_a, "key").unwrap().unwrap();
+    let val_b = kv.get(&branch_b, "key").unwrap().unwrap();
 
     assert_eq!(val_a, Value::String("value_a".into()));
     assert_eq!(val_b, Value::String("value_b".into()));
@@ -36,19 +36,19 @@ fn delete_in_one_run_doesnt_affect_other() {
     let test_db = TestDb::new();
     let kv = test_db.kv();
 
-    let run_a = RunId::new();
-    let run_b = RunId::new();
+    let branch_a = BranchId::new();
+    let branch_b = BranchId::new();
 
     // Write same key to both runs
-    kv.put(&run_a, "shared_key", Value::Int(1)).unwrap();
-    kv.put(&run_b, "shared_key", Value::Int(2)).unwrap();
+    kv.put(&branch_a, "shared_key", Value::Int(1)).unwrap();
+    kv.put(&branch_b, "shared_key", Value::Int(2)).unwrap();
 
     // Delete from run A
-    kv.delete(&run_a, "shared_key").unwrap();
+    kv.delete(&branch_a, "shared_key").unwrap();
 
     // Run A should be empty, run B should have data
-    assert!(kv.get(&run_a, "shared_key").unwrap().is_none());
-    assert_eq!(kv.get(&run_b, "shared_key").unwrap(), Some(Value::Int(2)));
+    assert!(kv.get(&branch_a, "shared_key").unwrap().is_none());
+    assert_eq!(kv.get(&branch_b, "shared_key").unwrap(), Some(Value::Int(2)));
 }
 
 #[test]
@@ -56,44 +56,44 @@ fn all_primitives_isolated_between_runs() {
     let test_db = TestDb::new();
     let p = test_db.all_primitives();
 
-    let run_a = RunId::new();
-    let run_b = RunId::new();
+    let branch_a = BranchId::new();
+    let branch_b = BranchId::new();
 
     // Write to run A
-    p.kv.put(&run_a, "k", Value::Int(1)).unwrap();
-    p.state.init(&run_a, "s", Value::Int(1)).unwrap();
-    p.event.append(&run_a, "e", int_payload(1)).unwrap();
-    p.json.create(&run_a, "j", json_value(serde_json::json!({"a": 1}))).unwrap();
-    p.vector.create_collection(run_a, "v", config_small()).unwrap();
-    p.vector.insert(run_a, "v", "vec", &[1.0, 0.0, 0.0], None).unwrap();
+    p.kv.put(&branch_a, "k", Value::Int(1)).unwrap();
+    p.state.init(&branch_a, "s", Value::Int(1)).unwrap();
+    p.event.append(&branch_a, "e", int_payload(1)).unwrap();
+    p.json.create(&branch_a, "j", json_value(serde_json::json!({"a": 1}))).unwrap();
+    p.vector.create_collection(branch_a, "v", config_small()).unwrap();
+    p.vector.insert(branch_a, "v", "vec", &[1.0, 0.0, 0.0], None).unwrap();
 
     // Write different values to run B
-    p.kv.put(&run_b, "k", Value::Int(2)).unwrap();
-    p.state.init(&run_b, "s", Value::Int(2)).unwrap();
-    p.event.append(&run_b, "e", int_payload(2)).unwrap();
-    p.json.create(&run_b, "j", json_value(serde_json::json!({"b": 2}))).unwrap();
-    p.vector.create_collection(run_b, "v", config_small()).unwrap();
-    p.vector.insert(run_b, "v", "vec", &[0.0, 1.0, 0.0], None).unwrap();
+    p.kv.put(&branch_b, "k", Value::Int(2)).unwrap();
+    p.state.init(&branch_b, "s", Value::Int(2)).unwrap();
+    p.event.append(&branch_b, "e", int_payload(2)).unwrap();
+    p.json.create(&branch_b, "j", json_value(serde_json::json!({"b": 2}))).unwrap();
+    p.vector.create_collection(branch_b, "v", config_small()).unwrap();
+    p.vector.insert(branch_b, "v", "vec", &[0.0, 1.0, 0.0], None).unwrap();
 
     // Verify isolation
-    assert_eq!(p.kv.get(&run_a, "k").unwrap().unwrap(), Value::Int(1));
-    assert_eq!(p.kv.get(&run_b, "k").unwrap().unwrap(), Value::Int(2));
+    assert_eq!(p.kv.get(&branch_a, "k").unwrap().unwrap(), Value::Int(1));
+    assert_eq!(p.kv.get(&branch_b, "k").unwrap().unwrap(), Value::Int(2));
 
-    assert_eq!(p.state.read(&run_a, "s").unwrap().unwrap(), Value::Int(1));
-    assert_eq!(p.state.read(&run_b, "s").unwrap().unwrap(), Value::Int(2));
+    assert_eq!(p.state.read(&branch_a, "s").unwrap().unwrap(), Value::Int(1));
+    assert_eq!(p.state.read(&branch_b, "s").unwrap().unwrap(), Value::Int(2));
 
-    let events_a = p.event.read_by_type(&run_a, "e").unwrap();
-    let events_b = p.event.read_by_type(&run_b, "e").unwrap();
+    let events_a = p.event.read_by_type(&branch_a, "e").unwrap();
+    let events_b = p.event.read_by_type(&branch_b, "e").unwrap();
     assert_eq!(events_a.len(), 1);
     assert_eq!(events_b.len(), 1);
 
-    let json_a = p.json.get(&run_a, "j", &root()).unwrap().unwrap();
-    let json_b = p.json.get(&run_b, "j", &root()).unwrap().unwrap();
+    let json_a = p.json.get(&branch_a, "j", &root()).unwrap().unwrap();
+    let json_b = p.json.get(&branch_b, "j", &root()).unwrap().unwrap();
     assert_eq!(json_a.as_inner().get("a"), Some(&serde_json::json!(1)));
     assert_eq!(json_b.as_inner().get("b"), Some(&serde_json::json!(2)));
 
-    let vec_a = p.vector.get(run_a, "v", "vec").unwrap().unwrap();
-    let vec_b = p.vector.get(run_b, "v", "vec").unwrap().unwrap();
+    let vec_a = p.vector.get(branch_a, "v", "vec").unwrap().unwrap();
+    let vec_b = p.vector.get(branch_b, "v", "vec").unwrap().unwrap();
     assert_eq!(vec_a.value.embedding[0], 1.0);
     assert_eq!(vec_b.value.embedding[1], 1.0);
 }
@@ -104,21 +104,21 @@ fn many_concurrent_runs() {
     let kv = test_db.kv();
 
     // Create 100 runs with data
-    let run_ids: Vec<RunId> = (0..100).map(|_| RunId::new()).collect();
+    let branch_ids: Vec<BranchId> = (0..100).map(|_| BranchId::new()).collect();
 
-    for (i, run_id) in run_ids.iter().enumerate() {
-        kv.put(run_id, "index", Value::Int(i as i64)).unwrap();
+    for (i, branch_id) in branch_ids.iter().enumerate() {
+        kv.put(branch_id, "index", Value::Int(i as i64)).unwrap();
     }
 
     // Verify each run has correct isolated data
-    for (i, run_id) in run_ids.iter().enumerate() {
-        let val = kv.get(run_id, "index").unwrap().unwrap();
+    for (i, branch_id) in branch_ids.iter().enumerate() {
+        let val = kv.get(branch_id, "index").unwrap().unwrap();
         assert_eq!(val, Value::Int(i as i64));
     }
 }
 
 // ============================================================================
-// Run Lifecycle (via RunIndex)
+// Run Lifecycle (via BranchIndex)
 // ============================================================================
 
 #[test]
@@ -127,12 +127,12 @@ fn create_and_list_runs() {
     let run_index = test_db.run_index();
 
     // Create some runs
-    run_index.create_run("run_1").unwrap();
-    run_index.create_run("run_2").unwrap();
-    run_index.create_run("run_3").unwrap();
+    run_index.create_branch("run_1").unwrap();
+    run_index.create_branch("run_2").unwrap();
+    run_index.create_branch("run_3").unwrap();
 
     // List all runs
-    let runs = run_index.list_runs().unwrap();
+    let runs = run_index.list_branches().unwrap();
     assert!(runs.len() >= 3);
 
     // Verify our runs exist
@@ -146,11 +146,11 @@ fn run_with_metadata() {
     let test_db = TestDb::new();
     let run_index = test_db.run_index();
 
-    // create_run creates a run with default metadata;
+    // create_branch creates a run with default metadata;
     // verify we can retrieve the run and it has the expected fields.
-    run_index.create_run("with_metadata").unwrap();
+    run_index.create_branch("with_metadata").unwrap();
 
-    let run = run_index.get_run("with_metadata").unwrap().unwrap();
+    let run = run_index.get_branch("with_metadata").unwrap().unwrap();
     assert_eq!(run.value.name, "with_metadata");
 }
 
@@ -161,9 +161,9 @@ fn run_tags() {
 
     // add_tags is not available in the current API.
     // Instead, verify that a newly created run has an empty tags field.
-    run_index.create_run("tagged_run").unwrap();
+    run_index.create_branch("tagged_run").unwrap();
 
-    let run = run_index.get_run("tagged_run").unwrap().unwrap();
+    let run = run_index.get_branch("tagged_run").unwrap().unwrap();
     // Tags start empty (no add_tags API yet)
     assert!(run.value.tags.is_empty());
 }
@@ -177,19 +177,19 @@ fn vector_collections_isolated_per_run() {
     let test_db = TestDb::new();
     let vector = test_db.vector();
 
-    let run_a = RunId::new();
-    let run_b = RunId::new();
+    let branch_a = BranchId::new();
+    let branch_b = BranchId::new();
 
     // Same collection name, different runs
-    vector.create_collection(run_a, "embeddings", config_small()).unwrap();
-    vector.create_collection(run_b, "embeddings", config_small()).unwrap();
+    vector.create_collection(branch_a, "embeddings", config_small()).unwrap();
+    vector.create_collection(branch_b, "embeddings", config_small()).unwrap();
 
-    vector.insert(run_a, "embeddings", "vec", &[1.0, 0.0, 0.0], None).unwrap();
-    vector.insert(run_b, "embeddings", "vec", &[0.0, 1.0, 0.0], None).unwrap();
+    vector.insert(branch_a, "embeddings", "vec", &[1.0, 0.0, 0.0], None).unwrap();
+    vector.insert(branch_b, "embeddings", "vec", &[0.0, 1.0, 0.0], None).unwrap();
 
     // Verify isolation
-    let vec_a = vector.get(run_a, "embeddings", "vec").unwrap().unwrap();
-    let vec_b = vector.get(run_b, "embeddings", "vec").unwrap().unwrap();
+    let vec_a = vector.get(branch_a, "embeddings", "vec").unwrap().unwrap();
+    let vec_b = vector.get(branch_b, "embeddings", "vec").unwrap().unwrap();
 
     assert_eq!(vec_a.value.embedding[0], 1.0);
     assert_eq!(vec_b.value.embedding[1], 1.0);
@@ -200,16 +200,16 @@ fn event_streams_isolated_per_run() {
     let test_db = TestDb::new();
     let event = test_db.event();
 
-    let run_a = RunId::new();
-    let run_b = RunId::new();
+    let branch_a = BranchId::new();
+    let branch_b = BranchId::new();
 
     // Same stream name, different runs
-    event.append(&run_a, "audit", int_payload(100)).unwrap();
-    event.append(&run_a, "audit", int_payload(101)).unwrap();
-    event.append(&run_b, "audit", int_payload(200)).unwrap();
+    event.append(&branch_a, "audit", int_payload(100)).unwrap();
+    event.append(&branch_a, "audit", int_payload(101)).unwrap();
+    event.append(&branch_b, "audit", int_payload(200)).unwrap();
 
-    assert_eq!(event.read_by_type(&run_a, "audit").unwrap().len(), 2);
-    assert_eq!(event.read_by_type(&run_b, "audit").unwrap().len(), 1);
+    assert_eq!(event.read_by_type(&branch_a, "audit").unwrap().len(), 2);
+    assert_eq!(event.read_by_type(&branch_b, "audit").unwrap().len(), 1);
 }
 
 #[test]
@@ -217,15 +217,15 @@ fn json_documents_isolated_per_run() {
     let test_db = TestDb::new();
     let json = test_db.json();
 
-    let run_a = RunId::new();
-    let run_b = RunId::new();
+    let branch_a = BranchId::new();
+    let branch_b = BranchId::new();
 
     // Same doc ID, different runs
-    json.create(&run_a, "config", json_value(serde_json::json!({"version": 1}))).unwrap();
-    json.create(&run_b, "config", json_value(serde_json::json!({"version": 2}))).unwrap();
+    json.create(&branch_a, "config", json_value(serde_json::json!({"version": 1}))).unwrap();
+    json.create(&branch_b, "config", json_value(serde_json::json!({"version": 2}))).unwrap();
 
-    let doc_a = json.get(&run_a, "config", &path(".version")).unwrap().unwrap();
-    let doc_b = json.get(&run_b, "config", &path(".version")).unwrap().unwrap();
+    let doc_a = json.get(&branch_a, "config", &path(".version")).unwrap().unwrap();
+    let doc_b = json.get(&branch_b, "config", &path(".version")).unwrap().unwrap();
 
     assert_eq!(doc_a.as_inner(), &serde_json::json!(1));
     assert_eq!(doc_b.as_inner(), &serde_json::json!(2));
@@ -243,16 +243,16 @@ fn child_run_does_not_inherit_parent_data_currently() {
     let run_index = test_db.run_index();
     let kv = test_db.kv();
 
-    // Create parent run and get its run_id
-    let parent_meta = run_index.create_run("parent").unwrap();
-    let parent_run_id = RunId::from_string(&parent_meta.value.run_id).unwrap();
+    // Create parent run and get its branch_id
+    let parent_meta = run_index.create_branch("parent").unwrap();
+    let parent_run_id = BranchId::from_string(&parent_meta.value.branch_id).unwrap();
 
     kv.put(&parent_run_id, "parent_key", Value::String("parent_value".into()))
         .unwrap();
 
     // Create child run (parent reference is not supported in current API)
-    let child_meta = run_index.create_run("child").unwrap();
-    let child_run_id = RunId::from_string(&child_meta.value.run_id).unwrap();
+    let child_meta = run_index.create_branch("child").unwrap();
+    let child_run_id = BranchId::from_string(&child_meta.value.branch_id).unwrap();
 
     // Currently: child does NOT inherit parent's data (this is a bug/missing feature)
     let child_value = kv.get(&child_run_id, "parent_key").unwrap();
@@ -278,8 +278,8 @@ fn child_run_should_inherit_parent_data() {
     let p = test_db.all_primitives();
 
     // Create parent run
-    let parent_meta = run_index.create_run("fork_parent").unwrap();
-    let parent_id = RunId::from_string(&parent_meta.value.run_id).unwrap();
+    let parent_meta = run_index.create_branch("fork_parent").unwrap();
+    let parent_id = BranchId::from_string(&parent_meta.value.branch_id).unwrap();
 
     // Add data to parent
     p.kv.put(&parent_id, "config", Value::String("inherited".into()))
@@ -300,9 +300,9 @@ fn child_run_should_inherit_parent_data() {
         .insert(parent_id, "memory", "m1", &[1.0, 0.0, 0.0], None)
         .unwrap();
 
-    // Fork (create child with parent) - using create_run since create_run_with_options doesn't exist
-    let child_meta = run_index.create_run("fork_child").unwrap();
-    let child_id = RunId::from_string(&child_meta.value.run_id).unwrap();
+    // Fork (create child with parent) - using create_branch since create_run_with_options doesn't exist
+    let child_meta = run_index.create_branch("fork_child").unwrap();
+    let child_id = BranchId::from_string(&child_meta.value.branch_id).unwrap();
 
     // Child SHOULD have all parent's data (when #780 is fixed)
     assert_eq!(p.kv.get(&child_id, "config").unwrap(), Some(Value::String("inherited".into())));
@@ -340,41 +340,41 @@ fn concurrent_operations_across_runs() {
             let db = db.clone();
             let barrier = barrier.clone();
             thread::spawn(move || {
-                let run_id = RunId::new();
+                let branch_id = BranchId::new();
                 let kv = KVStore::new(db.clone());
                 let event = EventLog::new(db);
 
                 barrier.wait();
 
                 for i in 0..ops_per_run {
-                    kv.put(&run_id, &format!("key_{}", i), Value::Int((r * 1000 + i) as i64))
+                    kv.put(&branch_id, &format!("key_{}", i), Value::Int((r * 1000 + i) as i64))
                         .unwrap();
                     event
-                        .append(&run_id, "ops", int_payload((r * 1000 + i) as i64))
+                        .append(&branch_id, "ops", int_payload((r * 1000 + i) as i64))
                         .unwrap();
                 }
 
                 // Verify own data
                 for i in 0..ops_per_run {
-                    let val = kv.get(&run_id, &format!("key_{}", i)).unwrap().unwrap();
+                    let val = kv.get(&branch_id, &format!("key_{}", i)).unwrap().unwrap();
                     assert_eq!(val, Value::Int((r * 1000 + i) as i64));
                 }
 
-                run_id
+                branch_id
             })
         })
         .collect();
 
-    let run_ids: Vec<RunId> = handles.into_iter().map(|h| h.join().unwrap()).collect();
+    let branch_ids: Vec<BranchId> = handles.into_iter().map(|h| h.join().unwrap()).collect();
 
     // Verify all runs have correct isolated data
     let kv = KVStore::new(test_db.db.clone());
-    for (r, run_id) in run_ids.iter().enumerate() {
-        let keys = kv.list(run_id, Some("key_")).unwrap();
+    for (r, branch_id) in branch_ids.iter().enumerate() {
+        let keys = kv.list(branch_id, Some("key_")).unwrap();
         assert_eq!(keys.len(), ops_per_run);
 
         for i in 0..ops_per_run {
-            let val = kv.get(run_id, &format!("key_{}", i)).unwrap().unwrap();
+            let val = kv.get(branch_id, &format!("key_{}", i)).unwrap().unwrap();
             assert_eq!(val, Value::Int((r * 1000 + i) as i64));
         }
     }

@@ -1,10 +1,10 @@
 # Multi-Agent Coordination
 
-This recipe shows how multiple agents can coordinate through a shared StrataDB database using State Cells for CAS-based coordination and runs for isolation.
+This recipe shows how multiple agents can coordinate through a shared StrataDB database using State Cells for CAS-based coordination and branches for isolation.
 
-## Pattern 1: Shared Database, Same Run (CAS Coordination)
+## Pattern 1: Shared Database, Same Branch (CAS Coordination)
 
-Multiple agents share a run and use compare-and-swap to coordinate:
+Multiple agents share a branch and use compare-and-swap to coordinate:
 
 ```rust
 use stratadb::{Strata, Value};
@@ -48,38 +48,38 @@ fn agent_worker(db: &Strata, agent_id: &str) -> stratadb::Result<()> {
 }
 ```
 
-## Pattern 2: Different Runs (Full Isolation)
+## Pattern 2: Different Branches (Full Isolation)
 
-Each agent works in its own run, then results are aggregated:
+Each agent works in its own branch, then results are aggregated:
 
 ```rust
 fn run_parallel_agents(db: &mut Strata) -> stratadb::Result<()> {
-    // Create a run per agent
+    // Create a branch per agent
     for i in 0..3 {
-        let run_name = format!("agent-{}", i);
-        db.create_run(&run_name)?;
+        let branch_name = format!("agent-{}", i);
+        db.create_branch(&branch_name)?;
     }
 
-    // Each agent works independently in its run
+    // Each agent works independently in its branch
     // (In practice, this would be on different threads)
     for i in 0..3 {
-        let run_name = format!("agent-{}", i);
-        db.set_run(&run_name)?;
+        let branch_name = format!("agent-{}", i);
+        db.set_branch(&branch_name)?;
 
         db.kv_put("result", format!("Agent {} result", i))?;
         db.state_set("status", "done")?;
     }
 
-    // Aggregate results from the default run
-    db.set_run("default")?;
+    // Aggregate results from the default branch
+    db.set_branch("default")?;
     for i in 0..3 {
-        let run_name = format!("agent-{}", i);
-        db.set_run(&run_name)?;
+        let branch_name = format!("agent-{}", i);
+        db.set_branch(&branch_name)?;
 
         let result = db.kv_get("result")?;
         println!("Agent {} result: {:?}", i, result);
 
-        db.set_run("default")?;
+        db.set_branch("default")?;
     }
 
     Ok(())
@@ -110,5 +110,5 @@ fn try_become_leader(db: &Strata, agent_id: &str) -> stratadb::Result<bool> {
 ## See Also
 
 - [State Cell Guide](../guides/state-cell.md) — CAS semantics
-- [Run Management Guide](../guides/run-management.md) — creating and switching runs
+- [Branch Management Guide](../guides/branch-management.md) — creating and switching branches
 - [Transactions Guide](../guides/sessions-and-transactions.md) — atomic multi-key operations

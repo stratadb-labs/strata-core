@@ -1,9 +1,9 @@
-//! RunHandle: Scoped access to primitives within a run
+//! BranchHandle: Scoped access to primitives within a branch
 //!
 //! ## Design
 //!
-//! `RunHandle` binds a `RunId` to a `Database`, eliminating the need to
-//! pass `run_id` to every operation. It provides:
+//! `BranchHandle` binds a `BranchId` to a `Database`, eliminating the need to
+//! pass `branch_id` to every operation. It provides:
 //!
 //! - `kv()`, `events()`, `state()`, `json()`, `vectors()` - primitive handles
 //! - `transaction()` - execute atomic cross-primitive transactions
@@ -25,7 +25,7 @@
 //! })?;
 //! ```
 //!
-//! ## RunHandle Pattern Implementation
+//! ## BranchHandle Pattern Implementation
 
 use crate::primitives::extensions::{
     EventLogExt, JsonStoreExt, KVStoreExt, StateCellExt, VectorStoreExt,
@@ -34,31 +34,31 @@ use strata_concurrency::TransactionContext;
 use strata_core::contract::{Timestamp, Version, Versioned};
 use strata_core::StrataResult;
 use strata_core::primitives::json::{JsonPath, JsonValue};
-use strata_core::types::RunId;
+use strata_core::types::BranchId;
 use strata_core::value::Value;
 use crate::database::Database;
 use std::sync::Arc;
 
 // ============================================================================
-// RunHandle
+// BranchHandle
 // ============================================================================
 
 /// Handle to a specific run
 ///
-/// Provides scoped access to all primitives within a run.
-/// The run_id is bound to this handle, so operations don't need
+/// Provides scoped access to all primitives within a branch.
+/// The branch_id is bound to this handle, so operations don't need
 /// to specify it repeatedly.
 ///
 /// ## Thread Safety
 ///
-/// `RunHandle` is `Clone`, `Send`, and `Sync`. Multiple threads can
-/// share the same `RunHandle` and operate on the same run concurrently.
+/// `BranchHandle` is `Clone`, `Send`, and `Sync`. Multiple threads can
+/// share the same `BranchHandle` and operate on the same branch concurrently.
 /// Transaction isolation ensures correctness.
 ///
 /// ## Example
 ///
 /// ```rust,ignore
-/// let run = db.run(run_id);
+/// let run = db.run(branch_id);
 ///
 /// // Access primitives
 /// let value = run.kv().get("key")?;
@@ -72,20 +72,20 @@ use std::sync::Arc;
 /// })?;
 /// ```
 #[derive(Clone)]
-pub struct RunHandle {
+pub struct BranchHandle {
     db: Arc<Database>,
-    run_id: RunId,
+    branch_id: BranchId,
 }
 
-impl RunHandle {
-    /// Create a new RunHandle
-    pub fn new(db: Arc<Database>, run_id: RunId) -> Self {
-        Self { db, run_id }
+impl BranchHandle {
+    /// Create a new BranchHandle
+    pub fn new(db: Arc<Database>, branch_id: BranchId) -> Self {
+        Self { db, branch_id }
     }
 
-    /// Get the run ID
-    pub fn run_id(&self) -> &RunId {
-        &self.run_id
+    /// Get the branch ID
+    pub fn branch_id(&self) -> &BranchId {
+        &self.branch_id
     }
 
     /// Get the underlying database
@@ -97,27 +97,27 @@ impl RunHandle {
 
     /// Access the KV primitive for this run
     pub fn kv(&self) -> KvHandle {
-        KvHandle::new(self.db.clone(), self.run_id)
+        KvHandle::new(self.db.clone(), self.branch_id)
     }
 
     /// Access the Event primitive for this run
     pub fn events(&self) -> EventHandle {
-        EventHandle::new(self.db.clone(), self.run_id)
+        EventHandle::new(self.db.clone(), self.branch_id)
     }
 
     /// Access the State primitive for this run
     pub fn state(&self) -> StateHandle {
-        StateHandle::new(self.db.clone(), self.run_id)
+        StateHandle::new(self.db.clone(), self.branch_id)
     }
 
     /// Access the Json primitive for this run
     pub fn json(&self) -> JsonHandle {
-        JsonHandle::new(self.db.clone(), self.run_id)
+        JsonHandle::new(self.db.clone(), self.branch_id)
     }
 
     /// Access the Vector primitive for this run
     pub fn vectors(&self) -> VectorHandle {
-        VectorHandle::new(self.db.clone(), self.run_id)
+        VectorHandle::new(self.db.clone(), self.branch_id)
     }
 
     // === Transactions ===
@@ -141,7 +141,7 @@ impl RunHandle {
     where
         F: FnOnce(&mut TransactionContext) -> StrataResult<T>,
     {
-        self.db.transaction(self.run_id, f)
+        self.db.transaction(self.branch_id, f)
     }
 }
 
@@ -155,18 +155,18 @@ impl RunHandle {
 #[derive(Clone)]
 pub struct KvHandle {
     db: Arc<Database>,
-    run_id: RunId,
+    branch_id: BranchId,
 }
 
 impl KvHandle {
     /// Create a new KvHandle
-    pub(crate) fn new(db: Arc<Database>, run_id: RunId) -> Self {
-        Self { db, run_id }
+    pub(crate) fn new(db: Arc<Database>, branch_id: BranchId) -> Self {
+        Self { db, branch_id }
     }
 
     /// Get a value by key
     pub fn get(&self, key: &str) -> StrataResult<Option<Versioned<Value>>> {
-        self.db.transaction(self.run_id, |txn| {
+        self.db.transaction(self.branch_id, |txn| {
             let value = txn.kv_get(key)?;
             // Wrap in Versioned - since KVStoreExt returns Option<Value> not Versioned
             Ok(value.map(|v| {
@@ -177,7 +177,7 @@ impl KvHandle {
 
     /// Put a value
     pub fn put(&self, key: &str, value: Value) -> StrataResult<Version> {
-        self.db.transaction(self.run_id, |txn| {
+        self.db.transaction(self.branch_id, |txn| {
             txn.kv_put(key, value)?;
             Ok(Version::counter(1))
         })
@@ -185,7 +185,7 @@ impl KvHandle {
 
     /// Delete a key
     pub fn delete(&self, key: &str) -> StrataResult<bool> {
-        self.db.transaction(self.run_id, |txn| {
+        self.db.transaction(self.branch_id, |txn| {
             txn.kv_delete(key)?;
             Ok(true)
         })
@@ -205,25 +205,25 @@ impl KvHandle {
 #[derive(Clone)]
 pub struct EventHandle {
     db: Arc<Database>,
-    run_id: RunId,
+    branch_id: BranchId,
 }
 
 impl EventHandle {
     /// Create a new EventHandle
-    pub(crate) fn new(db: Arc<Database>, run_id: RunId) -> Self {
-        Self { db, run_id }
+    pub(crate) fn new(db: Arc<Database>, branch_id: BranchId) -> Self {
+        Self { db, branch_id }
     }
 
     /// Append an event and return sequence number
     pub fn append(&self, event_type: &str, payload: Value) -> StrataResult<u64> {
-        self.db.transaction(self.run_id, |txn| {
+        self.db.transaction(self.branch_id, |txn| {
             txn.event_append(event_type, payload)
         })
     }
 
     /// Read an event by sequence number
     pub fn read(&self, sequence: u64) -> StrataResult<Option<Value>> {
-        self.db.transaction(self.run_id, |txn| {
+        self.db.transaction(self.branch_id, |txn| {
             txn.event_read(sequence)
         })
     }
@@ -237,32 +237,32 @@ impl EventHandle {
 #[derive(Clone)]
 pub struct StateHandle {
     db: Arc<Database>,
-    run_id: RunId,
+    branch_id: BranchId,
 }
 
 impl StateHandle {
     /// Create a new StateHandle
-    pub(crate) fn new(db: Arc<Database>, run_id: RunId) -> Self {
-        Self { db, run_id }
+    pub(crate) fn new(db: Arc<Database>, branch_id: BranchId) -> Self {
+        Self { db, branch_id }
     }
 
     /// Read current state
     pub fn read(&self, name: &str) -> StrataResult<Option<Value>> {
-        self.db.transaction(self.run_id, |txn| {
+        self.db.transaction(self.branch_id, |txn| {
             txn.state_read(name)
         })
     }
 
     /// Compare-and-swap update
     pub fn cas(&self, name: &str, expected_version: Version, new_value: Value) -> StrataResult<Version> {
-        self.db.transaction(self.run_id, |txn| {
+        self.db.transaction(self.branch_id, |txn| {
             txn.state_cas(name, expected_version, new_value)
         })
     }
 
     /// Unconditional set
     pub fn set(&self, name: &str, value: Value) -> StrataResult<Version> {
-        self.db.transaction(self.run_id, |txn| {
+        self.db.transaction(self.branch_id, |txn| {
             txn.state_set(name, value)
         })
     }
@@ -276,32 +276,32 @@ impl StateHandle {
 #[derive(Clone)]
 pub struct JsonHandle {
     db: Arc<Database>,
-    run_id: RunId,
+    branch_id: BranchId,
 }
 
 impl JsonHandle {
     /// Create a new JsonHandle
-    pub(crate) fn new(db: Arc<Database>, run_id: RunId) -> Self {
-        Self { db, run_id }
+    pub(crate) fn new(db: Arc<Database>, branch_id: BranchId) -> Self {
+        Self { db, branch_id }
     }
 
     /// Create a new JSON document
     pub fn create(&self, doc_id: &str, value: JsonValue) -> StrataResult<Version> {
-        self.db.transaction(self.run_id, |txn| {
+        self.db.transaction(self.branch_id, |txn| {
             txn.json_create(doc_id, value)
         })
     }
 
     /// Get value at path in a document
     pub fn get(&self, doc_id: &str, path: &JsonPath) -> StrataResult<Option<JsonValue>> {
-        self.db.transaction(self.run_id, |txn| {
+        self.db.transaction(self.branch_id, |txn| {
             txn.json_get(doc_id, path)
         })
     }
 
     /// Set value at path in a document
     pub fn set(&self, doc_id: &str, path: &JsonPath, value: JsonValue) -> StrataResult<Version> {
-        self.db.transaction(self.run_id, |txn| {
+        self.db.transaction(self.branch_id, |txn| {
             txn.json_set(doc_id, path, value)
         })
     }
@@ -318,13 +318,13 @@ impl JsonHandle {
 #[derive(Clone)]
 pub struct VectorHandle {
     db: Arc<Database>,
-    run_id: RunId,
+    branch_id: BranchId,
 }
 
 impl VectorHandle {
     /// Create a new VectorHandle
-    pub(crate) fn new(db: Arc<Database>, run_id: RunId) -> Self {
-        Self { db, run_id }
+    pub(crate) fn new(db: Arc<Database>, branch_id: BranchId) -> Self {
+        Self { db, branch_id }
     }
 
     /// Get a vector by key
@@ -332,7 +332,7 @@ impl VectorHandle {
     /// Note: This operation is not supported in cross-primitive transactions.
     /// Use VectorStore::get() directly for vector operations.
     pub fn get(&self, collection: &str, key: &str) -> StrataResult<Option<Vec<f32>>> {
-        self.db.transaction(self.run_id, |txn| {
+        self.db.transaction(self.branch_id, |txn| {
             txn.vector_get(collection, key)
         })
     }
@@ -342,7 +342,7 @@ impl VectorHandle {
     /// Note: This operation is not supported in cross-primitive transactions.
     /// Use VectorStore::insert() directly for vector operations.
     pub fn insert(&self, collection: &str, key: &str, embedding: &[f32]) -> StrataResult<Version> {
-        self.db.transaction(self.run_id, |txn| {
+        self.db.transaction(self.branch_id, |txn| {
             txn.vector_insert(collection, key, embedding)
         })
     }
@@ -355,7 +355,7 @@ mod tests {
     #[test]
     fn test_run_handle_is_clone_send_sync() {
         fn assert_clone_send_sync<T: Clone + Send + Sync>() {}
-        assert_clone_send_sync::<RunHandle>();
+        assert_clone_send_sync::<BranchHandle>();
         assert_clone_send_sync::<KvHandle>();
         assert_clone_send_sync::<EventHandle>();
         assert_clone_send_sync::<StateHandle>();

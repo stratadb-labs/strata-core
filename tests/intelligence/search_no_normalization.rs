@@ -11,7 +11,7 @@ fn test_r9_embedding_stored_verbatim() {
     let vector = test_db.vector();
 
     vector
-        .create_collection(test_db.run_id, "embeddings", config_minilm())
+        .create_collection(test_db.branch_id, "embeddings", config_minilm())
         .unwrap();
 
     // Non-normalized vector
@@ -21,12 +21,12 @@ fn test_r9_embedding_stored_verbatim() {
     embedding[2] = 4.0;
 
     vector
-        .insert(test_db.run_id, "embeddings", "key1", &embedding, None)
+        .insert(test_db.branch_id, "embeddings", "key1", &embedding, None)
         .unwrap();
 
     // Retrieve and verify exact values
     let entry = vector
-        .get(test_db.run_id, "embeddings", "key1")
+        .get(test_db.branch_id, "embeddings", "key1")
         .unwrap()
         .unwrap();
 
@@ -54,7 +54,7 @@ fn test_r9_large_magnitude_preserved() {
     let vector = test_db.vector();
 
     vector
-        .create_collection(test_db.run_id, "embeddings", config_minilm())
+        .create_collection(test_db.branch_id, "embeddings", config_minilm())
         .unwrap();
 
     // Large magnitude vector
@@ -64,11 +64,11 @@ fn test_r9_large_magnitude_preserved() {
     }
 
     vector
-        .insert(test_db.run_id, "embeddings", "key1", &embedding, None)
+        .insert(test_db.branch_id, "embeddings", "key1", &embedding, None)
         .unwrap();
 
     let entry = vector
-        .get(test_db.run_id, "embeddings", "key1")
+        .get(test_db.branch_id, "embeddings", "key1")
         .unwrap()
         .unwrap();
 
@@ -90,7 +90,7 @@ fn test_r9_small_magnitude_preserved() {
     let vector = test_db.vector();
 
     vector
-        .create_collection(test_db.run_id, "embeddings", config_minilm())
+        .create_collection(test_db.branch_id, "embeddings", config_minilm())
         .unwrap();
 
     // Small magnitude vector
@@ -100,11 +100,11 @@ fn test_r9_small_magnitude_preserved() {
     }
 
     vector
-        .insert(test_db.run_id, "embeddings", "key1", &embedding, None)
+        .insert(test_db.branch_id, "embeddings", "key1", &embedding, None)
         .unwrap();
 
     let entry = vector
-        .get(test_db.run_id, "embeddings", "key1")
+        .get(test_db.branch_id, "embeddings", "key1")
         .unwrap()
         .unwrap();
 
@@ -125,7 +125,7 @@ fn test_r9_negative_values_preserved() {
     let vector = test_db.vector();
 
     vector
-        .create_collection(test_db.run_id, "embeddings", config_minilm())
+        .create_collection(test_db.branch_id, "embeddings", config_minilm())
         .unwrap();
 
     let mut embedding = vec![0.0f32; 384];
@@ -137,11 +137,11 @@ fn test_r9_negative_values_preserved() {
     }
 
     vector
-        .insert(test_db.run_id, "embeddings", "key1", &embedding, None)
+        .insert(test_db.branch_id, "embeddings", "key1", &embedding, None)
         .unwrap();
 
     let entry = vector
-        .get(test_db.run_id, "embeddings", "key1")
+        .get(test_db.branch_id, "embeddings", "key1")
         .unwrap()
         .unwrap();
 
@@ -165,24 +165,24 @@ fn test_r9_negative_values_preserved() {
 #[test]
 fn test_r9_embedding_preserved_across_restart() {
     let mut test_db = TestDb::new_strict();
-    let run_id = test_db.run_id;
+    let branch_id = test_db.branch_id;
 
     let embedding: Vec<f32> = (0..384).map(|i| i as f32 * 0.123).collect();
 
     {
         let vector = test_db.vector();
         vector
-            .create_collection(run_id, "embeddings", config_minilm())
+            .create_collection(branch_id, "embeddings", config_minilm())
             .unwrap();
         vector
-            .insert(run_id, "embeddings", "key1", &embedding, None)
+            .insert(branch_id, "embeddings", "key1", &embedding, None)
             .unwrap();
     }
 
     test_db.reopen();
 
     let vector = test_db.vector();
-    let entry = vector.get(run_id, "embeddings", "key1").unwrap().unwrap();
+    let entry = vector.get(branch_id, "embeddings", "key1").unwrap().unwrap();
 
     for (i, (&expected, &actual)) in embedding.iter().zip(entry.value.embedding.iter()).enumerate() {
         assert!(
@@ -202,18 +202,18 @@ fn test_r9_unit_vector_not_modified() {
     let vector = test_db.vector();
 
     vector
-        .create_collection(test_db.run_id, "embeddings", config_minilm())
+        .create_collection(test_db.branch_id, "embeddings", config_minilm())
         .unwrap();
 
     // Already normalized vector
     let embedding = unit_vector(384);
 
     vector
-        .insert(test_db.run_id, "embeddings", "key1", &embedding, None)
+        .insert(test_db.branch_id, "embeddings", "key1", &embedding, None)
         .unwrap();
 
     let entry = vector
-        .get(test_db.run_id, "embeddings", "key1")
+        .get(test_db.branch_id, "embeddings", "key1")
         .unwrap()
         .unwrap();
 

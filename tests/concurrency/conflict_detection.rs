@@ -13,13 +13,13 @@ use strata_concurrency::validation::{
 use strata_core::traits::Storage;
 use strata_core::types::{Key, Namespace};
 use strata_core::value::Value;
-use strata_core::RunId;
+use strata_core::BranchId;
 use strata_storage::sharded::ShardedStore;
 use std::collections::HashMap;
 use std::sync::Arc;
 
-fn create_test_key(run_id: RunId, name: &str) -> Key {
-    let ns = Namespace::for_run(run_id);
+fn create_test_key(branch_id: BranchId, name: &str) -> Key {
+    let ns = Namespace::for_branch(branch_id);
     Key::new_kv(ns, name)
 }
 
@@ -30,8 +30,8 @@ fn create_test_key(run_id: RunId, name: &str) -> Key {
 #[test]
 fn read_write_conflict_version_increased() {
     let store = Arc::new(ShardedStore::new());
-    let run_id = RunId::new();
-    let key = create_test_key(run_id, "rw");
+    let branch_id = BranchId::new();
+    let key = create_test_key(branch_id, "rw");
 
     // Initial value
     Storage::put(&*store, key.clone(), Value::Int(1), None).unwrap();
@@ -56,8 +56,8 @@ fn read_write_conflict_version_increased() {
 #[test]
 fn read_write_conflict_key_deleted() {
     let store = Arc::new(ShardedStore::new());
-    let run_id = RunId::new();
-    let key = create_test_key(run_id, "deleted");
+    let branch_id = BranchId::new();
+    let key = create_test_key(branch_id, "deleted");
 
     // Initial value
     Storage::put(&*store, key.clone(), Value::Int(1), None).unwrap();
@@ -78,8 +78,8 @@ fn read_write_conflict_key_deleted() {
 #[test]
 fn read_write_conflict_key_created() {
     let store = Arc::new(ShardedStore::new());
-    let run_id = RunId::new();
-    let key = create_test_key(run_id, "created");
+    let branch_id = BranchId::new();
+    let key = create_test_key(branch_id, "created");
 
     // Read set at v0 (nonexistent)
     let mut read_set = HashMap::new();
@@ -96,8 +96,8 @@ fn read_write_conflict_key_created() {
 #[test]
 fn no_read_write_conflict_version_same() {
     let store = Arc::new(ShardedStore::new());
-    let run_id = RunId::new();
-    let key = create_test_key(run_id, "stable");
+    let branch_id = BranchId::new();
+    let key = create_test_key(branch_id, "stable");
 
     // Initial value
     Storage::put(&*store, key.clone(), Value::Int(1), None).unwrap();
@@ -121,8 +121,8 @@ fn no_read_write_conflict_version_same() {
 #[test]
 fn cas_conflict_version_mismatch() {
     let store = Arc::new(ShardedStore::new());
-    let run_id = RunId::new();
-    let key = create_test_key(run_id, "cas");
+    let branch_id = BranchId::new();
+    let key = create_test_key(branch_id, "cas");
 
     // Initial value at version 1
     Storage::put(&*store, key.clone(), Value::Int(100), None).unwrap();
@@ -156,8 +156,8 @@ fn cas_conflict_version_mismatch() {
 #[test]
 fn cas_create_conflict_key_exists() {
     let store = Arc::new(ShardedStore::new());
-    let run_id = RunId::new();
-    let key = create_test_key(run_id, "cas_create");
+    let branch_id = BranchId::new();
+    let key = create_test_key(branch_id, "cas_create");
 
     // Key already exists
     Storage::put(&*store, key.clone(), Value::Int(100), None).unwrap();
@@ -184,8 +184,8 @@ fn cas_create_conflict_key_exists() {
 #[test]
 fn cas_success_version_matches() {
     let store = Arc::new(ShardedStore::new());
-    let run_id = RunId::new();
-    let key = create_test_key(run_id, "cas_ok");
+    let branch_id = BranchId::new();
+    let key = create_test_key(branch_id, "cas_ok");
 
     // Initial value
     Storage::put(&*store, key.clone(), Value::Int(100), None).unwrap();
@@ -205,8 +205,8 @@ fn cas_success_version_matches() {
 #[test]
 fn cas_create_success_key_not_exists() {
     let store = Arc::new(ShardedStore::new());
-    let run_id = RunId::new();
-    let key = create_test_key(run_id, "cas_new");
+    let branch_id = BranchId::new();
+    let key = create_test_key(branch_id, "cas_new");
 
     // Key doesn't exist
 
@@ -224,9 +224,9 @@ fn cas_create_success_key_not_exists() {
 #[test]
 fn multiple_cas_operations() {
     let store = Arc::new(ShardedStore::new());
-    let run_id = RunId::new();
-    let key1 = create_test_key(run_id, "cas1");
-    let key2 = create_test_key(run_id, "cas2");
+    let branch_id = BranchId::new();
+    let key1 = create_test_key(branch_id, "cas1");
+    let key2 = create_test_key(branch_id, "cas2");
 
     // Setup
     Storage::put(&*store, key1.clone(), Value::Int(1), None).unwrap();
@@ -262,9 +262,9 @@ fn multiple_cas_operations() {
 #[test]
 fn transaction_validation_combines_all_checks() {
     let store = Arc::new(ShardedStore::new());
-    let run_id = RunId::new();
-    let key1 = create_test_key(run_id, "read_key");
-    let key2 = create_test_key(run_id, "cas_key");
+    let branch_id = BranchId::new();
+    let key1 = create_test_key(branch_id, "read_key");
+    let key2 = create_test_key(branch_id, "cas_key");
 
     // Setup
     Storage::put(&*store, key1.clone(), Value::Int(1), None).unwrap();
@@ -272,7 +272,7 @@ fn transaction_validation_combines_all_checks() {
     Storage::put(&*store, key2.clone(), Value::Int(2), None).unwrap();
 
     // Transaction with read and CAS
-    let mut txn = TransactionContext::new(1, run_id, 1);
+    let mut txn = TransactionContext::new(1, branch_id, 1);
     txn.read_set.insert(key1.clone(), v1);
     txn.cas_set.push(CASOperation {
         key: key2.clone(),
@@ -315,8 +315,8 @@ fn empty_cas_set_validates() {
 
 #[test]
 fn conflict_type_debug_formatting() {
-    let run_id = RunId::new();
-    let key = create_test_key(run_id, "debug");
+    let branch_id = BranchId::new();
+    let key = create_test_key(branch_id, "debug");
 
     let conflict = ConflictType::ReadWriteConflict {
         key: key.clone(),
@@ -332,12 +332,12 @@ fn conflict_type_debug_formatting() {
 #[test]
 fn large_read_set_validation() {
     let store = Arc::new(ShardedStore::new());
-    let run_id = RunId::new();
+    let branch_id = BranchId::new();
 
     // Create 100 keys
     let mut read_set = HashMap::new();
     for i in 0..100 {
-        let key = create_test_key(run_id, &format!("key_{}", i));
+        let key = create_test_key(branch_id, &format!("key_{}", i));
         Storage::put(&*store, key.clone(), Value::Int(i), None).unwrap();
         let v = Storage::get(&*store, &key).unwrap().unwrap().version.as_u64();
         read_set.insert(key, v);
@@ -351,19 +351,19 @@ fn large_read_set_validation() {
 #[test]
 fn large_read_set_with_one_conflict() {
     let store = Arc::new(ShardedStore::new());
-    let run_id = RunId::new();
+    let branch_id = BranchId::new();
 
     // Create 100 keys
     let mut read_set = HashMap::new();
     for i in 0..100 {
-        let key = create_test_key(run_id, &format!("key_{}", i));
+        let key = create_test_key(branch_id, &format!("key_{}", i));
         Storage::put(&*store, key.clone(), Value::Int(i), None).unwrap();
         let v = Storage::get(&*store, &key).unwrap().unwrap().version.as_u64();
         read_set.insert(key, v);
     }
 
     // Modify one key
-    let modified_key = create_test_key(run_id, "key_50");
+    let modified_key = create_test_key(branch_id, "key_50");
     Storage::put(&*store, modified_key, Value::Int(500), None).unwrap();
 
     // Should have exactly one conflict

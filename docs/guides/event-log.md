@@ -84,7 +84,7 @@ assert_eq!(decisions.len(), 1);
 
 ## Event Count
 
-Get the total number of events in the current run:
+Get the total number of events in the current branch:
 
 ```rust
 let db = Strata::open_temp()?;
@@ -123,16 +123,16 @@ fn log_decision(db: &Strata, decision: &str, reason: &str, confidence: f64) -> s
 }
 ```
 
-## Run Isolation
+## Branch Isolation
 
-Events are isolated by run. `event_len()` returns 0 in a new run even if other runs have events:
+Events are isolated by branch. `event_len()` returns 0 in a new branch even if other branches have events:
 
 ```rust
 let mut db = Strata::open_temp()?;
 db.event_append("log", serde_json::json!({"msg": "in default"}).into())?;
 
-db.create_run("other")?;
-db.set_run("other")?;
+db.create_branch("other")?;
+db.set_branch("other")?;
 assert_eq!(db.event_len()?, 0); // Isolated
 ```
 

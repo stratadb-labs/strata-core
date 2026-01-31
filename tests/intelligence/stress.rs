@@ -5,7 +5,7 @@
 use crate::common::*;
 use strata_core::search_types::{SearchBudget, SearchRequest};
 use strata_core::value::Value;
-use strata_engine::{KVStore, RunIndex};
+use strata_engine::{KVStore, BranchIndex};
 use strata_intelligence::DatabaseSearchExt;
 use std::sync::Arc;
 use std::thread;
@@ -20,12 +20,12 @@ use std::time::{Duration, Instant};
 #[ignore]
 fn test_tier10_large_dataset() {
     let db = create_test_db();
-    let run_id = test_run_id();
+    let branch_id = test_run_id();
 
-    populate_large_dataset(&db, &run_id, 10_000);
+    populate_large_dataset(&db, &branch_id, 10_000);
 
     let kv = KVStore::new(db.clone());
-    let req = SearchRequest::new(run_id, "searchable").with_k(100);
+    let req = SearchRequest::new(branch_id, "searchable").with_k(100);
 
     let start = Instant::now();
     let response = kv.search(&req).unwrap();
@@ -48,15 +48,15 @@ fn test_tier10_large_dataset() {
 #[ignore]
 fn test_tier10_hybrid_large_dataset() {
     let db = create_test_db();
-    let run_id = test_run_id();
+    let branch_id = test_run_id();
 
-    populate_large_dataset(&db, &run_id, 10_000);
+    populate_large_dataset(&db, &branch_id, 10_000);
 
     let hybrid = db.hybrid();
     // Provide sufficient budget for hybrid search across 7 primitives
     // 1 second total = ~143ms per primitive, enough for 10k records
     let budget = SearchBudget::default().with_time(1_000_000); // 1 second
-    let req = SearchRequest::new(run_id, "searchable")
+    let req = SearchRequest::new(branch_id, "searchable")
         .with_k(100)
         .with_budget(budget);
 
@@ -80,9 +80,9 @@ fn test_tier10_hybrid_large_dataset() {
 #[ignore]
 fn test_tier10_concurrent_searches() {
     let db = create_test_db();
-    let run_id = test_run_id();
+    let branch_id = test_run_id();
 
-    populate_large_dataset(&db, &run_id, 1000);
+    populate_large_dataset(&db, &branch_id, 1000);
 
     let handles: Vec<_> = (0..10)
         .map(|_| {
@@ -90,7 +90,7 @@ fn test_tier10_concurrent_searches() {
 
             thread::spawn(move || {
                 let hybrid = db.hybrid();
-                let req = SearchRequest::new(run_id, "searchable").with_k(50);
+                let req = SearchRequest::new(branch_id, "searchable").with_k(50);
 
                 for _ in 0..100 {
                     let response = hybrid.search(&req).unwrap();
@@ -113,16 +113,16 @@ fn test_tier10_concurrent_read_write() {
     use std::sync::Arc;
 
     let db = create_test_db();
-    let run_id = test_run_id();
+    let branch_id = test_run_id();
 
     let kv = KVStore::new(db.clone());
-    let run_index = RunIndex::new(db.clone());
-    run_index.create_run(&run_id.to_string()).unwrap();
+    let run_index = BranchIndex::new(db.clone());
+    run_index.create_branch(&branch_id.to_string()).unwrap();
 
     // Add some initial data
     for i in 0..100 {
         kv.put(
-            &run_id,
+            &branch_id,
             &format!("initial_{}", i),
             Value::String("searchable content".into()),
         )
@@ -133,7 +133,7 @@ fn test_tier10_concurrent_read_write() {
 
     // Writer thread
     let writer_db = Arc::clone(&db);
-    let writer_run_id = run_id;
+    let writer_run_id = branch_id;
     let writer_stop = Arc::clone(&stop);
     let writer = thread::spawn(move || {
         let kv = KVStore::new(writer_db);
@@ -158,7 +158,7 @@ fn test_tier10_concurrent_read_write() {
 
             thread::spawn(move || {
                 let hybrid = db.hybrid();
-                let req = SearchRequest::new(run_id, "searchable").with_k(50);
+                let req = SearchRequest::new(branch_id, "searchable").with_k(50);
 
                 while !stop.load(Ordering::Relaxed) {
                     let response = hybrid.search(&req).unwrap();
@@ -191,33 +191,33 @@ fn test_tier10_many_runs() {
     let db = create_test_db();
 
     let kv = KVStore::new(db.clone());
-    let run_index = RunIndex::new(db.clone());
+    let run_index = BranchIndex::new(db.clone());
 
     // Create 100 runs with data
-    let mut run_ids = Vec::new();
+    let mut branch_ids = Vec::new();
     for i in 0..100 {
-        let run_id = test_run_id();
-        run_index.create_run(&run_id.to_string()).unwrap();
+        let branch_id = test_run_id();
+        run_index.create_branch(&branch_id.to_string()).unwrap();
 
         for j in 0..10 {
             kv.put(
-                &run_id,
+                &branch_id,
                 &format!("key_{}_{}", i, j),
                 Value::String(format!("searchable content {}", i)),
             )
             .unwrap();
         }
 
-        run_ids.push(run_id);
+        branch_ids.push(branch_id);
     }
 
     // Search each run
-    for run_id in &run_ids {
-        let req = SearchRequest::new(*run_id, "searchable").with_k(20);
+    for branch_id in &branch_ids {
+        let req = SearchRequest::new(*branch_id, "searchable").with_k(20);
         let response = kv.search(&req).unwrap();
 
         assert!(!response.hits.is_empty());
-        assert_all_from_run(&response, *run_id);
+        assert_all_from_run(&response, *branch_id);
     }
 }
 
@@ -230,12 +230,12 @@ fn test_tier10_many_runs() {
 #[ignore]
 fn test_tier10_no_memory_leak() {
     let db = create_test_db();
-    let run_id = test_run_id();
+    let branch_id = test_run_id();
 
-    populate_large_dataset(&db, &run_id, 1000);
+    populate_large_dataset(&db, &branch_id, 1000);
 
     let hybrid = db.hybrid();
-    let req = SearchRequest::new(run_id, "searchable").with_k(100);
+    let req = SearchRequest::new(branch_id, "searchable").with_k(100);
 
     // Run many iterations
     for _ in 0..10_000 {
@@ -254,11 +254,11 @@ fn test_tier10_no_memory_leak() {
 #[test]
 fn test_tier10_empty_query() {
     let db = create_test_db();
-    let run_id = test_run_id();
-    populate_test_data(&db, &run_id);
+    let branch_id = test_run_id();
+    populate_test_data(&db, &branch_id);
 
     let hybrid = db.hybrid();
-    let req = SearchRequest::new(run_id, "");
+    let req = SearchRequest::new(branch_id, "");
     let response = hybrid.search(&req).unwrap();
 
     assert!(response.hits.is_empty());
@@ -268,12 +268,12 @@ fn test_tier10_empty_query() {
 #[test]
 fn test_tier10_long_query() {
     let db = create_test_db();
-    let run_id = test_run_id();
-    populate_test_data(&db, &run_id);
+    let branch_id = test_run_id();
+    populate_test_data(&db, &branch_id);
 
     let hybrid = db.hybrid();
     let long_query = "test ".repeat(100);
-    let req = SearchRequest::new(run_id, &long_query);
+    let req = SearchRequest::new(branch_id, &long_query);
     let response = hybrid.search(&req).unwrap();
 
     // Should complete without error
@@ -284,20 +284,20 @@ fn test_tier10_long_query() {
 #[test]
 fn test_tier10_unicode_query() {
     let db = create_test_db();
-    let run_id = test_run_id();
+    let branch_id = test_run_id();
 
     let kv = KVStore::new(db.clone());
-    let run_index = RunIndex::new(db.clone());
-    run_index.create_run(&run_id.to_string()).unwrap();
+    let run_index = BranchIndex::new(db.clone());
+    run_index.create_branch(&branch_id.to_string()).unwrap();
 
     kv.put(
-        &run_id,
+        &branch_id,
         "unicode",
         Value::String("日本語 中文 한국어".into()),
     )
     .unwrap();
 
-    let req = SearchRequest::new(run_id, "日本語");
+    let req = SearchRequest::new(branch_id, "日本語");
     let response = kv.search(&req).unwrap();
 
     // Should complete without error
@@ -308,11 +308,11 @@ fn test_tier10_unicode_query() {
 #[test]
 fn test_tier10_special_chars_query() {
     let db = create_test_db();
-    let run_id = test_run_id();
-    populate_test_data(&db, &run_id);
+    let branch_id = test_run_id();
+    populate_test_data(&db, &branch_id);
 
     let hybrid = db.hybrid();
-    let req = SearchRequest::new(run_id, "test!@#$%^&*()");
+    let req = SearchRequest::new(branch_id, "test!@#$%^&*()");
     let response = hybrid.search(&req).unwrap();
 
     // Should complete without error

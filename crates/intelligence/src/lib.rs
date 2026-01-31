@@ -76,7 +76,7 @@ impl DatabaseSearchExt for Arc<Database> {
 mod tests {
     use super::*;
     use strata_engine::search::SearchRequest;
-    use strata_core::types::RunId;
+    use strata_core::types::BranchId;
 
     #[test]
     fn test_database_search_ext() {
@@ -84,8 +84,8 @@ mod tests {
             .expect("Failed to create test database");
 
         let hybrid = db.hybrid();
-        let run_id = RunId::new();
-        let req = SearchRequest::new(run_id, "test");
+        let branch_id = BranchId::new();
+        let req = SearchRequest::new(branch_id, "test");
 
         // Should be able to search (even if no results)
         let response = hybrid.search(&req).unwrap();

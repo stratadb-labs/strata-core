@@ -10,7 +10,7 @@ use crate::validation::{validate_transaction, ValidationResult};
 use strata_core::StrataResult;
 use strata_core::primitives::json::{get_at_path, JsonPatch, JsonPath, JsonValue};
 use strata_core::traits::{SnapshotView, Storage};
-use strata_core::types::{Key, RunId};
+use strata_core::types::{Key, BranchId};
 use strata_core::value::Value;
 use strata_core::StrataError;
 use std::collections::{BTreeMap, HashMap, HashSet};
@@ -232,7 +232,7 @@ impl JsonPatchEntry {
 /// # Usage
 ///
 /// ```ignore
-/// db.transaction(run_id, |txn| {
+/// db.transaction(branch_id, |txn| {
 ///     // JSON operation
 ///     let value = txn.json_get(&key, &path)?;
 ///     txn.json_set(&key, &path, json!({"updated": true}))?;
@@ -337,7 +337,7 @@ pub struct TransactionContext {
     /// Unique transaction ID
     pub txn_id: u64,
     /// Run this transaction belongs to
-    pub run_id: RunId,
+    pub branch_id: BranchId,
 
     // Snapshot isolation
     /// Version at transaction start (snapshot version)
@@ -422,23 +422,23 @@ impl TransactionContext {
     ///
     /// # Arguments
     /// * `txn_id` - Unique transaction identifier
-    /// * `run_id` - Run this transaction belongs to
+    /// * `branch_id` - Run this transaction belongs to
     /// * `start_version` - Snapshot version at transaction start
     ///
     /// # Example
     ///
     /// ```
     /// use strata_concurrency::TransactionContext;
-    /// use strata_core::types::RunId;
+    /// use strata_core::types::BranchId;
     ///
-    /// let run_id = RunId::new();
-    /// let txn = TransactionContext::new(1, run_id, 100);
+    /// let branch_id = BranchId::new();
+    /// let txn = TransactionContext::new(1, branch_id, 100);
     /// assert!(txn.is_active());
     /// ```
-    pub fn new(txn_id: u64, run_id: RunId, start_version: u64) -> Self {
+    pub fn new(txn_id: u64, branch_id: BranchId, start_version: u64) -> Self {
         TransactionContext {
             txn_id,
-            run_id,
+            branch_id,
             start_version,
             snapshot: None,
             read_set: HashMap::new(),
@@ -462,27 +462,27 @@ impl TransactionContext {
     ///
     /// # Arguments
     /// * `txn_id` - Unique transaction identifier
-    /// * `run_id` - Run this transaction belongs to
+    /// * `branch_id` - Run this transaction belongs to
     /// * `snapshot` - Snapshot view for this transaction
     ///
     /// # Example
     ///
     /// ```
     /// use strata_concurrency::{TransactionContext, ClonedSnapshotView};
-    /// use strata_core::types::RunId;
+    /// use strata_core::types::BranchId;
     /// use std::collections::BTreeMap;
     ///
-    /// let run_id = RunId::new();
+    /// let branch_id = BranchId::new();
     /// let snapshot = Box::new(ClonedSnapshotView::empty(100));
-    /// let txn = TransactionContext::with_snapshot(1, run_id, snapshot);
+    /// let txn = TransactionContext::with_snapshot(1, branch_id, snapshot);
     /// assert!(txn.is_active());
     /// assert_eq!(txn.start_version, 100);
     /// ```
-    pub fn with_snapshot(txn_id: u64, run_id: RunId, snapshot: Box<dyn SnapshotView>) -> Self {
+    pub fn with_snapshot(txn_id: u64, branch_id: BranchId, snapshot: Box<dyn SnapshotView>) -> Self {
         let start_version = snapshot.version();
         TransactionContext {
             txn_id,
-            run_id,
+            branch_id,
             start_version,
             snapshot: Some(snapshot),
             read_set: HashMap::new(),
@@ -920,11 +920,11 @@ impl TransactionContext {
     /// # Example
     /// ```
     /// use strata_concurrency::TransactionContext;
-    /// use strata_core::types::RunId;
+    /// use strata_core::types::BranchId;
     /// use std::time::Duration;
     ///
-    /// let run_id = RunId::new();
-    /// let txn = TransactionContext::new(1, run_id, 100);
+    /// let branch_id = BranchId::new();
+    /// let txn = TransactionContext::new(1, branch_id, 100);
     ///
     /// // Should not be expired immediately
     /// assert!(!txn.is_expired(Duration::from_secs(1)));
@@ -940,11 +940,11 @@ impl TransactionContext {
     /// # Example
     /// ```
     /// use strata_concurrency::TransactionContext;
-    /// use strata_core::types::RunId;
+    /// use strata_core::types::BranchId;
     /// use std::time::Duration;
     ///
-    /// let run_id = RunId::new();
-    /// let txn = TransactionContext::new(1, run_id, 100);
+    /// let branch_id = BranchId::new();
+    /// let txn = TransactionContext::new(1, branch_id, 100);
     ///
     /// // Elapsed should be very small initially
     /// assert!(txn.elapsed() < Duration::from_secs(1));
@@ -1241,7 +1241,7 @@ impl TransactionContext {
     /// the key optimization for transaction pooling.
     ///
     /// After reset, the context is ready for a new transaction with:
-    /// - New txn_id, run_id, start_version
+    /// - New txn_id, branch_id, start_version
     /// - New snapshot
     /// - Empty read_set, write_set, delete_set, cas_set (with preserved capacity)
     /// - Active status
@@ -1250,22 +1250,22 @@ impl TransactionContext {
     /// # Arguments
     ///
     /// * `txn_id` - New transaction ID
-    /// * `run_id` - New run ID
+    /// * `branch_id` - New run ID
     /// * `snapshot` - New snapshot view (optional for testing)
     ///
     /// # Example
     ///
     /// ```ignore
-    /// let mut ctx = TransactionContext::new(1, run_id, 100);
+    /// let mut ctx = TransactionContext::new(1, branch_id, 100);
     /// // ... use the context ...
     ///
     /// // Reset for reuse - capacity is preserved!
-    /// ctx.reset(2, new_run_id, Some(new_snapshot));
+    /// ctx.reset(2, new_branch_id, Some(new_snapshot));
     /// ```
-    pub fn reset(&mut self, txn_id: u64, run_id: RunId, snapshot: Option<Box<dyn SnapshotView>>) {
+    pub fn reset(&mut self, txn_id: u64, branch_id: BranchId, snapshot: Option<Box<dyn SnapshotView>>) {
         // Update identity
         self.txn_id = txn_id;
-        self.run_id = run_id;
+        self.branch_id = branch_id;
 
         // Update snapshot and version
         self.start_version = snapshot.as_ref().map(|s| s.version()).unwrap_or(0);
@@ -1301,7 +1301,7 @@ impl TransactionContext {
     /// # Example
     ///
     /// ```ignore
-    /// let ctx = TransactionContext::new(1, run_id, 100);
+    /// let ctx = TransactionContext::new(1, branch_id, 100);
     /// let (read_cap, write_cap, delete_cap, cas_cap) = ctx.capacity();
     /// ```
     pub fn capacity(&self) -> (usize, usize, usize, usize) {

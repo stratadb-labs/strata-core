@@ -10,12 +10,12 @@ use strata_concurrency::transaction::TransactionContext;
 use strata_core::traits::SnapshotView;
 use strata_core::types::{Key, Namespace};
 use strata_core::value::Value;
-use strata_core::{RunId, Versioned};
+use strata_core::{BranchId, Versioned};
 use std::collections::BTreeMap;
 use std::sync::Arc;
 
-fn create_test_key(run_id: RunId, name: &str) -> Key {
-    let ns = Namespace::for_run(run_id);
+fn create_test_key(branch_id: BranchId, name: &str) -> Key {
+    let ns = Namespace::for_branch(branch_id);
     Key::new_kv(ns, name)
 }
 
@@ -27,8 +27,8 @@ type VersionedValue = Versioned<Value>;
 
 #[test]
 fn snapshot_captures_state_at_creation() {
-    let run_id = RunId::new();
-    let key = create_test_key(run_id, "captured");
+    let branch_id = BranchId::new();
+    let key = create_test_key(branch_id, "captured");
 
     let mut data = BTreeMap::new();
     data.insert(
@@ -45,8 +45,8 @@ fn snapshot_captures_state_at_creation() {
 
 #[test]
 fn snapshot_is_immutable() {
-    let run_id = RunId::new();
-    let key = create_test_key(run_id, "immutable");
+    let branch_id = BranchId::new();
+    let key = create_test_key(branch_id, "immutable");
 
     let mut data = BTreeMap::new();
     data.insert(
@@ -79,8 +79,8 @@ fn snapshot_version_reflects_creation_time() {
 
 #[test]
 fn repeated_reads_return_same_value() {
-    let run_id = RunId::new();
-    let key = create_test_key(run_id, "repeat");
+    let branch_id = BranchId::new();
+    let key = create_test_key(branch_id, "repeat");
 
     let mut data = BTreeMap::new();
     data.insert(
@@ -101,8 +101,8 @@ fn repeated_reads_return_same_value() {
 
 #[test]
 fn missing_key_consistently_returns_none() {
-    let run_id = RunId::new();
-    let key = create_test_key(run_id, "missing");
+    let branch_id = BranchId::new();
+    let key = create_test_key(branch_id, "missing");
 
     let snapshot = ClonedSnapshotView::new(1, BTreeMap::new());
 
@@ -119,11 +119,11 @@ fn missing_key_consistently_returns_none() {
 
 #[test]
 fn transaction_sees_own_uncommitted_writes() {
-    let run_id = RunId::new();
-    let key = create_test_key(run_id, "ryw");
+    let branch_id = BranchId::new();
+    let key = create_test_key(branch_id, "ryw");
 
     // Transaction without snapshot (for testing)
-    let mut txn = TransactionContext::new(1, run_id, 1);
+    let mut txn = TransactionContext::new(1, branch_id, 1);
 
     // Write a value
     txn.write_set.insert(key.clone(), Value::Int(42));
@@ -138,10 +138,10 @@ fn transaction_sees_own_uncommitted_writes() {
 
 #[test]
 fn transaction_sees_own_deletes() {
-    let run_id = RunId::new();
-    let key = create_test_key(run_id, "deleted");
+    let branch_id = BranchId::new();
+    let key = create_test_key(branch_id, "deleted");
 
-    let mut txn = TransactionContext::new(1, run_id, 1);
+    let mut txn = TransactionContext::new(1, branch_id, 1);
 
     // Delete a key
     txn.delete_set.insert(key.clone());
@@ -152,10 +152,10 @@ fn transaction_sees_own_deletes() {
 
 #[test]
 fn write_then_delete_sees_delete() {
-    let run_id = RunId::new();
-    let key = create_test_key(run_id, "write_del");
+    let branch_id = BranchId::new();
+    let key = create_test_key(branch_id, "write_del");
 
-    let mut txn = TransactionContext::new(1, run_id, 1);
+    let mut txn = TransactionContext::new(1, branch_id, 1);
 
     // Write then delete
     txn.write_set.insert(key.clone(), Value::Int(42));
@@ -171,8 +171,8 @@ fn write_then_delete_sees_delete() {
 
 #[test]
 fn snapshot_scan_prefix_returns_matching_keys() {
-    let run_id = RunId::new();
-    let ns = Namespace::for_run(run_id);
+    let branch_id = BranchId::new();
+    let ns = Namespace::for_branch(branch_id);
 
     let mut data = BTreeMap::new();
     for i in 0..10 {
@@ -200,8 +200,8 @@ fn snapshot_scan_prefix_returns_matching_keys() {
 
 #[test]
 fn snapshot_scan_empty_prefix() {
-    let run_id = RunId::new();
-    let ns = Namespace::for_run(run_id);
+    let branch_id = BranchId::new();
+    let ns = Namespace::for_branch(branch_id);
 
     let snapshot = ClonedSnapshotView::new(1, BTreeMap::new());
 
@@ -217,8 +217,8 @@ fn snapshot_scan_empty_prefix() {
 
 #[test]
 fn snapshot_can_be_shared_via_arc() {
-    let run_id = RunId::new();
-    let key = create_test_key(run_id, "shared");
+    let branch_id = BranchId::new();
+    let key = create_test_key(branch_id, "shared");
 
     let mut data = BTreeMap::new();
     data.insert(
@@ -235,8 +235,8 @@ fn snapshot_can_be_shared_via_arc() {
 
 #[test]
 fn cloned_snapshots_are_independent() {
-    let run_id = RunId::new();
-    let key = create_test_key(run_id, "independent");
+    let branch_id = BranchId::new();
+    let key = create_test_key(branch_id, "independent");
 
     let mut data = BTreeMap::new();
     data.insert(
@@ -281,8 +281,8 @@ fn snapshot_is_send_and_sync() {
 fn snapshot_concurrent_reads() {
     use std::thread;
 
-    let run_id = RunId::new();
-    let key = create_test_key(run_id, "concurrent");
+    let branch_id = BranchId::new();
+    let key = create_test_key(branch_id, "concurrent");
 
     let mut data = BTreeMap::new();
     data.insert(
@@ -322,8 +322,8 @@ fn empty_snapshot_creation() {
 
 #[test]
 fn empty_snapshot_get_returns_none() {
-    let run_id = RunId::new();
-    let key = create_test_key(run_id, "any");
+    let branch_id = BranchId::new();
+    let key = create_test_key(branch_id, "any");
 
     let snapshot = ClonedSnapshotView::empty(0);
     let result = SnapshotView::get(&snapshot, &key).unwrap();
@@ -332,8 +332,8 @@ fn empty_snapshot_get_returns_none() {
 
 #[test]
 fn empty_snapshot_scan_returns_empty() {
-    let run_id = RunId::new();
-    let ns = Namespace::for_run(run_id);
+    let branch_id = BranchId::new();
+    let ns = Namespace::for_branch(branch_id);
     let prefix = Key::new_kv(ns, "any");
 
     let snapshot = ClonedSnapshotView::empty(0);

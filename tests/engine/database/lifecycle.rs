@@ -13,11 +13,11 @@ fn ephemeral_database_is_functional() {
     let db = Database::ephemeral()
         .expect("ephemeral database");
 
-    let run_id = RunId::new();
+    let branch_id = BranchId::new();
     let kv = KVStore::new(db);
 
-    kv.put(&run_id, "key", Value::Int(42)).unwrap();
-    let result = kv.get(&run_id, "key").unwrap();
+    kv.put(&branch_id, "key", Value::Int(42)).unwrap();
+    let result = kv.get(&branch_id, "key").unwrap();
 
     assert!(result.is_some());
     assert_eq!(result.unwrap(), Value::Int(42));
@@ -25,7 +25,7 @@ fn ephemeral_database_is_functional() {
 
 #[test]
 fn ephemeral_database_data_is_lost_on_drop() {
-    let run_id = RunId::new();
+    let branch_id = BranchId::new();
     let key = unique_key();
 
     // Write data
@@ -33,14 +33,14 @@ fn ephemeral_database_data_is_lost_on_drop() {
         let db = Database::ephemeral()
             .expect("ephemeral database");
         let kv = KVStore::new(db);
-        kv.put(&run_id, &key, Value::Int(42)).unwrap();
+        kv.put(&branch_id, &key, Value::Int(42)).unwrap();
     }
 
     // New ephemeral database has no data
     let db = Database::ephemeral()
         .expect("ephemeral database");
     let kv = KVStore::new(db);
-    let result = kv.get(&run_id, &key).unwrap();
+    let result = kv.get(&branch_id, &key).unwrap();
 
     assert!(result.is_none());
 }
@@ -68,13 +68,13 @@ fn persistent_database_creates_directory() {
 #[test]
 fn persistent_database_survives_reopen() {
     let mut test_db = TestDb::new();
-    let run_id = test_db.run_id;
+    let branch_id = test_db.branch_id;
     let key = unique_key();
 
     // Write data
     {
         let kv = test_db.kv();
-        kv.put(&run_id, &key, Value::Int(42)).unwrap();
+        kv.put(&branch_id, &key, Value::Int(42)).unwrap();
     }
 
     // Force sync and reopen
@@ -83,7 +83,7 @@ fn persistent_database_survives_reopen() {
 
     // Verify data persisted
     let kv = test_db.kv();
-    let result = kv.get(&run_id, &key).unwrap();
+    let result = kv.get(&branch_id, &key).unwrap();
 
     assert!(result.is_some());
     assert_eq!(result.unwrap(), Value::Int(42));
@@ -92,13 +92,13 @@ fn persistent_database_survives_reopen() {
 #[test]
 fn persistent_database_multiple_reopens() {
     let mut test_db = TestDb::new();
-    let run_id = test_db.run_id;
+    let branch_id = test_db.branch_id;
 
     // Write and reopen multiple times
     for i in 0..5 {
         {
             let kv = test_db.kv();
-            kv.put(&run_id, &format!("key_{}", i), Value::Int(i)).unwrap();
+            kv.put(&branch_id, &format!("key_{}", i), Value::Int(i)).unwrap();
         }
         test_db.db.shutdown().unwrap();
         test_db.reopen();
@@ -107,7 +107,7 @@ fn persistent_database_multiple_reopens() {
     // Verify all data present
     let kv = test_db.kv();
     for i in 0..5 {
-        let result = kv.get(&run_id, &format!("key_{}", i)).unwrap();
+        let result = kv.get(&branch_id, &format!("key_{}", i)).unwrap();
         assert!(result.is_some(), "key_{} should exist", i);
         assert_eq!(result.unwrap(), Value::Int(i));
     }
@@ -162,10 +162,10 @@ fn builder_strict_mode() {
         .unwrap();
 
     // Verify it works
-    let run_id = RunId::new();
+    let branch_id = BranchId::new();
     let kv = KVStore::new(db);
-    kv.put(&run_id, "key", Value::Int(1)).unwrap();
-    assert_eq!(kv.get(&run_id, "key").unwrap(), Some(Value::Int(1)));
+    kv.put(&branch_id, "key", Value::Int(1)).unwrap();
+    assert_eq!(kv.get(&branch_id, "key").unwrap(), Some(Value::Int(1)));
 }
 
 #[test]
@@ -179,10 +179,10 @@ fn builder_buffered_mode() {
         .unwrap();
 
     // Verify it works
-    let run_id = RunId::new();
+    let branch_id = BranchId::new();
     let kv = KVStore::new(db);
-    kv.put(&run_id, "key", Value::Int(1)).unwrap();
-    assert_eq!(kv.get(&run_id, "key").unwrap(), Some(Value::Int(1)));
+    kv.put(&branch_id, "key", Value::Int(1)).unwrap();
+    assert_eq!(kv.get(&branch_id, "key").unwrap(), Some(Value::Int(1)));
 }
 
 // ============================================================================

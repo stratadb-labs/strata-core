@@ -13,7 +13,7 @@
 //! 2. EventLog: Concurrent appends, hash chain integrity, payload validation
 //! 3. StateCell: CAS contention, version monotonicity under stress
 //! 4. VectorStore: Numerical precision, concurrent operations
-//! 5. RunIndex: Concurrent run operations, cascade delete
+//! 5. BranchIndex: Concurrent run operations, cascade delete
 //!
 //! These tests follow the TESTING_METHODOLOGY.md principles:
 //! - Test behavior, not implementation
@@ -26,7 +26,7 @@ use std::sync::{Arc, Barrier};
 use std::thread;
 
 use strata_core::contract::Version;
-use strata_core::types::RunId;
+use strata_core::types::BranchId;
 use strata_core::value::Value;
 use strata_engine::Database;
 use strata_engine::{
@@ -39,11 +39,11 @@ use tempfile::TempDir;
 // Test Helpers
 // ============================================================================
 
-fn setup() -> (Arc<Database>, TempDir, RunId) {
+fn setup() -> (Arc<Database>, TempDir, BranchId) {
     let temp_dir = TempDir::new().unwrap();
     let db = Database::open(temp_dir.path()).unwrap();
-    let run_id = RunId::new();
-    (db, temp_dir, run_id)
+    let branch_id = BranchId::new();
+    (db, temp_dir, branch_id)
 }
 
 fn empty_payload() -> Value {
@@ -61,7 +61,7 @@ fn int_payload(v: i64) -> Value {
 /// Test concurrent puts to same key - last write wins, no data corruption
 #[test]
 fn test_kv_concurrent_puts_same_key_no_corruption() {
-    let (db, _temp, run_id) = setup();
+    let (db, _temp, branch_id) = setup();
     let kv = KVStore::new(db.clone());
 
     let num_threads = 8;
@@ -72,7 +72,7 @@ fn test_kv_concurrent_puts_same_key_no_corruption() {
     let handles: Vec<_> = (0..num_threads)
         .map(|thread_id| {
             let kv = kv.clone();
-            let run_id = run_id;
+            let branch_id = branch_id;
             let barrier = Arc::clone(&barrier);
             let success_count = Arc::clone(&success_count);
 
@@ -80,7 +80,7 @@ fn test_kv_concurrent_puts_same_key_no_corruption() {
                 barrier.wait();
                 for i in 0..writes_per_thread {
                     let value = Value::Int((thread_id * 1000 + i) as i64);
-                    if kv.put(&run_id, "contested_key", value).is_ok() {
+                    if kv.put(&branch_id, "contested_key", value).is_ok() {
                         success_count.fetch_add(1, Ordering::Relaxed);
                     }
                 }
@@ -101,7 +101,7 @@ fn test_kv_concurrent_puts_same_key_no_corruption() {
     );
 
     // Final value should be valid (from some thread)
-    let final_value = kv.get(&run_id, "contested_key").unwrap().unwrap();
+    let final_value = kv.get(&branch_id, "contested_key").unwrap().unwrap();
     match final_value.value {
         Value::Int(v) => assert!(v >= 0, "Value should be a valid integer"),
         _ => panic!("Value should be Int"),
@@ -111,7 +111,7 @@ fn test_kv_concurrent_puts_same_key_no_corruption() {
 /// Test concurrent puts to different keys - all should succeed
 #[test]
 fn test_kv_concurrent_puts_different_keys_all_succeed() {
-    let (db, _temp, run_id) = setup();
+    let (db, _temp, branch_id) = setup();
     let kv = KVStore::new(db.clone());
 
     let num_threads = 8;
@@ -121,7 +121,7 @@ fn test_kv_concurrent_puts_different_keys_all_succeed() {
     let handles: Vec<_> = (0..num_threads)
         .map(|thread_id| {
             let kv = kv.clone();
-            let run_id = run_id;
+            let branch_id = branch_id;
             let barrier = Arc::clone(&barrier);
 
             thread::spawn(move || {
@@ -129,7 +129,7 @@ fn test_kv_concurrent_puts_different_keys_all_succeed() {
                 for i in 0..keys_per_thread {
                     let key = format!("thread_{}_key_{}", thread_id, i);
                     let value = Value::Int((thread_id * 1000 + i) as i64);
-                    kv.put(&run_id, &key, value).unwrap();
+                    kv.put(&branch_id, &key, value).unwrap();
                 }
             })
         })
@@ -144,7 +144,7 @@ fn test_kv_concurrent_puts_different_keys_all_succeed() {
         for i in 0..keys_per_thread {
             let key = format!("thread_{}_key_{}", thread_id, i);
             let expected = (thread_id * 1000 + i) as i64;
-            let actual = kv.get(&run_id, &key).unwrap().unwrap();
+            let actual = kv.get(&branch_id, &key).unwrap().unwrap();
             assert_eq!(
                 actual.value,
                 Value::Int(expected),
@@ -158,7 +158,7 @@ fn test_kv_concurrent_puts_different_keys_all_succeed() {
 /// Test rapid put-delete cycles don't cause inconsistency
 #[test]
 fn test_kv_rapid_put_delete_cycles() {
-    let (db, _temp, run_id) = setup();
+    let (db, _temp, branch_id) = setup();
     let kv = KVStore::new(db.clone());
 
     let cycles = 100;
@@ -167,17 +167,17 @@ fn test_kv_rapid_put_delete_cycles() {
         let key = format!("cycle_key_{}", i % 10); // Reuse 10 keys
 
         // Put
-        kv.put(&run_id, &key, Value::Int(i as i64)).unwrap();
+        kv.put(&branch_id, &key, Value::Int(i as i64)).unwrap();
 
         // Verify exists
-        assert!(kv.exists(&run_id, &key).unwrap(), "Key should exist after put");
+        assert!(kv.exists(&branch_id, &key).unwrap(), "Key should exist after put");
 
         // Delete
-        kv.delete(&run_id, &key).unwrap();
+        kv.delete(&branch_id, &key).unwrap();
 
         // Verify deleted (uses MVCC tombstone)
         assert!(
-            !kv.exists(&run_id, &key).unwrap(),
+            !kv.exists(&branch_id, &key).unwrap(),
             "Key should not exist after delete"
         );
     }
@@ -186,7 +186,7 @@ fn test_kv_rapid_put_delete_cycles() {
 /// Test special characters in keys
 #[test]
 fn test_kv_special_characters_in_keys() {
-    let (db, _temp, run_id) = setup();
+    let (db, _temp, branch_id) = setup();
     let kv = KVStore::new(db.clone());
 
     let long_key = "x".repeat(1000);
@@ -207,9 +207,9 @@ fn test_kv_special_characters_in_keys() {
 
     for (i, key) in special_keys.iter().enumerate() {
         let value = Value::Int(i as i64);
-        kv.put(&run_id, key, value.clone()).unwrap();
+        kv.put(&branch_id, key, value.clone()).unwrap();
 
-        let retrieved = kv.get(&run_id, key).unwrap().unwrap();
+        let retrieved = kv.get(&branch_id, key).unwrap().unwrap();
         assert_eq!(
             retrieved.value, value,
             "Key {:?} should round-trip correctly",
@@ -221,11 +221,11 @@ fn test_kv_special_characters_in_keys() {
 /// Test version monotonicity under concurrent updates
 #[test]
 fn test_kv_version_monotonicity_under_contention() {
-    let (db, _temp, run_id) = setup();
+    let (db, _temp, branch_id) = setup();
     let kv = KVStore::new(db.clone());
 
     // Initial put
-    let v1 = kv.put(&run_id, "versioned_key", Value::Int(0)).unwrap();
+    let v1 = kv.put(&branch_id, "versioned_key", Value::Int(0)).unwrap();
 
     let num_threads = 4;
     let updates_per_thread = 50;
@@ -235,14 +235,14 @@ fn test_kv_version_monotonicity_under_contention() {
     let handles: Vec<_> = (0..num_threads)
         .map(|_| {
             let kv = kv.clone();
-            let run_id = run_id;
+            let branch_id = branch_id;
             let barrier = Arc::clone(&barrier);
             let versions = Arc::clone(&versions);
 
             thread::spawn(move || {
                 barrier.wait();
                 for i in 0..updates_per_thread {
-                    let result = kv.put(&run_id, "versioned_key", Value::Int(i as i64));
+                    let result = kv.put(&branch_id, "versioned_key", Value::Int(i as i64));
                     if let Ok(version) = result {
                         versions.lock().push(version.as_u64());
                     }
@@ -269,7 +269,7 @@ fn test_kv_version_monotonicity_under_contention() {
     );
 
     // Final read should have highest version
-    let final_read = kv.get(&run_id, "versioned_key").unwrap().unwrap();
+    let final_read = kv.get(&branch_id, "versioned_key").unwrap().unwrap();
     assert!(
         final_read.version.as_u64() >= *sorted_versions.last().unwrap(),
         "Final version should be at least max recorded"
@@ -283,7 +283,7 @@ fn test_kv_version_monotonicity_under_contention() {
 /// Test concurrent appends maintain total order
 #[test]
 fn test_eventlog_concurrent_appends_total_order() {
-    let (db, _temp, run_id) = setup();
+    let (db, _temp, branch_id) = setup();
     let event_log = EventLog::new(db.clone());
 
     let num_threads = 4;
@@ -294,7 +294,7 @@ fn test_eventlog_concurrent_appends_total_order() {
     let handles: Vec<_> = (0..num_threads)
         .map(|thread_id| {
             let event_log = event_log.clone();
-            let run_id = run_id;
+            let branch_id = branch_id;
             let barrier = Arc::clone(&barrier);
             let sequences = Arc::clone(&sequences);
 
@@ -303,7 +303,7 @@ fn test_eventlog_concurrent_appends_total_order() {
                 for i in 0..events_per_thread {
                     let event_type = format!("thread_{}_event", thread_id);
                     let payload = int_payload((thread_id * 1000 + i) as i64);
-                    if let Ok(seq) = event_log.append(&run_id, &event_type, payload) {
+                    if let Ok(seq) = event_log.append(&branch_id, &event_type, payload) {
                         sequences.lock().push(seq.as_u64());
                     }
                 }
@@ -339,7 +339,7 @@ fn test_eventlog_concurrent_appends_total_order() {
 /// Test hash chain integrity after concurrent appends
 #[test]
 fn test_eventlog_hash_chain_integrity_under_concurrency() {
-    let (db, _temp, run_id) = setup();
+    let (db, _temp, branch_id) = setup();
     let event_log = EventLog::new(db.clone());
 
     let num_threads = 4;
@@ -349,7 +349,7 @@ fn test_eventlog_hash_chain_integrity_under_concurrency() {
     let handles: Vec<_> = (0..num_threads)
         .map(|thread_id| {
             let event_log = event_log.clone();
-            let run_id = run_id;
+            let branch_id = branch_id;
             let barrier = Arc::clone(&barrier);
 
             thread::spawn(move || {
@@ -357,7 +357,7 @@ fn test_eventlog_hash_chain_integrity_under_concurrency() {
                 for i in 0..events_per_thread {
                     let event_type = format!("event_{}", thread_id);
                     let payload = int_payload(i as i64);
-                    let _ = event_log.append(&run_id, &event_type, payload);
+                    let _ = event_log.append(&branch_id, &event_type, payload);
                 }
             })
         })
@@ -368,7 +368,7 @@ fn test_eventlog_hash_chain_integrity_under_concurrency() {
     }
 
     // Verify chain integrity
-    let verification = event_log.verify_chain(&run_id).unwrap();
+    let verification = event_log.verify_chain(&branch_id).unwrap();
     assert!(
         verification.is_valid,
         "Hash chain should be valid after concurrent appends"
@@ -383,21 +383,21 @@ fn test_eventlog_hash_chain_integrity_under_concurrency() {
 /// Test event type validation edge cases
 #[test]
 fn test_eventlog_event_type_validation() {
-    let (db, _temp, run_id) = setup();
+    let (db, _temp, branch_id) = setup();
     let event_log = EventLog::new(db.clone());
 
     // Empty event type should fail
-    let result = event_log.append(&run_id, "", empty_payload());
+    let result = event_log.append(&branch_id, "", empty_payload());
     assert!(result.is_err(), "Empty event type should be rejected");
 
     // Very long event type should fail (max 256 chars)
     let long_type = "x".repeat(300);
-    let result = event_log.append(&run_id, &long_type, empty_payload());
+    let result = event_log.append(&branch_id, &long_type, empty_payload());
     assert!(result.is_err(), "Event type > 256 chars should be rejected");
 
     // Max length should succeed
     let max_type = "x".repeat(256);
-    let result = event_log.append(&run_id, &max_type, empty_payload());
+    let result = event_log.append(&branch_id, &max_type, empty_payload());
     assert!(result.is_ok(), "Event type of exactly 256 chars should succeed");
 
     // Special characters should work
@@ -412,7 +412,7 @@ fn test_eventlog_event_type_validation() {
     ];
 
     for event_type in special_types {
-        let result = event_log.append(&run_id, event_type, empty_payload());
+        let result = event_log.append(&branch_id, event_type, empty_payload());
         assert!(
             result.is_ok(),
             "Event type {:?} should be accepted",
@@ -424,11 +424,11 @@ fn test_eventlog_event_type_validation() {
 /// Test payload validation - only objects allowed
 #[test]
 fn test_eventlog_payload_validation() {
-    let (db, _temp, run_id) = setup();
+    let (db, _temp, branch_id) = setup();
     let event_log = EventLog::new(db.clone());
 
     // Object payload should succeed
-    let result = event_log.append(&run_id, "test", empty_payload());
+    let result = event_log.append(&branch_id, "test", empty_payload());
     assert!(result.is_ok(), "Object payload should succeed");
 
     // Primitive payloads should fail
@@ -441,7 +441,7 @@ fn test_eventlog_payload_validation() {
     ];
 
     for payload in primitives {
-        let result = event_log.append(&run_id, "test", payload.clone());
+        let result = event_log.append(&branch_id, "test", payload.clone());
         assert!(
             result.is_err(),
             "Primitive payload {:?} should be rejected",
@@ -451,14 +451,14 @@ fn test_eventlog_payload_validation() {
 
     // Array payload should fail
     let array_payload = Value::Array(vec![Value::Int(1), Value::Int(2)]);
-    let result = event_log.append(&run_id, "test", array_payload);
+    let result = event_log.append(&branch_id, "test", array_payload);
     assert!(result.is_err(), "Array payload should be rejected");
 }
 
 /// Test stream metadata accuracy under concurrent appends
 #[test]
 fn test_eventlog_stream_metadata_accuracy() {
-    let (db, _temp, run_id) = setup();
+    let (db, _temp, branch_id) = setup();
     let event_log = EventLog::new(db.clone());
 
     let num_threads = 4;
@@ -468,7 +468,7 @@ fn test_eventlog_stream_metadata_accuracy() {
     let handles: Vec<_> = (0..num_threads)
         .map(|thread_id| {
             let event_log = event_log.clone();
-            let run_id = run_id;
+            let branch_id = branch_id;
             let barrier = Arc::clone(&barrier);
 
             thread::spawn(move || {
@@ -476,7 +476,7 @@ fn test_eventlog_stream_metadata_accuracy() {
                 let event_type = format!("stream_{}", thread_id);
                 for i in 0..events_per_thread {
                     let payload = int_payload(i as i64);
-                    let _ = event_log.append(&run_id, &event_type, payload);
+                    let _ = event_log.append(&branch_id, &event_type, payload);
                 }
             })
         })
@@ -487,7 +487,7 @@ fn test_eventlog_stream_metadata_accuracy() {
     }
 
     // Verify total count
-    let total = event_log.len(&run_id).unwrap();
+    let total = event_log.len(&branch_id).unwrap();
     assert_eq!(
         total,
         (num_threads * events_per_thread) as u64,
@@ -497,7 +497,7 @@ fn test_eventlog_stream_metadata_accuracy() {
     // Verify per-stream counts
     for thread_id in 0..num_threads {
         let stream = format!("stream_{}", thread_id);
-        let stream_info = event_log.stream_info(&run_id, &stream).unwrap();
+        let stream_info = event_log.stream_info(&branch_id, &stream).unwrap();
         let count = stream_info.map(|m| m.count).unwrap_or(0);
         assert_eq!(
             count, events_per_thread as u64,
@@ -514,11 +514,11 @@ fn test_eventlog_stream_metadata_accuracy() {
 /// Test concurrent CAS operations - only one should win per version
 #[test]
 fn test_statecell_concurrent_cas_conflict_detection() {
-    let (db, _temp, run_id) = setup();
+    let (db, _temp, branch_id) = setup();
     let state_cell = StateCell::new(db.clone());
 
     // Initialize cell
-    state_cell.init(&run_id, "cell", Value::Int(0)).unwrap();
+    state_cell.init(&branch_id, "cell", Value::Int(0)).unwrap();
 
     let num_threads = 8;
     let barrier = Arc::new(Barrier::new(num_threads));
@@ -528,7 +528,7 @@ fn test_statecell_concurrent_cas_conflict_detection() {
     let handles: Vec<_> = (0..num_threads)
         .map(|thread_id| {
             let state_cell = state_cell.clone();
-            let run_id = run_id;
+            let branch_id = branch_id;
             let barrier = Arc::clone(&barrier);
             let success_count = Arc::clone(&success_count);
             let conflict_count = Arc::clone(&conflict_count);
@@ -536,7 +536,7 @@ fn test_statecell_concurrent_cas_conflict_detection() {
             thread::spawn(move || {
                 barrier.wait();
                 // All threads try to CAS from version 1 to their value
-                let result = state_cell.cas(&run_id, "cell", Version::counter(1), Value::Int(thread_id as i64));
+                let result = state_cell.cas(&branch_id, "cell", Version::counter(1), Value::Int(thread_id as i64));
                 match result {
                     Ok(_) => {
                         success_count.fetch_add(1, Ordering::Relaxed);
@@ -569,11 +569,11 @@ fn test_statecell_concurrent_cas_conflict_detection() {
 /// Test transition retries under contention
 #[test]
 fn test_statecell_transition_retries_under_contention() {
-    let (db, _temp, run_id) = setup();
+    let (db, _temp, branch_id) = setup();
     let state_cell = StateCell::new(db.clone());
 
     // Initialize counter
-    state_cell.init(&run_id, "counter", Value::Int(0)).unwrap();
+    state_cell.init(&branch_id, "counter", Value::Int(0)).unwrap();
 
     let num_threads = 4;
     let increments_per_thread = 25;
@@ -582,7 +582,7 @@ fn test_statecell_transition_retries_under_contention() {
     let handles: Vec<_> = (0..num_threads)
         .map(|_| {
             let state_cell = state_cell.clone();
-            let run_id = run_id;
+            let branch_id = branch_id;
             let barrier = Arc::clone(&barrier);
 
             thread::spawn(move || {
@@ -590,7 +590,7 @@ fn test_statecell_transition_retries_under_contention() {
                 for _ in 0..increments_per_thread {
                     // transition should retry on conflict
                     state_cell
-                        .transition(&run_id, "counter", |state| {
+                        .transition(&branch_id, "counter", |state| {
                             let current = state.value.as_int().unwrap_or(0);
                             Ok((Value::Int(current + 1), current + 1))
                         })
@@ -605,7 +605,7 @@ fn test_statecell_transition_retries_under_contention() {
     }
 
     // All increments should have been applied
-    let final_state = state_cell.read(&run_id, "counter").unwrap().unwrap();
+    let final_state = state_cell.read(&branch_id, "counter").unwrap().unwrap();
     let expected = (num_threads * increments_per_thread) as i64;
     assert_eq!(
         final_state.value.value,
@@ -617,12 +617,12 @@ fn test_statecell_transition_retries_under_contention() {
 /// Test version monotonicity under concurrent transitions
 #[test]
 fn test_statecell_version_monotonicity_under_transitions() {
-    let (db, _temp, run_id) = setup();
+    let (db, _temp, branch_id) = setup();
     let state_cell = StateCell::new(db.clone());
 
     // Initialize
     let init_version = state_cell
-        .init(&run_id, "mono", Value::Int(0))
+        .init(&branch_id, "mono", Value::Int(0))
         .unwrap();
     assert_eq!(init_version.value, Version::counter(1), "Init should return version 1");
 
@@ -634,14 +634,14 @@ fn test_statecell_version_monotonicity_under_transitions() {
     let handles: Vec<_> = (0..num_threads)
         .map(|_| {
             let state_cell = state_cell.clone();
-            let run_id = run_id;
+            let branch_id = branch_id;
             let barrier = Arc::clone(&barrier);
             let versions = Arc::clone(&versions);
 
             thread::spawn(move || {
                 barrier.wait();
                 for _ in 0..transitions_per_thread {
-                    let result = state_cell.transition(&run_id, "mono", |state| {
+                    let result = state_cell.transition(&branch_id, "mono", |state| {
                         let current = state.value.as_int().unwrap_or(0);
                         // Return the expected new version (counter-based)
                         Ok((Value::Int(current + 1), state.version.as_u64() + 1))
@@ -686,25 +686,25 @@ fn test_statecell_version_monotonicity_under_transitions() {
 /// Test init on existing cell fails
 #[test]
 fn test_statecell_init_existing_fails() {
-    let (db, _temp, run_id) = setup();
+    let (db, _temp, branch_id) = setup();
     let state_cell = StateCell::new(db.clone());
 
     // First init succeeds
-    state_cell.init(&run_id, "cell", Value::Int(0)).unwrap();
+    state_cell.init(&branch_id, "cell", Value::Int(0)).unwrap();
 
     // Second init should fail
-    let result = state_cell.init(&run_id, "cell", Value::Int(1));
+    let result = state_cell.init(&branch_id, "cell", Value::Int(1));
     assert!(result.is_err(), "Init on existing cell should fail");
 }
 
 /// Test CAS on nonexistent cell fails
 #[test]
 fn test_statecell_cas_nonexistent_fails() {
-    let (db, _temp, run_id) = setup();
+    let (db, _temp, branch_id) = setup();
     let state_cell = StateCell::new(db.clone());
 
     // CAS on nonexistent cell should fail
-    let result = state_cell.cas(&run_id, "nonexistent", Version::counter(1), Value::Int(42));
+    let result = state_cell.cas(&branch_id, "nonexistent", Version::counter(1), Value::Int(42));
     assert!(result.is_err(), "CAS on nonexistent cell should fail");
 }
 
@@ -715,11 +715,11 @@ fn test_statecell_cas_nonexistent_fails() {
 /// Test vector search with edge case floats (zeros, very small, very large)
 #[test]
 fn test_vector_search_edge_case_floats() {
-    let (db, _temp, run_id) = setup();
+    let (db, _temp, branch_id) = setup();
     let store = VectorStore::new(db.clone());
 
     let config = VectorConfig::new(4, DistanceMetric::Cosine).unwrap();
-    store.create_collection(run_id, "floats", config).unwrap();
+    store.create_collection(branch_id, "floats", config).unwrap();
 
     // Insert vectors with edge case values
     let vectors = vec![
@@ -733,13 +733,13 @@ fn test_vector_search_edge_case_floats() {
 
     for (key, embedding) in &vectors {
         store
-            .insert(run_id, "floats", key, embedding, None)
+            .insert(branch_id, "floats", key, embedding, None)
             .unwrap();
     }
 
     // Search with normal query
     let query = vec![1.0, 1.0, 1.0, 1.0];
-    let results = store.search(run_id, "floats", &query, 6, None).unwrap();
+    let results = store.search(branch_id, "floats", &query, 6, None).unwrap();
 
     // Should return all vectors (6 results)
     assert_eq!(results.len(), 6, "Should return all 6 vectors");
@@ -774,26 +774,26 @@ fn test_vector_search_edge_case_floats() {
 /// Test vector dimension validation
 #[test]
 fn test_vector_dimension_validation() {
-    let (db, _temp, run_id) = setup();
+    let (db, _temp, branch_id) = setup();
     let store = VectorStore::new(db.clone());
 
     let config = VectorConfig::new(3, DistanceMetric::Euclidean).unwrap();
-    store.create_collection(run_id, "dim3", config).unwrap();
+    store.create_collection(branch_id, "dim3", config).unwrap();
 
     // Correct dimension should work
     store
-        .insert(run_id, "dim3", "correct", &[1.0, 2.0, 3.0], None)
+        .insert(branch_id, "dim3", "correct", &[1.0, 2.0, 3.0], None)
         .unwrap();
 
     // Wrong dimension should fail
-    let result = store.insert(run_id, "dim3", "wrong_small", &[1.0, 2.0], None);
+    let result = store.insert(branch_id, "dim3", "wrong_small", &[1.0, 2.0], None);
     assert!(
         result.is_err(),
         "Vector with wrong dimension (2) should be rejected"
     );
 
     let result = store.insert(
-        run_id,
+        branch_id,
         "dim3",
         "wrong_large",
         &[1.0, 2.0, 3.0, 4.0],
@@ -808,47 +808,47 @@ fn test_vector_dimension_validation() {
 /// Test collection isolation - different collections don't interfere
 #[test]
 fn test_vector_collection_isolation() {
-    let (db, _temp, run_id) = setup();
+    let (db, _temp, branch_id) = setup();
     let store = VectorStore::new(db.clone());
 
     let config = VectorConfig::new(2, DistanceMetric::Cosine).unwrap();
-    store.create_collection(run_id, "coll_a", config.clone()).unwrap();
-    store.create_collection(run_id, "coll_b", config).unwrap();
+    store.create_collection(branch_id, "coll_a", config.clone()).unwrap();
+    store.create_collection(branch_id, "coll_b", config).unwrap();
 
     // Insert into collection A
     store
-        .insert(run_id, "coll_a", "key1", &[1.0, 0.0], None)
+        .insert(branch_id, "coll_a", "key1", &[1.0, 0.0], None)
         .unwrap();
 
     // Insert into collection B
     store
-        .insert(run_id, "coll_b", "key1", &[0.0, 1.0], None)
+        .insert(branch_id, "coll_b", "key1", &[0.0, 1.0], None)
         .unwrap();
 
     // Search in A should find A's vector
     let results_a = store
-        .search(run_id, "coll_a", &[1.0, 0.0], 10, None)
+        .search(branch_id, "coll_a", &[1.0, 0.0], 10, None)
         .unwrap();
     assert_eq!(results_a.len(), 1);
     assert_eq!(results_a[0].key, "key1");
 
     // Search in B should find B's vector
     let results_b = store
-        .search(run_id, "coll_b", &[0.0, 1.0], 10, None)
+        .search(branch_id, "coll_b", &[0.0, 1.0], 10, None)
         .unwrap();
     assert_eq!(results_b.len(), 1);
     assert_eq!(results_b[0].key, "key1");
 
     // Delete from A shouldn't affect B
-    store.delete(run_id, "coll_a", "key1").unwrap();
+    store.delete(branch_id, "coll_a", "key1").unwrap();
 
     let results_a_after = store
-        .search(run_id, "coll_a", &[1.0, 0.0], 10, None)
+        .search(branch_id, "coll_a", &[1.0, 0.0], 10, None)
         .unwrap();
     assert_eq!(results_a_after.len(), 0, "A should be empty after delete");
 
     let results_b_after = store
-        .search(run_id, "coll_b", &[0.0, 1.0], 10, None)
+        .search(branch_id, "coll_b", &[0.0, 1.0], 10, None)
         .unwrap();
     assert_eq!(results_b_after.len(), 1, "B should still have the vector");
 }
@@ -856,32 +856,32 @@ fn test_vector_collection_isolation() {
 /// Test upsert overwrites existing vector
 #[test]
 fn test_vector_upsert_overwrites() {
-    let (db, _temp, run_id) = setup();
+    let (db, _temp, branch_id) = setup();
     let store = VectorStore::new(db.clone());
 
     let config = VectorConfig::new(2, DistanceMetric::DotProduct).unwrap();
-    store.create_collection(run_id, "overwrite", config).unwrap();
+    store.create_collection(branch_id, "overwrite", config).unwrap();
 
     // Initial insert
     store
-        .insert(run_id, "overwrite", "key", &[1.0, 0.0], None)
+        .insert(branch_id, "overwrite", "key", &[1.0, 0.0], None)
         .unwrap();
 
     // Search should find it
     let results = store
-        .search(run_id, "overwrite", &[1.0, 0.0], 10, None)
+        .search(branch_id, "overwrite", &[1.0, 0.0], 10, None)
         .unwrap();
     assert_eq!(results.len(), 1);
     assert!((results[0].score - 1.0).abs() < 0.001, "Score should be ~1.0");
 
     // Overwrite with different vector
     store
-        .insert(run_id, "overwrite", "key", &[0.0, 1.0], None)
+        .insert(branch_id, "overwrite", "key", &[0.0, 1.0], None)
         .unwrap();
 
     // Search with old query should have lower score
     let results_after = store
-        .search(run_id, "overwrite", &[1.0, 0.0], 10, None)
+        .search(branch_id, "overwrite", &[1.0, 0.0], 10, None)
         .unwrap();
     assert_eq!(results_after.len(), 1);
     assert!(
@@ -891,7 +891,7 @@ fn test_vector_upsert_overwrites() {
 
     // Search with new query should have high score
     let results_new = store
-        .search(run_id, "overwrite", &[0.0, 1.0], 10, None)
+        .search(branch_id, "overwrite", &[0.0, 1.0], 10, None)
         .unwrap();
     assert!(
         (results_new[0].score - 1.0).abs() < 0.001,
@@ -902,7 +902,7 @@ fn test_vector_upsert_overwrites() {
 /// Test distance metric correctness
 #[test]
 fn test_vector_distance_metrics_correctness() {
-    let (db, _temp, run_id) = setup();
+    let (db, _temp, branch_id) = setup();
     let store = VectorStore::new(db.clone());
 
     // Test each distance metric
@@ -933,14 +933,14 @@ fn test_vector_distance_metrics_correctness() {
     for (name, metric, v1, v2, expected) in test_cases {
         let config = VectorConfig::new(2, metric).unwrap();
         store
-            .create_collection(run_id, name, config)
+            .create_collection(branch_id, name, config)
             .unwrap();
 
         store
-            .insert(run_id, name, "target", &v1, None)
+            .insert(branch_id, name, "target", &v1, None)
             .unwrap();
 
-        let results = store.search(run_id, name, &v2, 1, None).unwrap();
+        let results = store.search(branch_id, name, &v2, 1, None).unwrap();
         assert_eq!(results.len(), 1);
 
         let score = results[0].score;
@@ -968,11 +968,11 @@ fn test_vector_distance_metrics_correctness() {
 /// Test concurrent upserts to same collection
 #[test]
 fn test_vector_concurrent_upserts_same_collection() {
-    let (db, _temp, run_id) = setup();
+    let (db, _temp, branch_id) = setup();
     let store = VectorStore::new(db.clone());
 
     let config = VectorConfig::new(4, DistanceMetric::Cosine).unwrap();
-    store.create_collection(run_id, "concurrent", config).unwrap();
+    store.create_collection(branch_id, "concurrent", config).unwrap();
 
     let num_threads = 4;
     let vectors_per_thread = 25;
@@ -994,7 +994,7 @@ fn test_vector_concurrent_upserts_same_collection() {
                         1.0,
                     ];
                     store
-                        .insert(run_id, "concurrent", &key, &embedding, None)
+                        .insert(branch_id, "concurrent", &key, &embedding, None)
                         .unwrap();
                 }
             })
@@ -1008,7 +1008,7 @@ fn test_vector_concurrent_upserts_same_collection() {
     // Verify all vectors exist
     let expected_count = num_threads * vectors_per_thread;
     let results = store
-        .search(run_id, "concurrent", &[1.0, 1.0, 1.0, 1.0], expected_count, None)
+        .search(branch_id, "concurrent", &[1.0, 1.0, 1.0, 1.0], expected_count, None)
         .unwrap();
 
     assert_eq!(
@@ -1027,61 +1027,61 @@ fn test_vector_concurrent_upserts_same_collection() {
 #[test]
 fn test_run_isolation_comprehensive() {
     let (db, _temp, _) = setup();
-    let run_a = RunId::new();
-    let run_b = RunId::new();
+    let branch_a = BranchId::new();
+    let branch_b = BranchId::new();
 
     let kv = KVStore::new(db.clone());
     let event_log = EventLog::new(db.clone());
     let state_cell = StateCell::new(db.clone());
 
     // Write to run A
-    kv.put(&run_a, "key", Value::Int(1)).unwrap();
-    event_log.append(&run_a, "event", empty_payload()).unwrap();
-    state_cell.init(&run_a, "cell", Value::Int(100)).unwrap();
+    kv.put(&branch_a, "key", Value::Int(1)).unwrap();
+    event_log.append(&branch_a, "event", empty_payload()).unwrap();
+    state_cell.init(&branch_a, "cell", Value::Int(100)).unwrap();
 
     // Write to run B
-    kv.put(&run_b, "key", Value::Int(2)).unwrap();
-    event_log.append(&run_b, "event", empty_payload()).unwrap();
-    state_cell.init(&run_b, "cell", Value::Int(200)).unwrap();
+    kv.put(&branch_b, "key", Value::Int(2)).unwrap();
+    event_log.append(&branch_b, "event", empty_payload()).unwrap();
+    state_cell.init(&branch_b, "cell", Value::Int(200)).unwrap();
 
     // Verify isolation
     assert_eq!(
-        kv.get(&run_a, "key").unwrap().unwrap(),
+        kv.get(&branch_a, "key").unwrap().unwrap(),
         Value::Int(1),
         "Run A should see its own KV value"
     );
     assert_eq!(
-        kv.get(&run_b, "key").unwrap().unwrap(),
+        kv.get(&branch_b, "key").unwrap().unwrap(),
         Value::Int(2),
         "Run B should see its own KV value"
     );
 
     assert_eq!(
-        event_log.len(&run_a).unwrap(),
+        event_log.len(&branch_a).unwrap(),
         1,
         "Run A should have 1 event"
     );
     assert_eq!(
-        event_log.len(&run_b).unwrap(),
+        event_log.len(&branch_b).unwrap(),
         1,
         "Run B should have 1 event"
     );
 
     assert_eq!(
-        state_cell.read(&run_a, "cell").unwrap().unwrap().value,
+        state_cell.read(&branch_a, "cell").unwrap().unwrap().value,
         Value::Int(100),
         "Run A should see its own state"
     );
     assert_eq!(
-        state_cell.read(&run_b, "cell").unwrap().unwrap().value,
+        state_cell.read(&branch_b, "cell").unwrap().unwrap().value,
         Value::Int(200),
         "Run B should see its own state"
     );
 
     // Delete from run A shouldn't affect run B
-    kv.delete(&run_a, "key").unwrap();
+    kv.delete(&branch_a, "key").unwrap();
     assert!(
-        kv.get(&run_b, "key").unwrap().is_some(),
+        kv.get(&branch_b, "key").unwrap().is_some(),
         "Run B key should still exist after deleting from run A"
     );
 }
@@ -1090,7 +1090,7 @@ fn test_run_isolation_comprehensive() {
 #[test]
 fn test_persistence_across_reopen() {
     let temp_dir = TempDir::new().unwrap();
-    let run_id = RunId::new();
+    let branch_id = BranchId::new();
 
     // Write data
     {
@@ -1099,13 +1099,13 @@ fn test_persistence_across_reopen() {
         let event_log = EventLog::new(db.clone());
         let state_cell = StateCell::new(db.clone());
 
-        kv.put(&run_id, "persistent_key", Value::String("value".into()))
+        kv.put(&branch_id, "persistent_key", Value::String("value".into()))
             .unwrap();
         event_log
-            .append(&run_id, "persistent_event", int_payload(42))
+            .append(&branch_id, "persistent_event", int_payload(42))
             .unwrap();
         state_cell
-            .init(&run_id, "persistent_cell", Value::Int(999))
+            .init(&branch_id, "persistent_cell", Value::Int(999))
             .unwrap();
 
         db.flush().unwrap();
@@ -1119,7 +1119,7 @@ fn test_persistence_across_reopen() {
         let state_cell = StateCell::new(db.clone());
 
         // KV should persist
-        let kv_value = kv.get(&run_id, "persistent_key").unwrap().unwrap();
+        let kv_value = kv.get(&branch_id, "persistent_key").unwrap().unwrap();
         assert_eq!(
             kv_value.value,
             Value::String("value".into()),
@@ -1127,11 +1127,11 @@ fn test_persistence_across_reopen() {
         );
 
         // EventLog should persist
-        let event_count = event_log.len(&run_id).unwrap();
+        let event_count = event_log.len(&branch_id).unwrap();
         assert_eq!(event_count, 1, "Event should persist across reopen");
 
         // StateCell should persist
-        let state = state_cell.read(&run_id, "persistent_cell").unwrap().unwrap();
+        let state = state_cell.read(&branch_id, "persistent_cell").unwrap().unwrap();
         assert_eq!(
             state.value.value,
             Value::Int(999),

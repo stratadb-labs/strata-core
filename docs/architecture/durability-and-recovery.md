@@ -87,7 +87,7 @@ Snapshots are periodic full-state captures written to disk.
 | JSON | 2 |
 | Event | 3 |
 | State | 4 |
-| Run | 6 |
+| Branch | 6 |
 | Vector | 7 |
 
 ### Snapshot Benefits
@@ -123,20 +123,20 @@ When a database opens and finds existing WAL/snapshot files:
 - **Deterministic** — same WAL + same snapshot always produces the same state
 - **Idempotent** — running recovery again produces identical results
 - **Prefix-consistent** — no partial transactions are visible
-- **All primitives** — KV, JSON, Event, State, Run, and Vector are all recovered
+- **All primitives** — KV, JSON, Event, State, Branch, and Vector are all recovered
 
-## Run Bundles
+## Branch Bundles
 
-Run bundles package a single run's data into a portable archive.
+Branch bundles package a single branch's data into a portable archive.
 
 ### Bundle Format
 
 ```
-<run_id>.runbundle.tar.zst
+<branch_id>.branchbundle.tar.zst
   runbundle/
     MANIFEST.json     # Format version (1), xxh3 file checksums
-    RUN.json          # Run metadata (id, status, tags, timestamps)
-    WAL.runlog        # Binary WAL entries for this run
+    BRANCH.json          # Branch metadata (id, status, tags, timestamps)
+    WAL.runlog        # Binary WAL entries for this branch
 ```
 
 ### WAL.runlog Format
@@ -157,7 +157,7 @@ Per entry:
 
 1. Decompress and untar the archive
 2. Validate MANIFEST checksums
-3. Parse RUN.json for run metadata
+3. Parse BRANCH.json for branch metadata
 4. Read WAL.runlog entries
 5. Replay entries into the target database (same as crash recovery)
 
@@ -166,6 +166,6 @@ Per entry:
 1. **WAL-first** — all changes go through WAL before memory
 2. **CRC32 everywhere** — every entry and snapshot has checksums
 3. **Atomic writes** — snapshots and bundles use temp file + rename
-4. **Run isolation** — all WAL entries include run_id for filtering
+4. **Branch isolation** — all WAL entries include branch_id for filtering
 5. **Forward compatibility** — type tags allow skipping unknown entry types
 

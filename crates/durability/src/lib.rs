@@ -19,7 +19,7 @@
 
 // === Existing modules ===
 pub mod recovery; // WAL replay logic
-pub mod run_bundle; // Portable execution artifacts (RunBundle)
+pub mod branch_bundle; // Portable execution artifacts (BranchBundle)
 pub mod snapshot; // Snapshot writer and serialization
 pub mod snapshot_types; // Snapshot envelope and header types
 pub mod wal; // WAL segment types, durability modes
@@ -47,7 +47,7 @@ pub use snapshot_types::{
 pub use wal::DurabilityMode;
 
 // RunBundle types
-pub use run_bundle::{
+pub use branch_bundle::{
     BundleContents, BundleManifest, BundleRunInfo, BundleVerifyInfo,
     ExportOptions, ImportedRunInfo, ReadBundleContents, RunBundleError, RunBundleReader,
     RunBundleResult, RunBundleWriter, RunExportInfo, RunlogPayload,

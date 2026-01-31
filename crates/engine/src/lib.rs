@@ -2,13 +2,13 @@
 //!
 //! This crate orchestrates all lower layers:
 //! - Database: Main database struct with open/close
-//! - Run lifecycle: begin_run, end_run, fork_run (Epic 5)
+//! - Branch lifecycle: begin_run, end_run, fork_run (Epic 5)
 //! - Transaction coordination
 //! - Recovery integration
 //! - Background tasks (snapshots, TTL cleanup)
 //!
 //! The engine is the only component that knows about:
-//! - Run management
+//! - Branch management
 //! - Cross-layer coordination (storage + WAL + recovery)
 //! - Replay logic
 //!
@@ -34,8 +34,8 @@ pub use coordinator::{TransactionCoordinator, TransactionMetrics};
 pub use database::{Database, DatabaseBuilder, RetryConfig};
 pub use recovery::{
     recover_all_participants, register_recovery_participant, RecoveryFn, RecoveryParticipant,
-    diff_views, DiffEntry, ReadOnlyView, ReplayError, RunDiff, RunError,
-    ReplayRunIndex,
+    diff_views, DiffEntry, ReadOnlyView, ReplayError, BranchDiff, BranchError,
+    ReplayBranchIndex,
 };
 pub use strata_durability::wal::DurabilityMode;
 pub use instrumentation::PerfTrace;
@@ -60,9 +60,9 @@ pub use primitives::{
     // Primitives
     KVStore, EventLog, Event,
     StateCell, State, JsonStore, JsonDoc, VectorStore,
-    RunIndex, RunMetadata, RunStatus,
+    BranchIndex, BranchMetadata, BranchStatus,
     // Handles
-    RunHandle, EventHandle, JsonHandle, KvHandle, StateHandle, VectorHandle,
+    BranchHandle, EventHandle, JsonHandle, KvHandle, StateHandle, VectorHandle,
     // Search & Scoring
     Searchable, SearchCandidate, SimpleScorer,
     BM25LiteScorer, Scorer, ScorerContext, SearchDoc,

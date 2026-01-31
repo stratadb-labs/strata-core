@@ -4,7 +4,7 @@
 
 use crate::common::*;
 use strata_core::Value;
-use strata_executor::{Command, Error, DistanceMetric, RunId};
+use strata_executor::{Command, Error, DistanceMetric, BranchId};
 
 // ============================================================================
 // Vector Errors
@@ -105,8 +105,8 @@ fn vector_delete_nonexistent_collection_behavior() {
 fn run_get_nonexistent_returns_none() {
     let executor = create_executor();
 
-    let result = executor.execute(Command::RunGet {
-        run: RunId::from("nonexistent-run"),
+    let result = executor.execute(Command::BranchGet {
+        run: BranchId::from("nonexistent-run"),
     });
 
     // RunGet on nonexistent run should either return Maybe(None) or error
@@ -121,25 +121,25 @@ fn run_get_nonexistent_returns_none() {
 fn run_duplicate_id_fails() {
     let executor = create_executor();
 
-    executor.execute(Command::RunCreate {
-        run_id: Some("unique-run".into()),
+    executor.execute(Command::BranchCreate {
+        branch_id: Some("unique-run".into()),
         metadata: None,
     }).unwrap();
 
     // Try to create another with same name
-    let result = executor.execute(Command::RunCreate {
-        run_id: Some("unique-run".into()),
+    let result = executor.execute(Command::BranchCreate {
+        branch_id: Some("unique-run".into()),
         metadata: None,
     });
 
     match result {
-        Err(Error::RunExists { run }) => {
-            assert!(run.contains("unique-run"), "RunExists error should reference 'unique-run', got: {}", run);
+        Err(Error::BranchExists { branch }) => {
+            assert!(branch.contains("unique-run"), "BranchExists error should reference 'unique-run', got: {}", branch);
         }
         Err(Error::InvalidInput { reason }) => {
             assert!(reason.contains("unique-run"), "InvalidInput error should reference 'unique-run', got: {}", reason);
         }
-        other => panic!("Expected RunExists or InvalidInput, got {:?}", other),
+        other => panic!("Expected BranchExists or InvalidInput, got {:?}", other),
     }
 }
 

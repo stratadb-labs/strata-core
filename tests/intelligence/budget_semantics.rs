@@ -17,8 +17,8 @@ use std::collections::HashSet;
 #[test]
 fn test_tier3_budget_truncates_not_corrupts() {
     let db = create_test_db();
-    let run_id = test_run_id();
-    populate_large_dataset(&db, &run_id, 100);
+    let branch_id = test_run_id();
+    populate_large_dataset(&db, &branch_id, 100);
 
     let kv = KVStore::new(db.clone());
 
@@ -26,7 +26,7 @@ fn test_tier3_budget_truncates_not_corrupts() {
     let tight_budget = SearchBudget::default()
         .with_candidates(10)
         .with_per_primitive(10);
-    let req_tight = SearchRequest::new(run_id, "searchable")
+    let req_tight = SearchRequest::new(branch_id, "searchable")
         .with_budget(tight_budget)
         .with_k(100);
 
@@ -34,7 +34,7 @@ fn test_tier3_budget_truncates_not_corrupts() {
     let unlimited_budget = SearchBudget::default()
         .with_candidates(10000)
         .with_per_primitive(10000);
-    let req_full = SearchRequest::new(run_id, "searchable")
+    let req_full = SearchRequest::new(branch_id, "searchable")
         .with_budget(unlimited_budget)
         .with_k(100);
 
@@ -55,8 +55,8 @@ fn test_tier3_budget_truncates_not_corrupts() {
 #[test]
 fn test_tier3_truncation_sets_flag() {
     let db = create_test_db();
-    let run_id = test_run_id();
-    populate_large_dataset(&db, &run_id, 100);
+    let branch_id = test_run_id();
+    populate_large_dataset(&db, &branch_id, 100);
 
     let kv = KVStore::new(db.clone());
 
@@ -64,7 +64,7 @@ fn test_tier3_truncation_sets_flag() {
     let tight_budget = SearchBudget::default()
         .with_candidates(5)
         .with_per_primitive(5);
-    let req = SearchRequest::new(run_id, "searchable")
+    let req = SearchRequest::new(branch_id, "searchable")
         .with_budget(tight_budget)
         .with_k(100);
 
@@ -87,8 +87,8 @@ fn test_tier3_truncation_sets_flag() {
 #[test]
 fn test_tier3_budget_preserves_prefix_ordering() {
     let db = create_test_db();
-    let run_id = test_run_id();
-    populate_large_dataset(&db, &run_id, 50);
+    let branch_id = test_run_id();
+    populate_large_dataset(&db, &branch_id, 50);
 
     let kv = KVStore::new(db.clone());
 
@@ -100,10 +100,10 @@ fn test_tier3_budget_preserves_prefix_ordering() {
         .with_candidates(50)
         .with_per_primitive(50);
 
-    let req_10 = SearchRequest::new(run_id, "searchable")
+    let req_10 = SearchRequest::new(branch_id, "searchable")
         .with_budget(budget_10)
         .with_k(50);
-    let req_50 = SearchRequest::new(run_id, "searchable")
+    let req_50 = SearchRequest::new(branch_id, "searchable")
         .with_budget(budget_50)
         .with_k(50);
 
@@ -125,15 +125,15 @@ fn test_tier3_budget_preserves_prefix_ordering() {
 #[test]
 fn test_tier3_scores_decreasing_with_budget() {
     let db = create_test_db();
-    let run_id = test_run_id();
-    populate_large_dataset(&db, &run_id, 50);
+    let branch_id = test_run_id();
+    populate_large_dataset(&db, &branch_id, 50);
 
     let kv = KVStore::new(db.clone());
 
     let budget = SearchBudget::default()
         .with_candidates(20)
         .with_per_primitive(20);
-    let req = SearchRequest::new(run_id, "searchable")
+    let req = SearchRequest::new(branch_id, "searchable")
         .with_budget(budget)
         .with_k(50);
 
@@ -150,15 +150,15 @@ fn test_tier3_scores_decreasing_with_budget() {
 #[test]
 fn test_tier3_budget_no_duplicates() {
     let db = create_test_db();
-    let run_id = test_run_id();
-    populate_large_dataset(&db, &run_id, 50);
+    let branch_id = test_run_id();
+    populate_large_dataset(&db, &branch_id, 50);
 
     let hybrid = db.hybrid();
 
     let budget = SearchBudget::default()
         .with_candidates(30)
         .with_per_primitive(30);
-    let req = SearchRequest::new(run_id, "searchable")
+    let req = SearchRequest::new(branch_id, "searchable")
         .with_budget(budget)
         .with_k(50);
 

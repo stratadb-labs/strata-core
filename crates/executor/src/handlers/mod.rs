@@ -9,7 +9,7 @@
 //! | `event` | 11 | EventLog |
 //! | `state` | 8 | StateCell |
 //! | `vector` | 19 | VectorStore |
-//! | `run` | 24 | RunIndex |
+//! | `run` | 24 | BranchIndex |
 //! | `transaction` | 5 | TransactionControl |
 //! | `retention` | 3 | RetentionSubstrate |
 //! | `database` | 4 | Database-level |
@@ -19,7 +19,7 @@ pub mod json;
 pub mod event;
 pub mod state;
 pub mod vector;
-pub mod run;
+pub mod branch;
 pub mod search;
 
 // Transaction commands are deferred because the Executor is stateless by design.

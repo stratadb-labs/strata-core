@@ -11,7 +11,7 @@ StrataDB provides **six data primitives** — purpose-built data structures that
 | **[State Cell](../guides/state-cell.md)** | Named cell with CAS | Coordination, counters, locks, state machines |
 | **[JSON Store](../guides/json-store.md)** | Key → JSON document with path access | Structured config, conversation history |
 | **[Vector Store](../guides/vector-store.md)** | Collection of keyed embeddings | Similarity search, RAG context, agent memory |
-| **[Run](../guides/run-management.md)** | Named isolated namespace | Session isolation, experiments, multi-tenancy |
+| **[Branch](../guides/branch-management.md)** | Named isolated namespace | Session isolation, experiments, multi-tenancy |
 
 ## Choosing the Right Primitive
 
@@ -25,7 +25,7 @@ StrataDB provides **six data primitives** — purpose-built data structures that
 
 **"I need to store and search embeddings"** → Vector Store. Create collections with a fixed dimension and distance metric, then search by similarity.
 
-**"I need to isolate data between sessions or experiments"** → Runs. Every other primitive is scoped to a run.
+**"I need to isolate data between sessions or experiments"** → Branches. Every other primitive is scoped to a branch.
 
 ## Comparison
 
@@ -41,9 +41,9 @@ StrataDB provides **six data primitives** — purpose-built data structures that
 
 *Vector operations are not transactional — they bypass the session transaction system.
 
-## All Primitives Are Run-Scoped
+## All Primitives Are Branch-Scoped
 
-Every primitive is isolated by the current run. Data written in one run is invisible from another. See [Runs](runs.md) for details.
+Every primitive is isolated by the current branch. Data written in one branch is invisible from another. See [Branches](branches.md) for details.
 
 ## All Primitives Use Value
 

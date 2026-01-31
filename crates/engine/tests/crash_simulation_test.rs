@@ -21,7 +21,7 @@
 //! - Multiple incomplete transactions (all discarded)
 //! - Mix of committed and incomplete (only committed recovered)
 
-use strata_core::types::{Key, Namespace, RunId};
+use strata_core::types::{Key, Namespace, BranchId};
 use strata_core::value::Value;
 use strata_core::Timestamp;
 use strata_core::Storage;
@@ -40,7 +40,7 @@ fn test_crash_after_begin_txn_only() {
     let temp_dir = TempDir::new().unwrap();
     let db_path = temp_dir.path().join("crash_begin_only");
 
-    let run_id = RunId::new();
+    let branch_id = BranchId::new();
 
     // Simulate crash: write only BeginTxn, then "crash"
     {
@@ -52,7 +52,7 @@ fn test_crash_after_begin_txn_only() {
         wal_guard
             .append(&WALEntry::BeginTxn {
                 txn_id: 1,
-                run_id,
+                branch_id,
                 timestamp: now(),
             })
             .unwrap();
@@ -78,12 +78,12 @@ fn test_crash_after_begin_and_write() {
     let temp_dir = TempDir::new().unwrap();
     let db_path = temp_dir.path().join("crash_after_write");
 
-    let run_id = RunId::new();
+    let branch_id = BranchId::new();
     let ns = Namespace::new(
         "tenant".to_string(),
         "app".to_string(),
         "agent".to_string(),
-        run_id,
+        branch_id,
     );
 
     // Simulate crash: write BeginTxn + Write, then "crash"
@@ -96,14 +96,14 @@ fn test_crash_after_begin_and_write() {
         wal_guard
             .append(&WALEntry::BeginTxn {
                 txn_id: 1,
-                run_id,
+                branch_id,
                 timestamp: now(),
             })
             .unwrap();
 
         wal_guard
             .append(&WALEntry::Write {
-                run_id,
+                branch_id,
                 key: Key::new_kv(ns.clone(), "crash_key"),
                 value: Value::Bytes(b"never_committed".to_vec()),
                 version: 1,
@@ -130,12 +130,12 @@ fn test_crash_after_commit_strict_mode() {
     let temp_dir = TempDir::new().unwrap();
     let db_path = temp_dir.path().join("crash_committed");
 
-    let run_id = RunId::new();
+    let branch_id = BranchId::new();
     let ns = Namespace::new(
         "tenant".to_string(),
         "app".to_string(),
         "agent".to_string(),
-        run_id,
+        branch_id,
     );
 
     // Write committed transaction with strict mode (should be durable)
@@ -148,14 +148,14 @@ fn test_crash_after_commit_strict_mode() {
         wal_guard
             .append(&WALEntry::BeginTxn {
                 txn_id: 1,
-                run_id,
+                branch_id,
                 timestamp: now(),
             })
             .unwrap();
 
         wal_guard
             .append(&WALEntry::Write {
-                run_id,
+                branch_id,
                 key: Key::new_kv(ns.clone(), "durable_key"),
                 value: Value::Bytes(b"durable_value".to_vec()),
                 version: 1,
@@ -163,7 +163,7 @@ fn test_crash_after_commit_strict_mode() {
             .unwrap();
 
         wal_guard
-            .append(&WALEntry::CommitTxn { txn_id: 1, run_id })
+            .append(&WALEntry::CommitTxn { txn_id: 1, branch_id })
             .unwrap();
 
         // Strict mode: fsync happened after CommitTxn
@@ -193,12 +193,12 @@ fn test_crash_batched_mode_may_lose_recent() {
     let temp_dir = TempDir::new().unwrap();
     let db_path = temp_dir.path().join("crash_batched");
 
-    let run_id = RunId::new();
+    let branch_id = BranchId::new();
     let ns = Namespace::new(
         "tenant".to_string(),
         "app".to_string(),
         "agent".to_string(),
-        run_id,
+        branch_id,
     );
 
     // Write with batched mode (recent writes may not be fsynced)
@@ -218,14 +218,14 @@ fn test_crash_batched_mode_may_lose_recent() {
         wal_guard
             .append(&WALEntry::BeginTxn {
                 txn_id: 1,
-                run_id,
+                branch_id,
                 timestamp: now(),
             })
             .unwrap();
 
         wal_guard
             .append(&WALEntry::Write {
-                run_id,
+                branch_id,
                 key: Key::new_kv(ns.clone(), "maybe_lost"),
                 value: Value::Bytes(b"might_not_be_durable".to_vec()),
                 version: 1,
@@ -233,7 +233,7 @@ fn test_crash_batched_mode_may_lose_recent() {
             .unwrap();
 
         wal_guard
-            .append(&WALEntry::CommitTxn { txn_id: 1, run_id })
+            .append(&WALEntry::CommitTxn { txn_id: 1, branch_id })
             .unwrap();
 
         // Drop without waiting for batch fsync
@@ -260,12 +260,12 @@ fn test_multiple_incomplete_transactions() {
     let temp_dir = TempDir::new().unwrap();
     let db_path = temp_dir.path().join("multi_crash");
 
-    let run_id = RunId::new();
+    let branch_id = BranchId::new();
     let ns = Namespace::new(
         "tenant".to_string(),
         "app".to_string(),
         "agent".to_string(),
-        run_id,
+        branch_id,
     );
 
     // Write 5 incomplete transactions
@@ -279,14 +279,14 @@ fn test_multiple_incomplete_transactions() {
             wal_guard
                 .append(&WALEntry::BeginTxn {
                     txn_id: i,
-                    run_id,
+                    branch_id,
                     timestamp: now(),
                 })
                 .unwrap();
 
             wal_guard
                 .append(&WALEntry::Write {
-                    run_id,
+                    branch_id,
                     key: Key::new_kv(ns.clone(), format!("incomplete_{}", i)),
                     value: Value::Bytes(format!("value_{}", i).into_bytes()),
                     version: i + 1,
@@ -323,12 +323,12 @@ fn test_mixed_committed_and_incomplete() {
     let temp_dir = TempDir::new().unwrap();
     let db_path = temp_dir.path().join("mixed_crash");
 
-    let run_id = RunId::new();
+    let branch_id = BranchId::new();
     let ns = Namespace::new(
         "tenant".to_string(),
         "app".to_string(),
         "agent".to_string(),
-        run_id,
+        branch_id,
     );
 
     // Write: committed, incomplete, committed, incomplete
@@ -342,33 +342,33 @@ fn test_mixed_committed_and_incomplete() {
         wal_guard
             .append(&WALEntry::BeginTxn {
                 txn_id: 1,
-                run_id,
+                branch_id,
                 timestamp: now(),
             })
             .unwrap();
         wal_guard
             .append(&WALEntry::Write {
-                run_id,
+                branch_id,
                 key: Key::new_kv(ns.clone(), "committed_1"),
                 value: Value::Bytes(b"c1".to_vec()),
                 version: 1,
             })
             .unwrap();
         wal_guard
-            .append(&WALEntry::CommitTxn { txn_id: 1, run_id })
+            .append(&WALEntry::CommitTxn { txn_id: 1, branch_id })
             .unwrap();
 
         // Txn 2 - incomplete
         wal_guard
             .append(&WALEntry::BeginTxn {
                 txn_id: 2,
-                run_id,
+                branch_id,
                 timestamp: now(),
             })
             .unwrap();
         wal_guard
             .append(&WALEntry::Write {
-                run_id,
+                branch_id,
                 key: Key::new_kv(ns.clone(), "incomplete_2"),
                 value: Value::Bytes(b"i2".to_vec()),
                 version: 2,
@@ -380,33 +380,33 @@ fn test_mixed_committed_and_incomplete() {
         wal_guard
             .append(&WALEntry::BeginTxn {
                 txn_id: 3,
-                run_id,
+                branch_id,
                 timestamp: now(),
             })
             .unwrap();
         wal_guard
             .append(&WALEntry::Write {
-                run_id,
+                branch_id,
                 key: Key::new_kv(ns.clone(), "committed_3"),
                 value: Value::Bytes(b"c3".to_vec()),
                 version: 3,
             })
             .unwrap();
         wal_guard
-            .append(&WALEntry::CommitTxn { txn_id: 3, run_id })
+            .append(&WALEntry::CommitTxn { txn_id: 3, branch_id })
             .unwrap();
 
         // Txn 4 - incomplete
         wal_guard
             .append(&WALEntry::BeginTxn {
                 txn_id: 4,
-                run_id,
+                branch_id,
                 timestamp: now(),
             })
             .unwrap();
         wal_guard
             .append(&WALEntry::Write {
-                run_id,
+                branch_id,
                 key: Key::new_kv(ns.clone(), "incomplete_4"),
                 value: Value::Bytes(b"i4".to_vec()),
                 version: 4,
@@ -460,12 +460,12 @@ fn test_recovery_after_clean_shutdown() {
     let temp_dir = TempDir::new().unwrap();
     let db_path = temp_dir.path().join("clean_shutdown");
 
-    let run_id = RunId::new();
+    let branch_id = BranchId::new();
     let ns = Namespace::new(
         "tenant".to_string(),
         "app".to_string(),
         "agent".to_string(),
-        run_id,
+        branch_id,
     );
 
     // Normal operation: write and close cleanly
@@ -479,20 +479,20 @@ fn test_recovery_after_clean_shutdown() {
             wal_guard
                 .append(&WALEntry::BeginTxn {
                     txn_id: i,
-                    run_id,
+                    branch_id,
                     timestamp: now(),
                 })
                 .unwrap();
             wal_guard
                 .append(&WALEntry::Write {
-                    run_id,
+                    branch_id,
                     key: Key::new_kv(ns.clone(), format!("key_{}", i)),
                     value: Value::Bytes(format!("value_{}", i).into_bytes()),
                     version: i + 1,
                 })
                 .unwrap();
             wal_guard
-                .append(&WALEntry::CommitTxn { txn_id: i, run_id })
+                .append(&WALEntry::CommitTxn { txn_id: i, branch_id })
                 .unwrap();
         }
 
@@ -530,12 +530,12 @@ fn test_recovery_with_large_wal() {
     let temp_dir = TempDir::new().unwrap();
     let db_path = temp_dir.path().join("large_wal");
 
-    let run_id = RunId::new();
+    let branch_id = BranchId::new();
     let ns = Namespace::new(
         "tenant".to_string(),
         "app".to_string(),
         "agent".to_string(),
-        run_id,
+        branch_id,
     );
 
     const NUM_TRANSACTIONS: u64 = 100;
@@ -551,20 +551,20 @@ fn test_recovery_with_large_wal() {
             wal_guard
                 .append(&WALEntry::BeginTxn {
                     txn_id: i,
-                    run_id,
+                    branch_id,
                     timestamp: now(),
                 })
                 .unwrap();
             wal_guard
                 .append(&WALEntry::Write {
-                    run_id,
+                    branch_id,
                     key: Key::new_kv(ns.clone(), format!("k{}", i)),
                     value: Value::Bytes(vec![i as u8]),
                     version: i + 1,
                 })
                 .unwrap();
             wal_guard
-                .append(&WALEntry::CommitTxn { txn_id: i, run_id })
+                .append(&WALEntry::CommitTxn { txn_id: i, branch_id })
                 .unwrap();
         }
 
@@ -603,12 +603,12 @@ fn test_crash_with_aborted_transaction() {
     let temp_dir = TempDir::new().unwrap();
     let db_path = temp_dir.path().join("aborted_crash");
 
-    let run_id = RunId::new();
+    let branch_id = BranchId::new();
     let ns = Namespace::new(
         "tenant".to_string(),
         "app".to_string(),
         "agent".to_string(),
-        run_id,
+        branch_id,
     );
 
     // Write an aborted transaction
@@ -621,14 +621,14 @@ fn test_crash_with_aborted_transaction() {
         wal_guard
             .append(&WALEntry::BeginTxn {
                 txn_id: 1,
-                run_id,
+                branch_id,
                 timestamp: now(),
             })
             .unwrap();
 
         wal_guard
             .append(&WALEntry::Write {
-                run_id,
+                branch_id,
                 key: Key::new_kv(ns.clone(), "aborted_key"),
                 value: Value::Bytes(b"aborted_value".to_vec()),
                 version: 1,
@@ -636,7 +636,7 @@ fn test_crash_with_aborted_transaction() {
             .unwrap();
 
         wal_guard
-            .append(&WALEntry::AbortTxn { txn_id: 1, run_id })
+            .append(&WALEntry::AbortTxn { txn_id: 1, branch_id })
             .unwrap();
     }
 
@@ -657,12 +657,12 @@ fn test_crash_multi_write_transaction() {
     let temp_dir = TempDir::new().unwrap();
     let db_path = temp_dir.path().join("multi_write_crash");
 
-    let run_id = RunId::new();
+    let branch_id = BranchId::new();
     let ns = Namespace::new(
         "tenant".to_string(),
         "app".to_string(),
         "agent".to_string(),
-        run_id,
+        branch_id,
     );
 
     // Write multiple keys in one incomplete transaction
@@ -675,7 +675,7 @@ fn test_crash_multi_write_transaction() {
         wal_guard
             .append(&WALEntry::BeginTxn {
                 txn_id: 1,
-                run_id,
+                branch_id,
                 timestamp: now(),
             })
             .unwrap();
@@ -683,7 +683,7 @@ fn test_crash_multi_write_transaction() {
         for i in 0..10 {
             wal_guard
                 .append(&WALEntry::Write {
-                    run_id,
+                    branch_id,
                     key: Key::new_kv(ns.clone(), format!("multi_key_{}", i)),
                     value: Value::Int(i),
                     version: (i + 1) as u64,
@@ -717,12 +717,12 @@ fn test_crash_with_delete_operation() {
     let temp_dir = TempDir::new().unwrap();
     let db_path = temp_dir.path().join("delete_crash");
 
-    let run_id = RunId::new();
+    let branch_id = BranchId::new();
     let ns = Namespace::new(
         "tenant".to_string(),
         "app".to_string(),
         "agent".to_string(),
-        run_id,
+        branch_id,
     );
 
     // First: write and commit a key
@@ -735,14 +735,14 @@ fn test_crash_with_delete_operation() {
         wal_guard
             .append(&WALEntry::BeginTxn {
                 txn_id: 1,
-                run_id,
+                branch_id,
                 timestamp: now(),
             })
             .unwrap();
 
         wal_guard
             .append(&WALEntry::Write {
-                run_id,
+                branch_id,
                 key: Key::new_kv(ns.clone(), "to_delete"),
                 value: Value::Bytes(b"original".to_vec()),
                 version: 1,
@@ -750,7 +750,7 @@ fn test_crash_with_delete_operation() {
             .unwrap();
 
         wal_guard
-            .append(&WALEntry::CommitTxn { txn_id: 1, run_id })
+            .append(&WALEntry::CommitTxn { txn_id: 1, branch_id })
             .unwrap();
 
         drop(wal_guard);
@@ -767,14 +767,14 @@ fn test_crash_with_delete_operation() {
         wal_guard
             .append(&WALEntry::BeginTxn {
                 txn_id: 2,
-                run_id,
+                branch_id,
                 timestamp: now(),
             })
             .unwrap();
 
         wal_guard
             .append(&WALEntry::Delete {
-                run_id,
+                branch_id,
                 key: Key::new_kv(ns.clone(), "to_delete"),
                 version: 2,
             })
@@ -804,8 +804,8 @@ fn test_crash_interleaved_run_ids() {
     let temp_dir = TempDir::new().unwrap();
     let db_path = temp_dir.path().join("interleaved_crash");
 
-    let run_id1 = RunId::new();
-    let run_id2 = RunId::new();
+    let run_id1 = BranchId::new();
+    let run_id2 = BranchId::new();
 
     let ns1 = Namespace::new(
         "tenant".to_string(),
@@ -831,13 +831,13 @@ fn test_crash_interleaved_run_ids() {
         wal_guard
             .append(&WALEntry::BeginTxn {
                 txn_id: 1,
-                run_id: run_id1,
+                branch_id: run_id1,
                 timestamp: now(),
             })
             .unwrap();
         wal_guard
             .append(&WALEntry::Write {
-                run_id: run_id1,
+                branch_id: run_id1,
                 key: Key::new_kv(ns1.clone(), "run1_committed"),
                 value: Value::Bytes(b"r1c".to_vec()),
                 version: 1,
@@ -846,7 +846,7 @@ fn test_crash_interleaved_run_ids() {
         wal_guard
             .append(&WALEntry::CommitTxn {
                 txn_id: 1,
-                run_id: run_id1,
+                branch_id: run_id1,
             })
             .unwrap();
 
@@ -854,13 +854,13 @@ fn test_crash_interleaved_run_ids() {
         wal_guard
             .append(&WALEntry::BeginTxn {
                 txn_id: 2,
-                run_id: run_id2,
+                branch_id: run_id2,
                 timestamp: now(),
             })
             .unwrap();
         wal_guard
             .append(&WALEntry::Write {
-                run_id: run_id2,
+                branch_id: run_id2,
                 key: Key::new_kv(ns2.clone(), "run2_incomplete"),
                 value: Value::Bytes(b"r2i".to_vec()),
                 version: 2,
@@ -872,13 +872,13 @@ fn test_crash_interleaved_run_ids() {
         wal_guard
             .append(&WALEntry::BeginTxn {
                 txn_id: 3,
-                run_id: run_id1,
+                branch_id: run_id1,
                 timestamp: now(),
             })
             .unwrap();
         wal_guard
             .append(&WALEntry::Write {
-                run_id: run_id1,
+                branch_id: run_id1,
                 key: Key::new_kv(ns1.clone(), "run1_incomplete"),
                 value: Value::Bytes(b"r1i".to_vec()),
                 version: 3,

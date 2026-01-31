@@ -37,7 +37,7 @@ use crate::primitives::vector::{
 };
 use byteorder::{LittleEndian, ReadBytesExt, WriteBytesExt};
 use strata_core::value::Value;
-use strata_core::RunId;
+use strata_core::BranchId;
 use serde::{Deserialize, Serialize};
 use std::io::{Read, Write};
 
@@ -48,7 +48,7 @@ pub const VECTOR_SNAPSHOT_VERSION: u8 = 0x01;
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CollectionSnapshotHeader {
     /// Run ID for this collection
-    pub run_id: RunId,
+    pub branch_id: BranchId,
     /// Collection name
     pub name: String,
     /// Embedding dimension
@@ -97,16 +97,16 @@ impl VectorStore {
         // Sort collections for deterministic output
         let mut collections: Vec<_> = backends.iter().collect();
         collections.sort_by(|a, b| {
-            a.0.run_id
+            a.0.branch_id
                 .as_bytes()
-                .cmp(b.0.run_id.as_bytes())
+                .cmp(b.0.branch_id.as_bytes())
                 .then(a.0.name.cmp(&b.0.name))
         });
 
         for (collection_id, backend) in collections {
             // Get config from the collection info (which gets it from KV)
             let config = self
-                .get_collection(collection_id.run_id, &collection_id.name)?
+                .get_collection(collection_id.branch_id, &collection_id.name)?
                 .ok_or_else(|| VectorError::CollectionNotFound {
                     name: collection_id.name.clone(),
                 })?
@@ -118,7 +118,7 @@ impl VectorStore {
 
             // Create header
             let header = CollectionSnapshotHeader {
-                run_id: collection_id.run_id,
+                branch_id: collection_id.branch_id,
                 name: collection_id.name.clone(),
                 dimension: config.dimension,
                 metric: config.metric.to_byte(),
@@ -148,7 +148,7 @@ impl VectorStore {
 
                 // Get key and metadata from KV
                 let (key, metadata) = self.get_key_and_metadata(
-                    collection_id.run_id,
+                    collection_id.branch_id,
                     &collection_id.name,
                     vector_id,
                 )?;
@@ -239,17 +239,17 @@ impl VectorStore {
                 storage_dtype: StorageDtype::F32,
             };
 
-            let collection_id = CollectionId::new(header.run_id, &header.name);
+            let collection_id = CollectionId::new(header.branch_id, &header.name);
 
             // Restore collection configuration in KV
             let collection_record = crate::primitives::vector::CollectionRecord::new(&config);
             let config_key = strata_core::types::Key::new_vector_config(
-                strata_core::types::Namespace::for_run(header.run_id),
+                strata_core::types::Namespace::for_branch(header.branch_id),
                 &header.name,
             );
             let config_bytes = collection_record.to_bytes()?;
             self.db()
-                .transaction(header.run_id, |txn| {
+                .transaction(header.branch_id, |txn| {
                     txn.put(config_key.clone(), Value::Bytes(config_bytes.clone()))
                 })
                 .map_err(|e| VectorError::Database(e.to_string()))?;
@@ -314,10 +314,10 @@ impl VectorStore {
 
                 // Store VectorRecord in KV (includes embedding for history support)
                 let record = VectorRecord::new(vector_id, embedding.clone(), metadata);
-                let kv_key = self.vector_key_internal(header.run_id, &header.name, &key);
+                let kv_key = self.vector_key_internal(header.branch_id, &header.name, &key);
                 let record_bytes = record.to_bytes()?;
                 self.db()
-                    .transaction(header.run_id, |txn| {
+                    .transaction(header.branch_id, |txn| {
                         txn.put(kv_key.clone(), Value::Bytes(record_bytes.clone()))
                     })
                     .map_err(|e| VectorError::Database(e.to_string()))?;
@@ -371,27 +371,27 @@ mod tests {
         store2.snapshot_deserialize(&mut cursor).unwrap();
 
         // Should have no collections
-        let collections = store2.list_collections(RunId::new()).unwrap();
+        let collections = store2.list_collections(BranchId::new()).unwrap();
         assert!(collections.is_empty());
     }
 
     #[test]
     fn test_snapshot_roundtrip() {
         let (_temp, _db, store) = setup();
-        let run_id = RunId::new();
+        let branch_id = BranchId::new();
 
         // Create collection with vectors
         let config = VectorConfig::new(3, DistanceMetric::Cosine).unwrap();
         store
-            .create_collection(run_id, "test", config.clone())
+            .create_collection(branch_id, "test", config.clone())
             .unwrap();
 
         store
-            .insert(run_id, "test", "v1", &[1.0, 0.0, 0.0], None)
+            .insert(branch_id, "test", "v1", &[1.0, 0.0, 0.0], None)
             .unwrap();
         store
             .insert(
-                run_id,
+                branch_id,
                 "test",
                 "v2",
                 &[0.0, 1.0, 0.0],
@@ -399,7 +399,7 @@ mod tests {
             )
             .unwrap();
         store
-            .insert(run_id, "test", "v3", &[0.0, 0.0, 1.0], None)
+            .insert(branch_id, "test", "v3", &[0.0, 0.0, 1.0], None)
             .unwrap();
 
         // Serialize
@@ -412,36 +412,36 @@ mod tests {
         store2.snapshot_deserialize(&mut cursor).unwrap();
 
         // Verify collections
-        let collections = store2.list_collections(run_id).unwrap();
+        let collections = store2.list_collections(branch_id).unwrap();
         assert_eq!(collections.len(), 1);
         assert_eq!(collections[0].name, "test");
         assert_eq!(collections[0].count, 3);
 
         // Verify vectors
-        let v1 = store2.get(run_id, "test", "v1").unwrap().unwrap().value;
+        let v1 = store2.get(branch_id, "test", "v1").unwrap().unwrap().value;
         assert_eq!(v1.key, "v1");
         assert_eq!(v1.embedding, vec![1.0, 0.0, 0.0]);
 
-        let v2 = store2.get(run_id, "test", "v2").unwrap().unwrap().value;
+        let v2 = store2.get(branch_id, "test", "v2").unwrap().unwrap().value;
         assert_eq!(v2.metadata, Some(serde_json::json!({"type": "doc"})));
     }
 
     #[test]
     fn test_snapshot_preserves_next_id() {
         let (_temp, _db, store) = setup();
-        let run_id = RunId::new();
+        let branch_id = BranchId::new();
 
         let config = VectorConfig::new(3, DistanceMetric::Cosine).unwrap();
-        store.create_collection(run_id, "test", config).unwrap();
+        store.create_collection(branch_id, "test", config).unwrap();
 
         // Insert and delete to advance next_id
         store
-            .insert(run_id, "test", "v1", &[1.0, 0.0, 0.0], None)
+            .insert(branch_id, "test", "v1", &[1.0, 0.0, 0.0], None)
             .unwrap();
         store
-            .insert(run_id, "test", "v2", &[0.0, 1.0, 0.0], None)
+            .insert(branch_id, "test", "v2", &[0.0, 1.0, 0.0], None)
             .unwrap();
-        store.delete(run_id, "test", "v1").unwrap(); // Delete v1
+        store.delete(branch_id, "test", "v1").unwrap(); // Delete v1
 
         // Serialize
         let mut buffer = Vec::new();
@@ -454,32 +454,32 @@ mod tests {
 
         // Insert new vector - should get ID >= 2 (not reuse ID 0 or 1)
         store2
-            .insert(run_id, "test", "v3", &[0.0, 0.0, 1.0], None)
+            .insert(branch_id, "test", "v3", &[0.0, 0.0, 1.0], None)
             .unwrap();
 
         // Verify we have v2 and v3 (v1 was deleted)
-        assert!(store2.get(run_id, "test", "v1").unwrap().is_none());
-        assert!(store2.get(run_id, "test", "v2").unwrap().is_some());
-        assert!(store2.get(run_id, "test", "v3").unwrap().is_some());
+        assert!(store2.get(branch_id, "test", "v1").unwrap().is_none());
+        assert!(store2.get(branch_id, "test", "v2").unwrap().is_some());
+        assert!(store2.get(branch_id, "test", "v3").unwrap().is_some());
     }
 
     #[test]
     fn test_snapshot_multiple_collections() {
         let (_temp, _db, store) = setup();
-        let run_id = RunId::new();
+        let branch_id = BranchId::new();
 
         // Create multiple collections
         let config3 = VectorConfig::new(3, DistanceMetric::Cosine).unwrap();
         let config5 = VectorConfig::new(5, DistanceMetric::Euclidean).unwrap();
 
-        store.create_collection(run_id, "col_a", config3).unwrap();
-        store.create_collection(run_id, "col_b", config5).unwrap();
+        store.create_collection(branch_id, "col_a", config3).unwrap();
+        store.create_collection(branch_id, "col_b", config5).unwrap();
 
         store
-            .insert(run_id, "col_a", "v1", &[1.0, 0.0, 0.0], None)
+            .insert(branch_id, "col_a", "v1", &[1.0, 0.0, 0.0], None)
             .unwrap();
         store
-            .insert(run_id, "col_b", "v1", &[1.0, 0.0, 0.0, 0.0, 0.0], None)
+            .insert(branch_id, "col_b", "v1", &[1.0, 0.0, 0.0, 0.0, 0.0], None)
             .unwrap();
 
         // Serialize
@@ -492,26 +492,26 @@ mod tests {
         store2.snapshot_deserialize(&mut cursor).unwrap();
 
         // Verify both collections
-        let collections = store2.list_collections(run_id).unwrap();
+        let collections = store2.list_collections(branch_id).unwrap();
         assert_eq!(collections.len(), 2);
     }
 
     #[test]
     fn test_snapshot_deterministic() {
         let (_temp, _db, store) = setup();
-        let run_id = RunId::new();
+        let branch_id = BranchId::new();
 
         let config = VectorConfig::new(3, DistanceMetric::Cosine).unwrap();
-        store.create_collection(run_id, "test", config).unwrap();
+        store.create_collection(branch_id, "test", config).unwrap();
 
         store
-            .insert(run_id, "test", "b", &[0.0, 1.0, 0.0], None)
+            .insert(branch_id, "test", "b", &[0.0, 1.0, 0.0], None)
             .unwrap();
         store
-            .insert(run_id, "test", "a", &[1.0, 0.0, 0.0], None)
+            .insert(branch_id, "test", "a", &[1.0, 0.0, 0.0], None)
             .unwrap();
         store
-            .insert(run_id, "test", "c", &[0.0, 0.0, 1.0], None)
+            .insert(branch_id, "test", "c", &[0.0, 0.0, 1.0], None)
             .unwrap();
 
         // Serialize multiple times

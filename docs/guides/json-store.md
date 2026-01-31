@@ -157,9 +157,9 @@ db.json_set("agent:001:config", "$", config)?;
 db.json_set("agent:001:config", "$.model", "gpt-4-turbo")?;
 ```
 
-## Run Isolation
+## Branch Isolation
 
-JSON documents are isolated by run, like all primitives.
+JSON documents are isolated by branch, like all primitives.
 
 ## Transactions
 

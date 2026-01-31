@@ -519,7 +519,7 @@ pub fn build_search_response_with_index(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use strata_core::types::RunId;
+    use strata_core::types::BranchId;
 
     #[test]
     fn test_simple_scorer_basic() {
@@ -550,15 +550,15 @@ mod tests {
 
     #[test]
     fn test_score_and_rank() {
-        let run_id = RunId::new();
+        let branch_id = BranchId::new();
         let candidates = vec![
-            SearchCandidate::new(EntityRef::Run { run_id }, "hello world".to_string(), None),
+            SearchCandidate::new(EntityRef::Branch { branch_id }, "hello world".to_string(), None),
             SearchCandidate::new(
-                EntityRef::Run { run_id },
+                EntityRef::Branch { branch_id },
                 "hello hello hello".to_string(),
                 None,
             ),
-            SearchCandidate::new(EntityRef::Run { run_id }, "goodbye world".to_string(), None),
+            SearchCandidate::new(EntityRef::Branch { branch_id }, "goodbye world".to_string(), None),
         ];
 
         let hits = SimpleScorer::score_and_rank(candidates, "hello", 10);
@@ -569,11 +569,11 @@ mod tests {
 
     #[test]
     fn test_score_and_rank_respects_k() {
-        let run_id = RunId::new();
+        let branch_id = BranchId::new();
         let candidates: Vec<_> = (0..100)
             .map(|i| {
                 SearchCandidate::new(
-                    EntityRef::Run { run_id },
+                    EntityRef::Branch { branch_id },
                     format!("hello document {}", i),
                     None,
                 )
@@ -633,13 +633,13 @@ mod tests {
 
     #[test]
     fn test_build_search_response_with_index_enabled() {
-        let run_id = RunId::new();
+        let branch_id = BranchId::new();
         let index = InvertedIndex::new();
         index.enable();
 
         // Index some documents
-        let ref1 = EntityRef::Kv { run_id, key: "doc1".to_string() };
-        let ref2 = EntityRef::Kv { run_id, key: "doc2".to_string() };
+        let ref1 = EntityRef::Kv { branch_id, key: "doc1".to_string() };
+        let ref2 = EntityRef::Kv { branch_id, key: "doc2".to_string() };
         index.index_document(&ref1, "hello world test", None);
         index.index_document(&ref2, "hello there", None);
 
@@ -658,10 +658,10 @@ mod tests {
 
     #[test]
     fn test_build_search_response_without_index() {
-        let run_id = RunId::new();
+        let branch_id = BranchId::new();
         let candidates = vec![
             SearchCandidate::new(
-                EntityRef::Run { run_id },
+                EntityRef::Branch { branch_id },
                 "hello world".to_string(),
                 None,
             ),

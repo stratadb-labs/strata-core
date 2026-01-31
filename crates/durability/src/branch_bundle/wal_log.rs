@@ -22,8 +22,8 @@
 //! └─────────────────────────────────────────────────────────────────┘
 //! ```
 
-use crate::run_bundle::error::{RunBundleError, RunBundleResult};
-use crate::run_bundle::types::{xxh3_hex, WAL_RUNLOG_MAGIC, WAL_RUNLOG_VERSION};
+use crate::branch_bundle::error::{RunBundleError, RunBundleResult};
+use crate::branch_bundle::types::{xxh3_hex, WAL_RUNLOG_MAGIC, WAL_RUNLOG_VERSION};
 use serde::{Deserialize, Serialize};
 use strata_core::types::Key;
 use strata_core::value::Value;
@@ -45,7 +45,7 @@ const HEADER_SIZE: usize = 16;
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct RunlogPayload {
     /// The run this payload belongs to
-    pub run_id: String,
+    pub branch_id: String,
     /// Commit version of this transaction
     pub version: u64,
     /// Key-value pairs written in this transaction
@@ -425,21 +425,21 @@ fn validate_single_entry<R: Read>(reader: &mut R, index: usize) -> RunBundleResu
 #[cfg(test)]
 mod tests {
     use super::*;
-    use strata_core::types::{Key, Namespace, RunId, TypeTag};
+    use strata_core::types::{Key, Namespace, BranchId, TypeTag};
     use strata_core::value::Value;
 
-    fn make_test_run_id() -> (RunId, String) {
-        let run_id = RunId::new();
-        let run_id_str = run_id.to_string();
-        (run_id, run_id_str)
+    fn make_test_run_id() -> (BranchId, String) {
+        let branch_id = BranchId::new();
+        let run_id_str = branch_id.to_string();
+        (branch_id, run_id_str)
     }
 
     fn make_test_payloads(run_id_str: &str) -> Vec<RunlogPayload> {
-        let run_id = RunId::from_string(run_id_str).unwrap_or_else(|| RunId::new());
-        let ns = Namespace::for_run(run_id);
+        let branch_id = BranchId::from_string(run_id_str).unwrap_or_else(|| BranchId::new());
+        let ns = Namespace::for_branch(branch_id);
         vec![
             RunlogPayload {
-                run_id: run_id_str.to_string(),
+                branch_id: run_id_str.to_string(),
                 version: 1,
                 puts: vec![
                     (
@@ -454,7 +454,7 @@ mod tests {
                 deletes: vec![],
             },
             RunlogPayload {
-                run_id: run_id_str.to_string(),
+                branch_id: run_id_str.to_string(),
                 version: 2,
                 puts: vec![],
                 deletes: vec![Key::new(ns, TypeTag::KV, b"key1".to_vec())],
@@ -577,14 +577,14 @@ mod tests {
 
     #[test]
     fn test_large_entry() {
-        let run_id = RunId::new();
-        let run_id_str = run_id.to_string();
-        let ns = Namespace::for_run(run_id);
+        let branch_id = BranchId::new();
+        let run_id_str = branch_id.to_string();
+        let ns = Namespace::for_branch(branch_id);
 
         // Create payload with large value
         let large_value = "x".repeat(1024 * 1024); // 1MB string
         let payloads = vec![RunlogPayload {
-            run_id: run_id_str,
+            branch_id: run_id_str,
             version: 1,
             puts: vec![(
                 Key::new(ns, TypeTag::KV, b"large_key".to_vec()),
@@ -680,12 +680,12 @@ mod tests {
 
     #[test]
     fn test_checksum_changes_with_different_data() {
-        let run_id = RunId::new();
-        let run_id_str = run_id.to_string();
-        let ns = Namespace::for_run(run_id);
+        let branch_id = BranchId::new();
+        let run_id_str = branch_id.to_string();
+        let ns = Namespace::for_branch(branch_id);
 
         let payloads1 = vec![RunlogPayload {
-            run_id: run_id_str.clone(),
+            branch_id: run_id_str.clone(),
             version: 1,
             puts: vec![(
                 Key::new(ns.clone(), TypeTag::KV, b"key1".to_vec()),
@@ -695,7 +695,7 @@ mod tests {
         }];
 
         let payloads2 = vec![RunlogPayload {
-            run_id: run_id_str,
+            branch_id: run_id_str,
             version: 1,
             puts: vec![(
                 Key::new(ns, TypeTag::KV, b"key1".to_vec()),
@@ -715,12 +715,12 @@ mod tests {
 
     #[test]
     fn test_payload_with_deletes() {
-        let run_id = RunId::new();
-        let run_id_str = run_id.to_string();
-        let ns = Namespace::for_run(run_id);
+        let branch_id = BranchId::new();
+        let run_id_str = branch_id.to_string();
+        let ns = Namespace::for_branch(branch_id);
 
         let payloads = vec![RunlogPayload {
-            run_id: run_id_str,
+            branch_id: run_id_str,
             version: 5,
             puts: vec![(
                 Key::new(ns.clone(), TypeTag::KV, b"kept".to_vec()),

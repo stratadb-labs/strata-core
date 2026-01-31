@@ -3,7 +3,7 @@
 //! Tests for inverted index behavior and consistency.
 
 use strata_core::search_types::DocRef;
-use strata_core::types::RunId;
+use strata_core::types::BranchId;
 use strata_intelligence::InvertedIndex;
 
 // ============================================================================
@@ -38,9 +38,9 @@ fn test_tier7_index_disable() {
 #[test]
 fn test_tier7_add_when_disabled_noop() {
     let index = InvertedIndex::new();
-    let run_id = RunId::new();
+    let branch_id = BranchId::new();
     let doc_ref = DocRef::Kv {
-        run_id,
+        branch_id,
         key: "test".to_string(),
     };
 
@@ -57,9 +57,9 @@ fn test_tier7_add_when_enabled_works() {
     let index = InvertedIndex::new();
     index.enable();
 
-    let run_id = RunId::new();
+    let branch_id = BranchId::new();
     let doc_ref = DocRef::Kv {
-        run_id,
+        branch_id,
         key: "test".to_string(),
     };
 
@@ -80,18 +80,18 @@ fn test_tier7_index_returns_matches() {
     let index = InvertedIndex::new();
     index.enable();
 
-    let run_id = RunId::new();
+    let branch_id = BranchId::new();
 
     let ref1 = DocRef::Kv {
-        run_id: run_id.clone(),
+        branch_id: branch_id.clone(),
         key: "doc1".to_string(),
     };
     let ref2 = DocRef::Kv {
-        run_id: run_id.clone(),
+        branch_id: branch_id.clone(),
         key: "doc2".to_string(),
     };
     let ref3 = DocRef::Kv {
-        run_id,
+        branch_id,
         key: "doc3".to_string(),
     };
 
@@ -110,9 +110,9 @@ fn test_tier7_index_case_insensitive() {
     let index = InvertedIndex::new();
     index.enable();
 
-    let run_id = RunId::new();
+    let branch_id = BranchId::new();
     let doc_ref = DocRef::Kv {
-        run_id,
+        branch_id,
         key: "doc".to_string(),
     };
 
@@ -128,9 +128,9 @@ fn test_tier7_index_no_matches_empty() {
     let index = InvertedIndex::new();
     index.enable();
 
-    let run_id = RunId::new();
+    let branch_id = BranchId::new();
     let doc_ref = DocRef::Kv {
-        run_id,
+        branch_id,
         key: "doc".to_string(),
     };
 
@@ -150,9 +150,9 @@ fn test_tier7_index_remove_document() {
     let index = InvertedIndex::new();
     index.enable();
 
-    let run_id = RunId::new();
+    let branch_id = BranchId::new();
     let doc_ref = DocRef::Kv {
-        run_id,
+        branch_id,
         key: "doc".to_string(),
     };
 
@@ -170,11 +170,11 @@ fn test_tier7_index_clear() {
     let index = InvertedIndex::new();
     index.enable();
 
-    let run_id = RunId::new();
+    let branch_id = BranchId::new();
 
     for i in 0..10 {
         let doc_ref = DocRef::Kv {
-            run_id: run_id.clone(),
+            branch_id: branch_id.clone(),
             key: format!("doc{}", i),
         };
         index.index_document(&doc_ref, "hello world", None);
@@ -197,13 +197,13 @@ fn test_tier7_index_total_docs() {
     let index = InvertedIndex::new();
     index.enable();
 
-    let run_id = RunId::new();
+    let branch_id = BranchId::new();
 
     assert_eq!(index.total_docs(), 0);
 
     for i in 0..5 {
         let doc_ref = DocRef::Kv {
-            run_id: run_id.clone(),
+            branch_id: branch_id.clone(),
             key: format!("doc{}", i),
         };
         index.index_document(&doc_ref, "hello world", None);
@@ -218,14 +218,14 @@ fn test_tier7_index_avg_doc_len() {
     let index = InvertedIndex::new();
     index.enable();
 
-    let run_id = RunId::new();
+    let branch_id = BranchId::new();
 
     let ref1 = DocRef::Kv {
-        run_id: run_id.clone(),
+        branch_id: branch_id.clone(),
         key: "doc1".to_string(),
     };
     let ref2 = DocRef::Kv {
-        run_id,
+        branch_id,
         key: "doc2".to_string(),
     };
 
@@ -242,12 +242,12 @@ fn test_tier7_index_idf() {
     let index = InvertedIndex::new();
     index.enable();
 
-    let run_id = RunId::new();
+    let branch_id = BranchId::new();
 
     // Add documents where "hello" appears in 2 and "rare" in 1
     for i in 0..10 {
         let doc_ref = DocRef::Kv {
-            run_id: run_id.clone(),
+            branch_id: branch_id.clone(),
             key: format!("doc{}", i),
         };
         if i < 2 {
@@ -272,11 +272,11 @@ fn test_tier7_index_doc_freq() {
     let index = InvertedIndex::new();
     index.enable();
 
-    let run_id = RunId::new();
+    let branch_id = BranchId::new();
 
     for i in 0..5 {
         let doc_ref = DocRef::Kv {
-            run_id: run_id.clone(),
+            branch_id: branch_id.clone(),
             key: format!("doc{}", i),
         };
         index.index_document(&doc_ref, "hello world", None);
@@ -297,9 +297,9 @@ fn test_tier7_index_version_increments() {
     let index = InvertedIndex::new();
     index.enable();
 
-    let run_id = RunId::new();
+    let branch_id = BranchId::new();
     let doc_ref = DocRef::Kv {
-        run_id,
+        branch_id,
         key: "doc".to_string(),
     };
 
@@ -318,9 +318,9 @@ fn test_tier7_index_wait_for_version() {
     let index = InvertedIndex::new();
     index.enable();
 
-    let run_id = RunId::new();
+    let branch_id = BranchId::new();
     let doc_ref = DocRef::Kv {
-        run_id,
+        branch_id,
         key: "doc".to_string(),
     };
 

@@ -12,7 +12,7 @@ fn test_r5_facade_tiebreak_by_key() {
     let vector = test_db.vector();
 
     vector
-        .create_collection(test_db.run_id, "embeddings", config_custom(3, DistanceMetric::Cosine))
+        .create_collection(test_db.branch_id, "embeddings", config_custom(3, DistanceMetric::Cosine))
         .unwrap();
 
     // All identical vectors = all identical scores
@@ -20,18 +20,18 @@ fn test_r5_facade_tiebreak_by_key() {
 
     // Insert with keys that will be sorted alphabetically
     vector
-        .insert(test_db.run_id, "embeddings", "charlie", &identical, None)
+        .insert(test_db.branch_id, "embeddings", "charlie", &identical, None)
         .unwrap();
     vector
-        .insert(test_db.run_id, "embeddings", "alice", &identical, None)
+        .insert(test_db.branch_id, "embeddings", "alice", &identical, None)
         .unwrap();
     vector
-        .insert(test_db.run_id, "embeddings", "bob", &identical, None)
+        .insert(test_db.branch_id, "embeddings", "bob", &identical, None)
         .unwrap();
 
     let query = vec![1.0, 0.0, 0.0];
     let results = vector
-        .search(test_db.run_id, "embeddings", &query, 3, None)
+        .search(test_db.branch_id, "embeddings", &query, 3, None)
         .unwrap();
 
     // All scores tied, facade sorts by key asc
@@ -47,7 +47,7 @@ fn test_r5_facade_tiebreak_numeric_keys() {
     let vector = test_db.vector();
 
     vector
-        .create_collection(test_db.run_id, "embeddings", config_custom(3, DistanceMetric::Cosine))
+        .create_collection(test_db.branch_id, "embeddings", config_custom(3, DistanceMetric::Cosine))
         .unwrap();
 
     let identical = vec![1.0, 0.0, 0.0];
@@ -55,13 +55,13 @@ fn test_r5_facade_tiebreak_numeric_keys() {
     // Insert with numeric keys (note: string sorting, not numeric)
     for key in ["10", "2", "1", "20", "3"] {
         vector
-            .insert(test_db.run_id, "embeddings", key, &identical, None)
+            .insert(test_db.branch_id, "embeddings", key, &identical, None)
             .unwrap();
     }
 
     let query = vec![1.0, 0.0, 0.0];
     let results = vector
-        .search(test_db.run_id, "embeddings", &query, 5, None)
+        .search(test_db.branch_id, "embeddings", &query, 5, None)
         .unwrap();
 
     // String sort: "1", "10", "2", "20", "3"
@@ -79,20 +79,20 @@ fn test_r5_facade_tiebreak_mixed_case() {
     let vector = test_db.vector();
 
     vector
-        .create_collection(test_db.run_id, "embeddings", config_custom(3, DistanceMetric::Cosine))
+        .create_collection(test_db.branch_id, "embeddings", config_custom(3, DistanceMetric::Cosine))
         .unwrap();
 
     let identical = vec![1.0, 0.0, 0.0];
 
     for key in ["Zebra", "apple", "Apple", "zebra"] {
         vector
-            .insert(test_db.run_id, "embeddings", key, &identical, None)
+            .insert(test_db.branch_id, "embeddings", key, &identical, None)
             .unwrap();
     }
 
     let query = vec![1.0, 0.0, 0.0];
     let results = vector
-        .search(test_db.run_id, "embeddings", &query, 4, None)
+        .search(test_db.branch_id, "embeddings", &query, 4, None)
         .unwrap();
 
     // ASCII sort order: uppercase before lowercase
@@ -110,7 +110,7 @@ fn test_r5_score_precedence_over_key() {
     let vector = test_db.vector();
 
     vector
-        .create_collection(test_db.run_id, "embeddings", config_custom(3, DistanceMetric::Cosine))
+        .create_collection(test_db.branch_id, "embeddings", config_custom(3, DistanceMetric::Cosine))
         .unwrap();
 
     let query = vec![1.0, 0.0, 0.0];
@@ -119,14 +119,14 @@ fn test_r5_score_precedence_over_key() {
 
     // Insert with key that would come first alphabetically but has worse score
     vector
-        .insert(test_db.run_id, "embeddings", "aaa_worse", &good, None)
+        .insert(test_db.branch_id, "embeddings", "aaa_worse", &good, None)
         .unwrap();
     vector
-        .insert(test_db.run_id, "embeddings", "zzz_better", &perfect, None)
+        .insert(test_db.branch_id, "embeddings", "zzz_better", &perfect, None)
         .unwrap();
 
     let results = vector
-        .search(test_db.run_id, "embeddings", &query, 2, None)
+        .search(test_db.branch_id, "embeddings", &query, 2, None)
         .unwrap();
 
     // Better score should win despite alphabetically later key
@@ -143,7 +143,7 @@ fn test_r5_tiebreak_consistency() {
     let vector = test_db.vector();
 
     vector
-        .create_collection(test_db.run_id, "embeddings", config_custom(3, DistanceMetric::Cosine))
+        .create_collection(test_db.branch_id, "embeddings", config_custom(3, DistanceMetric::Cosine))
         .unwrap();
 
     let identical = vec![1.0, 0.0, 0.0];
@@ -152,7 +152,7 @@ fn test_r5_tiebreak_consistency() {
     let keys: Vec<String> = (0..20).map(|i| format!("key_{:02}", i)).collect();
     for key in &keys {
         vector
-            .insert(test_db.run_id, "embeddings", key, &identical, None)
+            .insert(test_db.branch_id, "embeddings", key, &identical, None)
             .unwrap();
     }
 
@@ -160,12 +160,12 @@ fn test_r5_tiebreak_consistency() {
 
     // Run multiple searches
     let first_results = vector
-        .search(test_db.run_id, "embeddings", &query, 20, None)
+        .search(test_db.branch_id, "embeddings", &query, 20, None)
         .unwrap();
 
     for _ in 0..20 {
         let results = vector
-            .search(test_db.run_id, "embeddings", &query, 20, None)
+            .search(test_db.branch_id, "embeddings", &query, 20, None)
             .unwrap();
         let result_keys: Vec<&str> = results.iter().map(|r| r.key.as_str()).collect();
         let first_keys: Vec<&str> = first_results.iter().map(|r| r.key.as_str()).collect();

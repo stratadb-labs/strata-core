@@ -2,11 +2,11 @@
 //!
 //! Reads .runbundle.tar.zst archives and validates their contents.
 
-use crate::run_bundle::error::{RunBundleError, RunBundleResult};
-use crate::run_bundle::types::{
+use crate::branch_bundle::error::{RunBundleError, RunBundleResult};
+use crate::branch_bundle::types::{
     paths, xxh3_hex, BundleManifest, BundleRunInfo, BundleVerifyInfo, RUNBUNDLE_FORMAT_VERSION,
 };
-use crate::run_bundle::wal_log::{RunlogPayload, WalLogReader};
+use crate::branch_bundle::wal_log::{RunlogPayload, WalLogReader};
 use std::collections::HashMap;
 use std::fs::File;
 use std::io::{BufReader, Read};
@@ -70,11 +70,11 @@ impl RunBundleReader {
         // Validate WAL header (without parsing entries)
         WalLogReader::validate(std::io::Cursor::new(wal_data))?;
 
-        // Parse run info for run_id
+        // Parse run info for branch_id
         let run_info: BundleRunInfo = serde_json::from_slice(run_data)?;
 
         Ok(BundleVerifyInfo {
-            run_id: run_info.run_id,
+            branch_id: run_info.branch_id,
             format_version: manifest.format_version,
             wal_entry_count: manifest.contents.wal_entry_count,
             checksums_valid,
@@ -320,16 +320,16 @@ pub struct BundleContents {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::run_bundle::writer::RunBundleWriter;
-    use crate::run_bundle::wal_log::RunlogPayload;
-    use crate::run_bundle::types::ExportOptions;
-    use strata_core::types::{Key, Namespace, RunId, TypeTag};
+    use crate::branch_bundle::writer::RunBundleWriter;
+    use crate::branch_bundle::wal_log::RunlogPayload;
+    use crate::branch_bundle::types::ExportOptions;
+    use strata_core::types::{Key, Namespace, BranchId, TypeTag};
     use strata_core::value::Value;
     use tempfile::tempdir;
 
     fn make_test_run_info() -> BundleRunInfo {
         BundleRunInfo {
-            run_id: "550e8400-e29b-41d4-a716-446655440000".to_string(),
+            branch_id: "550e8400-e29b-41d4-a716-446655440000".to_string(),
             name: "test-run".to_string(),
             state: "completed".to_string(),
             created_at: "2025-01-24T10:00:00Z".to_string(),
@@ -342,11 +342,11 @@ mod tests {
     }
 
     fn make_test_payloads() -> Vec<RunlogPayload> {
-        let run_id = RunId::new();
-        let ns = Namespace::for_run(run_id);
+        let branch_id = BranchId::new();
+        let ns = Namespace::for_branch(branch_id);
         vec![
             RunlogPayload {
-                run_id: run_id.to_string(),
+                branch_id: branch_id.to_string(),
                 version: 1,
                 puts: vec![(
                     Key::new(ns.clone(), TypeTag::KV, b"key1".to_vec()),
@@ -355,7 +355,7 @@ mod tests {
                 deletes: vec![],
             },
             RunlogPayload {
-                run_id: run_id.to_string(),
+                branch_id: branch_id.to_string(),
                 version: 2,
                 puts: vec![],
                 deletes: vec![Key::new(ns, TypeTag::KV, b"key1".to_vec())],
@@ -388,7 +388,7 @@ mod tests {
 
         let run_info = RunBundleReader::read_run_info_from_bytes(&data).unwrap();
 
-        assert_eq!(run_info.run_id, expected_run_info.run_id);
+        assert_eq!(run_info.branch_id, expected_run_info.branch_id);
         assert_eq!(run_info.name, expected_run_info.name);
         assert_eq!(run_info.state, expected_run_info.state);
     }
@@ -414,7 +414,7 @@ mod tests {
 
         let verify_info = RunBundleReader::validate(&path).unwrap();
 
-        assert_eq!(verify_info.run_id, run_info.run_id);
+        assert_eq!(verify_info.branch_id, run_info.branch_id);
         assert_eq!(verify_info.format_version, RUNBUNDLE_FORMAT_VERSION);
         assert_eq!(verify_info.wal_entry_count, 2);
         assert!(verify_info.checksums_valid);
@@ -448,7 +448,7 @@ mod tests {
 
         let run_info = RunBundleReader::read_run_info(&path).unwrap();
 
-        assert_eq!(run_info.run_id, expected_run_info.run_id);
+        assert_eq!(run_info.branch_id, expected_run_info.branch_id);
         assert_eq!(run_info.name, expected_run_info.name);
     }
 
@@ -494,7 +494,7 @@ mod tests {
 
         let contents = RunBundleReader::read_all(&path).unwrap();
 
-        assert_eq!(contents.run_info.run_id, run_info.run_id);
+        assert_eq!(contents.run_info.branch_id, run_info.branch_id);
         assert_eq!(contents.payloads.len(), payloads.len());
         assert_eq!(contents.manifest.contents.wal_entry_count, 2);
     }
@@ -553,7 +553,7 @@ mod tests {
         let contents = RunBundleReader::read_all(&path).unwrap();
 
         // Verify
-        assert_eq!(contents.run_info.run_id, original_run_info.run_id);
+        assert_eq!(contents.run_info.branch_id, original_run_info.branch_id);
         assert_eq!(contents.run_info.name, original_run_info.name);
         assert_eq!(contents.run_info.state, original_run_info.state);
         assert_eq!(contents.run_info.tags, original_run_info.tags);

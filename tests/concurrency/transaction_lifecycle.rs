@@ -10,12 +10,12 @@ use strata_concurrency::validation::validate_transaction;
 use strata_core::traits::Storage;
 use strata_core::types::{Key, Namespace};
 use strata_core::value::Value;
-use strata_core::RunId;
+use strata_core::BranchId;
 use strata_storage::sharded::ShardedStore;
 use std::sync::Arc;
 
-fn create_test_key(run_id: RunId, name: &str) -> Key {
-    let ns = Namespace::for_run(run_id);
+fn create_test_key(branch_id: BranchId, name: &str) -> Key {
+    let ns = Namespace::for_branch(branch_id);
     Key::new_kv(ns, name)
 }
 
@@ -26,11 +26,11 @@ fn create_test_key(run_id: RunId, name: &str) -> Key {
 #[test]
 fn begin_commit_makes_writes_permanent() {
     let store = Arc::new(ShardedStore::new());
-    let run_id = RunId::new();
-    let key = create_test_key(run_id, "committed");
+    let branch_id = BranchId::new();
+    let key = create_test_key(branch_id, "committed");
 
     // Begin transaction
-    let mut txn = TransactionContext::new(1, run_id, 1);
+    let mut txn = TransactionContext::new(1, branch_id, 1);
     assert!(txn.is_active());
 
     // Write
@@ -56,8 +56,8 @@ fn begin_commit_makes_writes_permanent() {
 
 #[test]
 fn committed_status_is_committed() {
-    let run_id = RunId::new();
-    let mut txn = TransactionContext::new(1, run_id, 1);
+    let branch_id = BranchId::new();
+    let mut txn = TransactionContext::new(1, branch_id, 1);
 
     txn.mark_validating().unwrap();
     txn.mark_committed().unwrap();
@@ -76,11 +76,11 @@ fn committed_status_is_committed() {
 #[test]
 fn begin_abort_discards_writes() {
     let store = Arc::new(ShardedStore::new());
-    let run_id = RunId::new();
-    let key = create_test_key(run_id, "aborted");
+    let branch_id = BranchId::new();
+    let key = create_test_key(branch_id, "aborted");
 
     // Begin transaction
-    let mut txn = TransactionContext::new(1, run_id, 1);
+    let mut txn = TransactionContext::new(1, branch_id, 1);
 
     // Write (not yet applied to store)
     txn.write_set.insert(key.clone(), Value::Int(42));
@@ -96,8 +96,8 @@ fn begin_abort_discards_writes() {
 
 #[test]
 fn abort_reason_recorded_in_status() {
-    let run_id = RunId::new();
-    let mut txn = TransactionContext::new(1, run_id, 1);
+    let branch_id = BranchId::new();
+    let mut txn = TransactionContext::new(1, branch_id, 1);
 
     txn.mark_aborted("validation failed: conflict".to_string()).unwrap();
 
@@ -112,15 +112,15 @@ fn abort_reason_recorded_in_status() {
 #[test]
 fn validation_failure_leads_to_abort() {
     let store = Arc::new(ShardedStore::new());
-    let run_id = RunId::new();
-    let key = create_test_key(run_id, "conflict");
+    let branch_id = BranchId::new();
+    let key = create_test_key(branch_id, "conflict");
 
     // Initial value
     Storage::put(&*store, key.clone(), Value::Int(1), None).unwrap();
     let version = Storage::get(&*store, &key).unwrap().unwrap().version.as_u64();
 
     // Transaction reads key
-    let mut txn = TransactionContext::new(1, run_id, 1);
+    let mut txn = TransactionContext::new(1, branch_id, 1);
     txn.read_set.insert(key.clone(), version);
     txn.write_set.insert(key.clone(), Value::Int(10));
 
@@ -143,22 +143,22 @@ fn validation_failure_leads_to_abort() {
 
 #[test]
 fn reset_clears_all_sets() {
-    let run_id = RunId::new();
-    let key = create_test_key(run_id, "reset");
+    let branch_id = BranchId::new();
+    let key = create_test_key(branch_id, "reset");
 
-    let mut txn = TransactionContext::new(1, run_id, 1);
+    let mut txn = TransactionContext::new(1, branch_id, 1);
 
     // Add some data
     txn.read_set.insert(key.clone(), 1);
     txn.write_set.insert(key.clone(), Value::Int(42));
-    txn.delete_set.insert(create_test_key(run_id, "deleted"));
+    txn.delete_set.insert(create_test_key(branch_id, "deleted"));
 
     assert!(!txn.read_set.is_empty());
     assert!(!txn.write_set.is_empty());
     assert!(!txn.delete_set.is_empty());
 
     // Reset
-    txn.reset(2, run_id, None);
+    txn.reset(2, branch_id, None);
 
     // All sets should be empty
     assert!(txn.read_set.is_empty());
@@ -174,12 +174,12 @@ fn reset_clears_all_sets() {
 
 #[test]
 fn reset_preserves_capacity() {
-    let run_id = RunId::new();
-    let mut txn = TransactionContext::new(1, run_id, 1);
+    let branch_id = BranchId::new();
+    let mut txn = TransactionContext::new(1, branch_id, 1);
 
     // Add many items to force allocation
     for i in 0..100 {
-        let key = create_test_key(run_id, &format!("key_{}", i));
+        let key = create_test_key(branch_id, &format!("key_{}", i));
         txn.read_set.insert(key.clone(), i as u64);
         txn.write_set.insert(key, Value::Int(i));
     }
@@ -188,7 +188,7 @@ fn reset_preserves_capacity() {
     let write_capacity_before = txn.write_set.capacity();
 
     // Reset
-    txn.reset(2, run_id, None);
+    txn.reset(2, branch_id, None);
 
     // Capacity should be preserved (no reallocation needed for next use)
     assert!(txn.read_set.capacity() >= read_capacity_before);
@@ -197,15 +197,15 @@ fn reset_preserves_capacity() {
 
 #[test]
 fn reset_after_abort_allows_reuse() {
-    let run_id = RunId::new();
-    let mut txn = TransactionContext::new(1, run_id, 1);
+    let branch_id = BranchId::new();
+    let mut txn = TransactionContext::new(1, branch_id, 1);
 
     // Abort
     txn.mark_aborted("test".to_string()).unwrap();
     assert!(txn.is_aborted());
 
     // Reset
-    txn.reset(2, run_id, None);
+    txn.reset(2, branch_id, None);
 
     // Should be active again
     assert!(txn.is_active());
@@ -213,8 +213,8 @@ fn reset_after_abort_allows_reuse() {
 
 #[test]
 fn reset_after_commit_allows_reuse() {
-    let run_id = RunId::new();
-    let mut txn = TransactionContext::new(1, run_id, 1);
+    let branch_id = BranchId::new();
+    let mut txn = TransactionContext::new(1, branch_id, 1);
 
     // Commit
     txn.mark_validating().unwrap();
@@ -222,7 +222,7 @@ fn reset_after_commit_allows_reuse() {
     assert!(txn.is_committed());
 
     // Reset
-    txn.reset(2, run_id, None);
+    txn.reset(2, branch_id, None);
 
     // Should be active again
     assert!(txn.is_active());
@@ -235,15 +235,15 @@ fn reset_after_commit_allows_reuse() {
 #[test]
 fn read_modify_write_workflow() {
     let store = Arc::new(ShardedStore::new());
-    let run_id = RunId::new();
-    let key = create_test_key(run_id, "rmw");
+    let branch_id = BranchId::new();
+    let key = create_test_key(branch_id, "rmw");
 
     // Initial value
     Storage::put(&*store, key.clone(), Value::Int(100), None).unwrap();
     let version = Storage::get(&*store, &key).unwrap().unwrap().version.as_u64();
 
     // Read-modify-write
-    let mut txn = TransactionContext::new(1, run_id, version);
+    let mut txn = TransactionContext::new(1, branch_id, version);
 
     // Read (track in read_set)
     let current = Storage::get(&*store, &key).unwrap().unwrap();
@@ -272,11 +272,11 @@ fn read_modify_write_workflow() {
 #[test]
 fn multi_key_transaction_workflow() {
     let store = Arc::new(ShardedStore::new());
-    let run_id = RunId::new();
+    let branch_id = BranchId::new();
 
-    let key1 = create_test_key(run_id, "k1");
-    let key2 = create_test_key(run_id, "k2");
-    let key3 = create_test_key(run_id, "k3");
+    let key1 = create_test_key(branch_id, "k1");
+    let key2 = create_test_key(branch_id, "k2");
+    let key3 = create_test_key(branch_id, "k3");
 
     // Initial values
     Storage::put(&*store, key1.clone(), Value::Int(1), None).unwrap();
@@ -287,7 +287,7 @@ fn multi_key_transaction_workflow() {
     let v2 = Storage::get(&*store, &key2).unwrap().unwrap().version.as_u64();
 
     // Transaction: read k1, write k2, create k3
-    let mut txn = TransactionContext::new(1, run_id, 1);
+    let mut txn = TransactionContext::new(1, branch_id, 1);
     txn.read_set.insert(key1.clone(), v1);
     txn.read_set.insert(key2.clone(), v2);
     txn.write_set.insert(key2.clone(), Value::Int(20));
@@ -312,15 +312,15 @@ fn multi_key_transaction_workflow() {
 #[test]
 fn delete_workflow() {
     let store = Arc::new(ShardedStore::new());
-    let run_id = RunId::new();
-    let key = create_test_key(run_id, "to_delete");
+    let branch_id = BranchId::new();
+    let key = create_test_key(branch_id, "to_delete");
 
     // Initial value
     Storage::put(&*store, key.clone(), Value::Int(42), None).unwrap();
     let version = Storage::get(&*store, &key).unwrap().unwrap().version.as_u64();
 
     // Transaction: read then delete
-    let mut txn = TransactionContext::new(1, run_id, 1);
+    let mut txn = TransactionContext::new(1, branch_id, 1);
     txn.read_set.insert(key.clone(), version);
     txn.delete_set.insert(key.clone());
 
@@ -345,9 +345,9 @@ fn delete_workflow() {
 #[test]
 fn empty_transaction_commits() {
     let store = Arc::new(ShardedStore::new());
-    let run_id = RunId::new();
+    let branch_id = BranchId::new();
 
-    let mut txn = TransactionContext::new(1, run_id, 1);
+    let mut txn = TransactionContext::new(1, branch_id, 1);
 
     txn.mark_validating().unwrap();
     let result = validate_transaction(&txn, &*store);
@@ -360,15 +360,15 @@ fn empty_transaction_commits() {
 #[test]
 fn many_sequential_transactions() {
     let store = Arc::new(ShardedStore::new());
-    let run_id = RunId::new();
-    let key = create_test_key(run_id, "sequential");
+    let branch_id = BranchId::new();
+    let key = create_test_key(branch_id, "sequential");
 
     Storage::put(&*store, key.clone(), Value::Int(0), None).unwrap();
 
     for i in 1..=10 {
         let version = Storage::get(&*store, &key).unwrap().unwrap().version.as_u64();
 
-        let mut txn = TransactionContext::new(i as u64, run_id, version);
+        let mut txn = TransactionContext::new(i as u64, branch_id, version);
         txn.read_set.insert(key.clone(), version);
         txn.write_set.insert(key.clone(), Value::Int(i));
 

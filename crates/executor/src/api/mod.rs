@@ -3,18 +3,18 @@
 //! The [`Strata`] struct provides a convenient Rust API that wraps the
 //! [`Executor`] and [`Command`]/[`Output`] enums with typed method calls.
 //!
-//! ## Run Context
+//! ## Branch Context
 //!
-//! Strata maintains a "current run" context, similar to how git maintains
-//! a current branch. All data operations operate on the current run.
+//! Strata maintains a "current branch" context, similar to how git maintains
+//! a current branch. All data operations operate on the current branch.
 //!
-//! - Use `create_run(name)` to create a new blank run
-//! - Use `set_run(name)` to switch to an existing run
-//! - Use `current_run()` to get the current run name
-//! - Use `list_runs()` to see all available runs
-//! - Use `fork_run(dest)` to copy the current run to a new run (future)
+//! - Use `create_branch(name)` to create a new blank branch
+//! - Use `set_branch(name)` to switch to an existing branch
+//! - Use `current_branch()` to get the current branch name
+//! - Use `list_branches()` to see all available branches
+//! - Use `fork_branch(dest)` to copy the current branch to a new branch (future)
 //!
-//! By default, Strata starts on the "default" run.
+//! By default, Strata starts on the "default" branch.
 //!
 //! # Example
 //!
@@ -23,16 +23,16 @@
 //!
 //! let mut db = Strata::open("/path/to/data")?;
 //!
-//! // Work on the default run
+//! // Work on the default branch
 //! db.kv_put("key", Value::String("hello".into()))?;
 //!
-//! // Create and switch to a different run
-//! db.create_run("experiment-1")?;
-//! db.set_run("experiment-1")?;
+//! // Create and switch to a different branch
+//! db.create_branch("experiment-1")?;
+//! db.set_branch("experiment-1")?;
 //! db.kv_put("key", Value::String("different".into()))?;
 //!
 //! // Switch back to default
-//! db.set_run("default")?;
+//! db.set_branch("default")?;
 //! assert_eq!(db.kv_get("key")?, Some(Value::String("hello".into())));
 //! ```
 
@@ -40,37 +40,37 @@ mod db;
 mod event;
 mod json;
 mod kv;
-mod run;
-mod runs;
+mod branch;
+mod branches;
 mod state;
 mod vector;
 
-pub use runs::{Runs, RunDiff};
+pub use branches::{Branches, BranchDiff};
 
 use std::path::Path;
 use std::sync::Arc;
 
 use strata_engine::Database;
 
-use crate::types::RunId;
+use crate::types::BranchId;
 use crate::{Command, Error, Executor, Output, Result, Session};
 
 /// High-level typed wrapper for database operations.
 ///
 /// `Strata` provides a convenient Rust API that wraps the executor's
 /// command-based interface with typed method calls. It maintains a
-/// "current run" context that all data operations use.
+/// "current branch" context that all data operations use.
 ///
-/// ## Run Context (git-like mental model)
+/// ## Branch Context (git-like mental model)
 ///
 /// - **Database** = repository (the whole storage)
 /// - **Strata** = working directory (stateful view into the repo)
-/// - **Run** = branch (isolated namespace for data)
+/// - **Branch** = branch (isolated namespace for data)
 ///
-/// Use `create_run()` to create new runs and `set_run()` to switch between them.
+/// Use `create_branch()` to create new branches and `set_branch()` to switch between them.
 pub struct Strata {
     executor: Executor,
-    current_run: RunId,
+    current_branch: BranchId,
 }
 
 impl Strata {
@@ -93,12 +93,12 @@ impl Strata {
         })?;
         let executor = Executor::new(db);
 
-        // Ensure the default run exists
-        Self::ensure_default_run(&executor)?;
+        // Ensure the default branch exists
+        Self::ensure_default_branch(&executor)?;
 
         Ok(Self {
             executor,
-            current_run: RunId::default(),
+            current_branch: BranchId::default(),
         })
     }
 
@@ -119,12 +119,12 @@ impl Strata {
             })?;
         let executor = Executor::new(db);
 
-        // Ensure the default run exists
-        Self::ensure_default_run(&executor)?;
+        // Ensure the default branch exists
+        Self::ensure_default_branch(&executor)?;
 
         Ok(Self {
             executor,
-            current_run: RunId::default(),
+            current_branch: BranchId::default(),
         })
     }
 
@@ -135,33 +135,33 @@ impl Strata {
     pub fn from_database(db: Arc<Database>) -> Result<Self> {
         let executor = Executor::new(db);
 
-        // Ensure the default run exists
-        Self::ensure_default_run(&executor)?;
+        // Ensure the default branch exists
+        Self::ensure_default_branch(&executor)?;
 
         Ok(Self {
             executor,
-            current_run: RunId::default(),
+            current_branch: BranchId::default(),
         })
     }
 
-    /// Ensures the "default" run exists in the database.
-    fn ensure_default_run(executor: &Executor) -> Result<()> {
-        // Check if default run exists
-        match executor.execute(Command::RunExists {
-            run: RunId::default(),
+    /// Ensures the "default" branch exists in the database.
+    fn ensure_default_branch(executor: &Executor) -> Result<()> {
+        // Check if default branch exists
+        match executor.execute(Command::BranchExists {
+            run: BranchId::default(),
         })? {
             Output::Bool(exists) => {
                 if !exists {
-                    // Create the default run
-                    executor.execute(Command::RunCreate {
-                        run_id: Some("default".to_string()),
+                    // Create the default branch
+                    executor.execute(Command::BranchCreate {
+                        branch_id: Some("default".to_string()),
                         metadata: None,
                     })?;
                 }
                 Ok(())
             }
             _ => Err(Error::Internal {
-                reason: "Unexpected output for RunExists".into(),
+                reason: "Unexpected output for BranchExists".into(),
             }),
         }
     }
@@ -171,28 +171,28 @@ impl Strata {
         &self.executor
     }
 
-    /// Get a handle for run management operations.
+    /// Get a handle for branch management operations.
     ///
-    /// The returned [`Runs`] handle provides the "power API" for run
+    /// The returned [`Branches`] handle provides the "power API" for branch
     /// management, including listing, creating, deleting, and (future)
-    /// forking runs.
+    /// forking branches.
     ///
     /// # Example
     ///
     /// ```ignore
-    /// // List all runs
-    /// for run in db.runs().list()? {
-    ///     println!("Run: {}", run);
+    /// // List all branches
+    /// for branch in db.branches().list()? {
+    ///     println!("Branch: {}", branch);
     /// }
     ///
-    /// // Create a new run
-    /// db.runs().create("experiment")?;
+    /// // Create a new branch
+    /// db.branches().create("experiment")?;
     ///
-    /// // Future: fork the current run to a new destination
-    /// // db.runs().fork("experiment-copy")?;
+    /// // Future: fork the current branch to a new destination
+    /// // db.branches().fork("experiment-copy")?;
     /// ```
-    pub fn runs(&self) -> Runs<'_> {
-        Runs::new(&self.executor)
+    pub fn branches(&self) -> Branches<'_> {
+        Branches::new(&self.executor)
     }
 
     /// Create a new [`Session`] for interactive transaction support.
@@ -204,122 +204,122 @@ impl Strata {
     }
 
     // =========================================================================
-    // Run Context
+    // Branch Context
     // =========================================================================
 
-    /// Get the current run name.
+    /// Get the current branch name.
     ///
-    /// Returns the name of the run that all data operations will use.
-    pub fn current_run(&self) -> &str {
-        self.current_run.as_str()
+    /// Returns the name of the branch that all data operations will use.
+    pub fn current_branch(&self) -> &str {
+        self.current_branch.as_str()
     }
 
-    /// Switch to an existing run.
+    /// Switch to an existing branch.
     ///
-    /// All subsequent data operations will use this run.
+    /// All subsequent data operations will use this branch.
     ///
     /// # Errors
     ///
-    /// Returns an error if the run doesn't exist. Use `create_run()` first
-    /// to create a new run.
+    /// Returns an error if the branch doesn't exist. Use `create_branch()` first
+    /// to create a new branch.
     ///
     /// # Example
     ///
     /// ```ignore
-    /// // Switch to an existing run
-    /// db.set_run("my-experiment")?;
+    /// // Switch to an existing branch
+    /// db.set_branch("my-experiment")?;
     /// db.kv_put("key", "value")?;  // Data goes to my-experiment
     ///
     /// // Switch back to default
-    /// db.set_run("default")?;
+    /// db.set_branch("default")?;
     /// ```
-    pub fn set_run(&mut self, run_name: &str) -> Result<()> {
-        // Check if run exists
-        if !self.runs().exists(run_name)? {
-            return Err(Error::RunNotFound {
-                run: run_name.to_string(),
+    pub fn set_branch(&mut self, run_name: &str) -> Result<()> {
+        // Check if branch exists
+        if !self.branches().exists(run_name)? {
+            return Err(Error::BranchNotFound {
+                branch: run_name.to_string(),
             });
         }
 
-        self.current_run = RunId::from(run_name);
+        self.current_branch = BranchId::from(run_name);
         Ok(())
     }
 
-    /// Create a new blank run.
+    /// Create a new blank branch.
     ///
-    /// The new run starts with no data. Stays on the current run after creation.
-    /// Use `set_run()` to switch to the new run.
+    /// The new branch starts with no data. Stays on the current branch after creation.
+    /// Use `set_branch()` to switch to the new branch.
     ///
     /// # Errors
     ///
-    /// Returns an error if the run already exists.
+    /// Returns an error if the branch already exists.
     ///
     /// # Example
     ///
     /// ```ignore
-    /// // Create a new run
-    /// db.create_run("experiment")?;
+    /// // Create a new branch
+    /// db.create_branch("experiment")?;
     ///
     /// // Optionally switch to it
-    /// db.set_run("experiment")?;
+    /// db.set_branch("experiment")?;
     /// ```
-    pub fn create_run(&self, run_name: &str) -> Result<()> {
-        self.runs().create(run_name)
+    pub fn create_branch(&self, run_name: &str) -> Result<()> {
+        self.branches().create(run_name)
     }
 
-    /// Fork the current run with all its data into a new run.
+    /// Fork the current branch with all its data into a new branch.
     ///
     /// **NOT YET IMPLEMENTED** - Returns `NotImplemented` error.
     ///
     /// When implemented, this will copy all data (KV, State, Events, JSON,
-    /// Vectors) from the current run to the new run. Stays on the current
-    /// run after forking. Use `set_run()` to switch to the fork.
+    /// Vectors) from the current branch to the new branch. Stays on the current
+    /// branch after forking. Use `set_branch()` to switch to the fork.
     ///
     /// # Example (future)
     ///
     /// ```ignore
-    /// // Fork current run to "experiment"
-    /// db.fork_run("experiment")?;
+    /// // Fork current branch to "experiment"
+    /// db.fork_branch("experiment")?;
     ///
     /// // Switch to the fork
-    /// db.set_run("experiment")?;
+    /// db.set_branch("experiment")?;
     /// // ... make changes without affecting original ...
     /// ```
-    pub fn fork_run(&self, destination: &str) -> Result<()> {
-        self.runs().fork(destination)
+    pub fn fork_branch(&self, destination: &str) -> Result<()> {
+        self.branches().fork(destination)
     }
 
-    /// List all available runs.
+    /// List all available branches.
     ///
-    /// Returns a list of run names.
-    pub fn list_runs(&self) -> Result<Vec<String>> {
-        self.runs().list()
+    /// Returns a list of branch names.
+    pub fn list_branches(&self) -> Result<Vec<String>> {
+        self.branches().list()
     }
 
-    /// Delete a run and all its data.
+    /// Delete a branch and all its data.
     ///
-    /// **WARNING**: This is irreversible! All data in the run will be deleted.
+    /// **WARNING**: This is irreversible! All data in the branch will be deleted.
     ///
     /// # Errors
     ///
-    /// - Returns an error if trying to delete the current run
-    /// - Returns an error if trying to delete the "default" run
-    pub fn delete_run(&self, run_name: &str) -> Result<()> {
-        // Cannot delete current run
-        if run_name == self.current_run.as_str() {
+    /// - Returns an error if trying to delete the current branch
+    /// - Returns an error if trying to delete the "default" branch
+    pub fn delete_branch(&self, run_name: &str) -> Result<()> {
+        // Cannot delete the current branch
+        if run_name == self.current_branch.as_str() {
             return Err(Error::ConstraintViolation {
-                reason: "Cannot delete the current run. Switch to a different run first.".into(),
+                reason: "Cannot delete the current branch. Switch to a different branch first.".into(),
             });
         }
 
-        self.runs().delete(run_name)
+        self.branches().delete(run_name)
     }
 
-    /// Get the RunId for use in commands.
+    /// Get the BranchId for use in commands.
     ///
     /// This is used internally by the data operation methods.
-    pub(crate) fn run_id(&self) -> Option<RunId> {
-        Some(self.current_run.clone())
+    pub(crate) fn branch_id(&self) -> Option<BranchId> {
+        Some(self.current_branch.clone())
     }
 }
 
@@ -433,133 +433,133 @@ mod tests {
     }
 
     #[test]
-    fn test_run_create_list() {
+    fn test_branch_create_list() {
         let db = create_strata();
 
-        let (info, _version) = db.run_create(
+        let (info, _version) = db.branch_create(
             Some("550e8400-e29b-41d4-a716-446655440099".to_string()),
             None,
         ).unwrap();
         assert_eq!(info.id.as_str(), "550e8400-e29b-41d4-a716-446655440099");
 
-        let runs = db.run_list(None, None, None).unwrap();
+        let runs = db.branch_list(None, None, None).unwrap();
         assert!(!runs.is_empty());
     }
 
     // =========================================================================
-    // Run Context Tests
+    // Branch Context Tests
     // =========================================================================
 
     #[test]
-    fn test_current_run_default() {
+    fn test_current_branch_default() {
         let db = create_strata();
-        assert_eq!(db.current_run(), "default");
+        assert_eq!(db.current_branch(), "default");
     }
 
     #[test]
-    fn test_create_run() {
+    fn test_create_branch() {
         let db = create_strata();
 
-        // Create a new run (stays on current run)
-        db.create_run("experiment-1").unwrap();
+        // Create a new branch (stays on current branch)
+        db.create_branch("experiment-1").unwrap();
 
-        // Still on default run
-        assert_eq!(db.current_run(), "default");
+        // Still on default branch
+        assert_eq!(db.current_branch(), "default");
 
-        // But the run exists
-        assert!(db.run_exists("experiment-1").unwrap());
+        // But the branch exists
+        assert!(db.branch_exists("experiment-1").unwrap());
     }
 
     #[test]
-    fn test_set_run_to_existing() {
+    fn test_set_branch_to_existing() {
         let mut db = create_strata();
 
-        // Create a run first
-        db.create_run("my-run").unwrap();
+        // Create a branch first
+        db.create_branch("my-run").unwrap();
 
         // Switch to it
-        db.set_run("my-run").unwrap();
-        assert_eq!(db.current_run(), "my-run");
+        db.set_branch("my-run").unwrap();
+        assert_eq!(db.current_branch(), "my-run");
     }
 
     #[test]
-    fn test_set_run_nonexistent_fails() {
+    fn test_set_branch_nonexistent_fails() {
         let mut db = create_strata();
 
-        // Try to switch to a run that doesn't exist
-        let result = db.set_run("nonexistent");
+        // Try to switch to a branch that doesn't exist
+        let result = db.set_branch("nonexistent");
         assert!(result.is_err());
     }
 
     #[test]
-    fn test_list_runs() {
+    fn test_list_branches() {
         let db = create_strata();
 
-        // Create a few runs
-        db.create_run("run-a").unwrap();
-        db.create_run("run-b").unwrap();
-        db.create_run("run-c").unwrap();
+        // Create a few branches
+        db.create_branch("run-a").unwrap();
+        db.create_branch("run-b").unwrap();
+        db.create_branch("run-c").unwrap();
 
-        let runs = db.list_runs().unwrap();
+        let runs = db.list_branches().unwrap();
         assert!(runs.contains(&"run-a".to_string()));
         assert!(runs.contains(&"run-b".to_string()));
         assert!(runs.contains(&"run-c".to_string()));
     }
 
     #[test]
-    fn test_delete_run() {
+    fn test_delete_branch() {
         let db = create_strata();
 
-        // Create a run
-        db.create_run("to-delete").unwrap();
+        // Create a branch
+        db.create_branch("to-delete").unwrap();
 
-        // Delete the run
-        db.delete_run("to-delete").unwrap();
+        // Delete the branch
+        db.delete_branch("to-delete").unwrap();
 
         // Verify it's gone
-        assert!(!db.run_exists("to-delete").unwrap());
+        assert!(!db.branch_exists("to-delete").unwrap());
     }
 
     #[test]
-    fn test_delete_current_run_fails() {
+    fn test_delete_current_branch_fails() {
         let mut db = create_strata();
 
-        db.create_run("current-run").unwrap();
-        db.set_run("current-run").unwrap();
+        db.create_branch("current-run").unwrap();
+        db.set_branch("current-run").unwrap();
 
-        // Trying to delete the current run should fail
-        let result = db.delete_run("current-run");
+        // Trying to delete the current branch should fail
+        let result = db.delete_branch("current-run");
         assert!(result.is_err());
     }
 
     #[test]
-    fn test_delete_default_run_fails() {
+    fn test_delete_default_branch_fails() {
         let db = create_strata();
 
-        // Trying to delete the default run should fail
-        let result = db.delete_run("default");
+        // Trying to delete the default branch should fail
+        let result = db.delete_branch("default");
         assert!(result.is_err());
     }
 
     #[test]
-    fn test_run_context_data_isolation() {
+    fn test_branch_context_data_isolation() {
         let mut db = create_strata();
 
-        // Put data in default run (simplified API)
+        // Put data in default branch (simplified API)
         db.kv_put("key", "default-value").unwrap();
 
-        // Create and switch to another run
-        db.create_run("experiment").unwrap();
-        db.set_run("experiment").unwrap();
+        // Create and switch to another branch
+        db.create_branch("experiment").unwrap();
+        db.set_branch("experiment").unwrap();
 
-        // The key should not exist in this run
+        // The key should not exist in this branch
         assert!(db.kv_get("key").unwrap().is_none());
 
         // Put different data
         db.kv_put("key", "experiment-value").unwrap();
 
         // Switch back to default
-        db.set_run("default").unwrap();
+        db.set_branch("default").unwrap();
 
         // Original value should still be there
         let value = db.kv_get("key").unwrap();
@@ -567,116 +567,116 @@ mod tests {
     }
 
     #[test]
-    fn test_run_context_isolation_all_primitives() {
+    fn test_branch_context_isolation_all_primitives() {
         let mut db = create_strata();
 
-        // Put data in default run (simplified API)
+        // Put data in default branch (simplified API)
         db.kv_put("kv-key", 1i64).unwrap();
         db.state_set("state-cell", 10i64).unwrap();
         db.event_append("stream", Value::Object(
             [("x".to_string(), Value::Int(100))].into_iter().collect()
         )).unwrap();
 
-        // Create and switch to another run
-        db.create_run("isolated").unwrap();
-        db.set_run("isolated").unwrap();
+        // Create and switch to another branch
+        db.create_branch("isolated").unwrap();
+        db.set_branch("isolated").unwrap();
 
-        // None of the data should exist in this run
+        // None of the data should exist in this branch
         assert!(db.kv_get("kv-key").unwrap().is_none());
         assert!(db.state_read("state-cell").unwrap().is_none());
         assert_eq!(db.event_len().unwrap(), 0);
     }
 
     // =========================================================================
-    // db.runs() Power API Tests
+    // db.branches() Power API Tests
     // =========================================================================
 
     #[test]
-    fn test_runs_list() {
+    fn test_branches_list() {
         let db = create_strata();
 
-        // Create some runs
-        db.runs().create("run-a").unwrap();
-        db.runs().create("run-b").unwrap();
+        // Create some branches
+        db.branches().create("run-a").unwrap();
+        db.branches().create("run-b").unwrap();
 
-        let runs = db.runs().list().unwrap();
+        let runs = db.branches().list().unwrap();
         assert!(runs.contains(&"run-a".to_string()));
         assert!(runs.contains(&"run-b".to_string()));
     }
 
     #[test]
-    fn test_runs_exists() {
+    fn test_branches_exists() {
         let db = create_strata();
 
-        assert!(!db.runs().exists("nonexistent").unwrap());
+        assert!(!db.branches().exists("nonexistent").unwrap());
 
-        db.runs().create("my-run").unwrap();
-        assert!(db.runs().exists("my-run").unwrap());
+        db.branches().create("my-run").unwrap();
+        assert!(db.branches().exists("my-run").unwrap());
     }
 
     #[test]
-    fn test_runs_create() {
+    fn test_branches_create() {
         let db = create_strata();
 
-        db.runs().create("new-run").unwrap();
-        assert!(db.runs().exists("new-run").unwrap());
+        db.branches().create("new-run").unwrap();
+        assert!(db.branches().exists("new-run").unwrap());
     }
 
     #[test]
-    fn test_runs_create_duplicate_fails() {
+    fn test_branches_create_duplicate_fails() {
         let db = create_strata();
 
-        db.runs().create("my-run").unwrap();
-        let result = db.runs().create("my-run");
+        db.branches().create("my-run").unwrap();
+        let result = db.branches().create("my-run");
         assert!(result.is_err());
     }
 
     #[test]
-    fn test_runs_delete() {
+    fn test_branches_delete() {
         let db = create_strata();
 
-        db.runs().create("to-delete").unwrap();
-        assert!(db.runs().exists("to-delete").unwrap());
+        db.branches().create("to-delete").unwrap();
+        assert!(db.branches().exists("to-delete").unwrap());
 
-        db.runs().delete("to-delete").unwrap();
-        assert!(!db.runs().exists("to-delete").unwrap());
+        db.branches().delete("to-delete").unwrap();
+        assert!(!db.branches().exists("to-delete").unwrap());
     }
 
     #[test]
-    fn test_runs_delete_default_fails() {
+    fn test_branches_delete_default_fails() {
         let db = create_strata();
 
-        let result = db.runs().delete("default");
+        let result = db.branches().delete("default");
         assert!(result.is_err());
     }
 
     #[test]
-    fn test_runs_fork_not_implemented() {
+    fn test_branches_fork_not_implemented() {
         let db = create_strata();
 
-        // fork() forks the current run to a new destination
-        let result = db.runs().fork("destination");
+        // fork() forks the current branch to a new destination
+        let result = db.branches().fork("destination");
         assert!(result.is_err());
 
         // Check it's specifically a NotImplemented error
         match result {
             Err(crate::Error::NotImplemented { feature, .. }) => {
-                assert_eq!(feature, "fork_run");
+                assert_eq!(feature, "fork_branch");
             }
             _ => panic!("Expected NotImplemented error"),
         }
     }
 
     #[test]
-    fn test_runs_diff_not_implemented() {
+    fn test_branches_diff_not_implemented() {
         let db = create_strata();
 
-        let result = db.runs().diff("run1", "run2");
+        let result = db.branches().diff("run1", "run2");
         assert!(result.is_err());
 
         match result {
             Err(crate::Error::NotImplemented { feature, .. }) => {
-                assert_eq!(feature, "diff_runs");
+                assert_eq!(feature, "diff_branches");
             }
             _ => panic!("Expected NotImplemented error"),
         }

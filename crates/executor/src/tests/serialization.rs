@@ -68,7 +68,7 @@ fn test_command_compact() {
 #[test]
 fn test_command_kv_put() {
     test_command_round_trip(Command::KvPut {
-        run: Some(RunId::from("default")),
+        run: Some(BranchId::from("default")),
         key: "test-key".to_string(),
         value: Value::String("test-value".to_string()),
     });
@@ -77,7 +77,7 @@ fn test_command_kv_put() {
 #[test]
 fn test_command_kv_get() {
     test_command_round_trip(Command::KvGet {
-        run: Some(RunId::from("default")),
+        run: Some(BranchId::from("default")),
         key: "test-key".to_string(),
     });
 }
@@ -85,7 +85,7 @@ fn test_command_kv_get() {
 #[test]
 fn test_command_kv_delete() {
     test_command_round_trip(Command::KvDelete {
-        run: Some(RunId::from("default")),
+        run: Some(BranchId::from("default")),
         key: "test-key".to_string(),
     });
 }
@@ -93,7 +93,7 @@ fn test_command_kv_delete() {
 #[test]
 fn test_command_kv_list() {
     test_command_round_trip(Command::KvList {
-        run: Some(RunId::from("default")),
+        run: Some(BranchId::from("default")),
         prefix: Some("user:".to_string()),
     });
 }
@@ -105,7 +105,7 @@ fn test_command_kv_list() {
 #[test]
 fn test_command_json_set() {
     test_command_round_trip(Command::JsonSet {
-        run: Some(RunId::from("default")),
+        run: Some(BranchId::from("default")),
         key: "doc1".to_string(),
         path: "$.name".to_string(),
         value: Value::String("Alice".to_string()),
@@ -115,7 +115,7 @@ fn test_command_json_set() {
 #[test]
 fn test_command_json_get() {
     test_command_round_trip(Command::JsonGet {
-        run: Some(RunId::from("default")),
+        run: Some(BranchId::from("default")),
         key: "doc1".to_string(),
         path: "$.name".to_string(),
     });
@@ -128,7 +128,7 @@ fn test_command_json_get() {
 #[test]
 fn test_command_event_append() {
     test_command_round_trip(Command::EventAppend {
-        run: Some(RunId::from("default")),
+        run: Some(BranchId::from("default")),
         event_type: "events".to_string(),
         payload: Value::Object(
             [("type".to_string(), Value::String("click".to_string()))]
@@ -141,7 +141,7 @@ fn test_command_event_append() {
 #[test]
 fn test_command_event_read() {
     test_command_round_trip(Command::EventRead {
-        run: Some(RunId::from("default")),
+        run: Some(BranchId::from("default")),
         sequence: 42,
     });
 }
@@ -149,7 +149,7 @@ fn test_command_event_read() {
 #[test]
 fn test_command_event_read_by_type() {
     test_command_round_trip(Command::EventReadByType {
-        run: Some(RunId::from("default")),
+        run: Some(BranchId::from("default")),
         event_type: "events".to_string(),
     });
 }
@@ -157,7 +157,7 @@ fn test_command_event_read_by_type() {
 #[test]
 fn test_command_event_len() {
     test_command_round_trip(Command::EventLen {
-        run: Some(RunId::from("default")),
+        run: Some(BranchId::from("default")),
     });
 }
 
@@ -168,7 +168,7 @@ fn test_command_event_len() {
 #[test]
 fn test_command_state_set() {
     test_command_round_trip(Command::StateSet {
-        run: Some(RunId::from("default")),
+        run: Some(BranchId::from("default")),
         cell: "counter".to_string(),
         value: Value::Int(42),
     });
@@ -177,7 +177,7 @@ fn test_command_state_set() {
 #[test]
 fn test_command_state_cas() {
     test_command_round_trip(Command::StateCas {
-        run: Some(RunId::from("default")),
+        run: Some(BranchId::from("default")),
         cell: "counter".to_string(),
         expected_counter: Some(5),
         value: Value::Int(6),
@@ -191,7 +191,7 @@ fn test_command_state_cas() {
 #[test]
 fn test_command_vector_upsert() {
     test_command_round_trip(Command::VectorUpsert {
-        run: Some(RunId::from("default")),
+        run: Some(BranchId::from("default")),
         collection: "embeddings".to_string(),
         key: "vec1".to_string(),
         vector: vec![0.1, 0.2, 0.3, 0.4],
@@ -206,7 +206,7 @@ fn test_command_vector_upsert() {
 #[test]
 fn test_command_vector_search() {
     test_command_round_trip(Command::VectorSearch {
-        run: Some(RunId::from("default")),
+        run: Some(BranchId::from("default")),
         collection: "embeddings".to_string(),
         query: vec![0.1, 0.2, 0.3, 0.4],
         k: 10,
@@ -218,7 +218,7 @@ fn test_command_vector_search() {
 #[test]
 fn test_command_vector_create_collection() {
     test_command_round_trip(Command::VectorCreateCollection {
-        run: Some(RunId::from("default")),
+        run: Some(BranchId::from("default")),
         collection: "embeddings".to_string(),
         dimension: 384,
         metric: DistanceMetric::Cosine,
@@ -226,15 +226,15 @@ fn test_command_vector_create_collection() {
 }
 
 // =============================================================================
-// Run Command Tests
+// Branch Command Tests
 // =============================================================================
 
 #[test]
 fn test_command_run_create() {
-    test_command_round_trip(Command::RunCreate {
-        run_id: Some("my-run".to_string()),
+    test_command_round_trip(Command::BranchCreate {
+        branch_id: Some("my-run".to_string()),
         metadata: Some(Value::Object(
-            [("name".to_string(), Value::String("Test Run".to_string()))]
+            [("name".to_string(), Value::String("Test Branch".to_string()))]
                 .into_iter()
                 .collect(),
         )),
@@ -243,8 +243,8 @@ fn test_command_run_create() {
 
 #[test]
 fn test_command_run_list() {
-    test_command_round_trip(Command::RunList {
-        state: Some(RunStatus::Active),
+    test_command_round_trip(Command::BranchList {
+        state: Some(BranchStatus::Active),
         limit: Some(10),
         offset: Some(0),
     });
@@ -391,10 +391,10 @@ fn test_output_vector_matches() {
 
 #[test]
 fn test_output_run_info() {
-    test_output_round_trip(Output::RunWithVersion {
-        info: RunInfo {
-            id: RunId::from("test-run"),
-            status: RunStatus::Active,
+    test_output_round_trip(Output::BranchWithVersion {
+        info: BranchInfo {
+            id: BranchId::from("test-run"),
+            status: BranchStatus::Active,
             metadata: Some(Value::Null),
             created_at: 1000000,
             updated_at: 1000000,
@@ -453,7 +453,7 @@ fn test_command_with_complex_value() {
     );
 
     test_command_round_trip(Command::KvPut {
-        run: Some(RunId::from("default")),
+        run: Some(BranchId::from("default")),
         key: "complex".to_string(),
         value: complex_value,
     });
@@ -462,7 +462,7 @@ fn test_command_with_complex_value() {
 #[test]
 fn test_command_with_bytes_value() {
     test_command_round_trip(Command::KvPut {
-        run: Some(RunId::from("default")),
+        run: Some(BranchId::from("default")),
         key: "binary".to_string(),
         value: Value::Bytes(vec![0, 1, 2, 255, 254, 253]),
     });
@@ -498,7 +498,7 @@ fn test_command_with_run_none_round_trip() {
 fn test_command_with_run_some_round_trip() {
     // Commands with run: Some(...) should include the run field
     let cmd = Command::KvGet {
-        run: Some(RunId::from("my-run")),
+        run: Some(BranchId::from("my-run")),
         key: "test".to_string(),
     };
     let json = serde_json::to_string(&cmd).unwrap();
@@ -506,7 +506,7 @@ fn test_command_with_run_some_round_trip() {
     let restored: Command = serde_json::from_str(&json).unwrap();
     match restored {
         Command::KvGet { run, key } => {
-            assert_eq!(run, Some(RunId::from("my-run")));
+            assert_eq!(run, Some(BranchId::from("my-run")));
             assert_eq!(key, "test");
         }
         _ => panic!("Wrong command variant"),
@@ -535,7 +535,7 @@ fn test_command_json_explicit_run_deserializes() {
     let cmd: Command = serde_json::from_str(json).unwrap();
     match cmd {
         Command::KvPut { run, key, value } => {
-            assert_eq!(run, Some(RunId::from("default")));
+            assert_eq!(run, Some(BranchId::from("default")));
             assert_eq!(key, "foo");
             assert_eq!(value, Value::Int(42));
         }

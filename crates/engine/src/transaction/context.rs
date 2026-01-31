@@ -21,10 +21,10 @@ use crate::transaction_ops::TransactionOps;
 use crate::primitives::event::{EventLogMeta, HASH_VERSION_SHA256};
 use strata_concurrency::{JsonStoreExt, TransactionContext};
 use strata_core::{
-    EntityRef, Event, JsonPatch, JsonPath, JsonValue, MetadataFilter, RunMetadata, RunStatus,
+    EntityRef, Event, JsonPatch, JsonPath, JsonValue, MetadataFilter, BranchMetadata, BranchStatus,
     State, StrataError, Timestamp, Value, VectorEntry, VectorMatch, Version, Versioned,
 };
-use strata_core::types::{Key, Namespace, RunId, TypeTag};
+use strata_core::types::{Key, Namespace, BranchId, TypeTag};
 use sha2::{Sha256, Digest};
 
 /// Transaction wrapper that implements TransactionOps
@@ -35,7 +35,7 @@ use sha2::{Sha256, Digest};
 /// # Usage
 ///
 /// ```ignore
-/// db.transaction(&run_id, |txn| {
+/// db.transaction(&branch_id, |txn| {
 ///     // KV operations
 ///     let value = txn.kv_get("key")?;
 ///     txn.kv_put("key", Value::from("value"))?;
@@ -100,8 +100,8 @@ impl<'a> Transaction<'a> {
     }
 
     /// Get the run ID for this transaction
-    pub fn run_id(&self) -> RunId {
-        self.ctx.run_id
+    pub fn branch_id(&self) -> BranchId {
+        self.ctx.branch_id
     }
 
     /// Create a KV key for the given user key
@@ -395,7 +395,7 @@ impl<'a> TransactionOps for Transaction<'a> {
         // Check if state already exists (init should only work for new state)
         if self.ctx.write_set.contains_key(&full_key) {
             return Err(StrataError::invalid_operation(
-                EntityRef::state(self.run_id(), name),
+                EntityRef::state(self.branch_id(), name),
                 "state already exists",
             ));
         }
@@ -438,13 +438,13 @@ impl<'a> TransactionOps for Transaction<'a> {
 
         // For CAS, state must exist
         let current = current_state.ok_or_else(|| {
-            StrataError::not_found(EntityRef::state(self.run_id(), name))
+            StrataError::not_found(EntityRef::state(self.branch_id(), name))
         })?;
 
         // Check version matches
         if current.version != expected_version {
             return Err(StrataError::version_conflict(
-                EntityRef::state(self.run_id(), name),
+                EntityRef::state(self.branch_id(), name),
                 expected_version,
                 current.version,
             ));
@@ -480,7 +480,7 @@ impl<'a> TransactionOps for Transaction<'a> {
                 if let JsonPatch::Set { path, .. } = &entry.patch {
                     if path.is_root() {
                         return Err(StrataError::invalid_operation(
-                            EntityRef::json(self.run_id(), doc_id),
+                            EntityRef::json(self.branch_id(), doc_id),
                             "document already exists",
                         ));
                     }
@@ -672,11 +672,11 @@ impl<'a> TransactionOps for Transaction<'a> {
     // Run Operations (Phase 5) - Stub implementations
     // =========================================================================
 
-    fn run_metadata(&self) -> Result<Option<Versioned<RunMetadata>>, StrataError> {
+    fn branch_metadata(&self) -> Result<Option<Versioned<BranchMetadata>>, StrataError> {
         unimplemented!("Run operations will be implemented in Phase 5")
     }
 
-    fn run_update_status(&mut self, _status: RunStatus) -> Result<Version, StrataError> {
+    fn branch_update_status(&mut self, _status: BranchStatus) -> Result<Version, StrataError> {
         unimplemented!("Run operations will be implemented in Phase 5")
     }
 }
@@ -687,13 +687,13 @@ mod tests {
     use strata_concurrency::snapshot::ClonedSnapshotView;
 
     fn create_test_namespace() -> Namespace {
-        let run_id = RunId::new();
-        Namespace::new("tenant".to_string(), "app".to_string(), "agent".to_string(), run_id)
+        let branch_id = BranchId::new();
+        Namespace::new("tenant".to_string(), "app".to_string(), "agent".to_string(), branch_id)
     }
 
     fn create_test_context(ns: &Namespace) -> TransactionContext {
         let snapshot = Box::new(ClonedSnapshotView::empty(100));
-        TransactionContext::with_snapshot(1, ns.run_id, snapshot)
+        TransactionContext::with_snapshot(1, ns.branch_id, snapshot)
     }
 
     // =========================================================================

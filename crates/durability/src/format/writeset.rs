@@ -18,11 +18,11 @@
 //!
 //! EntityRef Layout:
 //! ┌──────────────────┬──────────────────┬────────────────────────────┐
-//! │ Tag (1 byte)     │ RunId (16 bytes) │ Variant fields             │
+//! │ Tag (1 byte)     │ BranchId (16 bytes) │ Variant fields             │
 //! └──────────────────┴──────────────────┴────────────────────────────┘
 //! ```
 
-use strata_core::{EntityRef, RunId};
+use strata_core::{EntityRef, BranchId};
 
 /// Mutation tag bytes
 const MUTATION_PUT: u8 = 0x01;
@@ -291,37 +291,37 @@ impl Writeset {
     /// Write an EntityRef to the byte buffer.
     fn write_entity_ref(bytes: &mut Vec<u8>, entity_ref: &EntityRef) {
         match entity_ref {
-            EntityRef::Kv { run_id, key } => {
+            EntityRef::Kv { branch_id, key } => {
                 bytes.push(ENTITY_KV);
-                bytes.extend_from_slice(run_id.as_bytes());
+                bytes.extend_from_slice(branch_id.as_bytes());
                 Self::write_string(bytes, key);
             }
-            EntityRef::Event { run_id, sequence } => {
+            EntityRef::Event { branch_id, sequence } => {
                 bytes.push(ENTITY_EVENT);
-                bytes.extend_from_slice(run_id.as_bytes());
+                bytes.extend_from_slice(branch_id.as_bytes());
                 bytes.extend_from_slice(&sequence.to_le_bytes());
             }
-            EntityRef::State { run_id, name } => {
+            EntityRef::State { branch_id, name } => {
                 bytes.push(ENTITY_STATE);
-                bytes.extend_from_slice(run_id.as_bytes());
+                bytes.extend_from_slice(branch_id.as_bytes());
                 Self::write_string(bytes, name);
             }
-            EntityRef::Run { run_id } => {
+            EntityRef::Branch { branch_id } => {
                 bytes.push(ENTITY_RUN);
-                bytes.extend_from_slice(run_id.as_bytes());
+                bytes.extend_from_slice(branch_id.as_bytes());
             }
-            EntityRef::Json { run_id, doc_id } => {
+            EntityRef::Json { branch_id, doc_id } => {
                 bytes.push(ENTITY_JSON);
-                bytes.extend_from_slice(run_id.as_bytes());
+                bytes.extend_from_slice(branch_id.as_bytes());
                 Self::write_string(bytes, doc_id);
             }
             EntityRef::Vector {
-                run_id,
+                branch_id,
                 collection,
                 key,
             } => {
                 bytes.push(ENTITY_VECTOR);
-                bytes.extend_from_slice(run_id.as_bytes());
+                bytes.extend_from_slice(branch_id.as_bytes());
                 Self::write_string(bytes, collection);
                 Self::write_string(bytes, key);
             }
@@ -337,20 +337,20 @@ impl Writeset {
         let tag = bytes[0];
         let mut cursor = 1;
 
-        // All variants have run_id first (16 bytes)
+        // All variants have branch_id first (16 bytes)
         if bytes.len() < cursor + 16 {
             return Err(WritesetError::InsufficientData);
         }
 
         let run_id_bytes: [u8; 16] = bytes[cursor..cursor + 16].try_into().unwrap();
-        let run_id = RunId::from_bytes(run_id_bytes);
+        let branch_id = BranchId::from_bytes(run_id_bytes);
         cursor += 16;
 
         match tag {
             ENTITY_KV => {
                 let (key, consumed) = Self::read_string(&bytes[cursor..])?;
                 cursor += consumed;
-                Ok((EntityRef::Kv { run_id, key }, cursor))
+                Ok((EntityRef::Kv { branch_id, key }, cursor))
             }
             ENTITY_EVENT => {
                 if bytes.len() < cursor + 8 {
@@ -358,23 +358,23 @@ impl Writeset {
                 }
                 let sequence = u64::from_le_bytes(bytes[cursor..cursor + 8].try_into().unwrap());
                 cursor += 8;
-                Ok((EntityRef::Event { run_id, sequence }, cursor))
+                Ok((EntityRef::Event { branch_id, sequence }, cursor))
             }
             ENTITY_STATE => {
                 let (name, consumed) = Self::read_string(&bytes[cursor..])?;
                 cursor += consumed;
-                Ok((EntityRef::State { run_id, name }, cursor))
+                Ok((EntityRef::State { branch_id, name }, cursor))
             }
             0x04 => {
                 // TraceStore was removed - skip over the trace_id string for backwards compatibility
                 let (_trace_id, _consumed) = Self::read_string(&bytes[cursor..])?;
                 Err(WritesetError::InvalidEntityRef) // Trace entities no longer supported
             }
-            ENTITY_RUN => Ok((EntityRef::Run { run_id }, cursor)),
+            ENTITY_RUN => Ok((EntityRef::Branch { branch_id }, cursor)),
             ENTITY_JSON => {
                 let (doc_id, consumed) = Self::read_string(&bytes[cursor..])?;
                 cursor += consumed;
-                Ok((EntityRef::Json { run_id, doc_id }, cursor))
+                Ok((EntityRef::Json { branch_id, doc_id }, cursor))
             }
             ENTITY_VECTOR => {
                 let (collection, consumed) = Self::read_string(&bytes[cursor..])?;
@@ -383,7 +383,7 @@ impl Writeset {
                 cursor += consumed;
                 Ok((
                     EntityRef::Vector {
-                        run_id,
+                        branch_id,
                         collection,
                         key,
                     },
@@ -448,8 +448,8 @@ pub enum WritesetError {
 mod tests {
     use super::*;
 
-    fn test_run_id() -> RunId {
-        RunId::from_bytes([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16])
+    fn test_run_id() -> BranchId {
+        BranchId::from_bytes([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16])
     }
 
     #[test]
@@ -467,8 +467,8 @@ mod tests {
 
     #[test]
     fn test_writeset_put_kv() {
-        let run_id = test_run_id();
-        let entity_ref = EntityRef::kv(run_id, "my-key");
+        let branch_id = test_run_id();
+        let entity_ref = EntityRef::kv(branch_id, "my-key");
 
         let mut ws = Writeset::new();
         ws.put(entity_ref.clone(), vec![1, 2, 3], 42);
@@ -493,8 +493,8 @@ mod tests {
 
     #[test]
     fn test_writeset_delete() {
-        let run_id = test_run_id();
-        let entity_ref = EntityRef::state(run_id, "my-state");
+        let branch_id = test_run_id();
+        let entity_ref = EntityRef::state(branch_id, "my-state");
 
         let mut ws = Writeset::new();
         ws.delete(entity_ref.clone());
@@ -513,8 +513,8 @@ mod tests {
 
     #[test]
     fn test_writeset_append() {
-        let run_id = test_run_id();
-        let entity_ref = EntityRef::event(run_id, 100);
+        let branch_id = test_run_id();
+        let entity_ref = EntityRef::event(branch_id, 100);
 
         let mut ws = Writeset::new();
         ws.append(entity_ref.clone(), vec![4, 5, 6, 7], 123);
@@ -539,13 +539,13 @@ mod tests {
 
     #[test]
     fn test_writeset_multiple_mutations() {
-        let run_id = test_run_id();
+        let branch_id = test_run_id();
 
         let mut ws = Writeset::new();
-        ws.put(EntityRef::kv(run_id, "key1"), vec![1], 1);
-        ws.put(EntityRef::kv(run_id, "key2"), vec![2], 2);
-        ws.delete(EntityRef::kv(run_id, "key3"));
-        ws.append(EntityRef::event(run_id, 1), vec![3], 3);
+        ws.put(EntityRef::kv(branch_id, "key1"), vec![1], 1);
+        ws.put(EntityRef::kv(branch_id, "key2"), vec![2], 2);
+        ws.delete(EntityRef::kv(branch_id, "key3"));
+        ws.append(EntityRef::event(branch_id, 1), vec![3], 3);
 
         assert_eq!(ws.len(), 4);
 
@@ -558,15 +558,15 @@ mod tests {
 
     #[test]
     fn test_entity_ref_all_variants() {
-        let run_id = test_run_id();
+        let branch_id = test_run_id();
 
         let refs = vec![
-            EntityRef::kv(run_id, "key"),
-            EntityRef::event(run_id, 42),
-            EntityRef::state(run_id, "state"),
-            EntityRef::run(run_id),
-            EntityRef::json(run_id, "test-doc"),
-            EntityRef::vector(run_id, "collection", "vec-key"),
+            EntityRef::kv(branch_id, "key"),
+            EntityRef::event(branch_id, 42),
+            EntityRef::state(branch_id, "state"),
+            EntityRef::branch(branch_id),
+            EntityRef::json(branch_id, "test-doc"),
+            EntityRef::vector(branch_id, "collection", "vec-key"),
         ];
 
         for entity_ref in refs {
@@ -589,11 +589,11 @@ mod tests {
 
     #[test]
     fn test_writeset_large_value() {
-        let run_id = test_run_id();
+        let branch_id = test_run_id();
         let large_value = vec![0xAB; 10000];
 
         let mut ws = Writeset::new();
-        ws.put(EntityRef::kv(run_id, "large"), large_value.clone(), 1);
+        ws.put(EntityRef::kv(branch_id, "large"), large_value.clone(), 1);
 
         let bytes = ws.to_bytes();
         let restored = Writeset::from_bytes(&bytes).unwrap();
@@ -608,12 +608,12 @@ mod tests {
 
     #[test]
     fn test_writeset_unicode_keys() {
-        let run_id = test_run_id();
+        let branch_id = test_run_id();
 
         let mut ws = Writeset::new();
-        ws.put(EntityRef::kv(run_id, "键值对"), vec![1], 1);
-        ws.put(EntityRef::state(run_id, "状态🎉"), vec![2], 2);
-        ws.put(EntityRef::vector(run_id, "коллекция", "κλειδί"), vec![3], 3);
+        ws.put(EntityRef::kv(branch_id, "键值对"), vec![1], 1);
+        ws.put(EntityRef::state(branch_id, "状态🎉"), vec![2], 2);
+        ws.put(EntityRef::vector(branch_id, "коллекция", "κλειδί"), vec![3], 3);
 
         let bytes = ws.to_bytes();
         let restored = Writeset::from_bytes(&bytes).unwrap();
@@ -623,11 +623,11 @@ mod tests {
 
     #[test]
     fn test_writeset_empty_strings() {
-        let run_id = test_run_id();
+        let branch_id = test_run_id();
 
         let mut ws = Writeset::new();
-        ws.put(EntityRef::kv(run_id, ""), vec![1], 1);
-        ws.put(EntityRef::vector(run_id, "", ""), vec![2], 2);
+        ws.put(EntityRef::kv(branch_id, ""), vec![1], 1);
+        ws.put(EntityRef::vector(branch_id, "", ""), vec![2], 2);
 
         let bytes = ws.to_bytes();
         let restored = Writeset::from_bytes(&bytes).unwrap();
@@ -657,8 +657,8 @@ mod tests {
 
     #[test]
     fn test_mutation_entity_ref() {
-        let run_id = test_run_id();
-        let entity_ref = EntityRef::kv(run_id, "key");
+        let branch_id = test_run_id();
+        let entity_ref = EntityRef::kv(branch_id, "key");
 
         let put = Mutation::Put {
             entity_ref: entity_ref.clone(),

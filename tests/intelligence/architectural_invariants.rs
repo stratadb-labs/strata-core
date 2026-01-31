@@ -5,9 +5,9 @@
 
 use crate::common::*;
 use strata_core::search_types::{PrimitiveType, SearchRequest, SearchResponse};
-use strata_core::types::RunId;
+use strata_core::types::BranchId;
 use strata_core::value::Value;
-use strata_engine::{KVStore, RunIndex};
+use strata_engine::{KVStore, BranchIndex};
 use strata_intelligence::{BM25LiteScorer, DatabaseSearchExt, Fuser, HybridSearch, RRFFuser, Scorer};
 use std::collections::HashSet;
 use std::sync::Arc;
@@ -20,11 +20,11 @@ use std::sync::Arc;
 #[test]
 fn test_tier1_rule1_search_returns_docref_not_data() {
     let db = create_test_db();
-    let run_id = test_run_id();
-    populate_test_data(&db, &run_id);
+    let branch_id = test_run_id();
+    populate_test_data(&db, &branch_id);
 
     let kv = KVStore::new(db.clone());
-    let req = SearchRequest::new(run_id, "test");
+    let req = SearchRequest::new(branch_id, "test");
     let response = kv.search(&req).unwrap();
 
     // Verify we get DocRefs, not data
@@ -33,8 +33,8 @@ fn test_tier1_rule1_search_returns_docref_not_data() {
         assert!(std::mem::size_of_val(&hit.doc_ref) < 256);
         // Can get primitive type from DocRef
         let _ = hit.doc_ref.primitive_type();
-        // Can get run_id from DocRef
-        let _ = hit.doc_ref.run_id();
+        // Can get branch_id from DocRef
+        let _ = hit.doc_ref.branch_id();
     }
 }
 
@@ -58,20 +58,20 @@ fn test_tier1_rule1_docref_size_bounded() {
 #[test]
 fn test_tier1_rule2_all_primitives_searchable() {
     let db = create_test_db();
-    let run_id = test_run_id();
+    let branch_id = test_run_id();
 
     let kv = KVStore::new(db.clone());
-    let run_index = RunIndex::new(db.clone());
+    let run_index = BranchIndex::new(db.clone());
 
     // Create a run first
-    run_index.create_run(&run_id.to_string()).unwrap();
+    run_index.create_branch(&branch_id.to_string()).unwrap();
 
-    let req = SearchRequest::new(run_id, "test");
+    let req = SearchRequest::new(branch_id, "test");
 
     // KVStore implements Searchable
     let _: SearchResponse = kv.search(&req).unwrap();
 
-    // RunIndex implements Searchable
+    // BranchIndex implements Searchable
     let _: SearchResponse = run_index.search(&req).unwrap();
 }
 
@@ -79,11 +79,11 @@ fn test_tier1_rule2_all_primitives_searchable() {
 #[test]
 fn test_tier1_rule2_primitive_search_returns_search_response() {
     let db = create_test_db();
-    let run_id = test_run_id();
-    populate_test_data(&db, &run_id);
+    let branch_id = test_run_id();
+    populate_test_data(&db, &branch_id);
 
     let kv = KVStore::new(db.clone());
-    let req = SearchRequest::new(run_id, "test");
+    let req = SearchRequest::new(branch_id, "test");
     let response = kv.search(&req).unwrap();
 
     // Response has expected structure
@@ -101,11 +101,11 @@ fn test_tier1_rule2_primitive_search_returns_search_response() {
 #[test]
 fn test_tier1_rule3_hybrid_orchestrates() {
     let db = create_test_db();
-    let run_id = test_run_id();
-    populate_test_data(&db, &run_id);
+    let branch_id = test_run_id();
+    populate_test_data(&db, &branch_id);
 
     let hybrid = db.hybrid();
-    let req = SearchRequest::new(run_id, "test");
+    let req = SearchRequest::new(branch_id, "test");
     let response = hybrid.search(&req).unwrap();
 
     // Results should come from primitives
@@ -122,11 +122,11 @@ fn test_tier1_rule3_hybrid_orchestrates() {
 #[test]
 fn test_tier1_rule3_hybrid_respects_filter() {
     let db = create_test_db();
-    let run_id = test_run_id();
-    populate_test_data(&db, &run_id);
+    let branch_id = test_run_id();
+    populate_test_data(&db, &branch_id);
 
     let hybrid = db.hybrid();
-    let req = SearchRequest::new(run_id, "test").with_primitive_filter(vec![PrimitiveType::Kv]);
+    let req = SearchRequest::new(branch_id, "test").with_primitive_filter(vec![PrimitiveType::Kv]);
     let response = hybrid.search(&req).unwrap();
 
     // All results should be from KV only
@@ -141,21 +141,21 @@ fn test_tier1_rule3_hybrid_respects_filter() {
 #[test]
 fn test_tier1_rule4_snapshot_consistent() {
     let db = create_test_db();
-    let run_id = test_run_id();
+    let branch_id = test_run_id();
 
     let kv = KVStore::new(db.clone());
-    let run_index = RunIndex::new(db.clone());
+    let run_index = BranchIndex::new(db.clone());
 
-    run_index.create_run(&run_id.to_string()).unwrap();
-    kv.put(&run_id, "initial", Value::String("searchable term".into()))
+    run_index.create_branch(&branch_id.to_string()).unwrap();
+    kv.put(&branch_id, "initial", Value::String("searchable term".into()))
         .unwrap();
 
     // Start search
-    let req = SearchRequest::new(run_id, "searchable");
+    let req = SearchRequest::new(branch_id, "searchable");
     let response1 = kv.search(&req).unwrap();
 
     // Add more data
-    kv.put(&run_id, "new", Value::String("searchable new".into()))
+    kv.put(&branch_id, "new", Value::String("searchable new".into()))
         .unwrap();
 
     // New search should see new data
@@ -186,9 +186,9 @@ fn test_tier1_rule5_no_overhead_when_disabled() {
     use strata_intelligence::InvertedIndex;
 
     let index = InvertedIndex::new();
-    let run_id = RunId::new();
+    let branch_id = BranchId::new();
     let doc_ref = DocRef::Kv {
-        run_id,
+        branch_id,
         key: "test".to_string(),
     };
 
@@ -225,13 +225,13 @@ fn test_tier1_rule6_fuser_is_trait() {
 #[test]
 fn test_tier1_rule6_can_swap_fuser() {
     let db = create_test_db();
-    let run_id = test_run_id();
-    populate_test_data(&db, &run_id);
+    let branch_id = test_run_id();
+    populate_test_data(&db, &branch_id);
 
     // Use custom fuser
     let hybrid = HybridSearch::new(db.clone()).with_fuser(Arc::new(RRFFuser::default()));
 
-    let req = SearchRequest::new(run_id, "test");
+    let req = SearchRequest::new(branch_id, "test");
     let response = hybrid.search(&req).unwrap();
 
     assert!(!response.hits.is_empty());
@@ -261,11 +261,11 @@ fn test_tier1_primitive_types_distinct() {
 #[test]
 fn test_tier1_docref_primitive_type_correct() {
     let db = create_test_db();
-    let run_id = test_run_id();
-    populate_test_data(&db, &run_id);
+    let branch_id = test_run_id();
+    populate_test_data(&db, &branch_id);
 
     let kv = KVStore::new(db.clone());
-    let req = SearchRequest::new(run_id, "test");
+    let req = SearchRequest::new(branch_id, "test");
     let response = kv.search(&req).unwrap();
 
     for hit in &response.hits {
@@ -277,22 +277,22 @@ fn test_tier1_docref_primitive_type_correct() {
     }
 }
 
-/// DocRef correctly reports run_id
+/// DocRef correctly reports branch_id
 #[test]
 fn test_tier1_docref_run_id_correct() {
     let db = create_test_db();
-    let run_id = test_run_id();
-    populate_test_data(&db, &run_id);
+    let branch_id = test_run_id();
+    populate_test_data(&db, &branch_id);
 
     let kv = KVStore::new(db.clone());
-    let req = SearchRequest::new(run_id, "test");
+    let req = SearchRequest::new(branch_id, "test");
     let response = kv.search(&req).unwrap();
 
     for hit in &response.hits {
         assert_eq!(
-            hit.doc_ref.run_id(),
-            run_id,
-            "DocRef should contain correct run_id"
+            hit.doc_ref.branch_id(),
+            branch_id,
+            "DocRef should contain correct branch_id"
         );
     }
 }

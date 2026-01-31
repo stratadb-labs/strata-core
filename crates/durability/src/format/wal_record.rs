@@ -25,7 +25,7 @@
 //!
 //! Payload:
 //! ┌──────────────┬──────────────┬──────────────┬─────────────────────────────┐
-//! │ TxnId (8)    │ RunId (16)   │ Timestamp (8)│ Writeset (variable)         │
+//! │ TxnId (8)    │ BranchId (16)   │ Timestamp (8)│ Writeset (variable)         │
 //! └──────────────┴──────────────┴──────────────┴─────────────────────────────┘
 //! ```
 
@@ -341,7 +341,7 @@ pub struct WalRecord {
     pub txn_id: u64,
 
     /// Run this transaction belongs to (UUID bytes)
-    pub run_id: [u8; 16],
+    pub branch_id: [u8; 16],
 
     /// Commit timestamp (microseconds since epoch)
     pub timestamp: u64,
@@ -352,10 +352,10 @@ pub struct WalRecord {
 
 impl WalRecord {
     /// Create a new WAL record.
-    pub fn new(txn_id: u64, run_id: [u8; 16], timestamp: u64, writeset: Vec<u8>) -> Self {
+    pub fn new(txn_id: u64, branch_id: [u8; 16], timestamp: u64, writeset: Vec<u8>) -> Self {
         WalRecord {
             txn_id,
-            run_id,
+            branch_id,
             timestamp,
             writeset,
         }
@@ -367,11 +367,11 @@ impl WalRecord {
     ///
     /// The length field contains the size of (format_version + payload + crc32).
     pub fn to_bytes(&self) -> Vec<u8> {
-        // Build payload: format_version + txn_id + run_id + timestamp + writeset
+        // Build payload: format_version + txn_id + branch_id + timestamp + writeset
         let mut payload = Vec::with_capacity(33 + self.writeset.len());
         payload.push(WAL_RECORD_FORMAT_VERSION);
         payload.extend_from_slice(&self.txn_id.to_le_bytes());
-        payload.extend_from_slice(&self.run_id);
+        payload.extend_from_slice(&self.branch_id);
         payload.extend_from_slice(&self.timestamp.to_le_bytes());
         payload.extend_from_slice(&self.writeset);
 
@@ -428,7 +428,7 @@ impl WalRecord {
         }
 
         // Parse payload
-        // Minimum payload size: 1 (version) + 8 (txn_id) + 16 (run_id) + 8 (timestamp) = 33
+        // Minimum payload size: 1 (version) + 8 (txn_id) + 16 (branch_id) + 8 (timestamp) = 33
         if payload.len() < 33 {
             return Err(WalRecordError::InvalidFormat);
         }
@@ -439,13 +439,13 @@ impl WalRecord {
         }
 
         let txn_id = u64::from_le_bytes(payload[1..9].try_into().unwrap());
-        let run_id: [u8; 16] = payload[9..25].try_into().unwrap();
+        let branch_id: [u8; 16] = payload[9..25].try_into().unwrap();
         let timestamp = u64::from_le_bytes(payload[25..33].try_into().unwrap());
         let writeset = payload[33..].to_vec();
 
         let record = WalRecord {
             txn_id,
-            run_id,
+            branch_id,
             timestamp,
             writeset,
         };
@@ -597,7 +597,7 @@ mod tests {
         let (parsed, consumed) = WalRecord::from_bytes(&bytes).unwrap();
 
         assert_eq!(parsed.txn_id, 42);
-        assert_eq!(parsed.run_id, [1u8; 16]);
+        assert_eq!(parsed.branch_id, [1u8; 16]);
         assert_eq!(parsed.timestamp, 1234567890);
         assert_eq!(parsed.writeset, vec![1, 2, 3, 4, 5]);
         assert_eq!(consumed, bytes.len());
@@ -671,7 +671,7 @@ mod tests {
         for expected in &records {
             let (parsed, consumed) = WalRecord::from_bytes(&all_bytes[offset..]).unwrap();
             assert_eq!(parsed.txn_id, expected.txn_id);
-            assert_eq!(parsed.run_id, expected.run_id);
+            assert_eq!(parsed.branch_id, expected.branch_id);
             assert_eq!(parsed.timestamp, expected.timestamp);
             assert_eq!(parsed.writeset, expected.writeset);
             offset += consumed;

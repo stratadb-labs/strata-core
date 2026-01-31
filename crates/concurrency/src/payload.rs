@@ -79,16 +79,16 @@ pub enum PayloadError {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use strata_core::types::{Key, Namespace, RunId};
+    use strata_core::types::{Key, Namespace, BranchId};
     use strata_core::value::Value;
 
     fn test_ns() -> Namespace {
-        let run_id = RunId::new();
+        let branch_id = BranchId::new();
         Namespace::new(
             "tenant".to_string(),
             "app".to_string(),
             "agent".to_string(),
-            run_id,
+            branch_id,
         )
     }
 

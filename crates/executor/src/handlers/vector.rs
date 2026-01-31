@@ -7,13 +7,13 @@ use std::sync::Arc;
 use strata_core::{StrataError, Value};
 
 use crate::bridge::{
-    extract_version, from_engine_metric, is_internal_collection, to_core_run_id, to_engine_filter,
+    extract_version, from_engine_metric, is_internal_collection, to_core_branch_id, to_engine_filter,
     to_engine_metric, validate_not_internal_collection, value_to_serde_json_public,
     serde_json_to_value_public, Primitives,
 };
 use crate::convert::convert_result;
 use crate::types::{
-    CollectionInfo, DistanceMetric, MetadataFilter, RunId, VectorData,
+    CollectionInfo, DistanceMetric, MetadataFilter, BranchId, VectorData,
     VectorMatch, VersionedVectorData,
 };
 use crate::{Output, Result};
@@ -69,13 +69,13 @@ fn to_vector_match(m: strata_engine::VectorMatch) -> Result<VectorMatch> {
 /// Handle VectorUpsert command.
 pub fn vector_upsert(
     p: &Arc<Primitives>,
-    run: RunId,
+    run: BranchId,
     collection: String,
     key: String,
     vector: Vec<f32>,
     metadata: Option<Value>,
 ) -> Result<Output> {
-    let run_id = to_core_run_id(&run)?;
+    let branch_id = to_core_branch_id(&run)?;
     convert_result(validate_not_internal_collection(&collection))?;
 
     // Auto-create collection on first upsert (ignore AlreadyExists error)
@@ -84,14 +84,14 @@ pub fn vector_upsert(
         strata_core::primitives::VectorConfig::new(dim, strata_engine::DistanceMetric::Cosine),
     )?;
     // Try to create - if already exists, that's fine
-    let _ = p.vector.create_collection(run_id, &collection, config);
+    let _ = p.vector.create_collection(branch_id, &collection, config);
 
     let json_metadata = metadata
         .map(value_to_serde_json_public)
         .transpose()
         .map_err(|e| crate::Error::from(e))?;
     let version = convert_vector_result(
-        p.vector.insert(run_id, &collection, &key, &vector, json_metadata),
+        p.vector.insert(branch_id, &collection, &key, &vector, json_metadata),
     )?;
     Ok(Output::Version(extract_version(&version)))
 }
@@ -99,14 +99,14 @@ pub fn vector_upsert(
 /// Handle VectorGet command.
 pub fn vector_get(
     p: &Arc<Primitives>,
-    run: RunId,
+    run: BranchId,
     collection: String,
     key: String,
 ) -> Result<Output> {
-    let run_id = to_core_run_id(&run)?;
+    let branch_id = to_core_branch_id(&run)?;
     convert_result(validate_not_internal_collection(&collection))?;
 
-    let result = convert_vector_result(p.vector.get(run_id, &collection, &key))?;
+    let result = convert_vector_result(p.vector.get(branch_id, &collection, &key))?;
     match result {
         Some(versioned) => {
             let version = extract_version(&versioned.version);
@@ -121,32 +121,32 @@ pub fn vector_get(
 /// Handle VectorDelete command.
 pub fn vector_delete(
     p: &Arc<Primitives>,
-    run: RunId,
+    run: BranchId,
     collection: String,
     key: String,
 ) -> Result<Output> {
-    let run_id = to_core_run_id(&run)?;
+    let branch_id = to_core_branch_id(&run)?;
     convert_result(validate_not_internal_collection(&collection))?;
-    let existed = convert_vector_result(p.vector.delete(run_id, &collection, &key))?;
+    let existed = convert_vector_result(p.vector.delete(branch_id, &collection, &key))?;
     Ok(Output::Bool(existed))
 }
 
 /// Handle VectorSearch command.
 pub fn vector_search(
     p: &Arc<Primitives>,
-    run: RunId,
+    run: BranchId,
     collection: String,
     query: Vec<f32>,
     k: u64,
     filter: Option<Vec<MetadataFilter>>,
     _metric: Option<DistanceMetric>,
 ) -> Result<Output> {
-    let run_id = to_core_run_id(&run)?;
+    let branch_id = to_core_branch_id(&run)?;
     convert_result(validate_not_internal_collection(&collection))?;
 
     let engine_filter = filter.as_ref().and_then(|f| to_engine_filter(f));
     let matches = convert_vector_result(
-        p.vector.search(run_id, &collection, &query, k as usize, engine_filter),
+        p.vector.search(branch_id, &collection, &query, k as usize, engine_filter),
     )?;
 
     let results: Result<Vec<VectorMatch>> = matches.into_iter().map(to_vector_match).collect();
@@ -156,33 +156,33 @@ pub fn vector_search(
 /// Handle VectorCreateCollection command.
 pub fn vector_create_collection(
     p: &Arc<Primitives>,
-    run: RunId,
+    run: BranchId,
     collection: String,
     dimension: u64,
     metric: DistanceMetric,
 ) -> Result<Output> {
-    let run_id = to_core_run_id(&run)?;
+    let branch_id = to_core_branch_id(&run)?;
     convert_result(validate_not_internal_collection(&collection))?;
 
     let config = convert_result(
         strata_core::primitives::VectorConfig::new(dimension as usize, to_engine_metric(metric)),
     )?;
     let versioned =
-        convert_vector_result(p.vector.create_collection(run_id, &collection, config))?;
+        convert_vector_result(p.vector.create_collection(branch_id, &collection, config))?;
     Ok(Output::Version(extract_version(&versioned.version)))
 }
 
 /// Handle VectorDeleteCollection command.
 pub fn vector_delete_collection(
     p: &Arc<Primitives>,
-    run: RunId,
+    run: BranchId,
     collection: String,
 ) -> Result<Output> {
-    let run_id = to_core_run_id(&run)?;
+    let branch_id = to_core_branch_id(&run)?;
     convert_result(validate_not_internal_collection(&collection))?;
 
     // Try to delete - returns error if not found, which we convert to false
-    match p.vector.delete_collection(run_id, &collection) {
+    match p.vector.delete_collection(branch_id, &collection) {
         Ok(()) => Ok(Output::Bool(true)),
         Err(strata_engine::VectorError::CollectionNotFound { .. }) => Ok(Output::Bool(false)),
         Err(e) => Err(StrataError::from(e).into()),
@@ -190,9 +190,9 @@ pub fn vector_delete_collection(
 }
 
 /// Handle VectorListCollections command.
-pub fn vector_list_collections(p: &Arc<Primitives>, run: RunId) -> Result<Output> {
-    let run_id = to_core_run_id(&run)?;
-    let collections = convert_vector_result(p.vector.list_collections(run_id))?;
+pub fn vector_list_collections(p: &Arc<Primitives>, run: BranchId) -> Result<Output> {
+    let branch_id = to_core_branch_id(&run)?;
+    let collections = convert_vector_result(p.vector.list_collections(branch_id))?;
 
     // Filter out internal collections (starting with '_')
     let infos: Vec<CollectionInfo> = collections
@@ -215,8 +215,8 @@ mod tests {
 
     #[test]
     fn test_to_core_run_id_default() {
-        let run = RunId::from("default");
-        let core_id = bridge::to_core_run_id(&run).unwrap();
+        let run = BranchId::from("default");
+        let core_id = bridge::to_core_branch_id(&run).unwrap();
         assert_eq!(core_id.as_bytes(), &[0u8; 16]);
     }
 }

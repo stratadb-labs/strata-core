@@ -5,11 +5,11 @@
 //! - RUN.json - Run metadata
 //! - WAL.runlog - Run-scoped transaction payloads (msgpack v2 format)
 
-use crate::run_bundle::error::{RunBundleError, RunBundleResult};
-use crate::run_bundle::types::{
+use crate::branch_bundle::error::{RunBundleError, RunBundleResult};
+use crate::branch_bundle::types::{
     paths, xxh3_hex, BundleContents, BundleManifest, BundleRunInfo, ExportOptions, RunExportInfo,
 };
-use crate::run_bundle::wal_log::{RunlogPayload, WalLogWriter};
+use crate::branch_bundle::wal_log::{RunlogPayload, WalLogWriter};
 use std::fs::{self, File};
 use std::io::{BufWriter, Write};
 use std::path::Path;
@@ -132,7 +132,7 @@ impl RunBundleWriter {
         let checksum = xxh3_hex(&bundle_data);
 
         Ok(RunExportInfo {
-            run_id: run_info.run_id.clone(),
+            branch_id: run_info.branch_id.clone(),
             path: path.to_path_buf(),
             wal_entry_count: wal_info.entry_count,
             bundle_size_bytes: bundle_size,
@@ -211,7 +211,7 @@ impl RunBundleWriter {
         let checksum = xxh3_hex(&buffer);
 
         let info = RunExportInfo {
-            run_id: run_info.run_id.clone(),
+            branch_id: run_info.branch_id.clone(),
             path: std::path::PathBuf::new(),
             wal_entry_count: wal_info.entry_count,
             bundle_size_bytes: buffer.len() as u64,
@@ -225,16 +225,16 @@ impl RunBundleWriter {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::run_bundle::wal_log::RunlogPayload;
-    use crate::run_bundle::types::RUNBUNDLE_FORMAT_VERSION;
-    use strata_core::types::{Key, Namespace, RunId, TypeTag};
+    use crate::branch_bundle::wal_log::RunlogPayload;
+    use crate::branch_bundle::types::RUNBUNDLE_FORMAT_VERSION;
+    use strata_core::types::{Key, Namespace, BranchId, TypeTag};
     use strata_core::value::Value;
     use std::io::Read;
     use tempfile::tempdir;
 
     fn make_test_run_info() -> BundleRunInfo {
         BundleRunInfo {
-            run_id: "550e8400-e29b-41d4-a716-446655440000".to_string(),
+            branch_id: "550e8400-e29b-41d4-a716-446655440000".to_string(),
             name: "test-run".to_string(),
             state: "completed".to_string(),
             created_at: "2025-01-24T10:00:00Z".to_string(),
@@ -247,11 +247,11 @@ mod tests {
     }
 
     fn make_test_payloads() -> Vec<RunlogPayload> {
-        let run_id = RunId::new();
-        let ns = Namespace::for_run(run_id);
+        let branch_id = BranchId::new();
+        let ns = Namespace::for_branch(branch_id);
         vec![
             RunlogPayload {
-                run_id: run_id.to_string(),
+                branch_id: branch_id.to_string(),
                 version: 1,
                 puts: vec![
                     (
@@ -262,7 +262,7 @@ mod tests {
                 deletes: vec![],
             },
             RunlogPayload {
-                run_id: run_id.to_string(),
+                branch_id: branch_id.to_string(),
                 version: 2,
                 puts: vec![],
                 deletes: vec![Key::new(ns, TypeTag::KV, b"key1".to_vec())],
@@ -279,7 +279,7 @@ mod tests {
         let (data, info) = writer.write_to_vec(&run_info, &payloads).unwrap();
 
         assert!(!data.is_empty());
-        assert_eq!(info.run_id, run_info.run_id);
+        assert_eq!(info.branch_id, run_info.branch_id);
         assert_eq!(info.wal_entry_count, 2);
         assert!(info.bundle_size_bytes > 0);
         assert!(!info.checksum.is_empty());
@@ -419,7 +419,7 @@ mod tests {
         let run_data = run_data.expect("RUN.json not found");
         let parsed_run: BundleRunInfo = serde_json::from_slice(&run_data).unwrap();
 
-        assert_eq!(parsed_run.run_id, run_info.run_id);
+        assert_eq!(parsed_run.branch_id, run_info.branch_id);
         assert_eq!(parsed_run.name, run_info.name);
         assert_eq!(parsed_run.state, run_info.state);
         assert_eq!(parsed_run.tags, run_info.tags);
@@ -455,12 +455,12 @@ mod tests {
         let run_info = make_test_run_info();
 
         // Create payloads with repetitive data (compresses well)
-        let run_id = RunId::new();
-        let ns = Namespace::for_run(run_id);
+        let branch_id = BranchId::new();
+        let ns = Namespace::for_branch(branch_id);
         let mut payloads = Vec::new();
         for i in 0..100 {
             payloads.push(RunlogPayload {
-                run_id: run_id.to_string(),
+                branch_id: branch_id.to_string(),
                 version: i as u64,
                 puts: vec![(
                     Key::new(ns.clone(), TypeTag::KV, format!("key{}", i).into_bytes()),

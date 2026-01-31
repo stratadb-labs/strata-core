@@ -4,9 +4,9 @@
 
 use crate::common::*;
 use strata_core::search_types::{DocRef, PrimitiveType, SearchRequest};
-use strata_core::types::{JsonDocId, RunId};
+use strata_core::types::{JsonDocId, BranchId};
 use strata_core::value::Value;
-use strata_engine::{KVStore, RunIndex};
+use strata_engine::{KVStore, BranchIndex};
 use strata_intelligence::DatabaseSearchExt;
 use std::collections::HashSet;
 
@@ -17,18 +17,18 @@ use std::collections::HashSet;
 /// DocRefs from different primitives are NEVER equal
 #[test]
 fn test_tier6_docrefs_different_primitives_never_equal() {
-    let run_id = RunId::new();
+    let branch_id = BranchId::new();
 
     let kv_ref = DocRef::Kv {
-        run_id: run_id.clone(),
+        branch_id: branch_id.clone(),
         key: "shared_name".to_string(),
     };
     let json_ref = DocRef::Json {
-        run_id: run_id.clone(),
+        branch_id: branch_id.clone(),
         doc_id: JsonDocId::new(),
     };
     let run_ref = DocRef::Run {
-        run_id: run_id.clone(),
+        branch_id: branch_id.clone(),
     };
 
     // POLICY: DocRefs from different primitives are NEVER equal
@@ -40,14 +40,14 @@ fn test_tier6_docrefs_different_primitives_never_equal() {
 /// DocRefs from same primitive with same key ARE equal
 #[test]
 fn test_tier6_docrefs_same_primitive_same_key_equal() {
-    let run_id = RunId::new();
+    let branch_id = BranchId::new();
 
     let ref1 = DocRef::Kv {
-        run_id: run_id.clone(),
+        branch_id: branch_id.clone(),
         key: "same_key".to_string(),
     };
     let ref2 = DocRef::Kv {
-        run_id: run_id.clone(),
+        branch_id: branch_id.clone(),
         key: "same_key".to_string(),
     };
 
@@ -57,14 +57,14 @@ fn test_tier6_docrefs_same_primitive_same_key_equal() {
 /// DocRefs from same primitive with different keys are NOT equal
 #[test]
 fn test_tier6_docrefs_same_primitive_different_key_not_equal() {
-    let run_id = RunId::new();
+    let branch_id = BranchId::new();
 
     let ref1 = DocRef::Kv {
-        run_id: run_id.clone(),
+        branch_id: branch_id.clone(),
         key: "key1".to_string(),
     };
     let ref2 = DocRef::Kv {
-        run_id: run_id.clone(),
+        branch_id: branch_id.clone(),
         key: "key2".to_string(),
     };
 
@@ -74,15 +74,15 @@ fn test_tier6_docrefs_same_primitive_different_key_not_equal() {
 /// DocRefs from same primitive but different runs are NOT equal
 #[test]
 fn test_tier6_docrefs_different_runs_not_equal() {
-    let run1 = RunId::new();
-    let run2 = RunId::new();
+    let run1 = BranchId::new();
+    let run2 = BranchId::new();
 
     let ref1 = DocRef::Kv {
-        run_id: run1,
+        branch_id: run1,
         key: "same_key".to_string(),
     };
     let ref2 = DocRef::Kv {
-        run_id: run2,
+        branch_id: run2,
         key: "same_key".to_string(),
     };
 
@@ -97,18 +97,18 @@ fn test_tier6_docrefs_different_runs_not_equal() {
 /// DocRefs can be used in HashSet
 #[test]
 fn test_tier6_docrefs_hashable() {
-    let run_id = RunId::new();
+    let branch_id = BranchId::new();
 
     let ref1 = DocRef::Kv {
-        run_id: run_id.clone(),
+        branch_id: branch_id.clone(),
         key: "key1".to_string(),
     };
     let ref2 = DocRef::Kv {
-        run_id: run_id.clone(),
+        branch_id: branch_id.clone(),
         key: "key2".to_string(),
     };
     let ref3 = DocRef::Kv {
-        run_id: run_id.clone(),
+        branch_id: branch_id.clone(),
         key: "key1".to_string(), // Duplicate of ref1
     };
 
@@ -131,24 +131,24 @@ fn test_tier6_docrefs_hashable() {
 #[test]
 fn test_tier6_within_primitive_no_duplicates() {
     let db = create_test_db();
-    let run_id = test_run_id();
+    let branch_id = test_run_id();
 
     let kv = KVStore::new(db.clone());
-    let run_index = RunIndex::new(db.clone());
+    let run_index = BranchIndex::new(db.clone());
 
-    run_index.create_run(&run_id.to_string()).unwrap();
+    run_index.create_branch(&branch_id.to_string()).unwrap();
 
     // Add multiple entries with overlapping content
     for i in 0..10 {
         kv.put(
-            &run_id,
+            &branch_id,
             &format!("key_{}", i),
             Value::String("common search term".into()),
         )
         .unwrap();
     }
 
-    let req = SearchRequest::new(run_id, "common").with_k(20);
+    let req = SearchRequest::new(branch_id, "common").with_k(20);
     let response = kv.search(&req).unwrap();
 
     // Check for duplicates
@@ -168,11 +168,11 @@ fn test_tier6_cross_primitive_no_deduplication() {
     // The application layer must handle it if needed.
 
     let db = create_test_db();
-    let run_id = test_run_id();
-    populate_test_data(&db, &run_id);
+    let branch_id = test_run_id();
+    populate_test_data(&db, &branch_id);
 
     let hybrid = db.hybrid();
-    let req = SearchRequest::new(run_id, "test");
+    let req = SearchRequest::new(branch_id, "test");
     let response = hybrid.search(&req).unwrap();
 
     // Results from different primitives may logically refer to the same
@@ -190,51 +190,51 @@ fn test_tier6_cross_primitive_no_deduplication() {
 /// DocRef.primitive_type() returns correct variant
 #[test]
 fn test_tier6_primitive_type_correct() {
-    let run_id = RunId::new();
+    let branch_id = BranchId::new();
 
     let kv_ref = DocRef::Kv {
-        run_id: run_id.clone(),
+        branch_id: branch_id.clone(),
         key: "test".to_string(),
     };
     assert_eq!(kv_ref.primitive_type(), PrimitiveType::Kv);
 
     let json_ref = DocRef::Json {
-        run_id: run_id.clone(),
+        branch_id: branch_id.clone(),
         doc_id: JsonDocId::new(),
     };
     assert_eq!(json_ref.primitive_type(), PrimitiveType::Json);
 
     let event_ref = DocRef::Event {
-        run_id: run_id.clone(),
+        branch_id: branch_id.clone(),
         sequence: 42,
     };
     assert_eq!(event_ref.primitive_type(), PrimitiveType::Event);
 
     let state_ref = DocRef::State {
-        run_id: run_id.clone(),
+        branch_id: branch_id.clone(),
         name: "cell".to_string(),
     };
     assert_eq!(state_ref.primitive_type(), PrimitiveType::State);
 
     let run_ref = DocRef::Run {
-        run_id: run_id.clone(),
+        branch_id: branch_id.clone(),
     };
-    assert_eq!(run_ref.primitive_type(), PrimitiveType::Run);
+    assert_eq!(run_ref.primitive_type(), PrimitiveType::Branch);
 }
 
-/// DocRef.run_id() returns correct run
+/// DocRef.branch_id() returns correct run
 #[test]
 fn test_tier6_run_id_correct() {
-    let run_id = RunId::new();
+    let branch_id = BranchId::new();
 
     let kv_ref = DocRef::Kv {
-        run_id: run_id.clone(),
+        branch_id: branch_id.clone(),
         key: "test".to_string(),
     };
-    assert_eq!(kv_ref.run_id(), run_id);
+    assert_eq!(kv_ref.branch_id(), branch_id);
 
     let run_ref = DocRef::Run {
-        run_id: run_id.clone(),
+        branch_id: branch_id.clone(),
     };
-    assert_eq!(run_ref.run_id(), run_id);
+    assert_eq!(run_ref.branch_id(), branch_id);
 }

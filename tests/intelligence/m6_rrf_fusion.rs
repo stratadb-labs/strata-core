@@ -10,11 +10,11 @@ fn test_vector_results_suitable_for_fusion() {
     let test_db = TestDb::new();
     let vector = test_db.vector();
 
-    vector.create_collection(test_db.run_id, "embeddings", config_minilm()).unwrap();
+    vector.create_collection(test_db.branch_id, "embeddings", config_minilm()).unwrap();
 
     for i in 0..50 {
         vector.insert(
-            test_db.run_id,
+            test_db.branch_id,
             "embeddings",
             &format!("doc_{}", i),
             &seeded_random_vector(384, i as u64),
@@ -23,7 +23,7 @@ fn test_vector_results_suitable_for_fusion() {
     }
 
     let query = seeded_random_vector(384, 12345);
-    let results = vector.search(test_db.run_id, "embeddings", &query, 20, None).unwrap();
+    let results = vector.search(test_db.branch_id, "embeddings", &query, 20, None).unwrap();
 
     // Results should have proper format for RRF
     for (rank, result) in results.iter().enumerate() {
@@ -41,11 +41,11 @@ fn test_multiple_queries_different_results() {
     let test_db = TestDb::new();
     let vector = test_db.vector();
 
-    vector.create_collection(test_db.run_id, "embeddings", config_minilm()).unwrap();
+    vector.create_collection(test_db.branch_id, "embeddings", config_minilm()).unwrap();
 
     for i in 0..100 {
         vector.insert(
-            test_db.run_id,
+            test_db.branch_id,
             "embeddings",
             &format!("doc_{}", i),
             &seeded_random_vector(384, i as u64),
@@ -56,8 +56,8 @@ fn test_multiple_queries_different_results() {
     let query1 = seeded_random_vector(384, 111);
     let query2 = seeded_random_vector(384, 222);
 
-    let results1 = vector.search(test_db.run_id, "embeddings", &query1, 10, None).unwrap();
-    let results2 = vector.search(test_db.run_id, "embeddings", &query2, 10, None).unwrap();
+    let results1 = vector.search(test_db.branch_id, "embeddings", &query1, 10, None).unwrap();
+    let results2 = vector.search(test_db.branch_id, "embeddings", &query2, 10, None).unwrap();
 
     // Different queries may produce different top results (used in fusion)
     let keys1: Vec<&str> = results1.iter().map(|r| r.key.as_str()).collect();

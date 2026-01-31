@@ -3,7 +3,7 @@
 //! Validates optimistic concurrency control behavior
 //! with 2-thread scenarios per transaction semantics documentation.
 
-use strata_core::types::{Key, Namespace, RunId};
+use strata_core::types::{Key, Namespace, BranchId};
 use strata_core::value::Value;
 use strata_engine::Database;
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -11,12 +11,12 @@ use std::sync::{Arc, Barrier};
 use std::thread;
 use tempfile::TempDir;
 
-fn create_ns(run_id: RunId) -> Namespace {
+fn create_ns(branch_id: BranchId) -> Namespace {
     Namespace::new(
         "tenant".to_string(),
         "app".to_string(),
         "agent".to_string(),
-        run_id,
+        branch_id,
     )
 }
 
@@ -30,8 +30,8 @@ fn test_blind_writes_no_conflict() {
     let temp_dir = TempDir::new().unwrap();
     let db = Database::open(temp_dir.path().join("db")).unwrap();
 
-    let run_id = RunId::new();
-    let ns = create_ns(run_id);
+    let branch_id = BranchId::new();
+    let ns = create_ns(branch_id);
     let key = Key::new_kv(ns, "blind_key");
 
     let db1 = Arc::clone(&db);
@@ -45,7 +45,7 @@ fn test_blind_writes_no_conflict() {
 
     // T1: Blind write (no read first)
     let h1 = thread::spawn(move || {
-        db1.transaction(run_id, |txn| {
+        db1.transaction(branch_id, |txn| {
             barrier1.wait();
             txn.put(key1.clone(), Value::Int(1))?;
             Ok(())
@@ -54,7 +54,7 @@ fn test_blind_writes_no_conflict() {
 
     // T2: Blind write (no read first)
     let h2 = thread::spawn(move || {
-        db2.transaction(run_id, |txn| {
+        db2.transaction(branch_id, |txn| {
             barrier2.wait();
             txn.put(key2.clone(), Value::Int(2))?;
             Ok(())
@@ -79,8 +79,8 @@ fn test_no_conflict_different_keys() {
     let temp_dir = TempDir::new().unwrap();
     let db = Database::open(temp_dir.path().join("db")).unwrap();
 
-    let run_id = RunId::new();
-    let ns = create_ns(run_id);
+    let branch_id = BranchId::new();
+    let ns = create_ns(branch_id);
     let key_a = Key::new_kv(ns.clone(), "key_a");
     let key_b = Key::new_kv(ns, "key_b");
 
@@ -93,7 +93,7 @@ fn test_no_conflict_different_keys() {
 
     // T1: Write key_a
     let h1 = thread::spawn(move || {
-        db1.transaction(run_id, |txn| {
+        db1.transaction(branch_id, |txn| {
             barrier1.wait();
             txn.put(key_a.clone(), Value::Int(1))?;
             Ok(())
@@ -102,7 +102,7 @@ fn test_no_conflict_different_keys() {
 
     // T2: Write key_b
     let h2 = thread::spawn(move || {
-        db2.transaction(run_id, |txn| {
+        db2.transaction(branch_id, |txn| {
             barrier2.wait();
             txn.put(key_b.clone(), Value::Int(2))?;
             Ok(())
@@ -127,8 +127,8 @@ fn test_multi_threaded_contention() {
     let temp_dir = TempDir::new().unwrap();
     let db = Database::open(temp_dir.path().join("db")).unwrap();
 
-    let run_id = RunId::new();
-    let ns = create_ns(run_id);
+    let branch_id = BranchId::new();
+    let ns = create_ns(branch_id);
 
     let num_threads = 4;
     let ops_per_thread = 10;
@@ -144,7 +144,7 @@ fn test_multi_threaded_contention() {
             thread::spawn(move || {
                 for op in 0..ops_per_thread {
                     let key = Key::new_kv(ns.clone(), format!("t{}_op{}", thread_id, op));
-                    let result = db.transaction(run_id, |txn| {
+                    let result = db.transaction(branch_id, |txn| {
                         txn.put(key.clone(), Value::Int((thread_id * 100 + op) as i64))?;
                         Ok(())
                     });
@@ -171,7 +171,7 @@ fn test_multi_threaded_contention() {
     );
 
     // Verify some values are readable via transaction
-    let val = db.transaction(run_id, |txn| {
+    let val = db.transaction(branch_id, |txn| {
         let key = Key::new_kv(ns.clone(), "t0_op0");
         txn.get(&key)
     }).unwrap().unwrap();
@@ -184,13 +184,13 @@ fn test_read_only_transactions_no_conflict() {
     let temp_dir = TempDir::new().unwrap();
     let db = Database::open(temp_dir.path().join("db")).unwrap();
 
-    let run_id = RunId::new();
-    let ns = create_ns(run_id);
+    let branch_id = BranchId::new();
+    let ns = create_ns(branch_id);
 
     // Pre-populate with data
     for i in 0..10 {
         let key = Key::new_kv(ns.clone(), format!("key_{}", i));
-        db.transaction(run_id, |txn| {
+        db.transaction(branch_id, |txn| {
             txn.put(key.clone(), Value::Int(i))?;
             Ok(())
         })
@@ -208,7 +208,7 @@ fn test_read_only_transactions_no_conflict() {
             let success = Arc::clone(&success_count);
 
             thread::spawn(move || {
-                let result = db.transaction(run_id, |txn| {
+                let result = db.transaction(branch_id, |txn| {
                     // Just read, no writes
                     for i in 0..10 {
                         let key = Key::new_kv(ns.clone(), format!("key_{}", i));
@@ -242,8 +242,8 @@ fn test_concurrent_disjoint_transactions() {
     let temp_dir = TempDir::new().unwrap();
     let db = Database::open(temp_dir.path().join("db")).unwrap();
 
-    let run_id = RunId::new();
-    let ns = create_ns(run_id);
+    let branch_id = BranchId::new();
+    let ns = create_ns(branch_id);
 
     let num_threads = 8;
     let success_count = Arc::new(AtomicU64::new(0));
@@ -256,7 +256,7 @@ fn test_concurrent_disjoint_transactions() {
 
             thread::spawn(move || {
                 // Each thread works on its own set of keys
-                let result = db.transaction(run_id, |txn| {
+                let result = db.transaction(branch_id, |txn| {
                     for i in 0..5 {
                         let key = Key::new_kv(ns.clone(), format!("t{}_{}", thread_id, i));
                         txn.put(key, Value::Int((thread_id * 10 + i) as i64))?;

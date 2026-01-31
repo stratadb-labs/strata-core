@@ -19,7 +19,7 @@ use crate::primitives::extensions::StateCellExt;
 use strata_concurrency::TransactionContext;
 use strata_core::contract::{Version, Versioned};
 use strata_core::{StrataResult, VersionedHistory};
-use strata_core::types::{Key, Namespace, RunId};
+use strata_core::types::{Key, Namespace, BranchId};
 use strata_core::value::Value;
 use strata_core::Timestamp;
 use crate::database::Database;
@@ -61,20 +61,20 @@ fn from_stored_value<T: for<'de> Deserialize<'de>>(
 /// use strata_core::value::Value;
 ///
 /// let sc = StateCell::new(db.clone());
-/// let run_id = RunId::new();
+/// let branch_id = BranchId::new();
 ///
 /// // Initialize a counter
-/// sc.init(&run_id, "counter", Value::Int(0))?;
+/// sc.init(&branch_id, "counter", Value::Int(0))?;
 ///
 /// // Read current state
-/// let state = sc.read(&run_id, "counter")?.unwrap();
+/// let state = sc.read(&branch_id, "counter")?.unwrap();
 /// assert_eq!(state.value.version, Version::counter(1));
 ///
 /// // CAS update (only succeeds if version matches)
-/// sc.cas(&run_id, "counter", Version::counter(1), Value::Int(1))?;
+/// sc.cas(&branch_id, "counter", Version::counter(1), Value::Int(1))?;
 ///
 /// // Unconditional set
-/// sc.set(&run_id, "counter", Value::Int(10))?;
+/// sc.set(&branch_id, "counter", Value::Int(10))?;
 /// ```
 #[derive(Clone)]
 pub struct StateCell {
@@ -88,13 +88,13 @@ impl StateCell {
     }
 
     /// Build namespace for run-scoped operations
-    fn namespace_for_run(&self, run_id: &RunId) -> Namespace {
-        Namespace::for_run(*run_id)
+    fn namespace_for_branch(&self, branch_id: &BranchId) -> Namespace {
+        Namespace::for_branch(*branch_id)
     }
 
     /// Build key for state cell
-    fn key_for(&self, run_id: &RunId, name: &str) -> Key {
-        Key::new_state(self.namespace_for_run(run_id), name)
+    fn key_for(&self, branch_id: &BranchId, name: &str) -> Key {
+        Key::new_state(self.namespace_for_branch(branch_id), name)
     }
 
     // ========== Read/Init Operations ==========
@@ -105,9 +105,9 @@ impl StateCell {
     /// The version uses `Version::Counter` type.
     ///
     /// # StateCell Versioned Returns
-    pub fn init(&self, run_id: &RunId, name: &str, value: Value) -> StrataResult<Versioned<Version>> {
-        self.db.transaction(*run_id, |txn| {
-            let key = self.key_for(run_id, name);
+    pub fn init(&self, branch_id: &BranchId, name: &str, value: Value) -> StrataResult<Versioned<Version>> {
+        self.db.transaction(*branch_id, |txn| {
+            let key = self.key_for(branch_id, name);
 
             // Check if exists
             if txn.get(&key)?.is_some() {
@@ -128,10 +128,10 @@ impl StateCell {
     ///
     /// Returns the user value, or `None` if the cell doesn't exist.
     /// Use `readv()` to access version metadata and history.
-    pub fn read(&self, run_id: &RunId, name: &str) -> StrataResult<Option<Value>> {
-        let key = self.key_for(run_id, name);
+    pub fn read(&self, branch_id: &BranchId, name: &str) -> StrataResult<Option<Value>> {
+        let key = self.key_for(branch_id, name);
 
-        self.db.transaction(*run_id, |txn| {
+        self.db.transaction(*branch_id, |txn| {
             match txn.get(&key)? {
                 Some(v) => {
                     let state: State = from_stored_value(&v)
@@ -150,8 +150,8 @@ impl StateCell {
     ///
     /// Returns `VersionedHistory<Value>` — the internal `State` wrapper is
     /// unwrapped so callers see the user value with storage-layer version/timestamp.
-    pub fn readv(&self, run_id: &RunId, name: &str) -> StrataResult<Option<VersionedHistory<Value>>> {
-        let key = self.key_for(run_id, name);
+    pub fn readv(&self, branch_id: &BranchId, name: &str) -> StrataResult<Option<VersionedHistory<Value>>> {
+        let key = self.key_for(branch_id, name);
         let history = self.db.get_history(&key, None, None)?;
         let versions: Vec<Versioned<Value>> = history
             .iter()
@@ -177,13 +177,13 @@ impl StateCell {
     /// # StateCell Versioned Returns
     pub fn cas(
         &self,
-        run_id: &RunId,
+        branch_id: &BranchId,
         name: &str,
         expected_version: Version,
         new_value: Value,
     ) -> StrataResult<Versioned<Version>> {
-        self.db.transaction(*run_id, |txn| {
-            let key = self.key_for(run_id, name);
+        self.db.transaction(*branch_id, |txn| {
+            let key = self.key_for(branch_id, name);
 
             let current: State = match txn.get(&key)? {
                 Some(v) => from_stored_value(&v)
@@ -221,10 +221,10 @@ impl StateCell {
     /// Creates the cell if it doesn't exist.
     ///
     /// # StateCell Versioned Returns
-    pub fn set(&self, run_id: &RunId, name: &str, value: Value) -> StrataResult<Versioned<Version>> {
+    pub fn set(&self, branch_id: &BranchId, name: &str, value: Value) -> StrataResult<Versioned<Version>> {
         let value_for_index = value.clone();
-        let result = self.db.transaction(*run_id, |txn| {
-            let key = self.key_for(run_id, name);
+        let result = self.db.transaction(*branch_id, |txn| {
+            let key = self.key_for(branch_id, name);
 
             let new_version = match txn.get(&key)? {
                 Some(v) => {
@@ -251,7 +251,7 @@ impl StateCell {
         if index.is_enabled() {
             let text = format!("{} {}", name, serde_json::to_string(&value_for_index).unwrap_or_default());
             let entity_ref = crate::search::EntityRef::State {
-                run_id: *run_id,
+                branch_id: *branch_id,
                 name: name.to_string(),
             };
             index.index_document(&entity_ref, &text, None);
@@ -282,7 +282,7 @@ impl crate::search::Searchable for StateCell {
 
 impl StateCellExt for TransactionContext {
     fn state_read(&mut self, name: &str) -> StrataResult<Option<Value>> {
-        let ns = Namespace::for_run(self.run_id);
+        let ns = Namespace::for_branch(self.branch_id);
         let key = Key::new_state(ns, name);
 
         match self.get(&key)? {
@@ -296,7 +296,7 @@ impl StateCellExt for TransactionContext {
     }
 
     fn state_cas(&mut self, name: &str, expected_version: Version, new_value: Value) -> StrataResult<Version> {
-        let ns = Namespace::for_run(self.run_id);
+        let ns = Namespace::for_branch(self.branch_id);
         let key = Key::new_state(ns, name);
 
         let current: State = match self.get(&key)? {
@@ -329,7 +329,7 @@ impl StateCellExt for TransactionContext {
     }
 
     fn state_set(&mut self, name: &str, value: Value) -> StrataResult<Version> {
-        let ns = Namespace::for_run(self.run_id);
+        let ns = Namespace::for_branch(self.branch_id);
         let key = Key::new_state(ns, name);
 
         let new_version = match self.get(&key)? {
@@ -400,40 +400,40 @@ mod tests {
     #[test]
     fn test_init_and_read() {
         let (_temp, _db, sc) = setup();
-        let run_id = RunId::new();
+        let branch_id = BranchId::new();
 
-        let versioned = sc.init(&run_id, "counter", Value::Int(0)).unwrap();
+        let versioned = sc.init(&branch_id, "counter", Value::Int(0)).unwrap();
         assert_eq!(versioned.value, Version::counter(1));
         assert!(versioned.version.is_counter());
 
-        let value = sc.read(&run_id, "counter").unwrap().unwrap();
+        let value = sc.read(&branch_id, "counter").unwrap().unwrap();
         assert_eq!(value, Value::Int(0));
     }
 
     #[test]
     fn test_init_already_exists() {
         let (_temp, _db, sc) = setup();
-        let run_id = RunId::new();
+        let branch_id = BranchId::new();
 
-        sc.init(&run_id, "cell", Value::Null).unwrap();
-        let result = sc.init(&run_id, "cell", Value::Null);
+        sc.init(&branch_id, "cell", Value::Null).unwrap();
+        let result = sc.init(&branch_id, "cell", Value::Null);
         assert!(result.is_err());
     }
 
     #[test]
     fn test_read_nonexistent() {
         let (_temp, _db, sc) = setup();
-        let run_id = RunId::new();
+        let branch_id = BranchId::new();
 
-        let result = sc.read(&run_id, "nonexistent").unwrap();
+        let result = sc.read(&branch_id, "nonexistent").unwrap();
         assert!(result.is_none());
     }
 
     #[test]
     fn test_run_isolation() {
         let (_temp, _db, sc) = setup();
-        let run1 = RunId::new();
-        let run2 = RunId::new();
+        let run1 = BranchId::new();
+        let run2 = BranchId::new();
 
         sc.init(&run1, "shared", Value::Int(1)).unwrap();
         sc.init(&run2, "shared", Value::Int(2)).unwrap();
@@ -450,28 +450,28 @@ mod tests {
     #[test]
     fn test_cas_success() {
         let (_temp, _db, sc) = setup();
-        let run_id = RunId::new();
+        let branch_id = BranchId::new();
 
-        sc.init(&run_id, "counter", Value::Int(0)).unwrap();
+        sc.init(&branch_id, "counter", Value::Int(0)).unwrap();
 
         // CAS with correct version
-        let new_versioned = sc.cas(&run_id, "counter", Version::counter(1), Value::Int(1)).unwrap();
+        let new_versioned = sc.cas(&branch_id, "counter", Version::counter(1), Value::Int(1)).unwrap();
         assert_eq!(new_versioned.value, Version::counter(2));
         assert!(new_versioned.version.is_counter());
 
-        let value = sc.read(&run_id, "counter").unwrap().unwrap();
+        let value = sc.read(&branch_id, "counter").unwrap().unwrap();
         assert_eq!(value, Value::Int(1));
     }
 
     #[test]
     fn test_cas_conflict() {
         let (_temp, _db, sc) = setup();
-        let run_id = RunId::new();
+        let branch_id = BranchId::new();
 
-        sc.init(&run_id, "counter", Value::Int(0)).unwrap();
+        sc.init(&branch_id, "counter", Value::Int(0)).unwrap();
 
         // CAS with wrong version
-        let result = sc.cas(&run_id, "counter", Version::counter(999), Value::Int(1));
+        let result = sc.cas(&branch_id, "counter", Version::counter(999), Value::Int(1));
         assert!(matches!(
             result,
             Err(strata_core::StrataError::Conflict { .. })
@@ -481,50 +481,50 @@ mod tests {
     #[test]
     fn test_cas_not_found() {
         let (_temp, _db, sc) = setup();
-        let run_id = RunId::new();
+        let branch_id = BranchId::new();
 
-        let result = sc.cas(&run_id, "nonexistent", Version::counter(1), Value::Int(1));
+        let result = sc.cas(&branch_id, "nonexistent", Version::counter(1), Value::Int(1));
         assert!(result.is_err());
     }
 
     #[test]
     fn test_set_creates_if_not_exists() {
         let (_temp, _db, sc) = setup();
-        let run_id = RunId::new();
+        let branch_id = BranchId::new();
 
-        let versioned = sc.set(&run_id, "new-cell", Value::Int(42)).unwrap();
+        let versioned = sc.set(&branch_id, "new-cell", Value::Int(42)).unwrap();
         assert_eq!(versioned.value, Version::counter(1));
 
-        let value = sc.read(&run_id, "new-cell").unwrap().unwrap();
+        let value = sc.read(&branch_id, "new-cell").unwrap().unwrap();
         assert_eq!(value, Value::Int(42));
     }
 
     #[test]
     fn test_set_overwrites() {
         let (_temp, _db, sc) = setup();
-        let run_id = RunId::new();
+        let branch_id = BranchId::new();
 
-        sc.init(&run_id, "cell", Value::Int(1)).unwrap();
-        let versioned = sc.set(&run_id, "cell", Value::Int(100)).unwrap();
+        sc.init(&branch_id, "cell", Value::Int(1)).unwrap();
+        let versioned = sc.set(&branch_id, "cell", Value::Int(100)).unwrap();
         assert_eq!(versioned.value, Version::counter(2));
 
-        let value = sc.read(&run_id, "cell").unwrap().unwrap();
+        let value = sc.read(&branch_id, "cell").unwrap().unwrap();
         assert_eq!(value, Value::Int(100));
     }
 
     #[test]
     fn test_version_monotonicity() {
         let (_temp, _db, sc) = setup();
-        let run_id = RunId::new();
+        let branch_id = BranchId::new();
 
-        sc.init(&run_id, "cell", Value::Int(0)).unwrap();
+        sc.init(&branch_id, "cell", Value::Int(0)).unwrap();
 
         for i in 1..=10 {
-            let v = sc.set(&run_id, "cell", Value::Int(i)).unwrap();
+            let v = sc.set(&branch_id, "cell", Value::Int(i)).unwrap();
             assert_eq!(v.value, Version::counter((i + 1) as u64));
         }
 
-        let value = sc.read(&run_id, "cell").unwrap().unwrap();
+        let value = sc.read(&branch_id, "cell").unwrap().unwrap();
         assert_eq!(value, Value::Int(10));
     }
 
@@ -533,13 +533,13 @@ mod tests {
     #[test]
     fn test_statecell_ext_read() {
         let (_temp, db, sc) = setup();
-        let run_id = RunId::new();
+        let branch_id = BranchId::new();
 
-        sc.init(&run_id, "cell", Value::String("hello".into()))
+        sc.init(&branch_id, "cell", Value::String("hello".into()))
             .unwrap();
 
         let result = db
-            .transaction(run_id, |txn| {
+            .transaction(branch_id, |txn| {
                 let value = txn.state_read("cell")?;
                 Ok(value)
             })
@@ -551,10 +551,10 @@ mod tests {
     #[test]
     fn test_statecell_ext_read_not_found() {
         let (_temp, db, _sc) = setup();
-        let run_id = RunId::new();
+        let branch_id = BranchId::new();
 
         let result = db
-            .transaction(run_id, |txn| {
+            .transaction(branch_id, |txn| {
                 let value = txn.state_read("nonexistent")?;
                 Ok(value)
             })
@@ -566,32 +566,32 @@ mod tests {
     #[test]
     fn test_statecell_ext_cas() {
         let (_temp, db, sc) = setup();
-        let run_id = RunId::new();
+        let branch_id = BranchId::new();
 
-        sc.init(&run_id, "cell", Value::Int(1)).unwrap();
+        sc.init(&branch_id, "cell", Value::Int(1)).unwrap();
 
         let new_version = db
-            .transaction(run_id, |txn| txn.state_cas("cell", Version::counter(1), Value::Int(2)))
+            .transaction(branch_id, |txn| txn.state_cas("cell", Version::counter(1), Value::Int(2)))
             .unwrap();
 
         assert_eq!(new_version, Version::counter(2));
 
-        let value = sc.read(&run_id, "cell").unwrap().unwrap();
+        let value = sc.read(&branch_id, "cell").unwrap().unwrap();
         assert_eq!(value, Value::Int(2));
     }
 
     #[test]
     fn test_statecell_ext_set() {
         let (_temp, db, sc) = setup();
-        let run_id = RunId::new();
+        let branch_id = BranchId::new();
 
         let version = db
-            .transaction(run_id, |txn| txn.state_set("new-cell", Value::Int(42)))
+            .transaction(branch_id, |txn| txn.state_set("new-cell", Value::Int(42)))
             .unwrap();
 
         assert_eq!(version, Version::counter(1));
 
-        let value = sc.read(&run_id, "new-cell").unwrap().unwrap();
+        let value = sc.read(&branch_id, "new-cell").unwrap().unwrap();
         assert_eq!(value, Value::Int(42));
     }
 
@@ -600,12 +600,12 @@ mod tests {
         use crate::primitives::extensions::KVStoreExt;
 
         let (_temp, db, sc) = setup();
-        let run_id = RunId::new();
+        let branch_id = BranchId::new();
 
-        sc.init(&run_id, "counter", Value::Int(0)).unwrap();
+        sc.init(&branch_id, "counter", Value::Int(0)).unwrap();
 
         // Combine KV and StateCell in single transaction
-        db.transaction(run_id, |txn| {
+        db.transaction(branch_id, |txn| {
             txn.kv_put("key", Value::String("value".into()))?;
             txn.state_set("counter", Value::Int(1))?;
             Ok(())
@@ -613,7 +613,7 @@ mod tests {
         .unwrap();
 
         // Verify both were written
-        let value = sc.read(&run_id, "counter").unwrap().unwrap();
+        let value = sc.read(&branch_id, "counter").unwrap().unwrap();
         assert_eq!(value, Value::Int(1));
     }
 
@@ -622,28 +622,28 @@ mod tests {
     #[test]
     fn test_read_returns_correct_value() {
         let (_temp, _db, sc) = setup();
-        let run_id = RunId::new();
+        let branch_id = BranchId::new();
 
-        sc.init(&run_id, "cell", Value::Int(42)).unwrap();
+        sc.init(&branch_id, "cell", Value::Int(42)).unwrap();
 
-        let value = sc.read(&run_id, "cell").unwrap().unwrap();
+        let value = sc.read(&branch_id, "cell").unwrap().unwrap();
         assert_eq!(value, Value::Int(42));
     }
 
     #[test]
     fn test_read_returns_none_for_missing() {
         let (_temp, _db, sc) = setup();
-        let run_id = RunId::new();
+        let branch_id = BranchId::new();
 
-        let value = sc.read(&run_id, "nonexistent").unwrap();
+        let value = sc.read(&branch_id, "nonexistent").unwrap();
         assert!(value.is_none());
     }
 
     #[test]
     fn test_read_run_isolation() {
         let (_temp, _db, sc) = setup();
-        let run1 = RunId::new();
-        let run2 = RunId::new();
+        let run1 = BranchId::new();
+        let run2 = BranchId::new();
 
         sc.init(&run1, "shared", Value::Int(1)).unwrap();
         sc.init(&run2, "shared", Value::Int(2)).unwrap();
@@ -660,9 +660,9 @@ mod tests {
     #[test]
     fn test_versioned_init_has_counter_version() {
         let (_temp, _db, sc) = setup();
-        let run_id = RunId::new();
+        let branch_id = BranchId::new();
 
-        let versioned = sc.init(&run_id, "cell", Value::Int(0)).unwrap();
+        let versioned = sc.init(&branch_id, "cell", Value::Int(0)).unwrap();
         assert_eq!(versioned.value, Version::counter(1));
         assert!(versioned.version.is_counter());
         assert_eq!(versioned.version, Version::counter(1));
@@ -671,10 +671,10 @@ mod tests {
     #[test]
     fn test_readv_has_counter_version() {
         let (_temp, _db, sc) = setup();
-        let run_id = RunId::new();
+        let branch_id = BranchId::new();
 
-        sc.init(&run_id, "cell", Value::Int(42)).unwrap();
-        let history = sc.readv(&run_id, "cell").unwrap().unwrap();
+        sc.init(&branch_id, "cell", Value::Int(42)).unwrap();
+        let history = sc.readv(&branch_id, "cell").unwrap().unwrap();
 
         assert!(history.version().is_counter());
         assert_eq!(history.version(), Version::counter(1));
@@ -685,10 +685,10 @@ mod tests {
     #[test]
     fn test_versioned_cas_has_counter_version() {
         let (_temp, _db, sc) = setup();
-        let run_id = RunId::new();
+        let branch_id = BranchId::new();
 
-        sc.init(&run_id, "cell", Value::Int(0)).unwrap();
-        let versioned = sc.cas(&run_id, "cell", Version::counter(1), Value::Int(1)).unwrap();
+        sc.init(&branch_id, "cell", Value::Int(0)).unwrap();
+        let versioned = sc.cas(&branch_id, "cell", Version::counter(1), Value::Int(1)).unwrap();
 
         assert!(versioned.version.is_counter());
         assert_eq!(versioned.version, Version::counter(2));

@@ -20,7 +20,7 @@ impl From<StrataError> for Error {
                 if entity_str.starts_with("kv:") || entity_str.starts_with("json:") {
                     Error::KeyNotFound { key: entity_str }
                 } else if entity_str.starts_with("run:") {
-                    Error::RunNotFound { run: entity_str }
+                    Error::BranchNotFound { branch: entity_str }
                 } else if entity_str.starts_with("collection:")
                     || entity_str.starts_with("vector:")
                 {
@@ -37,8 +37,8 @@ impl From<StrataError> for Error {
                 }
             }
 
-            StrataError::RunNotFound { run_id } => Error::RunNotFound {
-                run: run_id.to_string(),
+            StrataError::BranchNotFound { branch_id } => Error::BranchNotFound {
+                branch: branch_id.to_string(),
             },
 
             // Type errors
@@ -150,7 +150,7 @@ mod tests {
     #[test]
     fn test_not_found_kv() {
         let err = StrataError::not_found(EntityRef::kv(
-            strata_core::types::RunId::from_bytes([0; 16]),
+            strata_core::types::BranchId::from_bytes([0; 16]),
             "mykey",
         ));
         let converted: Error = err.into();
@@ -163,7 +163,7 @@ mod tests {
     #[test]
     fn test_version_conflict() {
         let err = StrataError::version_conflict(
-            EntityRef::kv(strata_core::types::RunId::from_bytes([0; 16]), "key"),
+            EntityRef::kv(strata_core::types::BranchId::from_bytes([0; 16]), "key"),
             Version::Txn(5),
             Version::Txn(6),
         );

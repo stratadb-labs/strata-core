@@ -85,20 +85,20 @@ fn rag_query(db: &Strata, query: &str, embed_fn: impl Fn(&str) -> Vec<f32>) -> s
 }
 ```
 
-## Run-Scoped Knowledge Bases
+## Branch-Scoped Knowledge Bases
 
-Use runs to maintain different knowledge bases:
+Use branches to maintain different knowledge bases:
 
 ```rust
 let mut db = Strata::open_temp()?;
 
-// General knowledge base in default run
+// General knowledge base in default branch
 db.vector_create_collection("kb", 384, DistanceMetric::Cosine)?;
 // ... index general documents ...
 
 // Session-specific knowledge
-db.create_run("session-001")?;
-db.set_run("session-001")?;
+db.create_branch("session-001")?;
+db.set_branch("session-001")?;
 db.vector_create_collection("kb", 384, DistanceMetric::Cosine)?;
 // ... index session-specific documents ...
 // Search only sees session-specific documents

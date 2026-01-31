@@ -326,11 +326,11 @@ fn test_data_commands_without_txn_delegate() {
 // =============================================================================
 
 #[test]
-fn test_begin_with_explicit_run() {
+fn test_begin_with_explicit_branch() {
     let mut session = create_test_session();
 
     let result = session.execute(Command::TxnBegin {
-        run: Some(crate::types::RunId::from("default")),
+        run: Some(crate::types::BranchId::from("default")),
         options: None,
     });
     assert!(matches!(result, Ok(Output::TxnBegun)));

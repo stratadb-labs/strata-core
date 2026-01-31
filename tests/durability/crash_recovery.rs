@@ -8,11 +8,11 @@ use crate::common::*;
 #[test]
 fn truncated_wal_recovers_prefix() {
     let mut test_db = TestDb::new_strict();
-    let run_id = test_db.run_id;
+    let branch_id = test_db.branch_id;
 
     let kv = test_db.kv();
     for i in 0..100 {
-        kv.put(&run_id, &format!("k{}", i), Value::Int(i)).unwrap();
+        kv.put(&branch_id, &format!("k{}", i), Value::Int(i)).unwrap();
     }
 
     // Truncate the WAL to simulate crash mid-write
@@ -29,7 +29,7 @@ fn truncated_wal_recovers_prefix() {
     // Early keys are more likely to survive truncation
     let recovered = (0..100)
         .filter(|i| {
-            kv.get(&run_id, &format!("k{}", i))
+            kv.get(&branch_id, &format!("k{}", i))
                 .unwrap()
                 .is_some()
         })
@@ -46,11 +46,11 @@ fn truncated_wal_recovers_prefix() {
 #[test]
 fn corrupted_wal_tail_recovers_valid_prefix() {
     let mut test_db = TestDb::new_strict();
-    let run_id = test_db.run_id;
+    let branch_id = test_db.branch_id;
 
     let kv = test_db.kv();
     for i in 0..50 {
-        kv.put(&run_id, &format!("k{}", i), Value::Int(i)).unwrap();
+        kv.put(&branch_id, &format!("k{}", i), Value::Int(i)).unwrap();
     }
 
     // Corrupt the tail of the WAL (simulates incomplete write)
@@ -66,16 +66,16 @@ fn corrupted_wal_tail_recovers_valid_prefix() {
     test_db.reopen();
 
     // Database should be functional after recovery
-    assert_db_healthy(&test_db.db, &run_id);
+    assert_db_healthy(&test_db.db, &branch_id);
 }
 
 #[test]
 fn completely_corrupted_wal_still_boots() {
     let mut test_db = TestDb::new_strict();
-    let run_id = test_db.run_id;
+    let branch_id = test_db.branch_id;
 
     let kv = test_db.kv();
-    kv.put(&run_id, "before_corruption", Value::Int(1)).unwrap();
+    kv.put(&branch_id, "before_corruption", Value::Int(1)).unwrap();
 
     // Completely trash the WAL file
     let wal_path = test_db.wal_path();
@@ -91,18 +91,18 @@ fn completely_corrupted_wal_still_boots() {
 
     // Should be functional for new writes
     let kv = test_db.kv();
-    kv.put(&run_id, "after_corruption", Value::Int(2)).unwrap();
-    let val = kv.get(&run_id, "after_corruption").unwrap();
+    kv.put(&branch_id, "after_corruption", Value::Int(2)).unwrap();
+    let val = kv.get(&branch_id, "after_corruption").unwrap();
     assert_eq!(val, Some(Value::Int(2)), "New writes should work after corrupted WAL recovery");
 }
 
 #[test]
 fn missing_wal_file_starts_fresh() {
     let mut test_db = TestDb::new_strict();
-    let run_id = test_db.run_id;
+    let branch_id = test_db.branch_id;
 
     let kv = test_db.kv();
-    kv.put(&run_id, "will_be_lost", Value::Int(1)).unwrap();
+    kv.put(&branch_id, "will_be_lost", Value::Int(1)).unwrap();
 
     // Delete WAL and snapshots
     let wal_path = test_db.wal_path();
@@ -114,7 +114,7 @@ fn missing_wal_file_starts_fresh() {
     test_db.reopen();
 
     // Database should start fresh — old data is gone
-    assert_db_healthy(&test_db.db, &run_id);
+    assert_db_healthy(&test_db.db, &branch_id);
 }
 
 #[test]
@@ -125,19 +125,19 @@ fn reopen_after_no_writes_succeeds() {
     test_db.reopen();
 
     // Should be healthy
-    assert_db_healthy(&test_db.db, &test_db.run_id);
+    assert_db_healthy(&test_db.db, &test_db.branch_id);
 }
 
 #[test]
 fn rapid_reopen_cycles_are_stable() {
     let mut test_db = TestDb::new_strict();
-    let run_id = test_db.run_id;
+    let branch_id = test_db.branch_id;
 
     // Write → reopen cycle 5 times
     for cycle in 0..5 {
         let kv = test_db.kv();
         kv.put(
-            &run_id,
+            &branch_id,
             &format!("cycle_{}", cycle),
             Value::Int(cycle as i64),
         )
@@ -149,7 +149,7 @@ fn rapid_reopen_cycles_are_stable() {
     let kv = test_db.kv();
     for cycle in 0..5 {
         let val = kv
-            .get(&run_id, &format!("cycle_{}", cycle))
+            .get(&branch_id, &format!("cycle_{}", cycle))
             .unwrap();
         assert_eq!(val, Some(Value::Int(cycle as i64)), "Key from cycle {} should survive rapid reopen", cycle);
     }
@@ -158,14 +158,14 @@ fn rapid_reopen_cycles_are_stable() {
 #[test]
 fn recovery_after_high_churn_on_same_keys() {
     let mut test_db = TestDb::new_strict();
-    let run_id = test_db.run_id;
+    let branch_id = test_db.branch_id;
 
     let kv = test_db.kv();
     // Overwrite same 10 keys 100 times each
     for round in 0..100 {
         for key_idx in 0..10 {
             kv.put(
-                &run_id,
+                &branch_id,
                 &format!("churn_{}", key_idx),
                 Value::Int(round * 10 + key_idx),
             )
@@ -179,7 +179,7 @@ fn recovery_after_high_churn_on_same_keys() {
     let kv = test_db.kv();
     for key_idx in 0..10i64 {
         let val = kv
-            .get(&run_id, &format!("churn_{}", key_idx))
+            .get(&branch_id, &format!("churn_{}", key_idx))
             .unwrap()
             .unwrap();
         assert_eq!(

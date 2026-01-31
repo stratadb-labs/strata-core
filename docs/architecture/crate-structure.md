@@ -28,7 +28,7 @@ stratadb (root)
 
 **Key types:**
 - `Value` — the 8-variant canonical value type
-- `RunId`, `Key`, `Namespace`, `TypeTag` — storage key types
+- `BranchId`, `Key`, `Namespace`, `TypeTag` — storage key types
 - `Versioned<T>`, `Version`, `Timestamp` — versioning contracts
 - `PrimitiveType` — enum of primitive types
 - `Storage`, `SnapshotView` — storage traits
@@ -42,7 +42,7 @@ stratadb (root)
 
 **Key types:**
 - `ShardedStore` — DashMap-based concurrent storage (the main data structure)
-- `RunRegistry` — run/namespace management
+- `BranchRegistry` — branch/namespace management
 - `InvertedIndex` — text index for search
 - `StoredValue` — serialized value wrapper
 - TTL/retention handling
@@ -71,7 +71,7 @@ stratadb (root)
 - `WALEntry` — all possible log entry types
 - `DurabilityMode` — None/Batched/Strict
 - `SnapshotWriter` / `SnapshotReader` — snapshot I/O
-- `RunBundleWriter` / `RunBundleReader` — portable run archives
+- `BranchBundleWriter` / `BranchBundleReader` — portable branch archives
 - `replay_wal()` — crash recovery
 
 **Dependencies:** strata-core, serde, rmp-serde, crc32fast, tar, zstd, xxhash-rust
@@ -84,7 +84,7 @@ stratadb (root)
 - `Database` — the central database struct (thread-safe, opened once)
 - `Transaction` / `TransactionContext` — transaction interface
 - `TransactionOps` — trait for transactional operations
-- Primitive implementations: KVStore, EventLog, StateCell, JsonStore, VectorStore, RunIndex
+- Primitive implementations: KVStore, EventLog, StateCell, JsonStore, VectorStore, BranchIndex
 
 **Dependencies:** strata-core, strata-storage, strata-concurrency, strata-durability
 

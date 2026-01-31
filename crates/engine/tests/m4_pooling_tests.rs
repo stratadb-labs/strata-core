@@ -8,17 +8,17 @@
 //!
 //! Per specification: Hot path must have zero allocations after warmup.
 
-use strata_core::types::{Key, Namespace, RunId, TypeTag};
+use strata_core::types::{Key, Namespace, BranchId, TypeTag};
 use strata_core::value::Value;
 use strata_engine::{Database, TransactionPool, MAX_POOL_SIZE};
 use tempfile::TempDir;
 
-fn create_ns(run_id: RunId) -> Namespace {
+fn create_ns(branch_id: BranchId) -> Namespace {
     Namespace::new(
         "tenant".to_string(),
         "app".to_string(),
         "agent".to_string(),
-        run_id,
+        branch_id,
     )
 }
 
@@ -34,8 +34,8 @@ fn create_key(ns: &Namespace, user_key: &str) -> Key {
 fn test_pool_reuses_contexts() {
     let temp_dir = TempDir::new().unwrap();
     let db = Database::open(temp_dir.path().join("db")).unwrap();
-    let run_id = RunId::new();
-    let ns = create_ns(run_id);
+    let branch_id = BranchId::new();
+    let ns = create_ns(branch_id);
 
     // Clear pool for deterministic test
     TransactionPool::warmup(0); // Reset to known state
@@ -44,7 +44,7 @@ fn test_pool_reuses_contexts() {
     // After each transaction completes, its context goes back to pool
     for i in 0..MAX_POOL_SIZE {
         let key = create_key(&ns, &format!("warmup_key_{}", i));
-        db.transaction(run_id, |txn| {
+        db.transaction(branch_id, |txn| {
             txn.put(key.clone(), Value::Int(i as i64))?;
             Ok(())
         })
@@ -60,7 +60,7 @@ fn test_pool_reuses_contexts() {
     // Operations should reuse from pool - pool size should remain stable
     for i in 0..100 {
         let key = create_key(&ns, &format!("key_{}", i));
-        db.transaction(run_id, |txn| {
+        db.transaction(branch_id, |txn| {
             txn.put(key.clone(), Value::Int(i as i64))?;
             Ok(())
         })
@@ -78,8 +78,8 @@ fn test_pool_reuses_contexts() {
 fn test_pool_warmup_reduces_allocations() {
     let temp_dir = TempDir::new().unwrap();
     let db = Database::open(temp_dir.path().join("db")).unwrap();
-    let run_id = RunId::new();
-    let ns = create_ns(run_id);
+    let branch_id = BranchId::new();
+    let ns = create_ns(branch_id);
 
     // Pre-warm the pool
     TransactionPool::warmup(MAX_POOL_SIZE);
@@ -93,7 +93,7 @@ fn test_pool_warmup_reduces_allocations() {
     // Run many transactions - all should reuse pooled contexts
     for i in 0..50 {
         let key = create_key(&ns, &format!("key_{}", i));
-        db.transaction(run_id, |txn| {
+        db.transaction(branch_id, |txn| {
             txn.put(key.clone(), Value::Int(i as i64))?;
             Ok(())
         })
@@ -112,15 +112,15 @@ fn test_pool_warmup_reduces_allocations() {
 fn test_capacity_grows_with_usage() {
     let temp_dir = TempDir::new().unwrap();
     let db = Database::open(temp_dir.path().join("db")).unwrap();
-    let run_id = RunId::new();
-    let ns = create_ns(run_id);
+    let branch_id = BranchId::new();
+    let ns = create_ns(branch_id);
 
     // Start with empty pool
     TransactionPool::warmup(0);
 
     // First transaction - creates new context
     let _key1 = create_key(&ns, "key1");
-    db.transaction(run_id, |txn| {
+    db.transaction(branch_id, |txn| {
         // Add many read/write entries to grow internal capacity
         for i in 0..50 {
             let k = create_key(&ns, &format!("inner_key_{}", i));
@@ -138,7 +138,7 @@ fn test_capacity_grows_with_usage() {
     // Second transaction - should reuse the context with grown capacity
     // This tests that capacity is preserved
     let key2 = create_key(&ns, "key2");
-    db.transaction(run_id, |txn| {
+    db.transaction(branch_id, |txn| {
         txn.put(key2.clone(), Value::Int(42))?;
         Ok(())
     })
@@ -158,15 +158,15 @@ fn test_capacity_grows_with_usage() {
 fn test_aborted_transactions_return_to_pool() {
     let temp_dir = TempDir::new().unwrap();
     let db = Database::open(temp_dir.path().join("db")).unwrap();
-    let run_id = RunId::new();
-    let ns = create_ns(run_id);
+    let branch_id = BranchId::new();
+    let ns = create_ns(branch_id);
 
     // Clear pool
     TransactionPool::warmup(0);
 
     // Run a transaction that succeeds
     let key = create_key(&ns, "key");
-    db.transaction(run_id, |txn| {
+    db.transaction(branch_id, |txn| {
         txn.put(key.clone(), Value::Int(1))?;
         Ok(())
     })
@@ -176,7 +176,7 @@ fn test_aborted_transactions_return_to_pool() {
     assert_eq!(pool_size_after_success, 1, "Pool should have one context");
 
     // Run a transaction that fails (returns error from closure)
-    let result: Result<(), _> = db.transaction(run_id, |_txn| {
+    let result: Result<(), _> = db.transaction(branch_id, |_txn| {
         Err(strata_core::StrataError::invalid_input(
             "Test error".to_string(),
         ))
@@ -206,13 +206,13 @@ fn test_concurrent_transactions_use_pool() {
         .map(|thread_id| {
             let db = Arc::clone(&db);
             thread::spawn(move || {
-                let run_id = RunId::new();
-                let ns = create_ns(run_id);
+                let branch_id = BranchId::new();
+                let ns = create_ns(branch_id);
 
                 // Warmup this thread's pool
                 for _ in 0..4 {
                     let key = create_key(&ns, "warmup");
-                    let _ = db.transaction(run_id, |txn| {
+                    let _ = db.transaction(branch_id, |txn| {
                         txn.put(key.clone(), Value::Int(0))?;
                         Ok(())
                     });
@@ -223,7 +223,7 @@ fn test_concurrent_transactions_use_pool() {
                 // Run several transactions
                 for i in 0..20 {
                     let key = create_key(&ns, &format!("key_{}_{}", thread_id, i));
-                    let _ = db.transaction(run_id, |txn| {
+                    let _ = db.transaction(branch_id, |txn| {
                         txn.put(key.clone(), Value::Int(i as i64))?;
                         Ok(())
                     });
@@ -255,13 +255,13 @@ fn test_pool_caps_at_max_size() {
     // Verify pool doesn't exceed MAX_POOL_SIZE after many transactions
     let temp_dir = TempDir::new().unwrap();
     let db = Database::open(temp_dir.path().join("db")).unwrap();
-    let run_id = RunId::new();
-    let ns = create_ns(run_id);
+    let branch_id = BranchId::new();
+    let ns = create_ns(branch_id);
 
     // Run more transactions than MAX_POOL_SIZE to fill the pool
     for i in 0..(MAX_POOL_SIZE + 5) {
         let key = create_key(&ns, &format!("key_{}", i));
-        db.transaction(run_id, |txn| {
+        db.transaction(branch_id, |txn| {
             txn.put(key.clone(), Value::Int(i as i64))?;
             Ok(())
         })

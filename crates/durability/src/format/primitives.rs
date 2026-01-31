@@ -56,11 +56,11 @@ pub struct StateSnapshotEntry {
 
 /// Snapshot entry for Run primitive
 ///
-/// Format: run_id(16 bytes UUID) + name_len(4) + name + created_at(8) + metadata_len(4) + metadata
+/// Format: branch_id(16 bytes UUID) + name_len(4) + name + created_at(8) + metadata_len(4) + metadata
 #[derive(Debug, Clone, PartialEq)]
 pub struct RunSnapshotEntry {
     /// Run identifier (UUID bytes)
-    pub run_id: [u8; 16],
+    pub branch_id: [u8; 16],
     /// Run name
     pub name: String,
     /// Creation timestamp (microseconds)
@@ -366,7 +366,7 @@ impl SnapshotSerializer {
         data.extend_from_slice(&(entries.len() as u32).to_le_bytes());
 
         for entry in entries {
-            data.extend_from_slice(&entry.run_id);
+            data.extend_from_slice(&entry.branch_id);
 
             let name_bytes = entry.name.as_bytes();
             data.extend_from_slice(&(name_bytes.len() as u32).to_le_bytes());
@@ -400,7 +400,7 @@ impl SnapshotSerializer {
             if cursor + 16 > data.len() {
                 return Err(PrimitiveSerializeError::UnexpectedEof);
             }
-            let run_id: [u8; 16] = data[cursor..cursor + 16].try_into().unwrap();
+            let branch_id: [u8; 16] = data[cursor..cursor + 16].try_into().unwrap();
             cursor += 16;
 
             // Name
@@ -438,7 +438,7 @@ impl SnapshotSerializer {
             cursor += metadata_len;
 
             entries.push(RunSnapshotEntry {
-                run_id,
+                branch_id,
                 name,
                 created_at,
                 metadata,
@@ -824,7 +824,7 @@ mod tests {
         let serializer = test_serializer();
 
         let entries = vec![RunSnapshotEntry {
-            run_id: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16],
+            branch_id: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16],
             name: "my-run".to_string(),
             created_at: 1000,
             metadata: b"{}".to_vec(),

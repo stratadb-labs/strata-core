@@ -8,7 +8,7 @@ Complete specification of every `Error` variant in StrataDB.
 pub enum Error {
     // Not Found
     KeyNotFound { key: String },
-    RunNotFound { run: String },
+    BranchNotFound { branch: String },
     CollectionNotFound { collection: String },
     StreamNotFound { stream: String },
     CellNotFound { cell: String },
@@ -28,8 +28,8 @@ pub enum Error {
     Conflict { reason: String },
 
     // State
-    RunClosed { run: String },
-    RunExists { run: String },
+    BranchClosed { branch: String },
+    BranchExists { branch: String },
     CollectionExists { collection: String },
 
     // Constraint
@@ -61,13 +61,13 @@ pub enum Error {
 
 **Handle:** Check existence with `kv_get` first, or match this variant.
 
-### `RunNotFound`
+### `BranchNotFound`
 
-**Fields:** `run: String`
+**Fields:** `branch: String`
 
-**When:** `set_run()` is called with a run name that doesn't exist.
+**When:** `set_branch()` is called with a branch name that doesn't exist.
 
-**Handle:** Create the run first with `create_run()`, or check with `runs().exists()`.
+**Handle:** Create the branch first with `create_branch()`, or check with `branches().exists()`.
 
 ### `CollectionNotFound`
 
@@ -153,19 +153,19 @@ pub enum Error {
 
 ## State Errors
 
-### `RunExists`
+### `BranchExists`
 
-**Fields:** `run: String`
+**Fields:** `branch: String`
 
-**When:** `create_run()` is called with a name that already exists.
+**When:** `create_branch()` is called with a name that already exists.
 
-**Handle:** Use a different name, or skip creation if the run already exists.
+**Handle:** Use a different name, or skip creation if the branch already exists.
 
-### `RunClosed`
+### `BranchClosed`
 
-**Fields:** `run: String`
+**Fields:** `branch: String`
 
-**When:** An operation targets a run that has been closed.
+**When:** An operation targets a branch that has been closed.
 
 ### `CollectionExists`
 
@@ -188,8 +188,8 @@ pub enum Error {
 **Fields:** `reason: String`
 
 **When:** An operation violates a constraint, such as:
-- Deleting the default run
-- Deleting the current run
+- Deleting the default branch
+- Deleting the current branch
 
 ### `HistoryTrimmed`
 
@@ -244,5 +244,5 @@ pub enum Error {
 **Fields:** `feature: String`, `reason: String`
 
 **When:** A feature is not yet available. Currently applies to:
-- `fork_run` — run forking
-- `diff_runs` — run diffing
+- `fork_branch` — branch forking
+- `diff_branches` — branch diffing

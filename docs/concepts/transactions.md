@@ -12,7 +12,7 @@ StrataDB uses **Optimistic Concurrency Control (OCC)** with snapshot isolation. 
 This means:
 - **Reads never block.** You always see a consistent snapshot.
 - **Writes never block other writers.** Conflicts are detected at commit time, not at write time.
-- **Agents rarely conflict.** In practice, agents working on different keys or different runs never conflict.
+- **Agents rarely conflict.** In practice, agents working on different keys or different branches never conflict.
 
 ## Using Transactions
 
@@ -28,18 +28,18 @@ let db = Arc::new(Database::open("./data")?);
 let mut session = Session::new(db);
 
 // Begin a transaction
-session.execute(Command::TxnBegin { run: None, options: None })?;
+session.execute(Command::TxnBegin { branch: None, options: None })?;
 
 // All data operations now go through the transaction
 session.execute(Command::KvPut {
-    run: None,
+    branch: None,
     key: "key".into(),
     value: Value::Int(42),
 })?;
 
 // Read your own writes
 let output = session.execute(Command::KvGet {
-    run: None,
+    branch: None,
     key: "key".into(),
 })?;
 
@@ -85,7 +85,7 @@ These operations **always bypass** the transaction:
 | Category | Operations |
 |----------|-----------|
 | **Vector** | All vector operations |
-| **Run** | Create, Get, List, Exists, Delete |
+| **Branch** | Create, Get, List, Exists, Delete |
 | **Database** | Ping, Info, Flush, Compact |
 
 ## Error Handling
@@ -94,7 +94,7 @@ When a transaction conflicts, you get a `TransactionConflict` error. The standar
 
 ```rust
 loop {
-    session.execute(Command::TxnBegin { run: None, options: None })?;
+    session.execute(Command::TxnBegin { branch: None, options: None })?;
 
     // ... your operations ...
 
@@ -116,8 +116,8 @@ If a `Session` is dropped while a transaction is active, the transaction is auto
 ```rust
 {
     let mut session = Session::new(db.clone());
-    session.execute(Command::TxnBegin { run: None, options: None })?;
-    session.execute(Command::KvPut { run: None, key: "key".into(), value: Value::Int(1) })?;
+    session.execute(Command::TxnBegin { branch: None, options: None })?;
+    session.execute(Command::KvPut { branch: None, key: "key".into(), value: Value::Int(1) })?;
     // session dropped here — transaction automatically rolled back
 }
 // "key" was never committed

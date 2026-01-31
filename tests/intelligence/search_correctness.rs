@@ -4,9 +4,9 @@
 
 use crate::common::*;
 use strata_core::search_types::{PrimitiveType, SearchRequest};
-use strata_core::types::RunId;
+use strata_core::types::BranchId;
 use strata_core::value::Value;
-use strata_engine::{KVStore, RunIndex};
+use strata_engine::{KVStore, BranchIndex};
 use strata_intelligence::DatabaseSearchExt;
 
 // ============================================================================
@@ -17,10 +17,10 @@ use strata_intelligence::DatabaseSearchExt;
 #[test]
 fn test_tier2_search_deterministic() {
     let db = create_test_db();
-    let run_id = test_run_id();
-    populate_test_data(&db, &run_id);
+    let branch_id = test_run_id();
+    populate_test_data(&db, &branch_id);
 
-    let req = SearchRequest::new(run_id, "test");
+    let req = SearchRequest::new(branch_id, "test");
     verify_deterministic(&db, &req);
 }
 
@@ -28,11 +28,11 @@ fn test_tier2_search_deterministic() {
 #[test]
 fn test_tier2_primitive_search_deterministic() {
     let db = create_test_db();
-    let run_id = test_run_id();
-    populate_test_data(&db, &run_id);
+    let branch_id = test_run_id();
+    populate_test_data(&db, &branch_id);
 
     let kv = KVStore::new(db.clone());
-    let req = SearchRequest::new(run_id, "test");
+    let req = SearchRequest::new(branch_id, "test");
 
     // Execute same search multiple times
     let results: Vec<_> = (0..5).map(|_| kv.search(&req).unwrap()).collect();
@@ -57,11 +57,11 @@ fn test_tier2_primitive_search_deterministic() {
 #[test]
 fn test_tier2_hybrid_search_deterministic() {
     let db = create_test_db();
-    let run_id = test_run_id();
-    populate_test_data(&db, &run_id);
+    let branch_id = test_run_id();
+    populate_test_data(&db, &branch_id);
 
     let hybrid = db.hybrid();
-    let req = SearchRequest::new(run_id, "test");
+    let req = SearchRequest::new(branch_id, "test");
 
     let r1 = hybrid.search(&req).unwrap();
     let r2 = hybrid.search(&req).unwrap();
@@ -76,18 +76,18 @@ fn test_tier2_hybrid_search_deterministic() {
 // Run Isolation Tests
 // ============================================================================
 
-/// Search respects run_id filter
+/// Search respects branch_id filter
 #[test]
 fn test_tier2_search_respects_run_id() {
     let db = create_test_db();
-    let run1 = RunId::new();
-    let run2 = RunId::new();
+    let run1 = BranchId::new();
+    let run2 = BranchId::new();
 
     let kv = KVStore::new(db.clone());
-    let run_index = RunIndex::new(db.clone());
+    let run_index = BranchIndex::new(db.clone());
 
-    run_index.create_run(&run1.to_string()).unwrap();
-    run_index.create_run(&run2.to_string()).unwrap();
+    run_index.create_branch(&run1.to_string()).unwrap();
+    run_index.create_branch(&run2.to_string()).unwrap();
 
     // Add shared term to both runs
     kv.put(&run1, "key1", Value::String("shared test term".into()))
@@ -107,14 +107,14 @@ fn test_tier2_search_respects_run_id() {
 #[test]
 fn test_tier2_run_isolation() {
     let db = create_test_db();
-    let run1 = RunId::new();
-    let run2 = RunId::new();
+    let run1 = BranchId::new();
+    let run2 = BranchId::new();
 
     let kv = KVStore::new(db.clone());
-    let run_index = RunIndex::new(db.clone());
+    let run_index = BranchIndex::new(db.clone());
 
-    run_index.create_run(&run1.to_string()).unwrap();
-    run_index.create_run(&run2.to_string()).unwrap();
+    run_index.create_branch(&run1.to_string()).unwrap();
+    run_index.create_branch(&run2.to_string()).unwrap();
 
     // Add same key with different values to different runs
     kv.put(&run1, "key", Value::String("run1 test value".into()))
@@ -139,10 +139,10 @@ fn test_tier2_run_isolation() {
 #[test]
 fn test_tier2_nonexistent_run_empty() {
     let db = create_test_db();
-    let run_id = RunId::new();
+    let branch_id = BranchId::new();
 
     let hybrid = db.hybrid();
-    let req = SearchRequest::new(run_id, "test");
+    let req = SearchRequest::new(branch_id, "test");
     let response = hybrid.search(&req).unwrap();
 
     assert!(
@@ -159,13 +159,13 @@ fn test_tier2_nonexistent_run_empty() {
 #[test]
 fn test_tier2_primitive_filter_works() {
     let db = create_test_db();
-    let run_id = test_run_id();
-    populate_test_data(&db, &run_id);
+    let branch_id = test_run_id();
+    populate_test_data(&db, &branch_id);
 
     let hybrid = db.hybrid();
 
     // Search only KV primitive
-    let req = SearchRequest::new(run_id, "test").with_primitive_filter(vec![PrimitiveType::Kv]);
+    let req = SearchRequest::new(branch_id, "test").with_primitive_filter(vec![PrimitiveType::Kv]);
     let response = hybrid.search(&req).unwrap();
 
     // All results should be from KV only
@@ -176,13 +176,13 @@ fn test_tier2_primitive_filter_works() {
 #[test]
 fn test_tier2_empty_filter_no_results() {
     let db = create_test_db();
-    let run_id = test_run_id();
-    populate_test_data(&db, &run_id);
+    let branch_id = test_run_id();
+    populate_test_data(&db, &branch_id);
 
     let hybrid = db.hybrid();
 
     // Search with empty filter
-    let req = SearchRequest::new(run_id, "test").with_primitive_filter(vec![]);
+    let req = SearchRequest::new(branch_id, "test").with_primitive_filter(vec![]);
     let response = hybrid.search(&req).unwrap();
 
     assert!(
@@ -199,11 +199,11 @@ fn test_tier2_empty_filter_no_results() {
 #[test]
 fn test_tier2_scores_monotonically_decreasing() {
     let db = create_test_db();
-    let run_id = test_run_id();
-    populate_test_data(&db, &run_id);
+    let branch_id = test_run_id();
+    populate_test_data(&db, &branch_id);
 
     let hybrid = db.hybrid();
-    let req = SearchRequest::new(run_id, "test").with_k(20);
+    let req = SearchRequest::new(branch_id, "test").with_k(20);
     let response = hybrid.search(&req).unwrap();
 
     verify_scores_decreasing(&response);
@@ -213,11 +213,11 @@ fn test_tier2_scores_monotonically_decreasing() {
 #[test]
 fn test_tier2_ranks_sequential() {
     let db = create_test_db();
-    let run_id = test_run_id();
-    populate_test_data(&db, &run_id);
+    let branch_id = test_run_id();
+    populate_test_data(&db, &branch_id);
 
     let kv = KVStore::new(db.clone());
-    let req = SearchRequest::new(run_id, "test").with_k(10);
+    let req = SearchRequest::new(branch_id, "test").with_k(10);
     let response = kv.search(&req).unwrap();
 
     verify_ranks_sequential(&response);
@@ -227,13 +227,13 @@ fn test_tier2_ranks_sequential() {
 #[test]
 fn test_tier2_respects_k_parameter() {
     let db = create_test_db();
-    let run_id = test_run_id();
-    populate_large_dataset(&db, &run_id, 50);
+    let branch_id = test_run_id();
+    populate_large_dataset(&db, &branch_id, 50);
 
     let kv = KVStore::new(db.clone());
 
     // Search with k=5
-    let req = SearchRequest::new(run_id, "searchable").with_k(5);
+    let req = SearchRequest::new(branch_id, "searchable").with_k(5);
     let response = kv.search(&req).unwrap();
 
     assert!(response.hits.len() <= 5, "Should respect k parameter");
@@ -243,13 +243,13 @@ fn test_tier2_respects_k_parameter() {
 #[test]
 fn test_tier2_consistent_across_k_values() {
     let db = create_test_db();
-    let run_id = test_run_id();
-    populate_test_data(&db, &run_id);
+    let branch_id = test_run_id();
+    populate_test_data(&db, &branch_id);
 
     let hybrid = db.hybrid();
 
-    let req_k3 = SearchRequest::new(run_id, "test").with_k(3);
-    let req_k10 = SearchRequest::new(run_id, "test").with_k(10);
+    let req_k3 = SearchRequest::new(branch_id, "test").with_k(3);
+    let req_k10 = SearchRequest::new(branch_id, "test").with_k(10);
 
     let r3 = hybrid.search(&req_k3).unwrap();
     let r10 = hybrid.search(&req_k10).unwrap();

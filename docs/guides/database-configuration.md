@@ -53,7 +53,7 @@ Get database statistics:
 let info = db.info()?;
 println!("Version: {}", info.version);
 println!("Uptime: {} seconds", info.uptime_secs);
-println!("Runs: {}", info.run_count);
+println!("Branches: {}", info.branch_count);
 println!("Total keys: {}", info.total_keys);
 ```
 
@@ -98,6 +98,6 @@ handle.join().unwrap();
 
 ## Next
 
-- [Run Bundles](run-bundles.md) — exporting and importing runs
+- [Branch Bundles](branch-bundles.md) — exporting and importing branches
 - [Error Handling](error-handling.md) — error categories
 - [Configuration Reference](../reference/configuration-reference.md) — all options

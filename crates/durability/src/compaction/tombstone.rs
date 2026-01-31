@@ -24,7 +24,7 @@ use std::collections::HashMap;
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Tombstone {
     /// Run ID this tombstone belongs to
-    pub run_id: [u8; 16],
+    pub branch_id: [u8; 16],
 
     /// Primitive type (0=KV, 1=Event, etc.)
     pub primitive_type: u8,
@@ -94,7 +94,7 @@ impl std::fmt::Display for TombstoneReason {
 impl Tombstone {
     /// Create a new tombstone
     pub fn new(
-        run_id: [u8; 16],
+        branch_id: [u8; 16],
         primitive_type: u8,
         key: Vec<u8>,
         version: u64,
@@ -106,7 +106,7 @@ impl Tombstone {
             .unwrap_or(0);
 
         Tombstone {
-            run_id,
+            branch_id,
             primitive_type,
             key,
             version,
@@ -117,7 +117,7 @@ impl Tombstone {
 
     /// Create a tombstone with explicit timestamp
     pub fn with_timestamp(
-        run_id: [u8; 16],
+        branch_id: [u8; 16],
         primitive_type: u8,
         key: Vec<u8>,
         version: u64,
@@ -125,7 +125,7 @@ impl Tombstone {
         created_at: u64,
     ) -> Self {
         Tombstone {
-            run_id,
+            branch_id,
             primitive_type,
             key,
             version,
@@ -137,7 +137,7 @@ impl Tombstone {
     /// Serialize tombstone to bytes
     ///
     /// Format:
-    /// - run_id: 16 bytes
+    /// - branch_id: 16 bytes
     /// - primitive_type: 1 byte
     /// - key_len: 4 bytes (u32 LE)
     /// - key: variable
@@ -148,7 +148,7 @@ impl Tombstone {
         let mut bytes = Vec::with_capacity(38 + self.key.len());
 
         // Run ID
-        bytes.extend_from_slice(&self.run_id);
+        bytes.extend_from_slice(&self.branch_id);
 
         // Primitive type
         bytes.push(self.primitive_type);
@@ -181,7 +181,7 @@ impl Tombstone {
         let mut cursor = 0;
 
         // Run ID
-        let run_id: [u8; 16] = bytes[cursor..cursor + 16]
+        let branch_id: [u8; 16] = bytes[cursor..cursor + 16]
             .try_into()
             .map_err(|_| TombstoneError::InvalidFormat)?;
         cursor += 16;
@@ -227,7 +227,7 @@ impl Tombstone {
         cursor += 1;
 
         let tombstone = Tombstone {
-            run_id,
+            branch_id,
             primitive_type,
             key,
             version,
@@ -241,18 +241,18 @@ impl Tombstone {
 
 /// Key for tombstone lookup
 ///
-/// Combines run_id, primitive_type, and key to form a unique identifier.
+/// Combines branch_id, primitive_type, and key to form a unique identifier.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 struct TombstoneKey {
-    run_id: [u8; 16],
+    branch_id: [u8; 16],
     primitive_type: u8,
     key: Vec<u8>,
 }
 
 impl TombstoneKey {
-    fn new(run_id: [u8; 16], primitive_type: u8, key: Vec<u8>) -> Self {
+    fn new(branch_id: [u8; 16], primitive_type: u8, key: Vec<u8>) -> Self {
         TombstoneKey {
-            run_id,
+            branch_id,
             primitive_type,
             key,
         }
@@ -260,7 +260,7 @@ impl TombstoneKey {
 
     fn from_tombstone(tombstone: &Tombstone) -> Self {
         TombstoneKey {
-            run_id: tombstone.run_id,
+            branch_id: tombstone.branch_id,
             primitive_type: tombstone.primitive_type,
             key: tombstone.key.clone(),
         }
@@ -272,7 +272,7 @@ impl TombstoneKey {
 /// Provides efficient lookup to check if a specific version is tombstoned.
 #[derive(Debug, Default)]
 pub struct TombstoneIndex {
-    /// Map from (run_id, primitive_type, key) -> list of tombstones
+    /// Map from (branch_id, primitive_type, key) -> list of tombstones
     tombstones: HashMap<TombstoneKey, Vec<Tombstone>>,
 
     /// Total count of tombstones
@@ -303,12 +303,12 @@ impl TombstoneIndex {
     /// Check if a specific version is tombstoned
     pub fn is_tombstoned(
         &self,
-        run_id: &[u8; 16],
+        branch_id: &[u8; 16],
         primitive_type: u8,
         key: &[u8],
         version: u64,
     ) -> bool {
-        let lookup_key = TombstoneKey::new(*run_id, primitive_type, key.to_vec());
+        let lookup_key = TombstoneKey::new(*branch_id, primitive_type, key.to_vec());
 
         self.tombstones
             .get(&lookup_key)
@@ -318,19 +318,19 @@ impl TombstoneIndex {
     /// Get all tombstones for a specific entry
     pub fn get(
         &self,
-        run_id: &[u8; 16],
+        branch_id: &[u8; 16],
         primitive_type: u8,
         key: &[u8],
     ) -> Option<&[Tombstone]> {
-        let lookup_key = TombstoneKey::new(*run_id, primitive_type, key.to_vec());
+        let lookup_key = TombstoneKey::new(*branch_id, primitive_type, key.to_vec());
         self.tombstones.get(&lookup_key).map(|v| v.as_slice())
     }
 
     /// Get all tombstones for a run
-    pub fn get_by_run(&self, run_id: &[u8; 16]) -> Vec<&Tombstone> {
+    pub fn get_by_branch(&self, branch_id: &[u8; 16]) -> Vec<&Tombstone> {
         self.tombstones
             .iter()
-            .filter(|(k, _)| &k.run_id == run_id)
+            .filter(|(k, _)| &k.branch_id == branch_id)
             .flat_map(|(_, v)| v.iter())
             .collect()
     }
@@ -496,7 +496,7 @@ mod tests {
             TombstoneReason::UserDelete,
         );
 
-        assert_eq!(ts.run_id, test_run_id());
+        assert_eq!(ts.branch_id, test_run_id());
         assert_eq!(ts.primitive_type, 0);
         assert_eq!(ts.key, b"test-key");
         assert_eq!(ts.version, 42);
@@ -532,7 +532,7 @@ mod tests {
         let bytes = ts.to_bytes();
         let (parsed, consumed) = Tombstone::from_bytes(&bytes).unwrap();
 
-        assert_eq!(parsed.run_id, ts.run_id);
+        assert_eq!(parsed.branch_id, ts.branch_id);
         assert_eq!(parsed.primitive_type, ts.primitive_type);
         assert_eq!(parsed.key, ts.key);
         assert_eq!(parsed.version, ts.version);
@@ -631,7 +631,7 @@ mod tests {
     }
 
     #[test]
-    fn test_tombstone_index_get_by_run() {
+    fn test_tombstone_index_get_by_branch() {
         let mut index = TombstoneIndex::new();
         let run1 = test_run_id();
         let mut run2 = test_run_id();
@@ -659,8 +659,8 @@ mod tests {
             TombstoneReason::UserDelete,
         ));
 
-        assert_eq!(index.get_by_run(&run1).len(), 2);
-        assert_eq!(index.get_by_run(&run2).len(), 1);
+        assert_eq!(index.get_by_branch(&run1).len(), 2);
+        assert_eq!(index.get_by_branch(&run2).len(), 1);
     }
 
     #[test]

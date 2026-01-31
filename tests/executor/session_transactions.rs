@@ -8,7 +8,7 @@
 
 use crate::common::*;
 use strata_core::Value;
-use strata_executor::{Command, Output, Session, DistanceMetric, RunId, TxnStatus};
+use strata_executor::{Command, Output, Session, DistanceMetric, BranchId, TxnStatus};
 
 // ============================================================================
 // Transaction Lifecycle
@@ -352,26 +352,26 @@ fn run_commands_bypass_transaction() {
     }).unwrap();
 
     // Run commands should work even in a transaction
-    let output = session.execute(Command::RunCreate {
-        run_id: Some("txn-bypass-test".into()),
+    let output = session.execute(Command::BranchCreate {
+        branch_id: Some("txn-bypass-test".into()),
         metadata: None,
     }).unwrap();
 
     match output {
-        Output::RunWithVersion { info, .. } => {
+        Output::BranchWithVersion { info, .. } => {
             assert_eq!(info.id.as_str(), "txn-bypass-test");
         }
-        _ => panic!("Expected RunCreated"),
+        _ => panic!("Expected BranchCreated"),
     }
 
     session.execute(Command::TxnRollback).unwrap();
 
     // Run should still exist (not rolled back)
-    let output = session.execute(Command::RunGet {
-        run: RunId::from("txn-bypass-test"),
+    let output = session.execute(Command::BranchGet {
+        run: BranchId::from("txn-bypass-test"),
     }).unwrap();
 
-    assert!(matches!(output, Output::RunInfoVersioned(_)));
+    assert!(matches!(output, Output::BranchInfoVersioned(_)));
 }
 
 #[test]

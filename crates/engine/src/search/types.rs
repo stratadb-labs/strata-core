@@ -11,7 +11,7 @@
 //! These types define the interface contracts for search operations.
 //! See `the architecture documentation` for authoritative specification.
 
-use strata_core::types::RunId;
+use strata_core::types::BranchId;
 use std::collections::HashMap;
 
 // Re-export contract types
@@ -123,10 +123,10 @@ pub enum SearchMode {
 ///
 /// ```
 /// use strata_engine::{SearchRequest, SearchBudget};
-/// use strata_core::types::RunId;
+/// use strata_core::types::BranchId;
 ///
-/// let run_id = RunId::new();
-/// let req = SearchRequest::new(run_id, "authentication error")
+/// let branch_id = BranchId::new();
+/// let req = SearchRequest::new(branch_id, "authentication error")
 ///     .with_k(20)
 ///     .with_budget(SearchBudget::default().with_time(50_000));
 ///
@@ -136,7 +136,7 @@ pub enum SearchMode {
 #[derive(Debug, Clone)]
 pub struct SearchRequest {
     /// Run to search within
-    pub run_id: RunId,
+    pub branch_id: BranchId,
 
     /// Query string (interpreted by scorer)
     pub query: String,
@@ -170,9 +170,9 @@ impl SearchRequest {
     /// - primitive_filter: None (search all primitives)
     /// - time_range: None
     /// - tags_any: empty
-    pub fn new(run_id: RunId, query: impl Into<String>) -> Self {
+    pub fn new(branch_id: BranchId, query: impl Into<String>) -> Self {
         SearchRequest {
-            run_id,
+            branch_id,
             query: query.into(),
             k: 10,
             budget: SearchBudget::default(),
@@ -439,10 +439,10 @@ mod tests {
 
     #[test]
     fn test_search_request_new() {
-        let run_id = RunId::new();
-        let req = SearchRequest::new(run_id, "test query");
+        let branch_id = BranchId::new();
+        let req = SearchRequest::new(branch_id, "test query");
 
-        assert_eq!(req.run_id, run_id);
+        assert_eq!(req.branch_id, branch_id);
         assert_eq!(req.query, "test query");
         assert_eq!(req.k, 10);
         assert_eq!(req.mode, SearchMode::Keyword);
@@ -453,8 +453,8 @@ mod tests {
 
     #[test]
     fn test_search_request_builder() {
-        let run_id = RunId::new();
-        let req = SearchRequest::new(run_id, "test query")
+        let branch_id = BranchId::new();
+        let req = SearchRequest::new(branch_id, "test query")
             .with_k(20)
             .with_budget(SearchBudget::default().with_time(50_000))
             .with_mode(SearchMode::Keyword)
@@ -474,16 +474,16 @@ mod tests {
 
     #[test]
     fn test_search_request_includes_primitive() {
-        let run_id = RunId::new();
+        let branch_id = BranchId::new();
 
         // No filter - includes all
-        let req1 = SearchRequest::new(run_id, "test");
+        let req1 = SearchRequest::new(branch_id, "test");
         assert!(req1.includes_primitive(PrimitiveType::Kv));
         assert!(req1.includes_primitive(PrimitiveType::Json));
         assert!(req1.includes_primitive(PrimitiveType::Event));
 
         // With filter - only includes specified
-        let req2 = SearchRequest::new(run_id, "test")
+        let req2 = SearchRequest::new(branch_id, "test")
             .with_primitive_filter(vec![PrimitiveType::Kv, PrimitiveType::Json]);
         assert!(req2.includes_primitive(PrimitiveType::Kv));
         assert!(req2.includes_primitive(PrimitiveType::Json));
@@ -497,8 +497,8 @@ mod tests {
 
     #[test]
     fn test_search_hit_new() {
-        let run_id = RunId::new();
-        let doc_ref = EntityRef::run(run_id);
+        let branch_id = BranchId::new();
+        let doc_ref = EntityRef::branch(branch_id);
 
         let hit = SearchHit::new(doc_ref.clone(), 0.95, 1);
 
@@ -510,8 +510,8 @@ mod tests {
 
     #[test]
     fn test_search_hit_with_snippet() {
-        let run_id = RunId::new();
-        let doc_ref = EntityRef::run(run_id);
+        let branch_id = BranchId::new();
+        let doc_ref = EntityRef::branch(branch_id);
 
         let hit = SearchHit::new(doc_ref, 0.95, 1).with_snippet("matched text here".to_string());
 
@@ -580,10 +580,10 @@ mod tests {
 
     #[test]
     fn test_search_response_new() {
-        let run_id = RunId::new();
+        let branch_id = BranchId::new();
         let hits = vec![
-            SearchHit::new(EntityRef::run(run_id), 0.9, 1),
-            SearchHit::new(EntityRef::run(run_id), 0.8, 2),
+            SearchHit::new(EntityRef::branch(branch_id), 0.9, 1),
+            SearchHit::new(EntityRef::branch(branch_id), 0.8, 2),
         ];
         let stats = SearchStats::new(500, 100);
 

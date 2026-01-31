@@ -1,6 +1,6 @@
-//! Run Lifecycle and Deterministic Replay
+//! Branch Lifecycle and Deterministic Replay
 //!
-//! This module implements run lifecycle management and deterministic replay.
+//! This module implements branch lifecycle management and deterministic replay.
 //!
 //! ## Replay Invariants (P1-P6)
 //!
@@ -20,13 +20,13 @@
 //!
 //! - begin_run() - Creates run metadata, writes WAL entry
 //! - end_run() - Marks run completed, writes WAL entry
-//! - RunIndex - Event offset tracking for O(run size) replay
+//! - BranchIndex - Event offset tracking for O(run size) replay
 //! - replay_run() - Returns ReadOnlyView
 //! - diff_runs() - Key-level comparison
 //! - Orphaned run detection
 
-use strata_core::run_types::{RunEventOffsets, RunMetadata, RunStatus};
-use strata_core::types::{Key, RunId};
+use strata_core::branch_types::{BranchEventOffsets, BranchMetadata, BranchStatus};
+use strata_core::types::{Key, BranchId};
 use strata_core::value::Value;
 use strata_core::PrimitiveType;
 use strata_core::{EntityRef, StrataError};
@@ -34,23 +34,23 @@ use std::collections::HashMap;
 use thiserror::Error;
 
 // ============================================================================
-// Run Errors
+// Branch Errors
 // ============================================================================
 
-/// Errors related to run lifecycle operations
+/// Errors related to branch lifecycle operations
 #[derive(Debug, Error)]
-pub enum RunError {
-    /// Run already exists
-    #[error("Run already exists: {0}")]
-    AlreadyExists(RunId),
+pub enum BranchError {
+    /// Branch already exists
+    #[error("Branch already exists: {0}")]
+    AlreadyExists(BranchId),
 
-    /// Run not found
-    #[error("Run not found: {0}")]
-    NotFound(RunId),
+    /// Branch not found
+    #[error("Branch not found: {0}")]
+    NotFound(BranchId),
 
-    /// Run is not active
-    #[error("Run not active: {0}")]
-    NotActive(RunId),
+    /// Branch is not active
+    #[error("Branch not active: {0}")]
+    NotActive(BranchId),
 
     /// WAL error
     #[error("WAL error: {0}")]
@@ -62,107 +62,107 @@ pub enum RunError {
 }
 
 // Conversion to StrataError
-impl From<RunError> for StrataError {
-    fn from(e: RunError) -> Self {
+impl From<BranchError> for StrataError {
+    fn from(e: BranchError) -> Self {
         match e {
-            RunError::AlreadyExists(run_id) => StrataError::InvalidOperation {
-                entity_ref: EntityRef::run(run_id),
-                reason: format!("Run '{}' already exists", run_id),
+            BranchError::AlreadyExists(branch_id) => StrataError::InvalidOperation {
+                entity_ref: EntityRef::branch(branch_id),
+                reason: format!("Run '{}' already exists", branch_id),
             },
-            RunError::NotFound(run_id) => StrataError::RunNotFound { run_id },
-            RunError::NotActive(run_id) => StrataError::InvalidOperation {
-                entity_ref: EntityRef::run(run_id),
-                reason: "Run is not active".to_string(),
+            BranchError::NotFound(branch_id) => StrataError::BranchNotFound { branch_id },
+            BranchError::NotActive(branch_id) => StrataError::InvalidOperation {
+                entity_ref: EntityRef::branch(branch_id),
+                reason: "Branch is not active".to_string(),
             },
-            RunError::Wal(msg) => StrataError::Storage {
+            BranchError::Wal(msg) => StrataError::Storage {
                 message: format!("WAL error: {}", msg),
                 source: None,
             },
-            RunError::Storage(e) => e, // Preserve original error
+            BranchError::Storage(e) => e, // Preserve original error
         }
     }
 }
 
 // ============================================================================
-// Run Index
+// Branch Index
 // ============================================================================
 
-/// Run index for tracking runs and their events
+/// Branch index for tracking runs and their events
 ///
 /// Maps runs to their metadata and event offsets for O(run size) replay.
 #[derive(Debug, Default)]
-pub struct RunIndex {
+pub struct BranchIndex {
     /// Run metadata by run ID
-    runs: HashMap<RunId, RunMetadata>,
+    runs: HashMap<BranchId, BranchMetadata>,
     /// Event offsets by run ID (for O(run size) replay)
-    run_events: HashMap<RunId, RunEventOffsets>,
+    branch_events: HashMap<BranchId, BranchEventOffsets>,
 }
 
-impl RunIndex {
+impl BranchIndex {
     /// Create a new empty run index
     pub fn new() -> Self {
-        RunIndex {
+        BranchIndex {
             runs: HashMap::new(),
-            run_events: HashMap::new(),
+            branch_events: HashMap::new(),
         }
     }
 
     /// Insert a new run
-    pub fn insert(&mut self, run_id: RunId, metadata: RunMetadata) {
-        self.runs.insert(run_id, metadata);
-        self.run_events.insert(run_id, RunEventOffsets::new());
+    pub fn insert(&mut self, branch_id: BranchId, metadata: BranchMetadata) {
+        self.runs.insert(branch_id, metadata);
+        self.branch_events.insert(branch_id, BranchEventOffsets::new());
     }
 
     /// Check if a run exists
-    pub fn exists(&self, run_id: RunId) -> bool {
-        self.runs.contains_key(&run_id)
+    pub fn exists(&self, branch_id: BranchId) -> bool {
+        self.runs.contains_key(&branch_id)
     }
 
     /// Get run metadata
-    pub fn get(&self, run_id: RunId) -> Option<&RunMetadata> {
-        self.runs.get(&run_id)
+    pub fn get(&self, branch_id: BranchId) -> Option<&BranchMetadata> {
+        self.runs.get(&branch_id)
     }
 
     /// Get mutable run metadata
-    pub fn get_mut(&mut self, run_id: RunId) -> Option<&mut RunMetadata> {
-        self.runs.get_mut(&run_id)
+    pub fn get_mut(&mut self, branch_id: BranchId) -> Option<&mut BranchMetadata> {
+        self.runs.get_mut(&branch_id)
     }
 
     /// Record an event offset for a run
-    pub fn record_event(&mut self, run_id: RunId, offset: u64) {
-        if let Some(offsets) = self.run_events.get_mut(&run_id) {
+    pub fn record_event(&mut self, branch_id: BranchId, offset: u64) {
+        if let Some(offsets) = self.branch_events.get_mut(&branch_id) {
             offsets.push(offset);
         }
-        if let Some(meta) = self.runs.get_mut(&run_id) {
+        if let Some(meta) = self.runs.get_mut(&branch_id) {
             meta.increment_event_count();
         }
     }
 
     /// Get event offsets for a run (for O(run size) replay)
-    pub fn get_event_offsets(&self, run_id: RunId) -> Option<&[u64]> {
-        self.run_events.get(&run_id).map(|o| o.as_slice())
+    pub fn get_event_offsets(&self, branch_id: BranchId) -> Option<&[u64]> {
+        self.branch_events.get(&branch_id).map(|o| o.as_slice())
     }
 
     /// List all runs
-    pub fn list(&self) -> Vec<&RunMetadata> {
+    pub fn list(&self) -> Vec<&BranchMetadata> {
         self.runs.values().collect()
     }
 
     /// List all run IDs
-    pub fn list_run_ids(&self) -> Vec<RunId> {
+    pub fn list_branch_ids(&self) -> Vec<BranchId> {
         self.runs.keys().copied().collect()
     }
 
     /// Get run status
-    pub fn status(&self, run_id: RunId) -> RunStatus {
-        match self.runs.get(&run_id) {
+    pub fn status(&self, branch_id: BranchId) -> BranchStatus {
+        match self.runs.get(&branch_id) {
             Some(meta) => meta.status,
-            None => RunStatus::NotFound,
+            None => BranchStatus::NotFound,
         }
     }
 
     /// Find runs that are still active (potential orphans after crash)
-    pub fn find_active(&self) -> Vec<RunId> {
+    pub fn find_active(&self) -> Vec<BranchId> {
         self.runs
             .iter()
             .filter(|(_, meta)| meta.status.is_active())
@@ -171,16 +171,16 @@ impl RunIndex {
     }
 
     /// Mark runs as orphaned
-    pub fn mark_orphaned(&mut self, run_ids: &[RunId]) {
-        for run_id in run_ids {
-            if let Some(meta) = self.runs.get_mut(run_id) {
+    pub fn mark_orphaned(&mut self, branch_ids: &[BranchId]) {
+        for branch_id in branch_ids {
+            if let Some(meta) = self.runs.get_mut(branch_id) {
                 meta.mark_orphaned();
             }
         }
     }
 
     /// Count runs by status
-    pub fn count_by_status(&self) -> HashMap<RunStatus, usize> {
+    pub fn count_by_status(&self) -> HashMap<BranchStatus, usize> {
         let mut counts = HashMap::new();
         for meta in self.runs.values() {
             *counts.entry(meta.status).or_insert(0) += 1;
@@ -209,7 +209,7 @@ impl RunIndex {
 #[derive(Debug, Clone)]
 pub struct ReadOnlyView {
     /// Run this view is for
-    pub run_id: RunId,
+    pub branch_id: BranchId,
     /// KV state at run end
     kv_state: HashMap<Key, Value>,
     /// Events during run (simplified as key-value pairs)
@@ -220,9 +220,9 @@ pub struct ReadOnlyView {
 
 impl ReadOnlyView {
     /// Create a new empty read-only view
-    pub fn new(run_id: RunId) -> Self {
+    pub fn new(branch_id: BranchId) -> Self {
         ReadOnlyView {
-            run_id,
+            branch_id,
             kv_state: HashMap::new(),
             events: Vec::new(),
             operation_count: 0,
@@ -347,11 +347,11 @@ impl DiffEntry {
 
 /// Diff between two runs at key level
 #[derive(Debug, Clone)]
-pub struct RunDiff {
+pub struct BranchDiff {
     /// Run A (base)
-    pub run_a: RunId,
+    pub branch_a: BranchId,
     /// Run B (comparison)
-    pub run_b: RunId,
+    pub branch_b: BranchId,
     /// Keys added in B (not in A)
     pub added: Vec<DiffEntry>,
     /// Keys removed in B (in A but not B)
@@ -360,12 +360,12 @@ pub struct RunDiff {
     pub modified: Vec<DiffEntry>,
 }
 
-impl RunDiff {
+impl BranchDiff {
     /// Create a new empty diff
-    pub fn new(run_a: RunId, run_b: RunId) -> Self {
-        RunDiff {
-            run_a,
-            run_b,
+    pub fn new(branch_a: BranchId, branch_b: BranchId) -> Self {
+        BranchDiff {
+            branch_a,
+            branch_b,
             added: Vec::new(),
             removed: Vec::new(),
             modified: Vec::new(),
@@ -395,8 +395,8 @@ impl RunDiff {
 }
 
 /// Compare two ReadOnlyViews and produce a diff
-pub fn diff_views(view_a: &ReadOnlyView, view_b: &ReadOnlyView) -> RunDiff {
-    let mut diff = RunDiff::new(view_a.run_id, view_b.run_id);
+pub fn diff_views(view_a: &ReadOnlyView, view_b: &ReadOnlyView) -> BranchDiff {
+    let mut diff = BranchDiff::new(view_a.branch_id, view_b.branch_id);
 
     // Compare KV state
     diff_kv_maps(&view_a.kv_state, &view_b.kv_state, &mut diff);
@@ -430,7 +430,7 @@ pub fn diff_views(view_a: &ReadOnlyView, view_b: &ReadOnlyView) -> RunDiff {
     diff
 }
 
-fn diff_kv_maps(map_a: &HashMap<Key, Value>, map_b: &HashMap<Key, Value>, diff: &mut RunDiff) {
+fn diff_kv_maps(map_a: &HashMap<Key, Value>, map_b: &HashMap<Key, Value>, diff: &mut BranchDiff) {
     // Added: in B but not A
     for (key, value_b) in map_b {
         if !map_a.contains_key(key) {
@@ -484,9 +484,9 @@ fn diff_kv_maps(map_a: &HashMap<Key, Value>, map_b: &HashMap<Key, Value>, diff: 
 /// Errors during replay
 #[derive(Debug, Error)]
 pub enum ReplayError {
-    /// Run not found
-    #[error("Run not found: {0}")]
-    RunNotFound(RunId),
+    /// Branch not found
+    #[error("Branch not found: {0}")]
+    BranchNotFound(BranchId),
 
     /// Event log error
     #[error("Event log error: {0}")]
@@ -511,75 +511,75 @@ mod tests {
     use strata_core::types::Namespace;
 
     fn test_namespace() -> Namespace {
-        Namespace::for_run(RunId::new())
+        Namespace::for_branch(BranchId::new())
     }
 
-    // ========== RunIndex Tests ==========
+    // ========== BranchIndex Tests ==========
 
     #[test]
     fn test_run_index_new() {
-        let index = RunIndex::new();
+        let index = BranchIndex::new();
         assert!(index.list().is_empty());
     }
 
     #[test]
     fn test_run_index_insert_and_get() {
-        let mut index = RunIndex::new();
-        let run_id = RunId::new();
-        let metadata = RunMetadata::new(run_id, 1000, 0);
+        let mut index = BranchIndex::new();
+        let branch_id = BranchId::new();
+        let metadata = BranchMetadata::new(branch_id, 1000, 0);
 
-        index.insert(run_id, metadata.clone());
+        index.insert(branch_id, metadata.clone());
 
-        assert!(index.exists(run_id));
-        let retrieved = index.get(run_id).unwrap();
-        assert_eq!(retrieved.run_id, run_id);
-        assert_eq!(retrieved.status, RunStatus::Active);
+        assert!(index.exists(branch_id));
+        let retrieved = index.get(branch_id).unwrap();
+        assert_eq!(retrieved.branch_id, branch_id);
+        assert_eq!(retrieved.status, BranchStatus::Active);
     }
 
     #[test]
     fn test_run_index_status() {
-        let mut index = RunIndex::new();
-        let run_id = RunId::new();
+        let mut index = BranchIndex::new();
+        let branch_id = BranchId::new();
 
         // Non-existent run
-        assert_eq!(index.status(run_id), RunStatus::NotFound);
+        assert_eq!(index.status(branch_id), BranchStatus::NotFound);
 
         // Insert run
-        let metadata = RunMetadata::new(run_id, 1000, 0);
-        index.insert(run_id, metadata);
+        let metadata = BranchMetadata::new(branch_id, 1000, 0);
+        index.insert(branch_id, metadata);
 
-        assert_eq!(index.status(run_id), RunStatus::Active);
+        assert_eq!(index.status(branch_id), BranchStatus::Active);
     }
 
     #[test]
     fn test_run_index_record_event() {
-        let mut index = RunIndex::new();
-        let run_id = RunId::new();
-        let metadata = RunMetadata::new(run_id, 1000, 0);
+        let mut index = BranchIndex::new();
+        let branch_id = BranchId::new();
+        let metadata = BranchMetadata::new(branch_id, 1000, 0);
 
-        index.insert(run_id, metadata);
-        index.record_event(run_id, 100);
-        index.record_event(run_id, 200);
-        index.record_event(run_id, 300);
+        index.insert(branch_id, metadata);
+        index.record_event(branch_id, 100);
+        index.record_event(branch_id, 200);
+        index.record_event(branch_id, 300);
 
-        let offsets = index.get_event_offsets(run_id).unwrap();
+        let offsets = index.get_event_offsets(branch_id).unwrap();
         assert_eq!(offsets, &[100, 200, 300]);
 
-        let meta = index.get(run_id).unwrap();
+        let meta = index.get(branch_id).unwrap();
         assert_eq!(meta.event_count, 3);
     }
 
     #[test]
     fn test_run_index_find_active() {
-        let mut index = RunIndex::new();
+        let mut index = BranchIndex::new();
 
-        let run1 = RunId::new();
-        let run2 = RunId::new();
-        let run3 = RunId::new();
+        let run1 = BranchId::new();
+        let run2 = BranchId::new();
+        let run3 = BranchId::new();
 
-        index.insert(run1, RunMetadata::new(run1, 1000, 0));
-        index.insert(run2, RunMetadata::new(run2, 2000, 100));
-        index.insert(run3, RunMetadata::new(run3, 3000, 200));
+        index.insert(run1, BranchMetadata::new(run1, 1000, 0));
+        index.insert(run2, BranchMetadata::new(run2, 2000, 100));
+        index.insert(run3, BranchMetadata::new(run3, 3000, 200));
 
         // Complete run2
         index.get_mut(run2).unwrap().complete(2500, 150);
@@ -592,29 +592,29 @@ mod tests {
     }
 
     #[test]
-    fn test_run_index_mark_orphaned() {
-        let mut index = RunIndex::new();
+    fn test_branch_index_mark_orphaned() {
+        let mut index = BranchIndex::new();
 
-        let run1 = RunId::new();
-        let run2 = RunId::new();
+        let run1 = BranchId::new();
+        let run2 = BranchId::new();
 
-        index.insert(run1, RunMetadata::new(run1, 1000, 0));
-        index.insert(run2, RunMetadata::new(run2, 2000, 100));
+        index.insert(run1, BranchMetadata::new(run1, 1000, 0));
+        index.insert(run2, BranchMetadata::new(run2, 2000, 100));
 
         index.mark_orphaned(&[run1]);
 
-        assert_eq!(index.status(run1), RunStatus::Orphaned);
-        assert_eq!(index.status(run2), RunStatus::Active);
+        assert_eq!(index.status(run1), BranchStatus::Orphaned);
+        assert_eq!(index.status(run2), BranchStatus::Active);
     }
 
     // ========== ReadOnlyView Tests ==========
 
     #[test]
     fn test_read_only_view_new() {
-        let run_id = RunId::new();
-        let view = ReadOnlyView::new(run_id);
+        let branch_id = BranchId::new();
+        let view = ReadOnlyView::new(branch_id);
 
-        assert_eq!(view.run_id, run_id);
+        assert_eq!(view.branch_id, branch_id);
         assert_eq!(view.kv_count(), 0);
         assert_eq!(view.event_count(), 0);
         assert_eq!(view.operation_count(), 0);
@@ -622,9 +622,9 @@ mod tests {
 
     #[test]
     fn test_read_only_view_kv_operations() {
-        let run_id = RunId::new();
+        let branch_id = BranchId::new();
         let ns = test_namespace();
-        let mut view = ReadOnlyView::new(run_id);
+        let mut view = ReadOnlyView::new(branch_id);
 
         let key = Key::new_kv(ns.clone(), "test-key");
         let value = Value::String("test-value".into());
@@ -646,8 +646,8 @@ mod tests {
 
     #[test]
     fn test_read_only_view_events() {
-        let run_id = RunId::new();
-        let mut view = ReadOnlyView::new(run_id);
+        let branch_id = BranchId::new();
+        let mut view = ReadOnlyView::new(branch_id);
 
         view.append_event("UserCreated".into(), Value::String("alice".into()));
         view.append_event("UserUpdated".into(), Value::String("bob".into()));
@@ -657,15 +657,15 @@ mod tests {
         assert_eq!(view.events()[1].0, "UserUpdated");
     }
 
-    // ========== RunDiff Tests ==========
+    // ========== BranchDiff Tests ==========
 
     #[test]
     fn test_run_diff_empty() {
-        let run_a = RunId::new();
-        let run_b = RunId::new();
+        let branch_a = BranchId::new();
+        let branch_b = BranchId::new();
 
-        let view_a = ReadOnlyView::new(run_a);
-        let view_b = ReadOnlyView::new(run_b);
+        let view_a = ReadOnlyView::new(branch_a);
+        let view_b = ReadOnlyView::new(branch_b);
 
         let diff = diff_views(&view_a, &view_b);
         assert!(diff.is_empty());
@@ -674,13 +674,13 @@ mod tests {
 
     #[test]
     fn test_run_diff_added() {
-        let run_a = RunId::new();
-        let run_b = RunId::new();
+        let branch_a = BranchId::new();
+        let branch_b = BranchId::new();
         let ns = test_namespace();
 
-        let view_a = ReadOnlyView::new(run_a);
+        let view_a = ReadOnlyView::new(branch_a);
 
-        let mut view_b = ReadOnlyView::new(run_b);
+        let mut view_b = ReadOnlyView::new(branch_b);
         view_b.apply_kv_put(Key::new_kv(ns.clone(), "new-key"), Value::Int(42));
 
         let diff = diff_views(&view_a, &view_b);
@@ -692,14 +692,14 @@ mod tests {
 
     #[test]
     fn test_run_diff_removed() {
-        let run_a = RunId::new();
-        let run_b = RunId::new();
+        let branch_a = BranchId::new();
+        let branch_b = BranchId::new();
         let ns = test_namespace();
 
-        let mut view_a = ReadOnlyView::new(run_a);
+        let mut view_a = ReadOnlyView::new(branch_a);
         view_a.apply_kv_put(Key::new_kv(ns.clone(), "old-key"), Value::Int(42));
 
-        let view_b = ReadOnlyView::new(run_b);
+        let view_b = ReadOnlyView::new(branch_b);
 
         let diff = diff_views(&view_a, &view_b);
         assert_eq!(diff.added.len(), 0);
@@ -710,16 +710,16 @@ mod tests {
 
     #[test]
     fn test_run_diff_modified() {
-        let run_a = RunId::new();
-        let run_b = RunId::new();
+        let branch_a = BranchId::new();
+        let branch_b = BranchId::new();
         let ns = test_namespace();
 
         let key = Key::new_kv(ns.clone(), "shared-key");
 
-        let mut view_a = ReadOnlyView::new(run_a);
+        let mut view_a = ReadOnlyView::new(branch_a);
         view_a.apply_kv_put(key.clone(), Value::Int(1));
 
-        let mut view_b = ReadOnlyView::new(run_b);
+        let mut view_b = ReadOnlyView::new(branch_b);
         view_b.apply_kv_put(key.clone(), Value::Int(2));
 
         let diff = diff_views(&view_a, &view_b);
@@ -731,9 +731,9 @@ mod tests {
 
     #[test]
     fn test_run_diff_summary() {
-        let diff = RunDiff {
-            run_a: RunId::new(),
-            run_b: RunId::new(),
+        let diff = BranchDiff {
+            branch_a: BranchId::new(),
+            branch_b: BranchId::new(),
             added: vec![DiffEntry::added(
                 "a".into(),
                 PrimitiveType::Kv,
@@ -758,16 +758,16 @@ mod tests {
 
     #[test]
     fn test_orphaned_detection() {
-        let mut index = RunIndex::new();
+        let mut index = BranchIndex::new();
 
         // Create some runs
-        let run1 = RunId::new();
-        let run2 = RunId::new();
-        let run3 = RunId::new();
+        let run1 = BranchId::new();
+        let run2 = BranchId::new();
+        let run3 = BranchId::new();
 
-        index.insert(run1, RunMetadata::new(run1, 1000, 0));
-        index.insert(run2, RunMetadata::new(run2, 2000, 100));
-        index.insert(run3, RunMetadata::new(run3, 3000, 200));
+        index.insert(run1, BranchMetadata::new(run1, 1000, 0));
+        index.insert(run2, BranchMetadata::new(run2, 2000, 100));
+        index.insert(run3, BranchMetadata::new(run3, 3000, 200));
 
         // Complete run2 properly
         index.get_mut(run2).unwrap().complete(2500, 150);
@@ -780,31 +780,31 @@ mod tests {
         index.mark_orphaned(&active);
 
         // Verify
-        assert_eq!(index.status(run1), RunStatus::Orphaned);
-        assert_eq!(index.status(run2), RunStatus::Completed);
-        assert_eq!(index.status(run3), RunStatus::Orphaned);
+        assert_eq!(index.status(run1), BranchStatus::Orphaned);
+        assert_eq!(index.status(run2), BranchStatus::Completed);
+        assert_eq!(index.status(run3), BranchStatus::Orphaned);
     }
 
     #[test]
     fn test_count_by_status() {
-        let mut index = RunIndex::new();
+        let mut index = BranchIndex::new();
 
         // Create runs with different states
         for _ in 0..3 {
-            let run_id = RunId::new();
-            index.insert(run_id, RunMetadata::new(run_id, 1000, 0));
+            let branch_id = BranchId::new();
+            index.insert(branch_id, BranchMetadata::new(branch_id, 1000, 0));
         }
 
         for _ in 0..2 {
-            let run_id = RunId::new();
-            let mut meta = RunMetadata::new(run_id, 1000, 0);
+            let branch_id = BranchId::new();
+            let mut meta = BranchMetadata::new(branch_id, 1000, 0);
             meta.complete(2000, 100);
-            index.insert(run_id, meta);
+            index.insert(branch_id, meta);
         }
 
         let counts = index.count_by_status();
-        assert_eq!(counts.get(&RunStatus::Active), Some(&3));
-        assert_eq!(counts.get(&RunStatus::Completed), Some(&2));
+        assert_eq!(counts.get(&BranchStatus::Active), Some(&3));
+        assert_eq!(counts.get(&BranchStatus::Completed), Some(&2));
     }
 
     // ========== Replay Invariant Tests ==========
@@ -814,7 +814,7 @@ mod tests {
     /// Running replay with the same operations should produce identical views
     #[test]
     fn test_replay_invariant_p5_deterministic() {
-        let run_id = RunId::new();
+        let branch_id = BranchId::new();
         let ns = test_namespace();
 
         // Define a sequence of operations
@@ -825,14 +825,14 @@ mod tests {
         ];
 
         // Create first view
-        let mut view1 = ReadOnlyView::new(run_id);
+        let mut view1 = ReadOnlyView::new(branch_id);
         for (key, value) in &operations {
             view1.apply_kv_put(Key::new_kv(ns.clone(), key), value.clone());
         }
         view1.append_event("TestEvent".into(), Value::Int(1));
 
         // Create second view with same operations
-        let mut view2 = ReadOnlyView::new(run_id);
+        let mut view2 = ReadOnlyView::new(branch_id);
         for (key, value) in &operations {
             view2.apply_kv_put(Key::new_kv(ns.clone(), key), value.clone());
         }
@@ -858,17 +858,17 @@ mod tests {
     /// Different operation orders should produce different views
     #[test]
     fn test_replay_invariant_p5_order_matters() {
-        let run_id = RunId::new();
+        let branch_id = BranchId::new();
         let ns = test_namespace();
         let key = Key::new_kv(ns.clone(), "counter");
 
         // View 1: put 1, then put 2 (final value = 2)
-        let mut view1 = ReadOnlyView::new(run_id);
+        let mut view1 = ReadOnlyView::new(branch_id);
         view1.apply_kv_put(key.clone(), Value::Int(1));
         view1.apply_kv_put(key.clone(), Value::Int(2));
 
         // View 2: put 2, then put 1 (final value = 1)
-        let mut view2 = ReadOnlyView::new(run_id);
+        let mut view2 = ReadOnlyView::new(branch_id);
         view2.apply_kv_put(key.clone(), Value::Int(2));
         view2.apply_kv_put(key.clone(), Value::Int(1));
 
@@ -886,12 +886,12 @@ mod tests {
     /// Applying the same operation sequence twice should give same result
     #[test]
     fn test_replay_invariant_p6_idempotent() {
-        let run_id = RunId::new();
+        let branch_id = BranchId::new();
         let ns = test_namespace();
 
         // Function to build a view from operations
-        fn build_view(run_id: RunId, ns: &Namespace) -> ReadOnlyView {
-            let mut view = ReadOnlyView::new(run_id);
+        fn build_view(branch_id: BranchId, ns: &Namespace) -> ReadOnlyView {
+            let mut view = ReadOnlyView::new(branch_id);
             view.apply_kv_put(Key::new_kv(ns.clone(), "a"), Value::Int(1));
             view.apply_kv_put(Key::new_kv(ns.clone(), "b"), Value::Int(2));
             view.apply_kv_delete(&Key::new_kv(ns.clone(), "a"));
@@ -902,8 +902,8 @@ mod tests {
         }
 
         // Run twice
-        let view1 = build_view(run_id, &ns);
-        let view2 = build_view(run_id, &ns);
+        let view1 = build_view(branch_id, &ns);
+        let view2 = build_view(branch_id, &ns);
 
         // Should be identical
         assert_eq!(view1.kv_count(), view2.kv_count());
@@ -917,18 +917,18 @@ mod tests {
     /// This is a structural test - we verify the view is self-contained
     #[test]
     fn test_replay_invariant_p2_self_contained() {
-        let run_id = RunId::new();
+        let branch_id = BranchId::new();
         let ns = test_namespace();
 
         // Create a view and modify it
-        let mut view = ReadOnlyView::new(run_id);
+        let mut view = ReadOnlyView::new(branch_id);
         let key = Key::new_kv(ns.clone(), "test");
 
         // The view should be completely self-contained
         view.apply_kv_put(key.clone(), Value::Int(42));
 
         // Create another view - it should be independent
-        let view2 = ReadOnlyView::new(run_id);
+        let view2 = ReadOnlyView::new(branch_id);
 
         // view2 should not see view's changes (they're independent)
         assert!(view.contains_kv(&key));
@@ -939,12 +939,12 @@ mod tests {
     /// Views are snapshots, not live data
     #[test]
     fn test_replay_invariant_p3_derived_view() {
-        let run_id = RunId::new();
+        let branch_id = BranchId::new();
         let ns = test_namespace();
         let key = Key::new_kv(ns.clone(), "test");
 
         // Create a view
-        let mut view = ReadOnlyView::new(run_id);
+        let mut view = ReadOnlyView::new(branch_id);
         view.apply_kv_put(key.clone(), Value::Int(1));
 
         // Clone the view
@@ -962,17 +962,17 @@ mod tests {
 
     #[test]
     fn test_diff_complex_scenario() {
-        let run_a = RunId::new();
-        let run_b = RunId::new();
+        let branch_a = BranchId::new();
+        let branch_b = BranchId::new();
         let ns = test_namespace();
 
-        let mut view_a = ReadOnlyView::new(run_a);
+        let mut view_a = ReadOnlyView::new(branch_a);
         view_a.apply_kv_put(Key::new_kv(ns.clone(), "shared"), Value::Int(1));
         view_a.apply_kv_put(Key::new_kv(ns.clone(), "only_a"), Value::Int(2));
         view_a.apply_kv_put(Key::new_kv(ns.clone(), "modified"), Value::Int(10));
         view_a.append_event("E1".into(), Value::Null);
 
-        let mut view_b = ReadOnlyView::new(run_b);
+        let mut view_b = ReadOnlyView::new(branch_b);
         view_b.apply_kv_put(Key::new_kv(ns.clone(), "shared"), Value::Int(1)); // Same
         view_b.apply_kv_put(Key::new_kv(ns.clone(), "only_b"), Value::Int(3)); // Added
         view_b.apply_kv_put(Key::new_kv(ns.clone(), "modified"), Value::Int(20)); // Modified
@@ -994,15 +994,15 @@ mod tests {
 
     #[test]
     fn test_diff_event_count_difference() {
-        let run_a = RunId::new();
-        let run_b = RunId::new();
+        let branch_a = BranchId::new();
+        let branch_b = BranchId::new();
 
-        let mut view_a = ReadOnlyView::new(run_a);
+        let mut view_a = ReadOnlyView::new(branch_a);
         view_a.append_event("E1".into(), Value::Int(1));
         view_a.append_event("E2".into(), Value::Int(2));
         view_a.append_event("E3".into(), Value::Int(3));
 
-        let mut view_b = ReadOnlyView::new(run_b);
+        let mut view_b = ReadOnlyView::new(branch_b);
         view_b.append_event("E1".into(), Value::Int(1));
 
         let diff = diff_views(&view_a, &view_b);
@@ -1013,18 +1013,18 @@ mod tests {
     }
 
     #[test]
-    fn test_run_index_list_run_ids() {
-        let mut index = RunIndex::new();
+    fn test_branch_index_list_branch_ids() {
+        let mut index = BranchIndex::new();
 
-        let run1 = RunId::new();
-        let run2 = RunId::new();
-        let run3 = RunId::new();
+        let run1 = BranchId::new();
+        let run2 = BranchId::new();
+        let run3 = BranchId::new();
 
-        index.insert(run1, RunMetadata::new(run1, 1000, 0));
-        index.insert(run2, RunMetadata::new(run2, 2000, 100));
-        index.insert(run3, RunMetadata::new(run3, 3000, 200));
+        index.insert(run1, BranchMetadata::new(run1, 1000, 0));
+        index.insert(run2, BranchMetadata::new(run2, 2000, 100));
+        index.insert(run3, BranchMetadata::new(run3, 3000, 200));
 
-        let ids = index.list_run_ids();
+        let ids = index.list_branch_ids();
         assert_eq!(ids.len(), 3);
         assert!(ids.contains(&run1));
         assert!(ids.contains(&run2));
@@ -1033,10 +1033,10 @@ mod tests {
 
     #[test]
     fn test_read_only_view_kv_keys_iterator() {
-        let run_id = RunId::new();
+        let branch_id = BranchId::new();
         let ns = test_namespace();
 
-        let mut view = ReadOnlyView::new(run_id);
+        let mut view = ReadOnlyView::new(branch_id);
         view.apply_kv_put(Key::new_kv(ns.clone(), "a"), Value::Int(1));
         view.apply_kv_put(Key::new_kv(ns.clone(), "b"), Value::Int(2));
         view.apply_kv_put(Key::new_kv(ns.clone(), "c"), Value::Int(3));
@@ -1047,20 +1047,20 @@ mod tests {
 
     #[test]
     fn test_run_error_conversions() {
-        // Test From<RunError> for StrataError
-        let error = RunError::AlreadyExists(RunId::new());
+        // Test From<BranchError> for StrataError
+        let error = BranchError::AlreadyExists(BranchId::new());
         let strata_error: StrataError = error.into();
         assert!(matches!(strata_error, StrataError::InvalidOperation { .. }));
 
-        let error = RunError::NotFound(RunId::new());
+        let error = BranchError::NotFound(BranchId::new());
         let strata_error: StrataError = error.into();
-        assert!(matches!(strata_error, StrataError::RunNotFound { .. }));
+        assert!(matches!(strata_error, StrataError::BranchNotFound { .. }));
 
-        let error = RunError::NotActive(RunId::new());
+        let error = BranchError::NotActive(BranchId::new());
         let strata_error: StrataError = error.into();
         assert!(matches!(strata_error, StrataError::InvalidOperation { .. }));
 
-        let error = RunError::Wal("test".to_string());
+        let error = BranchError::Wal("test".to_string());
         let strata_error: StrataError = error.into();
         assert!(matches!(strata_error, StrataError::Storage { .. }));
 
@@ -1068,16 +1068,16 @@ mod tests {
             message: "test".to_string(),
             source: None,
         };
-        let error = RunError::Storage(storage_err);
+        let error = BranchError::Storage(storage_err);
         let strata_error: StrataError = error.into();
         assert!(matches!(strata_error, StrataError::Storage { .. }));
     }
 
     #[test]
     fn test_replay_error_display() {
-        let error = ReplayError::RunNotFound(RunId::new());
+        let error = ReplayError::BranchNotFound(BranchId::new());
         let msg = error.to_string();
-        assert!(msg.contains("Run not found"));
+        assert!(msg.contains("Branch not found"));
 
         let error = ReplayError::EventLog("test error".to_string());
         let msg = error.to_string();

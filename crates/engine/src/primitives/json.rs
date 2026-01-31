@@ -7,7 +7,7 @@
 //!
 //! ## Run Isolation
 //!
-//! All operations are scoped to a run_id. Keys are prefixed with the
+//! All operations are scoped to a branch_id. Keys are prefixed with the
 //! run's namespace, ensuring complete isolation between runs.
 //!
 //! ## Thread Safety
@@ -36,7 +36,7 @@ use strata_core::contract::{Timestamp, Version, Versioned};
 use strata_core::{StrataResult, VersionedHistory};
 use strata_core::primitives::json::{delete_at_path, get_at_path, set_at_path, JsonLimitError, JsonPath, JsonValue};
 use strata_core::StrataError;
-use strata_core::types::{Key, Namespace, RunId};
+use strata_core::types::{Key, Namespace, BranchId};
 use strata_core::value::Value;
 use crate::database::Database;
 use serde::{Deserialize, Serialize};
@@ -151,16 +151,16 @@ impl JsonDoc {
 /// ```ignore
 /// use strata_primitives::JsonStore;
 /// use crate::database::Database;
-/// use strata_core::types::RunId;
+/// use strata_core::types::BranchId;
 /// use strata_core::primitives::json::JsonValue;
 ///
 /// let db = Database::ephemeral()?;
 /// let json = JsonStore::new(db);
-/// let run_id = RunId::new();
+/// let branch_id = BranchId::new();
 ///
 /// // Create and read document
-/// json.create(&run_id, "my-doc", JsonValue::object())?;
-/// let value = json.get(&run_id, "my-doc", &JsonPath::root())?;
+/// json.create(&branch_id, "my-doc", JsonValue::object())?;
+/// let value = json.get(&branch_id, "my-doc", &JsonPath::root())?;
 /// ```
 #[derive(Clone)]
 pub struct JsonStore {
@@ -179,13 +179,13 @@ impl JsonStore {
     }
 
     /// Build namespace for run-scoped operations
-    fn namespace_for_run(&self, run_id: &RunId) -> Namespace {
-        Namespace::for_run(*run_id)
+    fn namespace_for_branch(&self, branch_id: &BranchId) -> Namespace {
+        Namespace::for_branch(*branch_id)
     }
 
     /// Build key for JSON document
-    fn key_for(&self, run_id: &RunId, doc_id: &str) -> Key {
-        Key::new_json(self.namespace_for_run(run_id), doc_id)
+    fn key_for(&self, branch_id: &BranchId, doc_id: &str) -> Key {
+        Key::new_json(self.namespace_for_branch(branch_id), doc_id)
     }
 
     // ========================================================================
@@ -223,7 +223,7 @@ impl JsonStore {
     ///
     /// # Arguments
     ///
-    /// * `run_id` - RunId for namespace isolation
+    /// * `branch_id` - BranchId for namespace isolation
     /// * `doc_id` - Unique document identifier
     /// * `value` - Initial JSON value for the document
     ///
@@ -235,17 +235,17 @@ impl JsonStore {
     /// # Example
     ///
     /// ```ignore
-    /// let version = json.create(&run_id, &doc_id, JsonValue::object())?;
+    /// let version = json.create(&branch_id, &doc_id, JsonValue::object())?;
     /// assert_eq!(version, Version::counter(1));
     /// ```
-    pub fn create(&self, run_id: &RunId, doc_id: &str, value: JsonValue) -> StrataResult<Version> {
+    pub fn create(&self, branch_id: &BranchId, doc_id: &str, value: JsonValue) -> StrataResult<Version> {
         // Validate document limits (Issue #440)
         value.validate().map_err(limit_error_to_error)?;
 
-        let key = self.key_for(run_id, doc_id);
+        let key = self.key_for(branch_id, doc_id);
         let doc = JsonDoc::new(doc_id, value.clone());
 
-        self.db.transaction(*run_id, |txn| {
+        self.db.transaction(*branch_id, |txn| {
             // Check if document already exists
             if txn.get(&key)?.is_some() {
                 return Err(StrataError::invalid_input(format!(
@@ -268,7 +268,7 @@ impl JsonStore {
     ///
     /// # Arguments
     ///
-    /// * `run_id` - RunId for namespace isolation
+    /// * `branch_id` - BranchId for namespace isolation
     /// * `doc_id` - Document to read from
     /// * `path` - Path within the document (use JsonPath::root() for whole doc)
     ///
@@ -281,16 +281,16 @@ impl JsonStore {
     /// Use `getv()` to access version metadata and history.
     pub fn get(
         &self,
-        run_id: &RunId,
+        branch_id: &BranchId,
         doc_id: &str,
         path: &JsonPath,
     ) -> StrataResult<Option<JsonValue>> {
         // Validate path limits (Issue #440)
         path.validate().map_err(limit_error_to_error)?;
 
-        let key = self.key_for(run_id, doc_id);
+        let key = self.key_for(branch_id, doc_id);
 
-        self.db.transaction(*run_id, |txn| {
+        self.db.transaction(*branch_id, |txn| {
             match txn.get(&key)? {
                 Some(value) => {
                     let doc = Self::deserialize_doc(&value)?;
@@ -308,8 +308,8 @@ impl JsonStore {
     ///
     /// History is per-document (not per-path). To inspect a path within a
     /// specific version, index into the result and navigate the `JsonValue`.
-    pub fn getv(&self, run_id: &RunId, doc_id: &str) -> StrataResult<Option<VersionedHistory<JsonValue>>> {
-        let key = self.key_for(run_id, doc_id);
+    pub fn getv(&self, branch_id: &BranchId, doc_id: &str) -> StrataResult<Option<VersionedHistory<JsonValue>>> {
+        let key = self.key_for(branch_id, doc_id);
         let history = self.db.get_history(&key, None, None)?;
         let versions: Vec<Versioned<JsonValue>> = history
             .iter()
@@ -326,9 +326,9 @@ impl JsonStore {
     }
 
     /// Check if document exists.
-    pub fn exists(&self, run_id: &RunId, doc_id: &str) -> StrataResult<bool> {
-        let key = self.key_for(run_id, doc_id);
-        self.db.transaction(*run_id, |txn| {
+    pub fn exists(&self, branch_id: &BranchId, doc_id: &str) -> StrataResult<bool> {
+        let key = self.key_for(branch_id, doc_id);
+        self.db.transaction(*branch_id, |txn| {
             Ok(txn.get(&key)?.is_some())
         })
     }
@@ -344,7 +344,7 @@ impl JsonStore {
     ///
     /// # Arguments
     ///
-    /// * `run_id` - RunId for namespace isolation
+    /// * `branch_id` - BranchId for namespace isolation
     /// * `doc_id` - Document to modify
     /// * `path` - Path to set value at (creates intermediate objects/arrays)
     /// * `value` - New value to set
@@ -356,7 +356,7 @@ impl JsonStore {
     /// * `Err` - On path error or serialization error
     pub fn set(
         &self,
-        run_id: &RunId,
+        branch_id: &BranchId,
         doc_id: &str,
         path: &JsonPath,
         value: JsonValue,
@@ -365,9 +365,9 @@ impl JsonStore {
         path.validate().map_err(limit_error_to_error)?;
         value.validate().map_err(limit_error_to_error)?;
 
-        let key = self.key_for(run_id, doc_id);
+        let key = self.key_for(branch_id, doc_id);
 
-        self.db.transaction(*run_id, |txn| {
+        self.db.transaction(*branch_id, |txn| {
             // Load existing document
             let stored = txn.get(&key)?.ok_or_else(|| {
                 StrataError::invalid_input(format!("JSON document {} not found", doc_id))
@@ -394,7 +394,7 @@ impl JsonStore {
     ///
     /// # Arguments
     ///
-    /// * `run_id` - RunId for namespace isolation
+    /// * `branch_id` - BranchId for namespace isolation
     /// * `doc_id` - Document to modify
     /// * `path` - Path to delete (must not be root)
     ///
@@ -407,20 +407,20 @@ impl JsonStore {
     ///
     /// ```ignore
     /// // Remove a field from an object
-    /// json.delete_at_path(&run_id, &doc_id, &"user.temp".parse().unwrap())?;
+    /// json.delete_at_path(&branch_id, &doc_id, &"user.temp".parse().unwrap())?;
     /// ```
     pub fn delete_at_path(
         &self,
-        run_id: &RunId,
+        branch_id: &BranchId,
         doc_id: &str,
         path: &JsonPath,
     ) -> StrataResult<Version> {
         // Validate path limits (Issue #440)
         path.validate().map_err(limit_error_to_error)?;
 
-        let key = self.key_for(run_id, doc_id);
+        let key = self.key_for(branch_id, doc_id);
 
-        self.db.transaction(*run_id, |txn| {
+        self.db.transaction(*branch_id, |txn| {
             // Load existing document
             let stored = txn.get(&key)?.ok_or_else(|| {
                 StrataError::invalid_input(format!("JSON document {} not found", doc_id))
@@ -446,7 +446,7 @@ impl JsonStore {
     ///
     /// # Arguments
     ///
-    /// * `run_id` - RunId for namespace isolation
+    /// * `branch_id` - BranchId for namespace isolation
     /// * `doc_id` - Document to destroy
     ///
     /// # Returns
@@ -457,13 +457,13 @@ impl JsonStore {
     /// # Example
     ///
     /// ```ignore
-    /// let existed = json.destroy(&run_id, &doc_id)?;
+    /// let existed = json.destroy(&branch_id, &doc_id)?;
     /// assert!(existed);
     /// ```
-    pub fn destroy(&self, run_id: &RunId, doc_id: &str) -> StrataResult<bool> {
-        let key = self.key_for(run_id, doc_id);
+    pub fn destroy(&self, branch_id: &BranchId, doc_id: &str) -> StrataResult<bool> {
+        let key = self.key_for(branch_id, doc_id);
 
-        self.db.transaction(*run_id, |txn| {
+        self.db.transaction(*branch_id, |txn| {
             // Check if document exists
             if txn.get(&key)?.is_none() {
                 return Ok(false);
@@ -486,7 +486,7 @@ impl JsonStore {
     ///
     /// # Arguments
     ///
-    /// * `run_id` - RunId for namespace isolation
+    /// * `branch_id` - BranchId for namespace isolation
     /// * `prefix` - Optional prefix to filter document IDs (compared as strings)
     /// * `cursor` - Resume pagination from this cursor (doc_id to start after)
     /// * `limit` - Maximum number of results to return
@@ -499,28 +499,28 @@ impl JsonStore {
     ///
     /// ```ignore
     /// // List first 10 documents
-    /// let result = json.list(&run_id, None, None, 10)?;
+    /// let result = json.list(&branch_id, None, None, 10)?;
     ///
     /// // List documents with prefix "user:"
-    /// let result = json.list(&run_id, Some("user:"), None, 10)?;
+    /// let result = json.list(&branch_id, Some("user:"), None, 10)?;
     ///
     /// // Paginate through results
-    /// let page1 = json.list(&run_id, None, None, 10)?;
+    /// let page1 = json.list(&branch_id, None, None, 10)?;
     /// if let Some(cursor) = page1.next_cursor {
-    ///     let page2 = json.list(&run_id, None, Some(&cursor), 10)?;
+    ///     let page2 = json.list(&branch_id, None, Some(&cursor), 10)?;
     /// }
     /// ```
     pub fn list(
         &self,
-        run_id: &RunId,
+        branch_id: &BranchId,
         prefix: Option<&str>,
         cursor: Option<&str>,
         limit: usize,
     ) -> StrataResult<JsonListResult> {
-        let ns = self.namespace_for_run(run_id);
+        let ns = self.namespace_for_branch(branch_id);
         let scan_prefix = Key::new_json_prefix(ns);
 
-        self.db.transaction(*run_id, |txn| {
+        self.db.transaction(*branch_id, |txn| {
             let mut doc_ids = Vec::with_capacity(limit + 1);
 
             // Cursor is now a simple string key (no UUID parsing needed)
@@ -601,7 +601,7 @@ impl JsonStoreExt for TransactionContext {
         // Validate path limits (Issue #440)
         path.validate().map_err(limit_error_to_error)?;
 
-        let key = Key::new_json(Namespace::for_run(self.run_id), doc_id);
+        let key = Key::new_json(Namespace::for_branch(self.branch_id), doc_id);
 
         // Read from transaction context (respects read-your-writes)
         match self.get(&key)? {
@@ -618,7 +618,7 @@ impl JsonStoreExt for TransactionContext {
         path.validate().map_err(limit_error_to_error)?;
         value.validate().map_err(limit_error_to_error)?;
 
-        let key = Key::new_json(Namespace::for_run(self.run_id), doc_id);
+        let key = Key::new_json(Namespace::for_branch(self.branch_id), doc_id);
 
         // Load existing document from transaction context
         let stored = self.get(&key)?.ok_or_else(|| {
@@ -642,7 +642,7 @@ impl JsonStoreExt for TransactionContext {
         // Validate document limits (Issue #440)
         value.validate().map_err(limit_error_to_error)?;
 
-        let key = Key::new_json(Namespace::for_run(self.run_id), doc_id);
+        let key = Key::new_json(Namespace::for_branch(self.branch_id), doc_id);
         let doc = JsonDoc::new(doc_id, value);
 
         // Check if document already exists
@@ -693,8 +693,8 @@ mod tests {
         let db = Database::ephemeral().unwrap();
         let store = JsonStore::new(db);
 
-        let run1 = RunId::new();
-        let run2 = RunId::new();
+        let run1 = BranchId::new();
+        let run2 = BranchId::new();
         let doc_id = "test-doc";
 
         let key1 = store.key_for(&run1, &doc_id);
@@ -705,15 +705,15 @@ mod tests {
     }
 
     #[test]
-    fn test_key_for_same_run() {
+    fn test_key_for_same_branch() {
         let db = Database::ephemeral().unwrap();
         let store = JsonStore::new(db);
 
-        let run_id = RunId::new();
+        let branch_id = BranchId::new();
         let doc_id = "test-doc";
 
-        let key1 = store.key_for(&run_id, &doc_id);
-        let key2 = store.key_for(&run_id, &doc_id);
+        let key1 = store.key_for(&branch_id, &doc_id);
+        let key2 = store.key_for(&branch_id, &doc_id);
 
         // Same run and doc_id should produce same key
         assert_eq!(key1, key2);
@@ -865,11 +865,11 @@ mod tests {
     fn test_create_document() {
         let db = Database::ephemeral().unwrap();
         let store = JsonStore::new(db);
-        let run_id = RunId::new();
+        let branch_id = BranchId::new();
         let doc_id = "test-doc";
 
         let version = store
-            .create(&run_id, &doc_id, JsonValue::from(42i64))
+            .create(&branch_id, &doc_id, JsonValue::from(42i64))
             .unwrap();
         assert_eq!(version, Version::counter(1));
     }
@@ -878,7 +878,7 @@ mod tests {
     fn test_create_object_document() {
         let db = Database::ephemeral().unwrap();
         let store = JsonStore::new(db);
-        let run_id = RunId::new();
+        let branch_id = BranchId::new();
         let doc_id = "test-doc";
 
         let value: JsonValue = serde_json::json!({
@@ -887,7 +887,7 @@ mod tests {
         })
         .into();
 
-        let version = store.create(&run_id, &doc_id, value).unwrap();
+        let version = store.create(&branch_id, &doc_id, value).unwrap();
         assert_eq!(version, Version::counter(1));
     }
 
@@ -895,16 +895,16 @@ mod tests {
     fn test_create_duplicate_fails() {
         let db = Database::ephemeral().unwrap();
         let store = JsonStore::new(db);
-        let run_id = RunId::new();
+        let branch_id = BranchId::new();
         let doc_id = "test-doc";
 
         // First create succeeds
         store
-            .create(&run_id, &doc_id, JsonValue::from(1i64))
+            .create(&branch_id, &doc_id, JsonValue::from(1i64))
             .unwrap();
 
         // Second create with same ID fails
-        let result = store.create(&run_id, &doc_id, JsonValue::from(2i64));
+        let result = store.create(&branch_id, &doc_id, JsonValue::from(2i64));
         assert!(result.is_err());
     }
 
@@ -912,25 +912,25 @@ mod tests {
     fn test_create_different_docs() {
         let db = Database::ephemeral().unwrap();
         let store = JsonStore::new(db);
-        let run_id = RunId::new();
+        let branch_id = BranchId::new();
 
         let doc1 = "doc-1";
         let doc2 = "doc-2";
 
-        let v1 = store.create(&run_id, &doc1, JsonValue::from(1i64)).unwrap();
-        let v2 = store.create(&run_id, &doc2, JsonValue::from(2i64)).unwrap();
+        let v1 = store.create(&branch_id, &doc1, JsonValue::from(1i64)).unwrap();
+        let v2 = store.create(&branch_id, &doc2, JsonValue::from(2i64)).unwrap();
 
         assert_eq!(v1, Version::counter(1));
         assert_eq!(v2, Version::counter(1));
     }
 
     #[test]
-    fn test_create_run_isolation() {
+    fn test_create_branch_isolation() {
         let db = Database::ephemeral().unwrap();
         let store = JsonStore::new(db);
 
-        let run1 = RunId::new();
-        let run2 = RunId::new();
+        let run1 = BranchId::new();
+        let run2 = BranchId::new();
         let doc_id = "test-doc";
 
         // Same doc_id can be created in different runs
@@ -945,10 +945,10 @@ mod tests {
     fn test_create_null_value() {
         let db = Database::ephemeral().unwrap();
         let store = JsonStore::new(db);
-        let run_id = RunId::new();
+        let branch_id = BranchId::new();
         let doc_id = "test-doc";
 
-        let version = store.create(&run_id, &doc_id, JsonValue::null()).unwrap();
+        let version = store.create(&branch_id, &doc_id, JsonValue::null()).unwrap();
         assert_eq!(version, Version::counter(1));
     }
 
@@ -956,10 +956,10 @@ mod tests {
     fn test_create_empty_object() {
         let db = Database::ephemeral().unwrap();
         let store = JsonStore::new(db);
-        let run_id = RunId::new();
+        let branch_id = BranchId::new();
         let doc_id = "test-doc";
 
-        let version = store.create(&run_id, &doc_id, JsonValue::object()).unwrap();
+        let version = store.create(&branch_id, &doc_id, JsonValue::object()).unwrap();
         assert_eq!(version, Version::counter(1));
     }
 
@@ -967,10 +967,10 @@ mod tests {
     fn test_create_empty_array() {
         let db = Database::ephemeral().unwrap();
         let store = JsonStore::new(db);
-        let run_id = RunId::new();
+        let branch_id = BranchId::new();
         let doc_id = "test-doc";
 
-        let version = store.create(&run_id, &doc_id, JsonValue::array()).unwrap();
+        let version = store.create(&branch_id, &doc_id, JsonValue::array()).unwrap();
         assert_eq!(version, Version::counter(1));
     }
 
@@ -982,14 +982,14 @@ mod tests {
     fn test_get_root() {
         let db = Database::ephemeral().unwrap();
         let store = JsonStore::new(db);
-        let run_id = RunId::new();
+        let branch_id = BranchId::new();
         let doc_id = "test-doc";
 
         store
-            .create(&run_id, &doc_id, JsonValue::from(42i64))
+            .create(&branch_id, &doc_id, JsonValue::from(42i64))
             .unwrap();
 
-        let value = store.get(&run_id, &doc_id, &JsonPath::root()).unwrap();
+        let value = store.get(&branch_id, &doc_id, &JsonPath::root()).unwrap();
         assert_eq!(value.and_then(|v| v.as_i64()), Some(42));
     }
 
@@ -997,7 +997,7 @@ mod tests {
     fn test_get_at_path() {
         let db = Database::ephemeral().unwrap();
         let store = JsonStore::new(db);
-        let run_id = RunId::new();
+        let branch_id = BranchId::new();
         let doc_id = "test-doc";
 
         let value: JsonValue = serde_json::json!({
@@ -1006,10 +1006,10 @@ mod tests {
         })
         .into();
 
-        store.create(&run_id, &doc_id, value).unwrap();
+        store.create(&branch_id, &doc_id, value).unwrap();
 
         let name = store
-            .get(&run_id, &doc_id, &"name".parse().unwrap())
+            .get(&branch_id, &doc_id, &"name".parse().unwrap())
             .unwrap();
         assert_eq!(
             name.and_then(|v| v.as_str().map(String::from)),
@@ -1017,7 +1017,7 @@ mod tests {
         );
 
         let age = store
-            .get(&run_id, &doc_id, &"age".parse().unwrap())
+            .get(&branch_id, &doc_id, &"age".parse().unwrap())
             .unwrap();
         assert_eq!(age.and_then(|v| v.as_i64()), Some(30));
     }
@@ -1026,7 +1026,7 @@ mod tests {
     fn test_get_nested_path() {
         let db = Database::ephemeral().unwrap();
         let store = JsonStore::new(db);
-        let run_id = RunId::new();
+        let branch_id = BranchId::new();
         let doc_id = "test-doc";
 
         let value: JsonValue = serde_json::json!({
@@ -1038,10 +1038,10 @@ mod tests {
         })
         .into();
 
-        store.create(&run_id, &doc_id, value).unwrap();
+        store.create(&branch_id, &doc_id, value).unwrap();
 
         let name = store
-            .get(&run_id, &doc_id, &"user.profile.name".parse().unwrap())
+            .get(&branch_id, &doc_id, &"user.profile.name".parse().unwrap())
             .unwrap();
         assert_eq!(
             name.and_then(|v| v.as_str().map(String::from)),
@@ -1053,7 +1053,7 @@ mod tests {
     fn test_get_array_element() {
         let db = Database::ephemeral().unwrap();
         let store = JsonStore::new(db);
-        let run_id = RunId::new();
+        let branch_id = BranchId::new();
         let doc_id = "test-doc";
 
         let value: JsonValue = serde_json::json!({
@@ -1061,10 +1061,10 @@ mod tests {
         })
         .into();
 
-        store.create(&run_id, &doc_id, value).unwrap();
+        store.create(&branch_id, &doc_id, value).unwrap();
 
         let item = store
-            .get(&run_id, &doc_id, &"items[1]".parse().unwrap())
+            .get(&branch_id, &doc_id, &"items[1]".parse().unwrap())
             .unwrap();
         assert_eq!(
             item.and_then(|v| v.as_str().map(String::from)),
@@ -1076,10 +1076,10 @@ mod tests {
     fn test_get_missing_document() {
         let db = Database::ephemeral().unwrap();
         let store = JsonStore::new(db);
-        let run_id = RunId::new();
+        let branch_id = BranchId::new();
         let doc_id = "test-doc";
 
-        let result = store.get(&run_id, &doc_id, &JsonPath::root()).unwrap();
+        let result = store.get(&branch_id, &doc_id, &JsonPath::root()).unwrap();
         assert!(result.is_none());
     }
 
@@ -1087,13 +1087,13 @@ mod tests {
     fn test_get_missing_path() {
         let db = Database::ephemeral().unwrap();
         let store = JsonStore::new(db);
-        let run_id = RunId::new();
+        let branch_id = BranchId::new();
         let doc_id = "test-doc";
 
-        store.create(&run_id, &doc_id, JsonValue::object()).unwrap();
+        store.create(&branch_id, &doc_id, JsonValue::object()).unwrap();
 
         let result = store
-            .get(&run_id, &doc_id, &"nonexistent".parse().unwrap())
+            .get(&branch_id, &doc_id, &"nonexistent".parse().unwrap())
             .unwrap();
         assert!(result.is_none());
     }
@@ -1102,16 +1102,16 @@ mod tests {
     fn test_exists() {
         let db = Database::ephemeral().unwrap();
         let store = JsonStore::new(db);
-        let run_id = RunId::new();
+        let branch_id = BranchId::new();
         let doc_id = "test-doc";
 
-        assert!(!store.exists(&run_id, &doc_id).unwrap());
+        assert!(!store.exists(&branch_id, &doc_id).unwrap());
 
         store
-            .create(&run_id, &doc_id, JsonValue::from(42i64))
+            .create(&branch_id, &doc_id, JsonValue::from(42i64))
             .unwrap();
 
-        assert!(store.exists(&run_id, &doc_id).unwrap());
+        assert!(store.exists(&branch_id, &doc_id).unwrap());
     }
 
     #[test]
@@ -1119,8 +1119,8 @@ mod tests {
         let db = Database::ephemeral().unwrap();
         let store = JsonStore::new(db);
 
-        let run1 = RunId::new();
-        let run2 = RunId::new();
+        let run1 = BranchId::new();
+        let run2 = BranchId::new();
         let doc_id = "test-doc";
 
         store
@@ -1140,19 +1140,19 @@ mod tests {
     fn test_set_at_root() {
         let db = Database::ephemeral().unwrap();
         let store = JsonStore::new(db);
-        let run_id = RunId::new();
+        let branch_id = BranchId::new();
         let doc_id = "test-doc";
 
         store
-            .create(&run_id, &doc_id, JsonValue::from(42i64))
+            .create(&branch_id, &doc_id, JsonValue::from(42i64))
             .unwrap();
 
         let v2 = store
-            .set(&run_id, &doc_id, &JsonPath::root(), JsonValue::from(100i64))
+            .set(&branch_id, &doc_id, &JsonPath::root(), JsonValue::from(100i64))
             .unwrap();
         assert_eq!(v2, Version::counter(2));
 
-        let value = store.get(&run_id, &doc_id, &JsonPath::root()).unwrap();
+        let value = store.get(&branch_id, &doc_id, &JsonPath::root()).unwrap();
         assert_eq!(value.and_then(|v| v.as_i64()), Some(100));
     }
 
@@ -1160,14 +1160,14 @@ mod tests {
     fn test_set_at_path() {
         let db = Database::ephemeral().unwrap();
         let store = JsonStore::new(db);
-        let run_id = RunId::new();
+        let branch_id = BranchId::new();
         let doc_id = "test-doc";
 
-        store.create(&run_id, &doc_id, JsonValue::object()).unwrap();
+        store.create(&branch_id, &doc_id, JsonValue::object()).unwrap();
 
         let v2 = store
             .set(
-                &run_id,
+                &branch_id,
                 &doc_id,
                 &"name".parse().unwrap(),
                 JsonValue::from("Alice"),
@@ -1176,7 +1176,7 @@ mod tests {
         assert_eq!(v2, Version::counter(2));
 
         let name = store
-            .get(&run_id, &doc_id, &"name".parse().unwrap())
+            .get(&branch_id, &doc_id, &"name".parse().unwrap())
             .unwrap();
         assert_eq!(
             name.and_then(|v| v.as_str().map(String::from)),
@@ -1188,15 +1188,15 @@ mod tests {
     fn test_set_nested_path() {
         let db = Database::ephemeral().unwrap();
         let store = JsonStore::new(db);
-        let run_id = RunId::new();
+        let branch_id = BranchId::new();
         let doc_id = "test-doc";
 
-        store.create(&run_id, &doc_id, JsonValue::object()).unwrap();
+        store.create(&branch_id, &doc_id, JsonValue::object()).unwrap();
 
         // Creates intermediate objects automatically
         let v2 = store
             .set(
-                &run_id,
+                &branch_id,
                 &doc_id,
                 &"user.profile.name".parse().unwrap(),
                 JsonValue::from("Bob"),
@@ -1205,7 +1205,7 @@ mod tests {
         assert_eq!(v2, Version::counter(2));
 
         let name = store
-            .get(&run_id, &doc_id, &"user.profile.name".parse().unwrap())
+            .get(&branch_id, &doc_id, &"user.profile.name".parse().unwrap())
             .unwrap();
         assert_eq!(
             name.and_then(|v| v.as_str().map(String::from)),
@@ -1217,15 +1217,15 @@ mod tests {
     fn test_set_increments_version() {
         let db = Database::ephemeral().unwrap();
         let store = JsonStore::new(db);
-        let run_id = RunId::new();
+        let branch_id = BranchId::new();
         let doc_id = "test-doc";
 
-        let v1 = store.create(&run_id, &doc_id, JsonValue::object()).unwrap();
+        let v1 = store.create(&branch_id, &doc_id, JsonValue::object()).unwrap();
         assert_eq!(v1, Version::counter(1));
 
         let v2 = store
             .set(
-                &run_id,
+                &branch_id,
                 &doc_id,
                 &"a".parse().unwrap(),
                 JsonValue::from(1i64),
@@ -1235,7 +1235,7 @@ mod tests {
 
         let v3 = store
             .set(
-                &run_id,
+                &branch_id,
                 &doc_id,
                 &"b".parse().unwrap(),
                 JsonValue::from(2i64),
@@ -1248,11 +1248,11 @@ mod tests {
     fn test_set_missing_document() {
         let db = Database::ephemeral().unwrap();
         let store = JsonStore::new(db);
-        let run_id = RunId::new();
+        let branch_id = BranchId::new();
         let doc_id = "test-doc";
 
         let result = store.set(
-            &run_id,
+            &branch_id,
             &doc_id,
             &"name".parse().unwrap(),
             JsonValue::from("test"),
@@ -1264,15 +1264,15 @@ mod tests {
     fn test_set_overwrites_value() {
         let db = Database::ephemeral().unwrap();
         let store = JsonStore::new(db);
-        let run_id = RunId::new();
+        let branch_id = BranchId::new();
         let doc_id = "test-doc";
 
         let value: JsonValue = serde_json::json!({ "name": "Alice" }).into();
-        store.create(&run_id, &doc_id, value).unwrap();
+        store.create(&branch_id, &doc_id, value).unwrap();
 
         store
             .set(
-                &run_id,
+                &branch_id,
                 &doc_id,
                 &"name".parse().unwrap(),
                 JsonValue::from("Bob"),
@@ -1280,7 +1280,7 @@ mod tests {
             .unwrap();
 
         let name = store
-            .get(&run_id, &doc_id, &"name".parse().unwrap())
+            .get(&branch_id, &doc_id, &"name".parse().unwrap())
             .unwrap();
         assert_eq!(
             name.and_then(|v| v.as_str().map(String::from)),
@@ -1292,15 +1292,15 @@ mod tests {
     fn test_set_array_element() {
         let db = Database::ephemeral().unwrap();
         let store = JsonStore::new(db);
-        let run_id = RunId::new();
+        let branch_id = BranchId::new();
         let doc_id = "test-doc";
 
         let value: JsonValue = serde_json::json!({ "items": [1, 2, 3] }).into();
-        store.create(&run_id, &doc_id, value).unwrap();
+        store.create(&branch_id, &doc_id, value).unwrap();
 
         store
             .set(
-                &run_id,
+                &branch_id,
                 &doc_id,
                 &"items[1]".parse().unwrap(),
                 JsonValue::from(999i64),
@@ -1308,7 +1308,7 @@ mod tests {
             .unwrap();
 
         let item = store
-            .get(&run_id, &doc_id, &"items[1]".parse().unwrap())
+            .get(&branch_id, &doc_id, &"items[1]".parse().unwrap())
             .unwrap();
         assert_eq!(item.and_then(|v| v.as_i64()), Some(999));
     }
@@ -1321,7 +1321,7 @@ mod tests {
     fn test_delete_at_path() {
         let db = Database::ephemeral().unwrap();
         let store = JsonStore::new(db);
-        let run_id = RunId::new();
+        let branch_id = BranchId::new();
         let doc_id = "test-doc";
 
         let value: JsonValue = serde_json::json!({
@@ -1329,22 +1329,22 @@ mod tests {
             "age": 30
         })
         .into();
-        store.create(&run_id, &doc_id, value).unwrap();
+        store.create(&branch_id, &doc_id, value).unwrap();
 
         // Delete the "age" field
         let v2 = store
-            .delete_at_path(&run_id, &doc_id, &"age".parse().unwrap())
+            .delete_at_path(&branch_id, &doc_id, &"age".parse().unwrap())
             .unwrap();
         assert_eq!(v2, Version::counter(2));
 
         // Verify "age" is gone but "name" remains
         assert!(store
-            .get(&run_id, &doc_id, &"age".parse().unwrap())
+            .get(&branch_id, &doc_id, &"age".parse().unwrap())
             .unwrap()
             .is_none());
         assert_eq!(
             store
-                .get(&run_id, &doc_id, &"name".parse().unwrap())
+                .get(&branch_id, &doc_id, &"name".parse().unwrap())
                 .unwrap()
                 .and_then(|v| v.as_str().map(String::from)),
             Some("Alice".to_string())
@@ -1355,7 +1355,7 @@ mod tests {
     fn test_delete_at_nested_path() {
         let db = Database::ephemeral().unwrap();
         let store = JsonStore::new(db);
-        let run_id = RunId::new();
+        let branch_id = BranchId::new();
         let doc_id = "test-doc";
 
         let value: JsonValue = serde_json::json!({
@@ -1367,24 +1367,24 @@ mod tests {
             }
         })
         .into();
-        store.create(&run_id, &doc_id, value).unwrap();
+        store.create(&branch_id, &doc_id, value).unwrap();
 
         // Delete nested field
         let v2 = store
-            .delete_at_path(&run_id, &doc_id, &"user.profile.temp".parse().unwrap())
+            .delete_at_path(&branch_id, &doc_id, &"user.profile.temp".parse().unwrap())
             .unwrap();
         assert_eq!(v2, Version::counter(2));
 
         // Verify "temp" is gone
         assert!(store
-            .get(&run_id, &doc_id, &"user.profile.temp".parse().unwrap())
+            .get(&branch_id, &doc_id, &"user.profile.temp".parse().unwrap())
             .unwrap()
             .is_none());
 
         // Verify "name" remains
         assert_eq!(
             store
-                .get(&run_id, &doc_id, &"user.profile.name".parse().unwrap())
+                .get(&branch_id, &doc_id, &"user.profile.name".parse().unwrap())
                 .unwrap()
                 .and_then(|v| v.as_str().map(String::from)),
             Some("Bob".to_string())
@@ -1395,24 +1395,24 @@ mod tests {
     fn test_delete_at_path_array_element() {
         let db = Database::ephemeral().unwrap();
         let store = JsonStore::new(db);
-        let run_id = RunId::new();
+        let branch_id = BranchId::new();
         let doc_id = "test-doc";
 
         let value: JsonValue = serde_json::json!({
             "items": ["a", "b", "c"]
         })
         .into();
-        store.create(&run_id, &doc_id, value).unwrap();
+        store.create(&branch_id, &doc_id, value).unwrap();
 
         // Delete middle element
         let v2 = store
-            .delete_at_path(&run_id, &doc_id, &"items[1]".parse().unwrap())
+            .delete_at_path(&branch_id, &doc_id, &"items[1]".parse().unwrap())
             .unwrap();
         assert_eq!(v2, Version::counter(2));
 
         // Array should now be ["a", "c"]
         let items = store
-            .get(&run_id, &doc_id, &"items".parse().unwrap())
+            .get(&branch_id, &doc_id, &"items".parse().unwrap())
             .unwrap()
             .unwrap();
         let arr = items.as_array().unwrap();
@@ -1425,7 +1425,7 @@ mod tests {
     fn test_delete_at_path_increments_version() {
         let db = Database::ephemeral().unwrap();
         let store = JsonStore::new(db);
-        let run_id = RunId::new();
+        let branch_id = BranchId::new();
         let doc_id = "test-doc";
 
         let value: JsonValue = serde_json::json!({
@@ -1434,16 +1434,16 @@ mod tests {
             "c": 3
         })
         .into();
-        let v1 = store.create(&run_id, &doc_id, value).unwrap();
+        let v1 = store.create(&branch_id, &doc_id, value).unwrap();
         assert_eq!(v1, Version::counter(1));
 
         let v2 = store
-            .delete_at_path(&run_id, &doc_id, &"a".parse().unwrap())
+            .delete_at_path(&branch_id, &doc_id, &"a".parse().unwrap())
             .unwrap();
         assert_eq!(v2, Version::counter(2));
 
         let v3 = store
-            .delete_at_path(&run_id, &doc_id, &"b".parse().unwrap())
+            .delete_at_path(&branch_id, &doc_id, &"b".parse().unwrap())
             .unwrap();
         assert_eq!(v3, Version::counter(3));
     }
@@ -1452,10 +1452,10 @@ mod tests {
     fn test_delete_at_path_missing_document() {
         let db = Database::ephemeral().unwrap();
         let store = JsonStore::new(db);
-        let run_id = RunId::new();
+        let branch_id = BranchId::new();
         let doc_id = "test-doc";
 
-        let result = store.delete_at_path(&run_id, &doc_id, &"field".parse().unwrap());
+        let result = store.delete_at_path(&branch_id, &doc_id, &"field".parse().unwrap());
         assert!(result.is_err());
     }
 
@@ -1463,14 +1463,14 @@ mod tests {
     fn test_delete_at_path_missing_path() {
         let db = Database::ephemeral().unwrap();
         let store = JsonStore::new(db);
-        let run_id = RunId::new();
+        let branch_id = BranchId::new();
         let doc_id = "test-doc";
 
-        store.create(&run_id, &doc_id, JsonValue::object()).unwrap();
+        store.create(&branch_id, &doc_id, JsonValue::object()).unwrap();
 
         // Deleting a nonexistent path is idempotent (succeeds, increments version)
         let v2 = store
-            .delete_at_path(&run_id, &doc_id, &"nonexistent".parse().unwrap())
+            .delete_at_path(&branch_id, &doc_id, &"nonexistent".parse().unwrap())
             .unwrap();
         assert_eq!(v2, Version::counter(2)); // Version still increments even though nothing was removed
     }
@@ -1483,27 +1483,27 @@ mod tests {
     fn test_destroy_existing_document() {
         let db = Database::ephemeral().unwrap();
         let store = JsonStore::new(db);
-        let run_id = RunId::new();
+        let branch_id = BranchId::new();
         let doc_id = "test-doc";
 
         store
-            .create(&run_id, &doc_id, JsonValue::from(42i64))
+            .create(&branch_id, &doc_id, JsonValue::from(42i64))
             .unwrap();
-        assert!(store.exists(&run_id, &doc_id).unwrap());
+        assert!(store.exists(&branch_id, &doc_id).unwrap());
 
-        let existed = store.destroy(&run_id, &doc_id).unwrap();
+        let existed = store.destroy(&branch_id, &doc_id).unwrap();
         assert!(existed);
-        assert!(!store.exists(&run_id, &doc_id).unwrap());
+        assert!(!store.exists(&branch_id, &doc_id).unwrap());
     }
 
     #[test]
     fn test_destroy_nonexistent_document() {
         let db = Database::ephemeral().unwrap();
         let store = JsonStore::new(db);
-        let run_id = RunId::new();
+        let branch_id = BranchId::new();
         let doc_id = "test-doc";
 
-        let existed = store.destroy(&run_id, &doc_id).unwrap();
+        let existed = store.destroy(&branch_id, &doc_id).unwrap();
         assert!(!existed);
     }
 
@@ -1512,8 +1512,8 @@ mod tests {
         let db = Database::ephemeral().unwrap();
         let store = JsonStore::new(db);
 
-        let run1 = RunId::new();
-        let run2 = RunId::new();
+        let run1 = BranchId::new();
+        let run2 = BranchId::new();
         let doc_id = "test-doc";
 
         // Create document in both runs
@@ -1532,22 +1532,22 @@ mod tests {
     fn test_destroy_then_recreate() {
         let db = Database::ephemeral().unwrap();
         let store = JsonStore::new(db);
-        let run_id = RunId::new();
+        let branch_id = BranchId::new();
         let doc_id = "test-doc";
 
         // Create, destroy, recreate
         store
-            .create(&run_id, &doc_id, JsonValue::from(1i64))
+            .create(&branch_id, &doc_id, JsonValue::from(1i64))
             .unwrap();
-        store.destroy(&run_id, &doc_id).unwrap();
+        store.destroy(&branch_id, &doc_id).unwrap();
 
         // Should be able to recreate with new value
         let version = store
-            .create(&run_id, &doc_id, JsonValue::from(2i64))
+            .create(&branch_id, &doc_id, JsonValue::from(2i64))
             .unwrap();
         assert_eq!(version, Version::counter(1)); // Fresh document starts at version 1
 
-        let value = store.get(&run_id, &doc_id, &JsonPath::root()).unwrap();
+        let value = store.get(&branch_id, &doc_id, &JsonPath::root()).unwrap();
         assert_eq!(value.and_then(|v| v.as_i64()), Some(2));
     }
 
@@ -1555,7 +1555,7 @@ mod tests {
     fn test_destroy_complex_document() {
         let db = Database::ephemeral().unwrap();
         let store = JsonStore::new(db);
-        let run_id = RunId::new();
+        let branch_id = BranchId::new();
         let doc_id = "test-doc";
 
         let value: JsonValue = serde_json::json!({
@@ -1570,29 +1570,29 @@ mod tests {
             }
         })
         .into();
-        store.create(&run_id, &doc_id, value).unwrap();
+        store.create(&branch_id, &doc_id, value).unwrap();
 
-        let existed = store.destroy(&run_id, &doc_id).unwrap();
+        let existed = store.destroy(&branch_id, &doc_id).unwrap();
         assert!(existed);
-        assert!(!store.exists(&run_id, &doc_id).unwrap());
+        assert!(!store.exists(&branch_id, &doc_id).unwrap());
     }
 
     #[test]
     fn test_destroy_idempotent() {
         let db = Database::ephemeral().unwrap();
         let store = JsonStore::new(db);
-        let run_id = RunId::new();
+        let branch_id = BranchId::new();
         let doc_id = "test-doc";
 
         store
-            .create(&run_id, &doc_id, JsonValue::from(42i64))
+            .create(&branch_id, &doc_id, JsonValue::from(42i64))
             .unwrap();
 
         // First destroy returns true
-        assert!(store.destroy(&run_id, &doc_id).unwrap());
+        assert!(store.destroy(&branch_id, &doc_id).unwrap());
 
         // Subsequent destroys return false
-        assert!(!store.destroy(&run_id, &doc_id).unwrap());
-        assert!(!store.destroy(&run_id, &doc_id).unwrap());
+        assert!(!store.destroy(&branch_id, &doc_id).unwrap());
+        assert!(!store.destroy(&branch_id, &doc_id).unwrap());
     }
 }

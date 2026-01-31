@@ -7,7 +7,7 @@
 //! 2. **Versioned**: Every read returns `Versioned<T>`, every write returns `Version`
 //! 3. **Transactional**: Every primitive participates in transactions
 //! 4. **Lifecycle**: Every primitive follows create/exist/evolve/destroy
-//! 5. **Run-scoped**: Every entity belongs to exactly one run
+//! 5. **Branch-scoped**: Every entity belongs to exactly one branch
 //! 6. **Introspectable**: Every primitive has `exists()` or equivalent
 //! 7. **Read/Write**: Reads never modify state, writes always produce versions
 //!
@@ -18,19 +18,19 @@
 //! - `version`: Version identifier types (Invariant 2)
 //! - `timestamp`: Microsecond timestamps (Invariant 2)
 //! - `primitive_type`: Primitive enumeration (Invariant 6)
-//! - `run_name`: Semantic run identifier (Invariant 5)
+//! - `branch_name`: Semantic branch identifier (Invariant 5)
 //!
 //! ## Usage
 //!
 //! ```
 //! use strata_core::contract::{
-//!     EntityRef, Versioned, Version, Timestamp, PrimitiveType, RunName
+//!     EntityRef, Versioned, Version, Timestamp, PrimitiveType, BranchName
 //! };
 //! ```
 
 pub mod entity_ref;
 pub mod primitive_type;
-pub mod run_name;
+pub mod branch_name;
 pub mod timestamp;
 pub mod version;
 pub mod versioned;
@@ -39,7 +39,7 @@ pub mod versioned_history;
 // Re-exports
 pub use entity_ref::EntityRef;
 pub use primitive_type::PrimitiveType;
-pub use run_name::{RunName, RunNameError, MAX_RUN_NAME_LENGTH};
+pub use branch_name::{BranchName, BranchNameError, MAX_BRANCH_NAME_LENGTH};
 pub use timestamp::Timestamp;
 pub use version::Version;
 pub use versioned::{Versioned, VersionedValue};

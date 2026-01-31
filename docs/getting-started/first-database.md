@@ -15,13 +15,13 @@ use stratadb::Strata;
 fn main() -> stratadb::Result<()> {
     // Ephemeral database — no files created
     let db = Strata::open_temp()?;
-    println!("Database opened, current run: {}", db.current_run());
-    // Output: Database opened, current run: default
+    println!("Database opened, current branch: {}", db.current_branch());
+    // Output: Database opened, current branch: default
     Ok(())
 }
 ```
 
-StrataDB starts you on the "default" run. All data operations target the current run.
+StrataDB starts you on the "default" branch. All data operations target the current branch.
 
 ## Step 2: KV Store — Working Memory
 
@@ -194,9 +194,9 @@ fn main() -> stratadb::Result<()> {
 }
 ```
 
-## Step 7: Runs — Data Isolation
+## Step 7: Branches — Data Isolation
 
-Runs give you isolated namespaces for data, like git branches.
+Branches give you isolated namespaces for data, like git branches.
 
 ```rust
 use stratadb::{Strata, Value};
@@ -204,32 +204,32 @@ use stratadb::{Strata, Value};
 fn main() -> stratadb::Result<()> {
     let mut db = Strata::open_temp()?;
 
-    // You start on the "default" run
+    // You start on the "default" branch
     db.kv_put("shared-key", "default-value")?;
 
-    // Create a new run and switch to it
-    db.create_run("experiment")?;
-    db.set_run("experiment")?;
+    // Create a new branch and switch to it
+    db.create_branch("experiment")?;
+    db.set_branch("experiment")?;
 
-    // The key doesn't exist in this run
+    // The key doesn't exist in this branch
     assert!(db.kv_get("shared-key")?.is_none());
 
-    // Write data in the experiment run
+    // Write data in the experiment branch
     db.kv_put("shared-key", "experiment-value")?;
 
     // Switch back — original data is intact
-    db.set_run("default")?;
+    db.set_branch("default")?;
     assert_eq!(
         db.kv_get("shared-key")?,
         Some(Value::String("default-value".into()))
     );
 
-    // List all runs
-    let runs = db.list_runs()?;
-    println!("Runs: {:?}", runs);
+    // List all branches
+    let branches = db.list_branches()?;
+    println!("Branches: {:?}", branches);
 
     // Clean up
-    db.delete_run("experiment")?;
+    db.delete_branch("experiment")?;
 
     Ok(())
 }
@@ -246,9 +246,9 @@ use std::collections::HashMap;
 fn main() -> stratadb::Result<()> {
     let mut db = Strata::open_temp()?;
 
-    // Create a run for this agent session
-    db.create_run("session-001")?;
-    db.set_run("session-001")?;
+    // Create a branch for this agent session
+    db.create_branch("session-001")?;
+    db.set_branch("session-001")?;
 
     // Store agent config (KV)
     db.kv_put("config:model", "gpt-4")?;
@@ -287,6 +287,6 @@ fn main() -> stratadb::Result<()> {
 
 ## Next Steps
 
-- [Concepts](../concepts/index.md) — understand runs, value types, and transactions
+- [Concepts](../concepts/index.md) — understand branches, value types, and transactions
 - [Guides](../guides/index.md) — deep dives into each primitive
 - [Cookbook](../cookbook/index.md) — real-world patterns

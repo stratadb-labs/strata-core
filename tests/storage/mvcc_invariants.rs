@@ -9,14 +9,14 @@
 use strata_core::traits::{SnapshotView, Storage};
 use strata_core::types::{Key, Namespace};
 use strata_core::value::Value;
-use strata_core::RunId;
+use strata_core::BranchId;
 use strata_storage::sharded::ShardedStore;
 use std::sync::Arc;
 use std::thread;
 use std::time::Duration;
 
-fn create_test_key(run_id: RunId, name: &str) -> Key {
-    let ns = Namespace::for_run(run_id);
+fn create_test_key(branch_id: BranchId, name: &str) -> Key {
+    let ns = Namespace::for_branch(branch_id);
     Key::new_kv(ns, name)
 }
 
@@ -27,8 +27,8 @@ fn create_test_key(run_id: RunId, name: &str) -> Key {
 #[test]
 fn version_chain_stores_newest_first() {
     let store = ShardedStore::new();
-    let run_id = RunId::new();
-    let key = create_test_key(run_id, "versioned");
+    let branch_id = BranchId::new();
+    let key = create_test_key(branch_id, "versioned");
 
     // Put multiple versions
     Storage::put(&store, key.clone(), Value::Int(1), None).unwrap();
@@ -46,8 +46,8 @@ fn version_chain_stores_newest_first() {
 #[test]
 fn get_at_version_returns_value_lte_version() {
     let store = ShardedStore::new();
-    let run_id = RunId::new();
-    let key = create_test_key(run_id, "versioned");
+    let branch_id = BranchId::new();
+    let key = create_test_key(branch_id, "versioned");
 
     // Put values at versions 1, 2, 3
     Storage::put_with_version(&store, key.clone(), Value::Int(10), 1, None).unwrap();
@@ -68,8 +68,8 @@ fn get_at_version_returns_value_lte_version() {
 #[test]
 fn get_at_version_before_first_returns_none() {
     let store = ShardedStore::new();
-    let run_id = RunId::new();
-    let key = create_test_key(run_id, "versioned");
+    let branch_id = BranchId::new();
+    let key = create_test_key(branch_id, "versioned");
 
     // Put value at version 5
     Storage::put_with_version(&store, key.clone(), Value::Int(50), 5, None).unwrap();
@@ -82,8 +82,8 @@ fn get_at_version_before_first_returns_none() {
 #[test]
 fn version_chain_preserves_all_versions() {
     let store = ShardedStore::new();
-    let run_id = RunId::new();
-    let key = create_test_key(run_id, "preserved");
+    let branch_id = BranchId::new();
+    let key = create_test_key(branch_id, "preserved");
 
     // Put 10 versions
     for i in 1..=10 {
@@ -109,8 +109,8 @@ fn version_chain_preserves_all_versions() {
 #[test]
 fn expired_values_filtered_at_read_time() {
     let store = ShardedStore::new();
-    let run_id = RunId::new();
-    let key = create_test_key(run_id, "ttl_test");
+    let branch_id = BranchId::new();
+    let key = create_test_key(branch_id, "ttl_test");
 
     // Put value with very short TTL
     let ttl = Some(Duration::from_millis(1));
@@ -127,8 +127,8 @@ fn expired_values_filtered_at_read_time() {
 #[test]
 fn non_expired_values_returned() {
     let store = ShardedStore::new();
-    let run_id = RunId::new();
-    let key = create_test_key(run_id, "ttl_valid");
+    let branch_id = BranchId::new();
+    let key = create_test_key(branch_id, "ttl_valid");
 
     // Put value with long TTL
     let ttl = Some(Duration::from_secs(3600)); // 1 hour
@@ -143,8 +143,8 @@ fn non_expired_values_returned() {
 #[test]
 fn no_ttl_never_expires() {
     let store = ShardedStore::new();
-    let run_id = RunId::new();
-    let key = create_test_key(run_id, "no_ttl");
+    let branch_id = BranchId::new();
+    let key = create_test_key(branch_id, "no_ttl");
 
     // Put value without TTL
     Storage::put(&store, key.clone(), Value::Int(42), None).unwrap();
@@ -161,8 +161,8 @@ fn no_ttl_never_expires() {
 #[test]
 fn tombstone_preserves_snapshot_isolation() {
     let store = Arc::new(ShardedStore::new());
-    let run_id = RunId::new();
-    let key = create_test_key(run_id, "tombstone_iso");
+    let branch_id = BranchId::new();
+    let key = create_test_key(branch_id, "tombstone_iso");
 
     // Put a value
     Storage::put(&*store, key.clone(), Value::Int(100), None).unwrap();
@@ -189,8 +189,8 @@ fn tombstone_preserves_snapshot_isolation() {
 #[test]
 fn tombstone_not_returned_to_user() {
     let store = ShardedStore::new();
-    let run_id = RunId::new();
-    let key = create_test_key(run_id, "tombstone_hidden");
+    let branch_id = BranchId::new();
+    let key = create_test_key(branch_id, "tombstone_hidden");
 
     // Put and delete
     Storage::put(&store, key.clone(), Value::Int(42), None).unwrap();
@@ -204,8 +204,8 @@ fn tombstone_not_returned_to_user() {
 #[test]
 fn delete_nonexistent_key_succeeds() {
     let store = ShardedStore::new();
-    let run_id = RunId::new();
-    let key = create_test_key(run_id, "never_existed");
+    let branch_id = BranchId::new();
+    let key = create_test_key(branch_id, "never_existed");
 
     // Delete should succeed even for nonexistent key
     let result = Storage::delete(&store, &key);
@@ -293,8 +293,8 @@ fn concurrent_increments_are_unique() {
 #[test]
 fn history_pagination_works() {
     let store = ShardedStore::new();
-    let run_id = RunId::new();
-    let key = create_test_key(run_id, "paginated");
+    let branch_id = BranchId::new();
+    let key = create_test_key(branch_id, "paginated");
 
     // Put 5 versions
     for i in 1..=5 {
@@ -322,8 +322,8 @@ fn history_pagination_works() {
 #[test]
 fn history_of_nonexistent_key_is_empty() {
     let store = ShardedStore::new();
-    let run_id = RunId::new();
-    let key = create_test_key(run_id, "nonexistent");
+    let branch_id = BranchId::new();
+    let key = create_test_key(branch_id, "nonexistent");
 
     let history = Storage::get_history(&store, &key, None, None).unwrap();
     assert!(history.is_empty());

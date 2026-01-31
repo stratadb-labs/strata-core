@@ -5,13 +5,13 @@
 use strata_core::traits::Storage;
 use strata_core::types::{Key, Namespace};
 use strata_core::value::Value;
-use strata_core::RunId;
+use strata_core::BranchId;
 use strata_storage::sharded::ShardedStore;
 use std::sync::Arc;
 use std::thread;
 
-fn create_test_key(run_id: RunId, name: &str) -> Key {
-    let ns = Namespace::for_run(run_id);
+fn create_test_key(branch_id: BranchId, name: &str) -> Key {
+    let ns = Namespace::for_branch(branch_id);
     Key::new_kv(ns, name)
 }
 
@@ -22,8 +22,8 @@ fn create_test_key(run_id: RunId, name: &str) -> Key {
 #[test]
 fn different_runs_have_separate_namespaces() {
     let store = ShardedStore::new();
-    let run1 = RunId::new();
-    let run2 = RunId::new();
+    let run1 = BranchId::new();
+    let run2 = BranchId::new();
 
     // Same key name, different runs
     let key1 = create_test_key(run1, "shared_name");
@@ -42,8 +42,8 @@ fn different_runs_have_separate_namespaces() {
 #[test]
 fn clear_run_only_affects_target_run() {
     let store = ShardedStore::new();
-    let run1 = RunId::new();
-    let run2 = RunId::new();
+    let run1 = BranchId::new();
+    let run2 = BranchId::new();
 
     // Put keys in both runs
     for i in 0..5 {
@@ -54,7 +54,7 @@ fn clear_run_only_affects_target_run() {
     }
 
     // Clear run1
-    store.clear_run(&run1);
+    store.clear_branch(&run1);
 
     // Run1 should be empty
     for i in 0..5 {
@@ -74,8 +74,8 @@ fn clear_run_only_affects_target_run() {
 #[test]
 fn delete_in_one_run_doesnt_affect_other() {
     let store = ShardedStore::new();
-    let run1 = RunId::new();
-    let run2 = RunId::new();
+    let run1 = BranchId::new();
+    let run2 = BranchId::new();
 
     let key1 = create_test_key(run1, "shared");
     let key2 = create_test_key(run2, "shared");
@@ -110,24 +110,24 @@ fn concurrent_writes_to_different_runs() {
         .map(|_| {
             let store = Arc::clone(&store);
             thread::spawn(move || {
-                let run_id = RunId::new();
+                let branch_id = BranchId::new();
                 for i in 0..keys_per_run {
-                    let key = create_test_key(run_id, &format!("key_{}", i));
+                    let key = create_test_key(branch_id, &format!("key_{}", i));
                     Storage::put(&*store, key, Value::Int(i), None).unwrap();
                 }
-                run_id
+                branch_id
             })
         })
         .collect();
 
-    let run_ids: Vec<RunId> = handles.into_iter().map(|h| h.join().unwrap()).collect();
+    let branch_ids: Vec<BranchId> = handles.into_iter().map(|h| h.join().unwrap()).collect();
 
     // Verify all runs have their data
-    for run_id in run_ids {
+    for branch_id in branch_ids {
         for i in 0..keys_per_run {
-            let key = create_test_key(run_id, &format!("key_{}", i));
+            let key = create_test_key(branch_id, &format!("key_{}", i));
             let val = Storage::get(&*store, &key).unwrap();
-            assert!(val.is_some(), "Run {:?} key {} missing", run_id, i);
+            assert!(val.is_some(), "Run {:?} key {} missing", branch_id, i);
             assert_eq!(val.unwrap().value, Value::Int(i));
         }
     }
@@ -136,8 +136,8 @@ fn concurrent_writes_to_different_runs() {
 #[test]
 fn concurrent_reads_and_writes_different_runs() {
     let store = Arc::new(ShardedStore::new());
-    let read_run = RunId::new();
-    let write_run = RunId::new();
+    let read_run = BranchId::new();
+    let write_run = BranchId::new();
 
     // Pre-populate read run
     for i in 0..100 {
@@ -186,9 +186,9 @@ fn concurrent_reads_and_writes_different_runs() {
 #[test]
 fn run_ids_lists_all_active_runs() {
     let store = ShardedStore::new();
-    let run1 = RunId::new();
-    let run2 = RunId::new();
-    let run3 = RunId::new();
+    let run1 = BranchId::new();
+    let run2 = BranchId::new();
+    let run3 = BranchId::new();
 
     // Put one key in each run
     let key1 = create_test_key(run1, "k");
@@ -199,7 +199,7 @@ fn run_ids_lists_all_active_runs() {
     Storage::put(&store, key2, Value::Int(2), None).unwrap();
     Storage::put(&store, key3, Value::Int(3), None).unwrap();
 
-    let runs = store.run_ids();
+    let runs = store.branch_ids();
     assert_eq!(runs.len(), 3);
     assert!(runs.contains(&run1));
     assert!(runs.contains(&run2));
@@ -207,25 +207,25 @@ fn run_ids_lists_all_active_runs() {
 }
 
 #[test]
-fn run_entry_count() {
+fn branch_entry_count() {
     let store = ShardedStore::new();
-    let run_id = RunId::new();
+    let branch_id = BranchId::new();
 
     // Put 10 keys
     for i in 0..10 {
-        let key = create_test_key(run_id, &format!("key_{}", i));
+        let key = create_test_key(branch_id, &format!("key_{}", i));
         Storage::put(&store, key, Value::Int(i), None).unwrap();
     }
 
-    let count = store.run_entry_count(&run_id);
+    let count = store.branch_entry_count(&branch_id);
     assert_eq!(count, 10);
 }
 
 #[test]
 fn list_run_keys() {
     let store = ShardedStore::new();
-    let run_id = RunId::new();
-    let ns = Namespace::for_run(run_id);
+    let branch_id = BranchId::new();
+    let ns = Namespace::for_branch(branch_id);
 
     // Put 5 keys
     for i in 0..5 {
@@ -233,7 +233,7 @@ fn list_run_keys() {
         Storage::put(&store, key, Value::Int(i), None).unwrap();
     }
 
-    let keys = store.list_run(&run_id);
+    let keys = store.list_branch(&branch_id);
     assert_eq!(keys.len(), 5);
 }
 
@@ -244,8 +244,8 @@ fn list_run_keys() {
 #[test]
 fn get_from_nonexistent_run_returns_none() {
     let store = ShardedStore::new();
-    let run_id = RunId::new();
-    let key = create_test_key(run_id, "never_written");
+    let branch_id = BranchId::new();
+    let key = create_test_key(branch_id, "never_written");
 
     let result = Storage::get(&store, &key).unwrap();
     assert!(result.is_none());
@@ -254,17 +254,17 @@ fn get_from_nonexistent_run_returns_none() {
 #[test]
 fn clear_nonexistent_run_succeeds() {
     let store = ShardedStore::new();
-    let run_id = RunId::new();
+    let branch_id = BranchId::new();
 
     // Should not panic
-    store.clear_run(&run_id);
+    store.clear_branch(&branch_id);
 }
 
 #[test]
 fn run_entry_count_for_empty_run() {
     let store = ShardedStore::new();
-    let run_id = RunId::new();
+    let branch_id = BranchId::new();
 
-    let count = store.run_entry_count(&run_id);
+    let count = store.branch_entry_count(&branch_id);
     assert_eq!(count, 0);
 }

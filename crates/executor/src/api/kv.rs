@@ -30,7 +30,7 @@ impl Strata {
     /// ```
     pub fn kv_put(&self, key: &str, value: impl Into<Value>) -> Result<u64> {
         match self.executor.execute(Command::KvPut {
-            run: self.run_id(),
+            run: self.branch_id(),
             key: key.to_string(),
             value: value.into(),
         })? {
@@ -48,7 +48,7 @@ impl Strata {
     /// Reads from the current run context.
     pub fn kv_get(&self, key: &str) -> Result<Option<Value>> {
         match self.executor.execute(Command::KvGet {
-            run: self.run_id(),
+            run: self.branch_id(),
             key: key.to_string(),
         })? {
             Output::Maybe(v) => Ok(v),
@@ -65,7 +65,7 @@ impl Strata {
     /// Deletes from the current run context.
     pub fn kv_delete(&self, key: &str) -> Result<bool> {
         match self.executor.execute(Command::KvDelete {
-            run: self.run_id(),
+            run: self.branch_id(),
             key: key.to_string(),
         })? {
             Output::Bool(deleted) => Ok(deleted),
@@ -82,7 +82,7 @@ impl Strata {
     /// Lists from the current run context.
     pub fn kv_list(&self, prefix: Option<&str>) -> Result<Vec<String>> {
         match self.executor.execute(Command::KvList {
-            run: self.run_id(),
+            run: self.branch_id(),
             prefix: prefix.map(|s| s.to_string()),
         })? {
             Output::Keys(keys) => Ok(keys),

@@ -1,13 +1,13 @@
 # StrataDB Documentation
 
-Welcome to the StrataDB documentation. StrataDB is an embedded database for AI agents, providing six data primitives with run-based isolation, OCC transactions, and three durability modes.
+Welcome to the StrataDB documentation. StrataDB is an embedded database for AI agents, providing six data primitives with branch-based isolation, OCC transactions, and three durability modes.
 
 ## Quick Links
 
 | I want to... | Go to |
 |---|---|
 | Install StrataDB and run my first example | [Getting Started](getting-started/installation.md) |
-| Understand what runs are and how data isolation works | [Concepts: Runs](concepts/runs.md) |
+| Understand what branches are and how data isolation works | [Concepts: Branches](concepts/branches.md) |
 | Learn how to use a specific primitive | [Guides](guides/index.md) |
 | See every method at a glance | [API Quick Reference](reference/api-quick-reference.md) |
 | Build a real-world pattern (agent state, RAG, etc.) | [Cookbook](cookbook/index.md) |
@@ -22,15 +22,15 @@ Installation, feature flags, and a step-by-step tutorial that covers all six pri
 
 ### [Concepts](concepts/index.md)
 
-Core ideas you need to understand: [runs](concepts/runs.md), [primitives](concepts/primitives.md), [value types](concepts/value-types.md), [transactions](concepts/transactions.md), and [durability](concepts/durability.md).
+Core ideas you need to understand: [branches](concepts/branches.md), [primitives](concepts/primitives.md), [value types](concepts/value-types.md), [transactions](concepts/transactions.md), and [durability](concepts/durability.md).
 
 ### [Guides](guides/index.md)
 
-Per-primitive walkthroughs: [KV Store](guides/kv-store.md), [Event Log](guides/event-log.md), [State Cell](guides/state-cell.md), [JSON Store](guides/json-store.md), [Vector Store](guides/vector-store.md), [Run Management](guides/run-management.md). Plus cross-cutting guides on [search](guides/search.md), [sessions and transactions](guides/sessions-and-transactions.md), [run bundles](guides/run-bundles.md), [configuration](guides/database-configuration.md), and [error handling](guides/error-handling.md).
+Per-primitive walkthroughs: [KV Store](guides/kv-store.md), [Event Log](guides/event-log.md), [State Cell](guides/state-cell.md), [JSON Store](guides/json-store.md), [Vector Store](guides/vector-store.md), [Branch Management](guides/branch-management.md). Plus cross-cutting guides on [search](guides/search.md), [sessions and transactions](guides/sessions-and-transactions.md), [branch bundles](guides/branch-bundles.md), [configuration](guides/database-configuration.md), and [error handling](guides/error-handling.md).
 
 ### [Cookbook](cookbook/index.md)
 
-Recipes for real-world patterns: [agent state management](cookbook/agent-state-management.md), [multi-agent coordination](cookbook/multi-agent-coordination.md), [RAG with vectors](cookbook/rag-with-vectors.md), [deterministic replay](cookbook/deterministic-replay.md), and [A/B testing with runs](cookbook/ab-testing-with-runs.md).
+Recipes for real-world patterns: [agent state management](cookbook/agent-state-management.md), [multi-agent coordination](cookbook/multi-agent-coordination.md), [RAG with vectors](cookbook/rag-with-vectors.md), [deterministic replay](cookbook/deterministic-replay.md), and [A/B testing with branches](cookbook/ab-testing-with-branches.md).
 
 ### [Reference](reference/index.md)
 

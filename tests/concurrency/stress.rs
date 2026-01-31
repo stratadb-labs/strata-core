@@ -9,15 +9,15 @@ use strata_concurrency::validation::validate_transaction;
 use strata_core::traits::Storage;
 use strata_core::types::{Key, Namespace};
 use strata_core::value::Value;
-use strata_core::RunId;
+use strata_core::BranchId;
 use strata_storage::sharded::ShardedStore;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Barrier};
 use std::thread;
 use std::time::{Duration, Instant};
 
-fn create_test_key(run_id: RunId, name: &str) -> Key {
-    let ns = Namespace::for_run(run_id);
+fn create_test_key(branch_id: BranchId, name: &str) -> Key {
+    let ns = Namespace::for_branch(branch_id);
     Key::new_kv(ns, name)
 }
 
@@ -27,11 +27,11 @@ fn create_test_key(run_id: RunId, name: &str) -> Key {
 fn stress_concurrent_read_write() {
     let store = Arc::new(ShardedStore::new());
     let manager = Arc::new(TransactionManager::new(1));
-    let run_id = RunId::new();
+    let branch_id = BranchId::new();
 
     // Pre-populate
     for i in 0..100 {
-        let key = create_test_key(run_id, &format!("key_{}", i));
+        let key = create_test_key(branch_id, &format!("key_{}", i));
         Storage::put(&*store, key, Value::Int(i), None).unwrap();
     }
 
@@ -52,7 +52,7 @@ fn stress_concurrent_read_write() {
 
                 for iter in 0..100 {
                     let key_idx = (thread_id * 7 + iter * 11) % 100;
-                    let key = create_test_key(run_id, &format!("key_{}", key_idx));
+                    let key = create_test_key(branch_id, &format!("key_{}", key_idx));
 
                     loop {
                         // Read-modify-write with retry
@@ -60,7 +60,7 @@ fn stress_concurrent_read_write() {
                         let version = current.version.as_u64();
 
                         let txn_id = manager.next_txn_id();
-                        let mut txn = TransactionContext::new(txn_id, run_id, version);
+                        let mut txn = TransactionContext::new(txn_id, branch_id, version);
                         txn.read_set.insert(key.clone(), version);
                         txn.write_set
                             .insert(key.clone(), Value::Int((thread_id * 1000 + iter) as i64));
@@ -107,9 +107,9 @@ fn stress_concurrent_read_write() {
 fn stress_transaction_throughput() {
     let store = Arc::new(ShardedStore::new());
     let manager = TransactionManager::new(1);
-    let run_id = RunId::new();
+    let branch_id = BranchId::new();
 
-    let key = create_test_key(run_id, "counter");
+    let key = create_test_key(branch_id, "counter");
     Storage::put(&*store, key.clone(), Value::Int(0), None).unwrap();
 
     let duration = Duration::from_secs(5);
@@ -122,7 +122,7 @@ fn stress_transaction_throughput() {
         let version = current.version.as_u64();
 
         let txn_id = manager.next_txn_id();
-        let mut txn = TransactionContext::new(txn_id, run_id, version);
+        let mut txn = TransactionContext::new(txn_id, branch_id, version);
         txn.read_set.insert(key.clone(), version);
 
         if let Value::Int(v) = current.value {
@@ -157,16 +157,16 @@ fn stress_transaction_throughput() {
 #[ignore]
 fn stress_large_transaction() {
     let store = Arc::new(ShardedStore::new());
-    let run_id = RunId::new();
+    let branch_id = BranchId::new();
 
     // Create transaction with 10K operations
-    let mut txn = TransactionContext::new(1, run_id, 1);
+    let mut txn = TransactionContext::new(1, branch_id, 1);
 
     let start = Instant::now();
 
     // Add 10K writes
     for i in 0..10_000 {
-        let key = create_test_key(run_id, &format!("large_key_{}", i));
+        let key = create_test_key(branch_id, &format!("large_key_{}", i));
         txn.write_set.insert(key, Value::Int(i));
     }
 
@@ -205,14 +205,14 @@ fn stress_many_runs() {
             let commits = Arc::clone(&commits);
 
             thread::spawn(move || {
-                let run_id = RunId::new(); // Each thread gets unique run
-                let key = create_test_key(run_id, "data");
+                let branch_id = BranchId::new(); // Each thread gets unique run
+                let key = create_test_key(branch_id, "data");
 
                 barrier.wait();
 
                 for i in 0..100 {
                     let txn_id = manager.next_txn_id();
-                    let mut txn = TransactionContext::new(txn_id, run_id, 1);
+                    let mut txn = TransactionContext::new(txn_id, branch_id, 1);
                     txn.write_set.insert(key.clone(), Value::Int(i));
 
                     let result = validate_transaction(&txn, &*store);
@@ -241,15 +241,15 @@ fn stress_many_runs() {
 #[ignore]
 fn stress_long_running_transaction() {
     let store = Arc::new(ShardedStore::new());
-    let run_id = RunId::new();
-    let key = create_test_key(run_id, "contested");
+    let branch_id = BranchId::new();
+    let key = create_test_key(branch_id, "contested");
 
     // Initial value
     Storage::put(&*store, key.clone(), Value::Int(0), None).unwrap();
     let initial_version = Storage::get(&*store, &key).unwrap().unwrap().version.as_u64();
 
     // Start a long-running transaction
-    let mut long_txn = TransactionContext::new(1, run_id, initial_version);
+    let mut long_txn = TransactionContext::new(1, branch_id, initial_version);
     long_txn.read_set.insert(key.clone(), initial_version);
 
     // Spawn concurrent writers
@@ -281,11 +281,11 @@ fn stress_long_running_transaction() {
 fn stress_sustained_workload() {
     let store = Arc::new(ShardedStore::new());
     let manager = Arc::new(TransactionManager::new(1));
-    let run_id = RunId::new();
+    let branch_id = BranchId::new();
 
     // Pre-populate
     for i in 0..50 {
-        let key = create_test_key(run_id, &format!("key_{}", i));
+        let key = create_test_key(branch_id, &format!("key_{}", i));
         Storage::put(&*store, key, Value::Int(i), None).unwrap();
     }
 
@@ -308,7 +308,7 @@ fn stress_sustained_workload() {
                 while local_start.elapsed() < duration {
                     // Mix of reads and writes
                     let key_idx = (thread_id * 13 + ops.load(Ordering::Relaxed) as usize * 7) % 50;
-                    let key = create_test_key(run_id, &format!("key_{}", key_idx));
+                    let key = create_test_key(branch_id, &format!("key_{}", key_idx));
 
                     if ops.load(Ordering::Relaxed) % 3 == 0 {
                         // Write
@@ -316,7 +316,7 @@ fn stress_sustained_workload() {
                         let version = current.version.as_u64();
 
                         let txn_id = manager.next_txn_id();
-                        let mut txn = TransactionContext::new(txn_id, run_id, version);
+                        let mut txn = TransactionContext::new(txn_id, branch_id, version);
                         txn.read_set.insert(key.clone(), version);
                         txn.write_set.insert(key.clone(), Value::Int(thread_id as i64));
 

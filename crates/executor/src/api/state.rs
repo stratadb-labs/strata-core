@@ -13,7 +13,7 @@ impl Strata {
     /// Set a state cell value (unconditional write).
     pub fn state_set(&self, cell: &str, value: impl Into<Value>) -> Result<u64> {
         match self.executor.execute(Command::StateSet {
-            run: self.run_id(),
+            run: self.branch_id(),
             cell: cell.to_string(),
             value: value.into(),
         })? {
@@ -27,7 +27,7 @@ impl Strata {
     /// Read a state cell value.
     pub fn state_read(&self, cell: &str) -> Result<Option<Value>> {
         match self.executor.execute(Command::StateRead {
-            run: self.run_id(),
+            run: self.branch_id(),
             cell: cell.to_string(),
         })? {
             Output::Maybe(v) => Ok(v),
@@ -45,7 +45,7 @@ impl Strata {
         value: impl Into<Value>,
     ) -> Result<Option<u64>> {
         match self.executor.execute(Command::StateCas {
-            run: self.run_id(),
+            run: self.branch_id(),
             cell: cell.to_string(),
             expected_counter,
             value: value.into(),
@@ -60,7 +60,7 @@ impl Strata {
     /// Initialize a state cell (only if it doesn't exist).
     pub fn state_init(&self, cell: &str, value: impl Into<Value>) -> Result<u64> {
         match self.executor.execute(Command::StateInit {
-            run: self.run_id(),
+            run: self.branch_id(),
             cell: cell.to_string(),
             value: value.into(),
         })? {

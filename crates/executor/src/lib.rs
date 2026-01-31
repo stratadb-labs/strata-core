@@ -35,14 +35,14 @@
 //!
 //! ## Run Context
 //!
-//! Data is isolated by "runs" (like git branches). Use `create_run()` and `set_run()`:
+//! Data is isolated by "branches" (like git branches). Use `create_branch()` and `set_branch()`:
 //!
 //! ```ignore
-//! db.create_run("experiment-1")?;    // Create a new blank run
-//! db.set_run("experiment-1")?;       // Switch to it
+//! db.create_branch("experiment-1")?;    // Create a new blank run
+//! db.set_branch("experiment-1")?;       // Switch to it
 //! db.kv_put("key", Value::Int(42))?; // Data goes to experiment-1
 //!
-//! db.set_run("default")?;            // Switch back
+//! db.set_branch("default")?;            // Switch back
 //! // Data from experiment-1 is not visible here
 //! ```
 
@@ -74,7 +74,7 @@ pub use error::Error;
 pub use executor::Executor;
 pub use output::Output;
 pub use session::Session;
-pub use api::{Strata, Runs, RunDiff};
+pub use api::{Strata, Branches, BranchDiff};
 pub use types::*;
 
 // Re-export Value from strata_core so users don't need to import it

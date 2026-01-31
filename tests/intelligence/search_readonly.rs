@@ -11,13 +11,13 @@ fn test_r10_search_does_not_modify_state() {
     let vector = test_db.vector();
 
     vector
-        .create_collection(test_db.run_id, "embeddings", config_minilm())
+        .create_collection(test_db.branch_id, "embeddings", config_minilm())
         .unwrap();
 
     for i in 0..50 {
         vector
             .insert(
-                test_db.run_id,
+                test_db.branch_id,
                 "embeddings",
                 &format!("key_{}", i),
                 &seeded_random_vector(384, i as u64),
@@ -27,18 +27,18 @@ fn test_r10_search_does_not_modify_state() {
     }
 
     // Capture state before searches
-    let state_before = CapturedVectorState::capture(&vector, test_db.run_id, "embeddings");
-    let count_before = vector.count(test_db.run_id, "embeddings").unwrap();
+    let state_before = CapturedVectorState::capture(&vector, test_db.branch_id, "embeddings");
+    let count_before = vector.count(test_db.branch_id, "embeddings").unwrap();
 
     // Many searches
     let query = seeded_random_vector(384, 99999);
     for _ in 0..100 {
-        let _ = vector.search(test_db.run_id, "embeddings", &query, 10, None);
+        let _ = vector.search(test_db.branch_id, "embeddings", &query, 10, None);
     }
 
     // State should be identical
-    let state_after = CapturedVectorState::capture(&vector, test_db.run_id, "embeddings");
-    let count_after = vector.count(test_db.run_id, "embeddings").unwrap();
+    let state_after = CapturedVectorState::capture(&vector, test_db.branch_id, "embeddings");
+    let count_after = vector.count(test_db.branch_id, "embeddings").unwrap();
 
     assert_eq!(
         count_before, count_after,
@@ -54,13 +54,13 @@ fn test_r10_search_does_not_create_vectors() {
     let vector = test_db.vector();
 
     vector
-        .create_collection(test_db.run_id, "embeddings", config_minilm())
+        .create_collection(test_db.branch_id, "embeddings", config_minilm())
         .unwrap();
 
     for i in 0..20 {
         vector
             .insert(
-                test_db.run_id,
+                test_db.branch_id,
                 "embeddings",
                 &format!("key_{}", i),
                 &seeded_random_vector(384, i as u64),
@@ -69,15 +69,15 @@ fn test_r10_search_does_not_create_vectors() {
             .unwrap();
     }
 
-    let count_before = vector.count(test_db.run_id, "embeddings").unwrap();
+    let count_before = vector.count(test_db.branch_id, "embeddings").unwrap();
 
     // Search with many different queries
     for i in 0..100 {
         let query = seeded_random_vector(384, i as u64 + 10000);
-        let _ = vector.search(test_db.run_id, "embeddings", &query, 10, None);
+        let _ = vector.search(test_db.branch_id, "embeddings", &query, 10, None);
     }
 
-    let count_after = vector.count(test_db.run_id, "embeddings").unwrap();
+    let count_after = vector.count(test_db.branch_id, "embeddings").unwrap();
 
     assert_eq!(
         count_before, count_after,
@@ -92,7 +92,7 @@ fn test_r10_search_does_not_modify_embeddings() {
     let vector = test_db.vector();
 
     vector
-        .create_collection(test_db.run_id, "embeddings", config_minilm())
+        .create_collection(test_db.branch_id, "embeddings", config_minilm())
         .unwrap();
 
     // Insert with known embeddings
@@ -102,20 +102,20 @@ fn test_r10_search_does_not_modify_embeddings() {
 
     for (key, emb) in &embeddings {
         vector
-            .insert(test_db.run_id, "embeddings", key, emb, None)
+            .insert(test_db.branch_id, "embeddings", key, emb, None)
             .unwrap();
     }
 
     // Many searches
     for i in 0..50 {
         let query = seeded_random_vector(384, i as u64 + 5000);
-        let _ = vector.search(test_db.run_id, "embeddings", &query, 20, None);
+        let _ = vector.search(test_db.branch_id, "embeddings", &query, 20, None);
     }
 
     // Verify embeddings unchanged
     for (key, expected_emb) in &embeddings {
         let entry = vector
-            .get(test_db.run_id, "embeddings", key)
+            .get(test_db.branch_id, "embeddings", key)
             .unwrap()
             .unwrap();
         for (i, (&expected, &actual)) in expected_emb.iter().zip(entry.value.embedding.iter()).enumerate()
@@ -137,13 +137,13 @@ fn test_r10_search_does_not_modify_metadata() {
     let vector = test_db.vector();
 
     vector
-        .create_collection(test_db.run_id, "embeddings", config_minilm())
+        .create_collection(test_db.branch_id, "embeddings", config_minilm())
         .unwrap();
 
     for i in 0..20 {
         vector
             .insert(
-                test_db.run_id,
+                test_db.branch_id,
                 "embeddings",
                 &format!("key_{}", i),
                 &seeded_random_vector(384, i as u64),
@@ -155,13 +155,13 @@ fn test_r10_search_does_not_modify_metadata() {
     // Many searches
     for i in 0..50 {
         let query = seeded_random_vector(384, i as u64 + 3000);
-        let _ = vector.search(test_db.run_id, "embeddings", &query, 20, None);
+        let _ = vector.search(test_db.branch_id, "embeddings", &query, 20, None);
     }
 
     // Verify metadata unchanged
     for i in 0..20 {
         let entry = vector
-            .get(test_db.run_id, "embeddings", &format!("key_{}", i))
+            .get(test_db.branch_id, "embeddings", &format!("key_{}", i))
             .unwrap()
             .unwrap();
         let metadata = entry.value.metadata.unwrap();
@@ -180,13 +180,13 @@ fn test_r10_search_pure_function() {
     let vector = test_db.vector();
 
     vector
-        .create_collection(test_db.run_id, "embeddings", config_minilm())
+        .create_collection(test_db.branch_id, "embeddings", config_minilm())
         .unwrap();
 
     for i in 0..30 {
         vector
             .insert(
-                test_db.run_id,
+                test_db.branch_id,
                 "embeddings",
                 &format!("key_{}", i),
                 &seeded_random_vector(384, i as u64),
@@ -199,13 +199,13 @@ fn test_r10_search_pure_function() {
 
     // First search
     let results1 = vector
-        .search(test_db.run_id, "embeddings", &query, 10, None)
+        .search(test_db.branch_id, "embeddings", &query, 10, None)
         .unwrap();
 
     // Search should be idempotent - same query, same results
     for _ in 0..20 {
         let results = vector
-            .search(test_db.run_id, "embeddings", &query, 10, None)
+            .search(test_db.branch_id, "embeddings", &query, 10, None)
             .unwrap();
         let keys1: Vec<&str> = results1.iter().map(|r| r.key.as_str()).collect();
         let keys: Vec<&str> = results.iter().map(|r| r.key.as_str()).collect();
@@ -223,13 +223,13 @@ fn test_r10_search_does_not_affect_collection_info() {
     let vector = test_db.vector();
 
     vector
-        .create_collection(test_db.run_id, "embeddings", config_minilm())
+        .create_collection(test_db.branch_id, "embeddings", config_minilm())
         .unwrap();
 
     for i in 0..25 {
         vector
             .insert(
-                test_db.run_id,
+                test_db.branch_id,
                 "embeddings",
                 &format!("key_{}", i),
                 &seeded_random_vector(384, i as u64),
@@ -239,18 +239,18 @@ fn test_r10_search_does_not_affect_collection_info() {
     }
 
     let info_before = vector
-        .get_collection(test_db.run_id, "embeddings")
+        .get_collection(test_db.branch_id, "embeddings")
         .unwrap()
         .unwrap();
 
     // Many searches
     for i in 0..100 {
         let query = seeded_random_vector(384, i as u64 + 8000);
-        let _ = vector.search(test_db.run_id, "embeddings", &query, 25, None);
+        let _ = vector.search(test_db.branch_id, "embeddings", &query, 25, None);
     }
 
     let info_after = vector
-        .get_collection(test_db.run_id, "embeddings")
+        .get_collection(test_db.branch_id, "embeddings")
         .unwrap()
         .unwrap();
 

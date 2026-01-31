@@ -15,7 +15,7 @@
 
 use strata_concurrency::TransactionContext;
 use strata_core::traits::SnapshotView;
-use strata_core::types::RunId;
+use strata_core::types::BranchId;
 use std::cell::RefCell;
 
 /// Maximum contexts per thread
@@ -38,7 +38,7 @@ thread_local! {
 ///
 /// ```ignore
 /// // Acquire a context (from pool or new allocation)
-/// let ctx = TransactionPool::acquire(1, run_id, Some(snapshot));
+/// let ctx = TransactionPool::acquire(1, branch_id, Some(snapshot));
 ///
 /// // ... use the context ...
 ///
@@ -56,28 +56,28 @@ impl TransactionPool {
     ///
     /// # Arguments
     /// * `txn_id` - Unique transaction identifier
-    /// * `run_id` - RunId for namespace isolation
+    /// * `branch_id` - BranchId for namespace isolation
     /// * `snapshot` - Optional snapshot for snapshot isolation
     ///
     /// # Returns
     /// * `TransactionContext` - Active transaction ready for operations
     pub fn acquire(
         txn_id: u64,
-        run_id: RunId,
+        branch_id: BranchId,
         snapshot: Option<Box<dyn SnapshotView>>,
     ) -> TransactionContext {
         TXN_POOL.with(|pool| {
             match pool.borrow_mut().pop() {
                 Some(mut ctx) => {
                     // Reuse existing allocation - key optimization!
-                    ctx.reset(txn_id, run_id, snapshot);
+                    ctx.reset(txn_id, branch_id, snapshot);
                     ctx
                 }
                 None => {
                     // Pool empty - allocate new
                     match snapshot {
-                        Some(snap) => TransactionContext::with_snapshot(txn_id, run_id, snap),
-                        None => TransactionContext::new(txn_id, run_id, 0),
+                        Some(snap) => TransactionContext::with_snapshot(txn_id, branch_id, snap),
+                        None => TransactionContext::new(txn_id, branch_id, 0),
                     }
                 }
             }
@@ -131,7 +131,7 @@ impl TransactionPool {
             let current = pool.len();
             for _ in current..count {
                 // Create minimal context for pool
-                let ctx = TransactionContext::new(0, RunId::new(), 0);
+                let ctx = TransactionContext::new(0, BranchId::new(), 0);
                 pool.push(ctx);
             }
         });
@@ -171,7 +171,7 @@ mod tests {
             "tenant".to_string(),
             "app".to_string(),
             "agent".to_string(),
-            RunId::new(),
+            BranchId::new(),
         )
     }
 
@@ -184,21 +184,21 @@ mod tests {
         TransactionPool::clear();
         assert_eq!(TransactionPool::pool_size(), 0);
 
-        let run_id = RunId::new();
-        let ctx = TransactionPool::acquire(1, run_id, None);
+        let branch_id = BranchId::new();
+        let ctx = TransactionPool::acquire(1, branch_id, None);
 
         // Pool still empty (we acquired, not released)
         assert_eq!(TransactionPool::pool_size(), 0);
         assert_eq!(ctx.txn_id, 1);
-        assert_eq!(ctx.run_id, run_id);
+        assert_eq!(ctx.branch_id, branch_id);
     }
 
     #[test]
     fn test_release_adds_to_pool() {
         TransactionPool::clear();
 
-        let run_id = RunId::new();
-        let ctx = TransactionPool::acquire(1, run_id, None);
+        let branch_id = BranchId::new();
+        let ctx = TransactionPool::acquire(1, branch_id, None);
         TransactionPool::release(ctx);
 
         assert_eq!(TransactionPool::pool_size(), 1);
@@ -208,10 +208,10 @@ mod tests {
     fn test_acquire_reuses_pooled() {
         TransactionPool::clear();
         let ns = create_test_namespace();
-        let run_id = ns.run_id;
+        let branch_id = ns.branch_id;
 
         // Create and release a context with capacity
-        let mut ctx = TransactionPool::acquire(1, run_id, None);
+        let mut ctx = TransactionPool::acquire(1, branch_id, None);
 
         // Fill with data to grow capacity
         for i in 0..100 {
@@ -228,8 +228,8 @@ mod tests {
         assert_eq!(TransactionPool::pool_size(), 1);
 
         // Acquire again - should reuse with preserved capacity
-        let new_run_id = RunId::new();
-        let ctx2 = TransactionPool::acquire(2, new_run_id, None);
+        let new_branch_id = BranchId::new();
+        let ctx2 = TransactionPool::acquire(2, new_branch_id, None);
 
         // Capacity preserved
         assert_eq!(ctx2.capacity(), original_cap);
@@ -238,19 +238,19 @@ mod tests {
         assert!(ctx2.read_set.is_empty());
         assert!(ctx2.write_set.is_empty());
         assert_eq!(ctx2.txn_id, 2);
-        assert_eq!(ctx2.run_id, new_run_id);
+        assert_eq!(ctx2.branch_id, new_branch_id);
     }
 
     #[test]
     fn test_pool_caps_at_max_size() {
         TransactionPool::clear();
-        let run_id = RunId::new();
+        let branch_id = BranchId::new();
 
         // Acquire multiple contexts first, then release them all
         // This tests that pool caps at MAX_POOL_SIZE
         let mut contexts = Vec::new();
         for i in 0..(MAX_POOL_SIZE + 5) {
-            contexts.push(TransactionPool::acquire(i as u64, run_id, None));
+            contexts.push(TransactionPool::acquire(i as u64, branch_id, None));
         }
 
         // Now release them all
@@ -267,10 +267,10 @@ mod tests {
         use std::thread;
 
         TransactionPool::clear();
-        let run_id = RunId::new();
+        let branch_id = BranchId::new();
 
         // Add to this thread's pool
-        let ctx = TransactionPool::acquire(1, run_id, None);
+        let ctx = TransactionPool::acquire(1, branch_id, None);
         TransactionPool::release(ctx);
         assert_eq!(TransactionPool::pool_size(), 1);
 
@@ -279,7 +279,7 @@ mod tests {
             assert_eq!(TransactionPool::pool_size(), 0);
 
             // Add to other thread's pool
-            let ctx = TransactionPool::acquire(2, RunId::new(), None);
+            let ctx = TransactionPool::acquire(2, BranchId::new(), None);
             TransactionPool::release(ctx);
             assert_eq!(TransactionPool::pool_size(), 1);
         });
@@ -292,16 +292,16 @@ mod tests {
     #[test]
     fn test_acquire_with_snapshot() {
         TransactionPool::clear();
-        let run_id = RunId::new();
+        let branch_id = BranchId::new();
 
         // Create a snapshot
         let snapshot_data = BTreeMap::new();
         let snapshot = Box::new(ClonedSnapshotView::new(500, snapshot_data));
 
-        let ctx = TransactionPool::acquire(1, run_id, Some(snapshot));
+        let ctx = TransactionPool::acquire(1, branch_id, Some(snapshot));
 
         assert_eq!(ctx.txn_id, 1);
-        assert_eq!(ctx.run_id, run_id);
+        assert_eq!(ctx.branch_id, branch_id);
         assert_eq!(ctx.start_version, 500);
     }
 
@@ -337,11 +337,11 @@ mod tests {
     #[test]
     fn test_acquire_release_cycle() {
         TransactionPool::clear();
-        let run_id = RunId::new();
+        let branch_id = BranchId::new();
 
         // Simulate typical usage pattern
         for cycle in 0..10 {
-            let ctx = TransactionPool::acquire(cycle as u64, run_id, None);
+            let ctx = TransactionPool::acquire(cycle as u64, branch_id, None);
             assert_eq!(ctx.txn_id, cycle as u64);
             TransactionPool::release(ctx);
         }
@@ -354,10 +354,10 @@ mod tests {
     fn test_total_capacity() {
         TransactionPool::clear();
         let ns = create_test_namespace();
-        let run_id = ns.run_id;
+        let branch_id = ns.branch_id;
 
         // Create context with capacity and release
-        let mut ctx = TransactionPool::acquire(1, run_id, None);
+        let mut ctx = TransactionPool::acquire(1, branch_id, None);
         for i in 0..50 {
             let key = create_test_key(&ns, format!("key{}", i).as_bytes());
             ctx.read_set.insert(key.clone(), i as u64);

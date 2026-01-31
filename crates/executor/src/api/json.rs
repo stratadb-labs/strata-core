@@ -56,7 +56,7 @@ impl Strata {
     /// ```
     pub fn json_set(&self, key: &str, path: &str, value: impl Into<Value>) -> Result<u64> {
         match self.executor.execute(Command::JsonSet {
-            run: self.run_id(),
+            run: self.branch_id(),
             key: key.to_string(),
             path: path.to_string(),
             value: value.into(),
@@ -90,7 +90,7 @@ impl Strata {
     /// ```
     pub fn json_get(&self, key: &str, path: &str) -> Result<Option<Value>> {
         match self.executor.execute(Command::JsonGet {
-            run: self.run_id(),
+            run: self.branch_id(),
             key: key.to_string(),
             path: path.to_string(),
         })? {
@@ -125,7 +125,7 @@ impl Strata {
     /// ```
     pub fn json_delete(&self, key: &str, path: &str) -> Result<u64> {
         match self.executor.execute(Command::JsonDelete {
-            run: self.run_id(),
+            run: self.branch_id(),
             key: key.to_string(),
             path: path.to_string(),
         })? {
@@ -166,7 +166,7 @@ impl Strata {
         limit: u64,
     ) -> Result<(Vec<String>, Option<String>)> {
         match self.executor.execute(Command::JsonList {
-            run: self.run_id(),
+            run: self.branch_id(),
             prefix,
             cursor,
             limit,

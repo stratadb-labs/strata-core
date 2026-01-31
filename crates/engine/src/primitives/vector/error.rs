@@ -1,6 +1,6 @@
 //! Error types for the Vector primitive
 
-use strata_core::{EntityRef, RunId, StrataError};
+use strata_core::{EntityRef, BranchId, StrataError};
 use thiserror::Error;
 
 /// Errors specific to the Vector primitive
@@ -140,8 +140,8 @@ pub type VectorResult<T> = Result<T, VectorError>;
 
 impl From<VectorError> for StrataError {
     fn from(e: VectorError) -> Self {
-        // Use a placeholder run_id since VectorError doesn't have run context
-        let placeholder_run_id = RunId::new();
+        // Use a placeholder branch_id since VectorError doesn't have run context
+        let placeholder_run_id = BranchId::new();
 
         match e {
             VectorError::CollectionNotFound { name } => StrataError::NotFound {

@@ -99,16 +99,16 @@ impl TTLIndex {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use strata_core::{Namespace, RunId};
+    use strata_core::{Namespace, BranchId};
 
     /// Helper to create a test key
     fn test_key(suffix: &str) -> Key {
-        let run_id = RunId::new();
+        let branch_id = BranchId::new();
         let ns = Namespace::new(
             "tenant".to_string(),
             "app".to_string(),
             "agent".to_string(),
-            run_id,
+            branch_id,
         );
         Key::new_kv(ns, suffix)
     }

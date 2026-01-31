@@ -17,7 +17,7 @@
 //!    replaying from WAL). Normal operations use the VectorStore methods which write WAL.
 
 use crate::primitives::vector::{VectorConfig, VectorConfigSerde, VectorError, VectorId, VectorResult};
-use strata_core::{EntityRef, RunId};
+use strata_core::{EntityRef, BranchId};
 use serde::{Deserialize, Serialize};
 
 // ============================================================================
@@ -41,7 +41,7 @@ pub const VECTOR_DELETE: u8 = 0x73;
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct WalVectorCollectionCreate {
     /// Run ID for this collection
-    pub run_id: RunId,
+    pub branch_id: BranchId,
     /// Collection name
     pub collection: String,
     /// Collection configuration
@@ -54,7 +54,7 @@ pub struct WalVectorCollectionCreate {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct WalVectorCollectionDelete {
     /// Run ID for this collection
-    pub run_id: RunId,
+    pub branch_id: BranchId,
     /// Collection name
     pub collection: String,
     /// Timestamp of operation (microseconds since epoch)
@@ -79,7 +79,7 @@ pub struct WalVectorCollectionDelete {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct WalVectorUpsert {
     /// Run ID for this collection
-    pub run_id: RunId,
+    pub branch_id: BranchId,
     /// Collection name
     pub collection: String,
     /// User-provided key
@@ -105,7 +105,7 @@ pub struct WalVectorUpsert {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct WalVectorDelete {
     /// Run ID for this collection
-    pub run_id: RunId,
+    pub branch_id: BranchId,
     /// Collection name
     pub collection: String,
     /// User-provided key
@@ -185,12 +185,12 @@ pub fn now_micros() -> u64 {
 
 /// Create a WalVectorCollectionCreate payload
 pub fn create_wal_collection_create(
-    run_id: RunId,
+    branch_id: BranchId,
     collection: &str,
     config: &VectorConfig,
 ) -> WalVectorCollectionCreate {
     WalVectorCollectionCreate {
-        run_id,
+        branch_id,
         collection: collection.to_string(),
         config: VectorConfigSerde::from(config),
         timestamp: now_micros(),
@@ -198,9 +198,9 @@ pub fn create_wal_collection_create(
 }
 
 /// Create a WalVectorCollectionDelete payload
-pub fn create_wal_collection_delete(run_id: RunId, collection: &str) -> WalVectorCollectionDelete {
+pub fn create_wal_collection_delete(branch_id: BranchId, collection: &str) -> WalVectorCollectionDelete {
     WalVectorCollectionDelete {
-        run_id,
+        branch_id,
         collection: collection.to_string(),
         timestamp: now_micros(),
     }
@@ -208,7 +208,7 @@ pub fn create_wal_collection_delete(run_id: RunId, collection: &str) -> WalVecto
 
 /// Create a WalVectorUpsert payload
 pub fn create_wal_upsert(
-    run_id: RunId,
+    branch_id: BranchId,
     collection: &str,
     key: &str,
     vector_id: VectorId,
@@ -216,7 +216,7 @@ pub fn create_wal_upsert(
     metadata: Option<serde_json::Value>,
 ) -> WalVectorUpsert {
     WalVectorUpsert {
-        run_id,
+        branch_id,
         collection: collection.to_string(),
         key: key.to_string(),
         vector_id: vector_id.as_u64(),
@@ -232,7 +232,7 @@ pub fn create_wal_upsert(
 /// Use this when the embedding is derived from another entity (e.g., a JSON document)
 /// and you want to maintain a link back to the source for search result hydration.
 pub fn create_wal_upsert_with_source(
-    run_id: RunId,
+    branch_id: BranchId,
     collection: &str,
     key: &str,
     vector_id: VectorId,
@@ -241,7 +241,7 @@ pub fn create_wal_upsert_with_source(
     source_ref: Option<EntityRef>,
 ) -> WalVectorUpsert {
     WalVectorUpsert {
-        run_id,
+        branch_id,
         collection: collection.to_string(),
         key: key.to_string(),
         vector_id: vector_id.as_u64(),
@@ -254,13 +254,13 @@ pub fn create_wal_upsert_with_source(
 
 /// Create a WalVectorDelete payload
 pub fn create_wal_delete(
-    run_id: RunId,
+    branch_id: BranchId,
     collection: &str,
     key: &str,
     vector_id: VectorId,
 ) -> WalVectorDelete {
     WalVectorDelete {
-        run_id,
+        branch_id,
         collection: collection.to_string(),
         key: key.to_string(),
         vector_id: vector_id.as_u64(),
@@ -310,17 +310,17 @@ impl<'a> VectorWalReplayer<'a> {
                         .unwrap_or(crate::primitives::vector::StorageDtype::F32),
                 };
                 self.store
-                    .replay_create_collection(wal.run_id, &wal.collection, config)
+                    .replay_create_collection(wal.branch_id, &wal.collection, config)
             }
             VECTOR_COLLECTION_DELETE => {
                 let wal = WalVectorCollectionDelete::from_bytes(payload)?;
                 self.store
-                    .replay_delete_collection(wal.run_id, &wal.collection)
+                    .replay_delete_collection(wal.branch_id, &wal.collection)
             }
             VECTOR_UPSERT => {
                 let wal = WalVectorUpsert::from_bytes(payload)?;
                 self.store.replay_upsert(
-                    wal.run_id,
+                    wal.branch_id,
                     &wal.collection,
                     &wal.key,
                     VectorId::new(wal.vector_id),
@@ -332,7 +332,7 @@ impl<'a> VectorWalReplayer<'a> {
             VECTOR_DELETE => {
                 let wal = WalVectorDelete::from_bytes(payload)?;
                 self.store.replay_delete(
-                    wal.run_id,
+                    wal.branch_id,
                     &wal.collection,
                     &wal.key,
                     VectorId::new(wal.vector_id),
@@ -353,9 +353,9 @@ mod tests {
 
     #[test]
     fn test_collection_create_roundtrip() {
-        let run_id = RunId::new();
+        let branch_id = BranchId::new();
         let config = VectorConfig::new(384, DistanceMetric::Cosine).unwrap();
-        let payload = create_wal_collection_create(run_id, "test_collection", &config);
+        let payload = create_wal_collection_create(branch_id, "test_collection", &config);
 
         // Serialize
         let bytes = payload.to_bytes().unwrap();
@@ -363,7 +363,7 @@ mod tests {
         // Deserialize
         let parsed = WalVectorCollectionCreate::from_bytes(&bytes).unwrap();
 
-        assert_eq!(parsed.run_id, run_id);
+        assert_eq!(parsed.branch_id, branch_id);
         assert_eq!(parsed.collection, "test_collection");
         assert_eq!(parsed.config.dimension, 384);
         assert_eq!(parsed.config.metric, DistanceMetric::Cosine.to_byte());
@@ -371,25 +371,25 @@ mod tests {
 
     #[test]
     fn test_collection_delete_roundtrip() {
-        let run_id = RunId::new();
-        let payload = create_wal_collection_delete(run_id, "test_collection");
+        let branch_id = BranchId::new();
+        let payload = create_wal_collection_delete(branch_id, "test_collection");
 
         let bytes = payload.to_bytes().unwrap();
         let parsed = WalVectorCollectionDelete::from_bytes(&bytes).unwrap();
 
-        assert_eq!(parsed.run_id, run_id);
+        assert_eq!(parsed.branch_id, branch_id);
         assert_eq!(parsed.collection, "test_collection");
     }
 
     #[test]
     fn test_upsert_roundtrip() {
-        let run_id = RunId::new();
+        let branch_id = BranchId::new();
         let vector_id = VectorId::new(42);
         let embedding = vec![0.1, 0.2, 0.3, 0.4];
         let metadata = Some(serde_json::json!({"type": "document"}));
 
         let payload = create_wal_upsert(
-            run_id,
+            branch_id,
             "test",
             "doc1",
             vector_id,
@@ -400,7 +400,7 @@ mod tests {
         let bytes = payload.to_bytes().unwrap();
         let parsed = WalVectorUpsert::from_bytes(&bytes).unwrap();
 
-        assert_eq!(parsed.run_id, run_id);
+        assert_eq!(parsed.branch_id, branch_id);
         assert_eq!(parsed.collection, "test");
         assert_eq!(parsed.key, "doc1");
         assert_eq!(parsed.vector_id, 42);
@@ -410,11 +410,11 @@ mod tests {
 
     #[test]
     fn test_upsert_without_metadata() {
-        let run_id = RunId::new();
+        let branch_id = BranchId::new();
         let vector_id = VectorId::new(1);
         let embedding = vec![1.0, 2.0, 3.0];
 
-        let payload = create_wal_upsert(run_id, "col", "key", vector_id, &embedding, None);
+        let payload = create_wal_upsert(branch_id, "col", "key", vector_id, &embedding, None);
 
         let bytes = payload.to_bytes().unwrap();
         let parsed = WalVectorUpsert::from_bytes(&bytes).unwrap();
@@ -424,15 +424,15 @@ mod tests {
 
     #[test]
     fn test_delete_roundtrip() {
-        let run_id = RunId::new();
+        let branch_id = BranchId::new();
         let vector_id = VectorId::new(99);
 
-        let payload = create_wal_delete(run_id, "test", "doc1", vector_id);
+        let payload = create_wal_delete(branch_id, "test", "doc1", vector_id);
 
         let bytes = payload.to_bytes().unwrap();
         let parsed = WalVectorDelete::from_bytes(&bytes).unwrap();
 
-        assert_eq!(parsed.run_id, run_id);
+        assert_eq!(parsed.branch_id, branch_id);
         assert_eq!(parsed.collection, "test");
         assert_eq!(parsed.key, "doc1");
         assert_eq!(parsed.vector_id, 99);
@@ -441,11 +441,11 @@ mod tests {
     #[test]
     fn test_large_embedding_roundtrip() {
         // Test with a realistic embedding size (768 dimensions)
-        let run_id = RunId::new();
+        let branch_id = BranchId::new();
         let vector_id = VectorId::new(1);
         let embedding: Vec<f32> = (0..768).map(|i| i as f32 * 0.001).collect();
 
-        let payload = create_wal_upsert(run_id, "test", "doc", vector_id, &embedding, None);
+        let payload = create_wal_upsert(branch_id, "test", "doc", vector_id, &embedding, None);
 
         let bytes = payload.to_bytes().unwrap();
 
@@ -461,8 +461,8 @@ mod tests {
 
     #[test]
     fn test_timestamp_is_set() {
-        let run_id = RunId::new();
-        let payload = create_wal_collection_delete(run_id, "test");
+        let branch_id = BranchId::new();
+        let payload = create_wal_collection_delete(branch_id, "test");
 
         // Timestamp should be recent (within last minute)
         let now = now_micros();

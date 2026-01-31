@@ -13,7 +13,7 @@ use strata_concurrency::{RecoveryResult, TransactionContext, TransactionManager}
 use strata_core::StrataError;
 use strata_core::StrataResult;
 use strata_core::traits::Storage;
-use strata_core::types::RunId;
+use strata_core::types::BranchId;
 use strata_durability::wal::WalWriter;
 use strata_storage::ShardedStore;
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -90,14 +90,14 @@ impl TransactionCoordinator {
     /// Increments active count and total started metrics.
     ///
     /// # Arguments
-    /// * `run_id` - RunId for namespace isolation
+    /// * `branch_id` - BranchId for namespace isolation
     /// * `storage` - Storage to create snapshot from
     ///
     /// # Returns
     /// * `TransactionContext` - Active transaction ready for operations
     pub fn start_transaction(
         &self,
-        run_id: RunId,
+        branch_id: BranchId,
         storage: &Arc<ShardedStore>,
     ) -> TransactionContext {
         let txn_id = self.manager.next_txn_id();
@@ -106,7 +106,7 @@ impl TransactionCoordinator {
         self.active_count.fetch_add(1, Ordering::Relaxed);
         self.total_started.fetch_add(1, Ordering::Relaxed);
 
-        TransactionContext::with_snapshot(txn_id, run_id, Box::new(snapshot))
+        TransactionContext::with_snapshot(txn_id, branch_id, Box::new(snapshot))
     }
 
     /// Allocate commit version
@@ -331,10 +331,10 @@ mod tests {
     fn test_start_transaction_updates_metrics() {
         let coordinator = TransactionCoordinator::new(0);
         let storage = create_test_storage();
-        let run_id = RunId::new();
+        let branch_id = BranchId::new();
 
-        let _txn1 = coordinator.start_transaction(run_id, &storage);
-        let _txn2 = coordinator.start_transaction(run_id, &storage);
+        let _txn1 = coordinator.start_transaction(branch_id, &storage);
+        let _txn2 = coordinator.start_transaction(branch_id, &storage);
 
         let metrics = coordinator.metrics();
         assert_eq!(metrics.total_started, 2);
@@ -345,9 +345,9 @@ mod tests {
     fn test_record_commit_updates_metrics() {
         let coordinator = TransactionCoordinator::new(0);
         let storage = create_test_storage();
-        let run_id = RunId::new();
+        let branch_id = BranchId::new();
 
-        let _txn = coordinator.start_transaction(run_id, &storage);
+        let _txn = coordinator.start_transaction(branch_id, &storage);
         coordinator.record_commit();
 
         let metrics = coordinator.metrics();
@@ -361,9 +361,9 @@ mod tests {
     fn test_record_abort_updates_metrics() {
         let coordinator = TransactionCoordinator::new(0);
         let storage = create_test_storage();
-        let run_id = RunId::new();
+        let branch_id = BranchId::new();
 
-        let _txn = coordinator.start_transaction(run_id, &storage);
+        let _txn = coordinator.start_transaction(branch_id, &storage);
         coordinator.record_abort();
 
         let metrics = coordinator.metrics();
@@ -392,11 +392,11 @@ mod tests {
     fn test_metrics_helpers() {
         let coordinator = TransactionCoordinator::new(0);
         let storage = create_test_storage();
-        let run_id = RunId::new();
+        let branch_id = BranchId::new();
 
         // Start 4 transactions
         for _ in 0..4 {
-            let _txn = coordinator.start_transaction(run_id, &storage);
+            let _txn = coordinator.start_transaction(branch_id, &storage);
         }
 
         // 3 commit, 1 abort
@@ -415,11 +415,11 @@ mod tests {
     fn test_mixed_transactions() {
         let coordinator = TransactionCoordinator::new(0);
         let storage = create_test_storage();
-        let run_id = RunId::new();
+        let branch_id = BranchId::new();
 
         // Simulate realistic usage
-        let _txn1 = coordinator.start_transaction(run_id, &storage);
-        let _txn2 = coordinator.start_transaction(run_id, &storage);
+        let _txn1 = coordinator.start_transaction(branch_id, &storage);
+        let _txn2 = coordinator.start_transaction(branch_id, &storage);
 
         assert_eq!(coordinator.metrics().active_count, 2);
 
@@ -428,7 +428,7 @@ mod tests {
         assert_eq!(coordinator.metrics().active_count, 1);
         assert_eq!(coordinator.metrics().total_committed, 1);
 
-        let _txn3 = coordinator.start_transaction(run_id, &storage);
+        let _txn3 = coordinator.start_transaction(branch_id, &storage);
 
         assert_eq!(coordinator.metrics().active_count, 2);
         assert_eq!(coordinator.metrics().total_started, 3);
@@ -458,10 +458,10 @@ mod tests {
     fn test_wait_for_idle_timeout_with_active_transaction() {
         let coordinator = Arc::new(TransactionCoordinator::new(0));
         let storage = create_test_storage();
-        let run_id = RunId::new();
+        let branch_id = BranchId::new();
 
         // Start a transaction but don't complete it
-        let _txn = coordinator.start_transaction(run_id, &storage);
+        let _txn = coordinator.start_transaction(branch_id, &storage);
         assert_eq!(coordinator.active_count(), 1);
 
         // Wait with a short timeout - should return false
@@ -488,10 +488,10 @@ mod tests {
 
         let coordinator = Arc::new(TransactionCoordinator::new(0));
         let storage = create_test_storage();
-        let run_id = RunId::new();
+        let branch_id = BranchId::new();
 
         // Start a transaction
-        let _txn = coordinator.start_transaction(run_id, &storage);
+        let _txn = coordinator.start_transaction(branch_id, &storage);
 
         // Spawn a thread to complete the transaction after a short delay
         let coordinator_clone = Arc::clone(&coordinator);
@@ -522,11 +522,11 @@ mod tests {
 
         let coordinator = Arc::new(TransactionCoordinator::new(0));
         let storage = create_test_storage();
-        let run_id = RunId::new();
+        let branch_id = BranchId::new();
 
         // Start 5 transactions
         for _ in 0..5 {
-            let _txn = coordinator.start_transaction(run_id, &storage);
+            let _txn = coordinator.start_transaction(branch_id, &storage);
         }
         assert_eq!(coordinator.active_count(), 5);
 
@@ -561,10 +561,10 @@ mod tests {
     fn test_wait_for_idle_zero_timeout() {
         let coordinator = TransactionCoordinator::new(0);
         let storage = create_test_storage();
-        let run_id = RunId::new();
+        let branch_id = BranchId::new();
 
         // Start a transaction
-        let _txn = coordinator.start_transaction(run_id, &storage);
+        let _txn = coordinator.start_transaction(branch_id, &storage);
 
         // Zero timeout should return false immediately
         let start = std::time::Instant::now();
@@ -587,7 +587,7 @@ mod tests {
 
         let coordinator = Arc::new(TransactionCoordinator::new(0));
         let storage = Arc::new(ShardedStore::new());
-        let run_id = RunId::new();
+        let branch_id = BranchId::new();
         let stop_flag = Arc::new(AtomicBool::new(false));
 
         // Spawn a thread that rapidly starts and completes transactions
@@ -597,7 +597,7 @@ mod tests {
         let worker = thread::spawn(move || {
             let mut completed = 0;
             while !stop_clone.load(Ordering::SeqCst) {
-                let _txn = coord_clone.start_transaction(run_id, &storage_clone);
+                let _txn = coord_clone.start_transaction(branch_id, &storage_clone);
                 thread::yield_now();
                 coord_clone.record_commit();
                 completed += 1;
@@ -628,7 +628,7 @@ mod tests {
 
         let coordinator = Arc::new(TransactionCoordinator::new(0));
         let storage = Arc::new(ShardedStore::new());
-        let run_id = RunId::new();
+        let branch_id = BranchId::new();
         let barrier = Arc::new(Barrier::new(10));
 
         // 10 threads start transactions concurrently, then 10 threads complete them
@@ -641,7 +641,7 @@ mod tests {
             let barr = Arc::clone(&barrier);
             handles.push(thread::spawn(move || {
                 barr.wait();
-                let _txn = coord.start_transaction(run_id, &stor);
+                let _txn = coord.start_transaction(branch_id, &stor);
                 // Don't record_commit - leave active
             }));
         }
@@ -756,7 +756,7 @@ mod tests {
 
         let coordinator = Arc::new(TransactionCoordinator::new(0));
         let storage = Arc::new(ShardedStore::new());
-        let run_id = RunId::new();
+        let branch_id = BranchId::new();
 
         let iterations = 100;
         let started = Arc::new(AtomicUsize::new(0));
@@ -772,7 +772,7 @@ mod tests {
 
                 thread::spawn(move || {
                     for _ in 0..iterations {
-                        let _txn = coord.start_transaction(run_id, &stor);
+                        let _txn = coord.start_transaction(branch_id, &stor);
                         started.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
 
                         // Small delay to increase contention
@@ -928,7 +928,7 @@ mod tests {
 
         let coordinator = Arc::new(TransactionCoordinator::new(0));
         let storage = Arc::new(ShardedStore::new());
-        let run_id = RunId::new();
+        let branch_id = BranchId::new();
         let should_stop = Arc::new(AtomicBool::new(false));
 
         // Worker that rapidly starts and commits transactions
@@ -938,7 +938,7 @@ mod tests {
         let worker = thread::spawn(move || {
             let mut count = 0;
             while !stop_clone.load(Ordering::SeqCst) && count < 50 {
-                let _txn = coord_clone.start_transaction(run_id, &stor_clone);
+                let _txn = coord_clone.start_transaction(branch_id, &stor_clone);
                 // Very short delay
                 coord_clone.record_commit();
                 count += 1;

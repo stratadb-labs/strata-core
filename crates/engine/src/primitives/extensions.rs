@@ -11,7 +11,7 @@
 //! ```rust,ignore
 //! use strata_primitives::extensions::*;
 //!
-//! db.transaction(run_id, |txn| {
+//! db.transaction(branch_id, |txn| {
 //!     // KV operation
 //!     txn.kv_put("key", value)?;
 //!
@@ -116,7 +116,7 @@ pub trait VectorStoreExt {
     ) -> StrataResult<Version>;
 }
 
-// Note: RunIndex does not have an extension trait because run operations
+// Note: BranchIndex does not have an extension trait because run operations
 // are typically done outside of cross-primitive transactions. Run lifecycle
 // operations (create, complete, fail) are usually standalone operations
 // that bookend a series of primitive operations.

@@ -1,15 +1,15 @@
 //! Core types and traits for Strata
 //!
 //! This crate defines the foundational types used throughout the system:
-//! - RunId: Unique identifier for agent runs
-//! - Namespace: Hierarchical namespace (tenant/app/agent/run)
+//! - BranchId: Unique identifier for agent branches
+//! - Namespace: Hierarchical namespace (tenant/app/agent/branch)
 //! - Key: Composite key with type tagging
 //! - TypeTag: Discriminates between primitive types
 //! - Value: Unified value enum for all data types
 //! - Error: Error type hierarchy
 //! - Traits: Core trait definitions (Storage, SnapshotView)
 //! - Primitive types: Event, State, JSON, Vector types (in `primitives` module)
-//! - Contract types: EntityRef, Versioned<T>, Version, Timestamp, PrimitiveType, RunName
+//! - Contract types: EntityRef, Versioned<T>, Version, Timestamp, PrimitiveType, BranchName
 
 #![warn(missing_docs)]
 #![warn(clippy::all)]
@@ -19,7 +19,7 @@ pub mod contract; // contract types
 pub mod error;
 pub mod primitive_ext; // extension trait for primitives to integrate with storage/durability
 pub mod primitives; // primitive types (Event, State, Vector, JSON types)
-pub mod run_types; // Run lifecycle types
+pub mod branch_types; // Branch lifecycle types
 pub mod search_types; // search types (EntityRef/PrimitiveType re-exports only; types moved to engine)
 pub mod traits;
 pub mod types;
@@ -29,15 +29,15 @@ pub mod value;
 pub use error::{
     ConstraintReason, DetailValue, ErrorCode, ErrorDetails, StrataError, StrataResult,
 };
-pub use run_types::{RunEventOffsets, RunMetadata, RunStatus};
+pub use branch_types::{BranchEventOffsets, BranchMetadata, BranchStatus};
 pub use traits::{SnapshotView, Storage};
-pub use types::{Key, Namespace, RunId, TypeTag};
+pub use types::{Key, Namespace, BranchId, TypeTag};
 pub use value::Value;
 
 // Re-export contract types at crate root for convenience
 pub use contract::{
-    EntityRef, PrimitiveType, RunName, RunNameError, Timestamp, Version, Versioned,
-    VersionedHistory, VersionedValue, MAX_RUN_NAME_LENGTH,
+    EntityRef, PrimitiveType, BranchName, BranchNameError, Timestamp, Version, Versioned,
+    VersionedHistory, VersionedValue, MAX_BRANCH_NAME_LENGTH,
 };
 
 // Re-export primitive extension trait and helpers

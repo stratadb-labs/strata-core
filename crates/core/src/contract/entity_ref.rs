@@ -16,84 +16,84 @@
 //! ## Structure
 //!
 //! Every EntityRef has:
-//! - `run_id`: The run this entity belongs to (Invariant 5: Run-scoped)
+//! - `branch_id`: The branch this entity belongs to (Invariant 5: Branch-scoped)
 //! - Primitive-specific fields
 //!
 //! ## Usage
 //!
 //! ```
-//! use strata_core::{EntityRef, RunId, PrimitiveType};
+//! use strata_core::{EntityRef, BranchId, PrimitiveType};
 //!
-//! let run_id = RunId::new();
+//! let branch_id = BranchId::new();
 //!
 //! // Reference a KV entry
-//! let kv_ref = EntityRef::kv(run_id, "my-key");
+//! let kv_ref = EntityRef::kv(branch_id, "my-key");
 //!
 //! // Reference an event
-//! let event_ref = EntityRef::event(run_id, 42);
+//! let event_ref = EntityRef::event(branch_id, 42);
 //!
 //! // Get the primitive type
 //! assert_eq!(kv_ref.primitive_type(), PrimitiveType::Kv);
 //! ```
 
 use super::PrimitiveType;
-use crate::types::RunId;
+use crate::types::BranchId;
 use serde::{Deserialize, Serialize};
 
 /// Universal reference to any entity in the database
 ///
 /// EntityRef is the canonical way to identify any piece of data.
-/// It combines run_id (scope) with primitive-specific addressing.
+/// It combines branch_id (scope) with primitive-specific addressing.
 ///
 /// ## Invariants
 ///
 /// - Every EntityRef has exactly one variant (primitive type)
-/// - Every EntityRef has a run_id
+/// - Every EntityRef has a branch_id
 /// - EntityRef variants match PrimitiveType variants 1:1
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum EntityRef {
     /// Reference to a KV entry
     Kv {
-        /// Run scope
-        run_id: RunId,
+        /// Branch scope
+        branch_id: BranchId,
         /// Key (user-defined)
         key: String,
     },
 
     /// Reference to an event in the log
     Event {
-        /// Run scope
-        run_id: RunId,
+        /// Branch scope
+        branch_id: BranchId,
         /// Sequence number in the event log
         sequence: u64,
     },
 
     /// Reference to a state cell
     State {
-        /// Run scope
-        run_id: RunId,
+        /// Branch scope
+        branch_id: BranchId,
         /// Cell name (user-defined)
         name: String,
     },
 
-    /// Reference to a run's metadata
-    Run {
-        /// The run being referenced (also the scope)
-        run_id: RunId,
+    /// Reference to a branch's metadata
+    Branch {
+        /// The branch being referenced (also the scope)
+        branch_id: BranchId,
     },
 
     /// Reference to a JSON document
     Json {
-        /// Run scope
-        run_id: RunId,
+        /// Branch scope
+        branch_id: BranchId,
         /// Document ID (user-provided string key)
         doc_id: String,
     },
 
     /// Reference to a vector entry
     Vector {
-        /// Run scope
-        run_id: RunId,
+        /// Branch scope
+        branch_id: BranchId,
         /// Collection name
         collection: String,
         /// Key within collection
@@ -107,40 +107,40 @@ impl EntityRef {
     // =========================================================================
 
     /// Create a KV entity reference
-    pub fn kv(run_id: RunId, key: impl Into<String>) -> Self {
+    pub fn kv(branch_id: BranchId, key: impl Into<String>) -> Self {
         EntityRef::Kv {
-            run_id,
+            branch_id,
             key: key.into(),
         }
     }
 
     /// Create an event entity reference
-    pub fn event(run_id: RunId, sequence: u64) -> Self {
-        EntityRef::Event { run_id, sequence }
+    pub fn event(branch_id: BranchId, sequence: u64) -> Self {
+        EntityRef::Event { branch_id, sequence }
     }
 
     /// Create a state cell entity reference
-    pub fn state(run_id: RunId, name: impl Into<String>) -> Self {
+    pub fn state(branch_id: BranchId, name: impl Into<String>) -> Self {
         EntityRef::State {
-            run_id,
+            branch_id,
             name: name.into(),
         }
     }
 
-    /// Create a run entity reference
-    pub fn run(run_id: RunId) -> Self {
-        EntityRef::Run { run_id }
+    /// Create a branch entity reference
+    pub fn branch(branch_id: BranchId) -> Self {
+        EntityRef::Branch { branch_id }
     }
 
     /// Create a JSON document entity reference
-    pub fn json(run_id: RunId, doc_id: impl Into<String>) -> Self {
-        EntityRef::Json { run_id, doc_id: doc_id.into() }
+    pub fn json(branch_id: BranchId, doc_id: impl Into<String>) -> Self {
+        EntityRef::Json { branch_id, doc_id: doc_id.into() }
     }
 
     /// Create a vector entity reference
-    pub fn vector(run_id: RunId, collection: impl Into<String>, key: impl Into<String>) -> Self {
+    pub fn vector(branch_id: BranchId, collection: impl Into<String>, key: impl Into<String>) -> Self {
         EntityRef::Vector {
-            run_id,
+            branch_id,
             collection: collection.into(),
             key: key.into(),
         }
@@ -150,17 +150,17 @@ impl EntityRef {
     // Accessors
     // =========================================================================
 
-    /// Get the run_id this entity belongs to
+    /// Get the branch_id this entity belongs to
     ///
-    /// All entities are run-scoped (Invariant 5).
-    pub fn run_id(&self) -> RunId {
+    /// All entities are branch-scoped (Invariant 5).
+    pub fn branch_id(&self) -> BranchId {
         match self {
-            EntityRef::Kv { run_id, .. } => *run_id,
-            EntityRef::Event { run_id, .. } => *run_id,
-            EntityRef::State { run_id, .. } => *run_id,
-            EntityRef::Run { run_id } => *run_id,
-            EntityRef::Json { run_id, .. } => *run_id,
-            EntityRef::Vector { run_id, .. } => *run_id,
+            EntityRef::Kv { branch_id, .. } => *branch_id,
+            EntityRef::Event { branch_id, .. } => *branch_id,
+            EntityRef::State { branch_id, .. } => *branch_id,
+            EntityRef::Branch { branch_id } => *branch_id,
+            EntityRef::Json { branch_id, .. } => *branch_id,
+            EntityRef::Vector { branch_id, .. } => *branch_id,
         }
     }
 
@@ -170,7 +170,7 @@ impl EntityRef {
             EntityRef::Kv { .. } => PrimitiveType::Kv,
             EntityRef::Event { .. } => PrimitiveType::Event,
             EntityRef::State { .. } => PrimitiveType::State,
-            EntityRef::Run { .. } => PrimitiveType::Run,
+            EntityRef::Branch { .. } => PrimitiveType::Branch,
             EntityRef::Json { .. } => PrimitiveType::Json,
             EntityRef::Vector { .. } => PrimitiveType::Vector,
         }
@@ -195,9 +195,9 @@ impl EntityRef {
         matches!(self, EntityRef::State { .. })
     }
 
-    /// Check if this is a run reference
-    pub fn is_run(&self) -> bool {
-        matches!(self, EntityRef::Run { .. })
+    /// Check if this is a branch reference
+    pub fn is_branch(&self) -> bool {
+        matches!(self, EntityRef::Branch { .. })
     }
 
     /// Check if this is a JSON reference
@@ -260,27 +260,27 @@ impl EntityRef {
 impl std::fmt::Display for EntityRef {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            EntityRef::Kv { run_id, key } => {
-                write!(f, "kv://{}/{}", run_id, key)
+            EntityRef::Kv { branch_id, key } => {
+                write!(f, "kv://{}/{}", branch_id, key)
             }
-            EntityRef::Event { run_id, sequence } => {
-                write!(f, "event://{}/{}", run_id, sequence)
+            EntityRef::Event { branch_id, sequence } => {
+                write!(f, "event://{}/{}", branch_id, sequence)
             }
-            EntityRef::State { run_id, name } => {
-                write!(f, "state://{}/{}", run_id, name)
+            EntityRef::State { branch_id, name } => {
+                write!(f, "state://{}/{}", branch_id, name)
             }
-            EntityRef::Run { run_id } => {
-                write!(f, "run://{}", run_id)
+            EntityRef::Branch { branch_id } => {
+                write!(f, "branch://{}", branch_id)
             }
-            EntityRef::Json { run_id, doc_id } => {
-                write!(f, "json://{}/{}", run_id, doc_id)
+            EntityRef::Json { branch_id, doc_id } => {
+                write!(f, "json://{}/{}", branch_id, doc_id)
             }
             EntityRef::Vector {
-                run_id,
+                branch_id,
                 collection,
                 key,
             } => {
-                write!(f, "vector://{}/{}/{}", run_id, collection, key)
+                write!(f, "vector://{}/{}/{}", branch_id, collection, key)
             }
         }
     }
@@ -296,101 +296,101 @@ mod tests {
 
     #[test]
     fn test_entity_ref_kv() {
-        let run_id = RunId::new();
-        let ref_ = EntityRef::kv(run_id, "my-key");
+        let branch_id = BranchId::new();
+        let ref_ = EntityRef::kv(branch_id, "my-key");
 
         assert!(ref_.is_kv());
         assert!(!ref_.is_event());
-        assert_eq!(ref_.run_id(), run_id);
+        assert_eq!(ref_.branch_id(), branch_id);
         assert_eq!(ref_.primitive_type(), PrimitiveType::Kv);
         assert_eq!(ref_.kv_key(), Some("my-key"));
     }
 
     #[test]
     fn test_entity_ref_event() {
-        let run_id = RunId::new();
-        let ref_ = EntityRef::event(run_id, 42);
+        let branch_id = BranchId::new();
+        let ref_ = EntityRef::event(branch_id, 42);
 
         assert!(ref_.is_event());
-        assert_eq!(ref_.run_id(), run_id);
+        assert_eq!(ref_.branch_id(), branch_id);
         assert_eq!(ref_.primitive_type(), PrimitiveType::Event);
         assert_eq!(ref_.event_sequence(), Some(42));
     }
 
     #[test]
     fn test_entity_ref_state() {
-        let run_id = RunId::new();
-        let ref_ = EntityRef::state(run_id, "cell-name");
+        let branch_id = BranchId::new();
+        let ref_ = EntityRef::state(branch_id, "cell-name");
 
         assert!(ref_.is_state());
-        assert_eq!(ref_.run_id(), run_id);
+        assert_eq!(ref_.branch_id(), branch_id);
         assert_eq!(ref_.primitive_type(), PrimitiveType::State);
         assert_eq!(ref_.state_name(), Some("cell-name"));
     }
 
     #[test]
-    fn test_entity_ref_run() {
-        let run_id = RunId::new();
-        let ref_ = EntityRef::run(run_id);
+    fn test_entity_ref_branch() {
+        let branch_id = BranchId::new();
+        let ref_ = EntityRef::branch(branch_id);
 
-        assert!(ref_.is_run());
-        assert_eq!(ref_.run_id(), run_id);
-        assert_eq!(ref_.primitive_type(), PrimitiveType::Run);
+        assert!(ref_.is_branch());
+        assert_eq!(ref_.branch_id(), branch_id);
+        assert_eq!(ref_.primitive_type(), PrimitiveType::Branch);
     }
 
     #[test]
     fn test_entity_ref_json() {
-        let run_id = RunId::new();
+        let branch_id = BranchId::new();
         let doc_id = "test-doc";
-        let ref_ = EntityRef::json(run_id, doc_id);
+        let ref_ = EntityRef::json(branch_id, doc_id);
 
         assert!(ref_.is_json());
-        assert_eq!(ref_.run_id(), run_id);
+        assert_eq!(ref_.branch_id(), branch_id);
         assert_eq!(ref_.primitive_type(), PrimitiveType::Json);
         assert_eq!(ref_.json_doc_id(), Some(doc_id));
     }
 
     #[test]
     fn test_entity_ref_vector() {
-        let run_id = RunId::new();
-        let ref_ = EntityRef::vector(run_id, "embeddings", "doc-1");
+        let branch_id = BranchId::new();
+        let ref_ = EntityRef::vector(branch_id, "embeddings", "doc-1");
 
         assert!(ref_.is_vector());
-        assert_eq!(ref_.run_id(), run_id);
+        assert_eq!(ref_.branch_id(), branch_id);
         assert_eq!(ref_.primitive_type(), PrimitiveType::Vector);
         assert_eq!(ref_.vector_location(), Some(("embeddings", "doc-1")));
     }
 
     #[test]
     fn test_entity_ref_display() {
-        let run_id = RunId::new();
+        let branch_id = BranchId::new();
 
-        let kv = EntityRef::kv(run_id, "key");
+        let kv = EntityRef::kv(branch_id, "key");
         assert!(format!("{}", kv).starts_with("kv://"));
 
-        let event = EntityRef::event(run_id, 42);
+        let event = EntityRef::event(branch_id, 42);
         assert!(format!("{}", event).starts_with("event://"));
 
-        let state = EntityRef::state(run_id, "cell");
+        let state = EntityRef::state(branch_id, "cell");
         assert!(format!("{}", state).starts_with("state://"));
 
-        let run_ref = EntityRef::run(run_id);
-        assert!(format!("{}", run_ref).starts_with("run://"));
+        let run_ref = EntityRef::branch(branch_id);
+        assert!(format!("{}", run_ref).starts_with("branch://"));
 
-        let json = EntityRef::json(run_id, "test-doc");
+        let json = EntityRef::json(branch_id, "test-doc");
         assert!(format!("{}", json).starts_with("json://"));
 
-        let vector = EntityRef::vector(run_id, "col", "key");
+        let vector = EntityRef::vector(branch_id, "col", "key");
         assert!(format!("{}", vector).starts_with("vector://"));
     }
 
     #[test]
     fn test_entity_ref_equality() {
-        let run_id = RunId::new();
+        let branch_id = BranchId::new();
 
-        let ref1 = EntityRef::kv(run_id, "key");
-        let ref2 = EntityRef::kv(run_id, "key");
-        let ref3 = EntityRef::kv(run_id, "other");
+        let ref1 = EntityRef::kv(branch_id, "key");
+        let ref2 = EntityRef::kv(branch_id, "key");
+        let ref3 = EntityRef::kv(branch_id, "other");
 
         assert_eq!(ref1, ref2);
         assert_ne!(ref1, ref3);
@@ -400,26 +400,26 @@ mod tests {
     fn test_entity_ref_hash() {
         use std::collections::HashSet;
 
-        let run_id = RunId::new();
+        let branch_id = BranchId::new();
 
         let mut set = HashSet::new();
-        set.insert(EntityRef::kv(run_id, "key1"));
-        set.insert(EntityRef::kv(run_id, "key2"));
-        set.insert(EntityRef::kv(run_id, "key1")); // Duplicate
+        set.insert(EntityRef::kv(branch_id, "key1"));
+        set.insert(EntityRef::kv(branch_id, "key2"));
+        set.insert(EntityRef::kv(branch_id, "key1")); // Duplicate
 
         assert_eq!(set.len(), 2);
     }
 
     #[test]
     fn test_entity_ref_serialization() {
-        let run_id = RunId::new();
+        let branch_id = BranchId::new();
         let refs = vec![
-            EntityRef::kv(run_id, "key"),
-            EntityRef::event(run_id, 42),
-            EntityRef::state(run_id, "cell"),
-            EntityRef::run(run_id),
-            EntityRef::json(run_id, "test-doc"),
-            EntityRef::vector(run_id, "col", "key"),
+            EntityRef::kv(branch_id, "key"),
+            EntityRef::event(branch_id, 42),
+            EntityRef::state(branch_id, "cell"),
+            EntityRef::branch(branch_id),
+            EntityRef::json(branch_id, "test-doc"),
+            EntityRef::vector(branch_id, "col", "key"),
         ];
 
         for ref_ in refs {
@@ -432,8 +432,8 @@ mod tests {
 
     #[test]
     fn test_wrong_extraction_returns_none() {
-        let run_id = RunId::new();
-        let kv_ref = EntityRef::kv(run_id, "key");
+        let branch_id = BranchId::new();
+        let kv_ref = EntityRef::kv(branch_id, "key");
 
         // Wrong extractors should return None
         assert!(kv_ref.event_sequence().is_none());
@@ -444,16 +444,16 @@ mod tests {
 
     #[test]
     fn test_all_primitive_types_covered() {
-        let run_id = RunId::new();
+        let branch_id = BranchId::new();
 
         // Create one of each type
         let refs = vec![
-            EntityRef::kv(run_id, "k"),
-            EntityRef::event(run_id, 0),
-            EntityRef::state(run_id, "s"),
-            EntityRef::run(run_id),
-            EntityRef::json(run_id, "j"),
-            EntityRef::vector(run_id, "c", "k"),
+            EntityRef::kv(branch_id, "k"),
+            EntityRef::event(branch_id, 0),
+            EntityRef::state(branch_id, "s"),
+            EntityRef::branch(branch_id),
+            EntityRef::json(branch_id, "j"),
+            EntityRef::vector(branch_id, "c", "k"),
         ];
 
         // Verify they map to all 6 primitive types
@@ -463,35 +463,35 @@ mod tests {
 
     #[test]
     fn test_entity_ref_json_with_string() {
-        let run_id = RunId::new();
-        let ref_ = EntityRef::json(run_id, String::from("owned-doc-id"));
+        let branch_id = BranchId::new();
+        let ref_ = EntityRef::json(branch_id, String::from("owned-doc-id"));
         assert!(ref_.is_json());
         assert_eq!(ref_.json_doc_id(), Some("owned-doc-id"));
     }
 
     #[test]
     fn test_entity_ref_type_checks_are_exclusive() {
-        let run_id = RunId::new();
+        let branch_id = BranchId::new();
         let refs = vec![
-            EntityRef::kv(run_id, "k"),
-            EntityRef::event(run_id, 0),
-            EntityRef::state(run_id, "s"),
-            EntityRef::run(run_id),
-            EntityRef::json(run_id, "j"),
-            EntityRef::vector(run_id, "c", "k"),
+            EntityRef::kv(branch_id, "k"),
+            EntityRef::event(branch_id, 0),
+            EntityRef::state(branch_id, "s"),
+            EntityRef::branch(branch_id),
+            EntityRef::json(branch_id, "j"),
+            EntityRef::vector(branch_id, "c", "k"),
         ];
 
         for r in &refs {
-            let checks = [r.is_kv(), r.is_event(), r.is_state(), r.is_run(), r.is_json(), r.is_vector()];
+            let checks = [r.is_kv(), r.is_event(), r.is_state(), r.is_branch(), r.is_json(), r.is_vector()];
             assert_eq!(checks.iter().filter(|&&b| b).count(), 1,
                 "Exactly one type check should be true for {:?}", r);
         }
     }
 
     #[test]
-    fn test_entity_ref_different_runs_differ() {
-        let r1 = RunId::new();
-        let r2 = RunId::new();
+    fn test_entity_ref_different_branches_differ() {
+        let r1 = BranchId::new();
+        let r2 = BranchId::new();
         let ref1 = EntityRef::kv(r1, "key");
         let ref2 = EntityRef::kv(r2, "key");
         assert_ne!(ref1, ref2);
@@ -499,26 +499,26 @@ mod tests {
 
     #[test]
     fn test_entity_ref_empty_string_keys() {
-        let run_id = RunId::new();
-        let kv = EntityRef::kv(run_id, "");
+        let branch_id = BranchId::new();
+        let kv = EntityRef::kv(branch_id, "");
         assert_eq!(kv.kv_key(), Some(""));
 
-        let state = EntityRef::state(run_id, "");
+        let state = EntityRef::state(branch_id, "");
         assert_eq!(state.state_name(), Some(""));
 
-        let json = EntityRef::json(run_id, "");
+        let json = EntityRef::json(branch_id, "");
         assert_eq!(json.json_doc_id(), Some(""));
     }
 
     #[test]
-    fn test_entity_ref_display_contains_run_id() {
-        let run_id = RunId::new();
-        let run_str = format!("{}", run_id);
+    fn test_entity_ref_display_contains_branch_id() {
+        let branch_id = BranchId::new();
+        let run_str = format!("{}", branch_id);
 
-        let kv = EntityRef::kv(run_id, "mykey");
-        assert!(format!("{}", kv).contains(&run_str), "Display should contain run_id");
+        let kv = EntityRef::kv(branch_id, "mykey");
+        assert!(format!("{}", kv).contains(&run_str), "Display should contain branch_id");
 
-        let event = EntityRef::event(run_id, 42);
+        let event = EntityRef::event(branch_id, 42);
         let display = format!("{}", event);
         assert!(display.contains(&run_str));
         assert!(display.contains("42"));
@@ -526,11 +526,11 @@ mod tests {
 
     #[test]
     fn test_entity_ref_cross_type_never_equal() {
-        let run_id = RunId::new();
-        // Even with same run_id and key-like values, different types are never equal
-        let kv = EntityRef::kv(run_id, "name");
-        let state = EntityRef::state(run_id, "name");
-        let json = EntityRef::json(run_id, "name");
+        let branch_id = BranchId::new();
+        // Even with same branch_id and key-like values, different types are never equal
+        let kv = EntityRef::kv(branch_id, "name");
+        let state = EntityRef::state(branch_id, "name");
+        let json = EntityRef::json(branch_id, "name");
         assert_ne!(kv, state);
         assert_ne!(kv, json);
         assert_ne!(state, json);
@@ -538,15 +538,15 @@ mod tests {
 
     #[test]
     fn test_entity_ref_vector_location_with_special_chars() {
-        let run_id = RunId::new();
-        let v = EntityRef::vector(run_id, "col/with/slash", "key with spaces");
+        let branch_id = BranchId::new();
+        let v = EntityRef::vector(branch_id, "col/with/slash", "key with spaces");
         assert_eq!(v.vector_location(), Some(("col/with/slash", "key with spaces")));
     }
 
     #[test]
     fn test_entity_ref_event_sequence_zero() {
-        let run_id = RunId::new();
-        let e = EntityRef::event(run_id, 0);
+        let branch_id = BranchId::new();
+        let e = EntityRef::event(branch_id, 0);
         assert_eq!(e.event_sequence(), Some(0));
     }
 }

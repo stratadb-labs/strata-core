@@ -11,12 +11,12 @@ use strata_concurrency::validation::{validate_cas_set, validate_transaction, Con
 use strata_core::traits::Storage;
 use strata_core::types::{Key, Namespace};
 use strata_core::value::Value;
-use strata_core::RunId;
+use strata_core::BranchId;
 use strata_storage::sharded::ShardedStore;
 use std::sync::Arc;
 
-fn create_test_key(run_id: RunId, name: &str) -> Key {
-    let ns = Namespace::for_run(run_id);
+fn create_test_key(branch_id: BranchId, name: &str) -> Key {
+    let ns = Namespace::for_branch(branch_id);
     Key::new_kv(ns, name)
 }
 
@@ -27,8 +27,8 @@ fn create_test_key(run_id: RunId, name: &str) -> Key {
 #[test]
 fn cas_succeeds_when_version_matches() {
     let store = Arc::new(ShardedStore::new());
-    let run_id = RunId::new();
-    let key = create_test_key(run_id, "cas_ok");
+    let branch_id = BranchId::new();
+    let key = create_test_key(branch_id, "cas_ok");
 
     // Initial value
     Storage::put(&*store, key.clone(), Value::Int(100), None).unwrap();
@@ -48,8 +48,8 @@ fn cas_succeeds_when_version_matches() {
 #[test]
 fn cas_create_succeeds_when_key_absent() {
     let store = Arc::new(ShardedStore::new());
-    let run_id = RunId::new();
-    let key = create_test_key(run_id, "cas_create");
+    let branch_id = BranchId::new();
+    let key = create_test_key(branch_id, "cas_create");
 
     // Key doesn't exist
 
@@ -71,8 +71,8 @@ fn cas_create_succeeds_when_key_absent() {
 #[test]
 fn cas_fails_when_version_stale() {
     let store = Arc::new(ShardedStore::new());
-    let run_id = RunId::new();
-    let key = create_test_key(run_id, "cas_stale");
+    let branch_id = BranchId::new();
+    let key = create_test_key(branch_id, "cas_stale");
 
     // Create at version 1
     Storage::put(&*store, key.clone(), Value::Int(1), None).unwrap();
@@ -107,8 +107,8 @@ fn cas_fails_when_version_stale() {
 #[test]
 fn cas_create_fails_when_key_exists() {
     let store = Arc::new(ShardedStore::new());
-    let run_id = RunId::new();
-    let key = create_test_key(run_id, "cas_exists");
+    let branch_id = BranchId::new();
+    let key = create_test_key(branch_id, "cas_exists");
 
     // Key exists
     Storage::put(&*store, key.clone(), Value::Int(100), None).unwrap();
@@ -127,8 +127,8 @@ fn cas_create_fails_when_key_exists() {
 #[test]
 fn cas_fails_when_key_deleted() {
     let store = Arc::new(ShardedStore::new());
-    let run_id = RunId::new();
-    let key = create_test_key(run_id, "cas_deleted");
+    let branch_id = BranchId::new();
+    let key = create_test_key(branch_id, "cas_deleted");
 
     // Create and delete
     Storage::put(&*store, key.clone(), Value::Int(100), None).unwrap();
@@ -152,10 +152,10 @@ fn cas_fails_when_key_deleted() {
 
 #[test]
 fn cas_not_added_to_read_set() {
-    let run_id = RunId::new();
-    let key = create_test_key(run_id, "cas_no_read");
+    let branch_id = BranchId::new();
+    let key = create_test_key(branch_id, "cas_no_read");
 
-    let mut txn = TransactionContext::new(1, run_id, 1);
+    let mut txn = TransactionContext::new(1, branch_id, 1);
 
     // Add CAS operation
     txn.cas_set.push(CASOperation {
@@ -172,9 +172,9 @@ fn cas_not_added_to_read_set() {
 #[test]
 fn cas_validated_separately_from_reads() {
     let store = Arc::new(ShardedStore::new());
-    let run_id = RunId::new();
-    let read_key = create_test_key(run_id, "read_key");
-    let cas_key = create_test_key(run_id, "cas_key");
+    let branch_id = BranchId::new();
+    let read_key = create_test_key(branch_id, "read_key");
+    let cas_key = create_test_key(branch_id, "cas_key");
 
     // Setup
     Storage::put(&*store, read_key.clone(), Value::Int(1), None).unwrap();
@@ -183,7 +183,7 @@ fn cas_validated_separately_from_reads() {
     let cas_version = Storage::get(&*store, &cas_key).unwrap().unwrap().version.as_u64();
 
     // Transaction reads one key, CAS on another
-    let mut txn = TransactionContext::new(1, run_id, 1);
+    let mut txn = TransactionContext::new(1, branch_id, 1);
     txn.read_set.insert(read_key.clone(), read_version);
     txn.cas_set.push(CASOperation {
         key: cas_key.clone(),
@@ -210,12 +210,12 @@ fn cas_validated_separately_from_reads() {
 #[test]
 fn multiple_cas_all_succeed() {
     let store = Arc::new(ShardedStore::new());
-    let run_id = RunId::new();
+    let branch_id = BranchId::new();
 
     // Setup 3 keys
     let keys: Vec<_> = (0..3)
         .map(|i| {
-            let key = create_test_key(run_id, &format!("cas_{}", i));
+            let key = create_test_key(branch_id, &format!("cas_{}", i));
             Storage::put(&*store, key.clone(), Value::Int(i), None).unwrap();
             let v = Storage::get(&*store, &key).unwrap().unwrap().version.as_u64();
             (key, v)
@@ -240,12 +240,12 @@ fn multiple_cas_all_succeed() {
 #[test]
 fn multiple_cas_one_fails() {
     let store = Arc::new(ShardedStore::new());
-    let run_id = RunId::new();
+    let branch_id = BranchId::new();
 
     // Setup 3 keys
-    let key1 = create_test_key(run_id, "cas_1");
-    let key2 = create_test_key(run_id, "cas_2");
-    let key3 = create_test_key(run_id, "cas_3");
+    let key1 = create_test_key(branch_id, "cas_1");
+    let key2 = create_test_key(branch_id, "cas_2");
+    let key3 = create_test_key(branch_id, "cas_3");
 
     Storage::put(&*store, key1.clone(), Value::Int(1), None).unwrap();
     let v1 = Storage::get(&*store, &key1).unwrap().unwrap().version.as_u64();
@@ -288,15 +288,15 @@ fn multiple_cas_one_fails() {
 #[test]
 fn cas_in_full_transaction() {
     let store = Arc::new(ShardedStore::new());
-    let run_id = RunId::new();
-    let key = create_test_key(run_id, "cas_txn");
+    let branch_id = BranchId::new();
+    let key = create_test_key(branch_id, "cas_txn");
 
     // Initial value
     Storage::put(&*store, key.clone(), Value::Int(100), None).unwrap();
     let version = Storage::get(&*store, &key).unwrap().unwrap().version.as_u64();
 
     // Transaction with CAS
-    let mut txn = TransactionContext::new(1, run_id, 1);
+    let mut txn = TransactionContext::new(1, branch_id, 1);
     txn.cas_set.push(CASOperation {
         key: key.clone(),
         expected_version: version,
@@ -311,15 +311,15 @@ fn cas_in_full_transaction() {
 #[test]
 fn cas_with_read_of_same_key() {
     let store = Arc::new(ShardedStore::new());
-    let run_id = RunId::new();
-    let key = create_test_key(run_id, "cas_read_same");
+    let branch_id = BranchId::new();
+    let key = create_test_key(branch_id, "cas_read_same");
 
     // Initial value
     Storage::put(&*store, key.clone(), Value::Int(100), None).unwrap();
     let version = Storage::get(&*store, &key).unwrap().unwrap().version.as_u64();
 
     // Transaction reads and CAS same key
-    let mut txn = TransactionContext::new(1, run_id, 1);
+    let mut txn = TransactionContext::new(1, branch_id, 1);
     txn.read_set.insert(key.clone(), version);
     txn.cas_set.push(CASOperation {
         key: key.clone(),
@@ -347,8 +347,8 @@ fn cas_empty_set_validates() {
 
 #[test]
 fn cas_operation_fields_accessible() {
-    let run_id = RunId::new();
-    let key = create_test_key(run_id, "fields");
+    let branch_id = BranchId::new();
+    let key = create_test_key(branch_id, "fields");
 
     let cas = CASOperation {
         key: key.clone(),
@@ -364,8 +364,8 @@ fn cas_operation_fields_accessible() {
 #[test]
 fn cas_conflict_reports_correct_key() {
     let store = Arc::new(ShardedStore::new());
-    let run_id = RunId::new();
-    let key = create_test_key(run_id, "conflict_key");
+    let branch_id = BranchId::new();
+    let key = create_test_key(branch_id, "conflict_key");
 
     Storage::put(&*store, key.clone(), Value::Int(1), None).unwrap();
     Storage::put(&*store, key.clone(), Value::Int(2), None).unwrap();

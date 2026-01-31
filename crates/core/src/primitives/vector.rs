@@ -5,7 +5,7 @@
 
 use crate::contract::{EntityRef, Version};
 use crate::error::StrataError;
-use crate::types::RunId;
+use crate::types::BranchId;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
@@ -333,20 +333,20 @@ pub struct CollectionInfo {
     pub created_at: u64,
 }
 
-/// Unique identifier for a collection within a run
+/// Unique identifier for a collection within a branch
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct CollectionId {
     /// Run ID this collection belongs to
-    pub run_id: RunId,
+    pub branch_id: BranchId,
     /// Collection name
     pub name: String,
 }
 
 impl CollectionId {
     /// Create a new CollectionId
-    pub fn new(run_id: RunId, name: impl Into<String>) -> Self {
+    pub fn new(branch_id: BranchId, name: impl Into<String>) -> Self {
         CollectionId {
-            run_id,
+            branch_id,
             name: name.into(),
         }
     }
@@ -354,9 +354,9 @@ impl CollectionId {
 
 impl Ord for CollectionId {
     fn cmp(&self, other: &Self) -> std::cmp::Ordering {
-        self.run_id
+        self.branch_id
             .as_bytes()
-            .cmp(other.run_id.as_bytes())
+            .cmp(other.branch_id.as_bytes())
             .then(self.name.cmp(&other.name))
     }
 }
@@ -681,8 +681,8 @@ mod tests {
 
     #[test]
     fn test_vector_entry_with_source_ref() {
-        let run_id = RunId::new();
-        let source = EntityRef::json(run_id, "source-doc");
+        let branch_id = BranchId::new();
+        let source = EntityRef::json(branch_id, "source-doc");
         let entry = VectorEntry::new_with_source(
             "emb-1".to_string(),
             vec![1.0, 2.0],
@@ -711,21 +711,21 @@ mod tests {
 
     #[test]
     fn test_collection_id_equality() {
-        let run_id = RunId::new();
-        let c1 = CollectionId::new(run_id, "embeddings");
-        let c2 = CollectionId::new(run_id, "embeddings");
+        let branch_id = BranchId::new();
+        let c1 = CollectionId::new(branch_id, "embeddings");
+        let c2 = CollectionId::new(branch_id, "embeddings");
         assert_eq!(c1, c2);
     }
 
     #[test]
     fn test_collection_id_ordering() {
-        let r1 = RunId::new();
-        let r2 = RunId::new();
+        let r1 = BranchId::new();
+        let r2 = BranchId::new();
         let c1 = CollectionId::new(r1, "a");
         let c2 = CollectionId::new(r1, "b");
-        // Same run_id, different name: should have defined ordering
+        // Same branch_id, different name: should have defined ordering
         assert!(c1 < c2 || c1 > c2 || c1 == c2);
-        // Different run_id
+        // Different branch_id
         let c3 = CollectionId::new(r2, "a");
         assert_ne!(c1, c3);
     }
@@ -886,8 +886,8 @@ mod tests {
 
     #[test]
     fn test_vector_entry_source_ref_serialization_roundtrip() {
-        let run_id = RunId::new();
-        let source = EntityRef::json(run_id, "source-doc");
+        let branch_id = BranchId::new();
+        let source = EntityRef::json(branch_id, "source-doc");
         let entry = VectorEntry::new_with_source(
             "emb".to_string(), vec![1.0], None, VectorId::new(1), source.clone(),
         );
@@ -1064,10 +1064,10 @@ mod tests {
     // ================================================================
 
     #[test]
-    fn test_collection_id_same_run_different_name() {
-        let run_id = RunId::new();
-        let c1 = CollectionId::new(run_id, "alpha");
-        let c2 = CollectionId::new(run_id, "beta");
+    fn test_collection_id_same_branch_different_name() {
+        let branch_id = BranchId::new();
+        let c1 = CollectionId::new(branch_id, "alpha");
+        let c2 = CollectionId::new(branch_id, "beta");
         assert_ne!(c1, c2);
         assert!(c1 < c2, "alpha should sort before beta");
     }
@@ -1075,18 +1075,18 @@ mod tests {
     #[test]
     fn test_collection_id_hash() {
         use std::collections::HashSet;
-        let run_id = RunId::new();
+        let branch_id = BranchId::new();
         let mut set = HashSet::new();
-        set.insert(CollectionId::new(run_id, "a"));
-        set.insert(CollectionId::new(run_id, "a")); // duplicate
-        set.insert(CollectionId::new(run_id, "b"));
+        set.insert(CollectionId::new(branch_id, "a"));
+        set.insert(CollectionId::new(branch_id, "a")); // duplicate
+        set.insert(CollectionId::new(branch_id, "b"));
         assert_eq!(set.len(), 2);
     }
 
     #[test]
     fn test_collection_id_serialization_roundtrip() {
-        let run_id = RunId::new();
-        let cid = CollectionId::new(run_id, "my_collection");
+        let branch_id = BranchId::new();
+        let cid = CollectionId::new(branch_id, "my_collection");
         let json = serde_json::to_string(&cid).unwrap();
         let restored: CollectionId = serde_json::from_str(&json).unwrap();
         assert_eq!(cid, restored);

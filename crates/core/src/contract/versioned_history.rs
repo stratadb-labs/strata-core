@@ -16,7 +16,7 @@ use std::ops::Index;
 /// # Example
 ///
 /// ```ignore
-/// let history = kv.getv(&run_id, "key")?.unwrap();
+/// let history = kv.getv(&branch_id, "key")?.unwrap();
 /// let latest = &history[0];          // newest version
 /// let previous = &history[1];        // one version back
 /// println!("total versions: {}", history.len());

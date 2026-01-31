@@ -27,9 +27,9 @@ use std::sync::Arc;
 use strata_core::types::Namespace;
 use strata_engine::{Database, Transaction, TransactionContext, TransactionOps};
 
-use crate::bridge::{extract_version, json_to_value, parse_path, to_core_run_id, to_versioned_value, value_to_json};
+use crate::bridge::{extract_version, json_to_value, parse_path, to_core_branch_id, to_versioned_value, value_to_json};
 use crate::convert::convert_result;
-use crate::types::RunId;
+use crate::types::BranchId;
 use crate::{Command, Error, Executor, Output, Result};
 
 /// A stateful session that wraps an [`Executor`] and manages an optional
@@ -44,7 +44,7 @@ pub struct Session {
     executor: Executor,
     db: Arc<Database>,
     txn_ctx: Option<TransactionContext>,
-    txn_run_id: Option<strata_core::types::RunId>,
+    txn_run_id: Option<strata_core::types::BranchId>,
 }
 
 impl Session {
@@ -65,7 +65,7 @@ impl Session {
 
     /// Execute a command, routing through the active transaction when appropriate.
     pub fn execute(&mut self, mut cmd: Command) -> Result<Output> {
-        cmd.resolve_default_run();
+        cmd.resolve_default_branch();
 
         match &cmd {
             // Transaction lifecycle commands
@@ -76,11 +76,11 @@ impl Session {
             Command::TxnIsActive => Ok(Output::Bool(self.in_transaction())),
 
             // Non-transactional commands always go to executor
-            Command::RunCreate { .. }
-            | Command::RunGet { .. }
-            | Command::RunList { .. }
-            | Command::RunExists { .. }
-            | Command::RunDelete { .. }
+            Command::BranchCreate { .. }
+            | Command::BranchGet { .. }
+            | Command::BranchList { .. }
+            | Command::BranchExists { .. }
+            | Command::BranchDelete { .. }
             | Command::VectorUpsert { .. }
             | Command::VectorGet { .. }
             | Command::VectorDelete { .. }
@@ -122,11 +122,11 @@ impl Session {
         }
 
         let run = match cmd {
-            Command::TxnBegin { run, .. } => run.clone().unwrap_or_else(RunId::default),
+            Command::TxnBegin { run, .. } => run.clone().unwrap_or_else(BranchId::default),
             _ => unreachable!(),
         };
 
-        let core_run_id = to_core_run_id(&run)?;
+        let core_run_id = to_core_branch_id(&run)?;
         let ctx = self.db.begin_transaction(core_run_id);
         self.txn_ctx = Some(ctx);
         self.txn_run_id = Some(core_run_id);
@@ -177,8 +177,8 @@ impl Session {
     // =========================================================================
 
     fn execute_in_txn(&mut self, cmd: Command) -> Result<Output> {
-        let run_id = self.txn_run_id.expect("txn_run_id set when txn_ctx is Some");
-        let ns = Namespace::for_run(run_id);
+        let branch_id = self.txn_run_id.expect("txn_run_id set when txn_ctx is Some");
+        let ns = Namespace::for_branch(branch_id);
 
         // Temporarily take the context to create a Transaction
         let mut ctx = self.txn_ctx.take().unwrap();

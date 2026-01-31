@@ -20,7 +20,7 @@ use strata_core::StrataResult;
 use strata_engine::search::{SearchBudget, SearchRequest, SearchResponse, SearchStats};
 use strata_core::PrimitiveType;
 use strata_engine::Database;
-use strata_engine::{EventLog, JsonStore, KVStore, RunIndex, StateCell, VectorStore};
+use strata_engine::{EventLog, JsonStore, KVStore, BranchIndex, StateCell, VectorStore};
 use std::sync::Arc;
 use std::time::Instant;
 
@@ -78,7 +78,7 @@ pub struct HybridSearch {
     json: JsonStore,
     event: EventLog,
     state: StateCell,
-    run_index: RunIndex,
+    run_index: BranchIndex,
     vector: VectorStore,
 }
 
@@ -93,7 +93,7 @@ impl HybridSearch {
             json: JsonStore::new(db.clone()),
             event: EventLog::new(db.clone()),
             state: StateCell::new(db.clone()),
-            run_index: RunIndex::new(db.clone()),
+            run_index: BranchIndex::new(db.clone()),
             vector: VectorStore::new(db.clone()),
             db,
             fuser: Arc::new(SimpleFuser),
@@ -236,7 +236,7 @@ impl HybridSearch {
             PrimitiveType::Json => self.json.search(req),
             PrimitiveType::Event => self.event.search(req),
             PrimitiveType::State => self.state.search(req),
-            PrimitiveType::Run => self.run_index.search(req),
+            PrimitiveType::Branch => self.run_index.search(req),
             // Vector primitive now implements Searchable.
             // Per M8_ARCHITECTURE.md Section 12.3:
             // - Keyword search returns empty (by design)
@@ -263,7 +263,7 @@ impl HybridSearch {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use strata_core::types::RunId;
+    use strata_core::types::BranchId;
     use strata_core::value::Value;
 
     fn test_db() -> Arc<Database> {
@@ -282,9 +282,9 @@ mod tests {
     fn test_hybrid_search_empty() {
         let db = test_db();
         let hybrid = HybridSearch::new(db);
-        let run_id = RunId::new();
+        let branch_id = BranchId::new();
 
-        let req = SearchRequest::new(run_id, "test");
+        let req = SearchRequest::new(branch_id, "test");
         let response = hybrid.search(&req).unwrap();
 
         assert!(response.hits.is_empty());
@@ -295,16 +295,16 @@ mod tests {
     fn test_hybrid_search_kv_only() {
         let db = test_db();
         let kv = KVStore::new(db.clone());
-        let run_id = RunId::new();
+        let branch_id = BranchId::new();
 
         // Add test data
-        kv.put(&run_id, "hello", Value::String("world test data".into()))
+        kv.put(&branch_id, "hello", Value::String("world test data".into()))
             .unwrap();
-        kv.put(&run_id, "test", Value::String("this is a test".into()))
+        kv.put(&branch_id, "test", Value::String("this is a test".into()))
             .unwrap();
 
         let hybrid = HybridSearch::new(db);
-        let req = SearchRequest::new(run_id, "test").with_primitive_filter(vec![PrimitiveType::Kv]);
+        let req = SearchRequest::new(branch_id, "test").with_primitive_filter(vec![PrimitiveType::Kv]);
         let response = hybrid.search(&req).unwrap();
 
         // Note: MVP simplification - primitives' Searchable implementations return empty results.
@@ -318,10 +318,10 @@ mod tests {
     fn test_hybrid_search_primitive_filter() {
         let db = test_db();
         let hybrid = HybridSearch::new(db);
-        let run_id = RunId::new();
+        let branch_id = BranchId::new();
 
         // Test with filter
-        let req_filtered = SearchRequest::new(run_id, "test")
+        let req_filtered = SearchRequest::new(branch_id, "test")
             .with_primitive_filter(vec![PrimitiveType::Kv, PrimitiveType::Json]);
 
         let primitives = hybrid.select_primitives(&req_filtered);
@@ -330,7 +330,7 @@ mod tests {
         assert!(primitives.contains(&PrimitiveType::Json));
 
         // Test without filter (all primitives)
-        let req_all = SearchRequest::new(run_id, "test");
+        let req_all = SearchRequest::new(branch_id, "test");
         let all_primitives = hybrid.select_primitives(&req_all);
         assert_eq!(all_primitives.len(), 6); // Kv, Event, State, Run, Json, Vector
     }
@@ -339,9 +339,9 @@ mod tests {
     fn test_hybrid_search_budget_allocation() {
         let db = test_db();
         let hybrid = HybridSearch::new(db);
-        let run_id = RunId::new();
+        let branch_id = BranchId::new();
 
-        let req = SearchRequest::new(run_id, "test");
+        let req = SearchRequest::new(branch_id, "test");
 
         // Allocate for 3 primitives
         let budgets = hybrid.allocate_budgets(&req, 3);
@@ -378,18 +378,18 @@ mod tests {
     fn test_hybrid_search_multiple_primitives() {
         let db = test_db();
         let kv = KVStore::new(db.clone());
-        let run_index = RunIndex::new(db.clone());
-        let run_id = RunId::new();
+        let run_index = BranchIndex::new(db.clone());
+        let branch_id = BranchId::new();
 
         // Create the run in run_index
-        run_index.create_run(&run_id.to_string()).unwrap();
+        run_index.create_branch(&branch_id.to_string()).unwrap();
 
         // Add data to KV primitive
-        kv.put(&run_id, "hello", Value::String("hello world data".into()))
+        kv.put(&branch_id, "hello", Value::String("hello world data".into()))
             .unwrap();
 
         let hybrid = HybridSearch::new(db);
-        let req = SearchRequest::new(run_id, "hello");
+        let req = SearchRequest::new(branch_id, "hello");
         let response = hybrid.search(&req).unwrap();
 
         // Note: MVP simplification - primitives' Searchable implementations return empty results.

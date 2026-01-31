@@ -23,10 +23,10 @@ fn test_tier8_db_hybrid_returns_hybrid_search() {
 #[test]
 fn test_tier8_hybrid_empty_db() {
     let db = create_test_db();
-    let run_id = test_run_id();
+    let branch_id = test_run_id();
 
     let hybrid = db.hybrid();
-    let req = SearchRequest::new(run_id, "test");
+    let req = SearchRequest::new(branch_id, "test");
     let response = hybrid.search(&req).unwrap();
 
     assert!(response.hits.is_empty());
@@ -36,11 +36,11 @@ fn test_tier8_hybrid_empty_db() {
 #[test]
 fn test_tier8_hybrid_finds_results() {
     let db = create_test_db();
-    let run_id = test_run_id();
-    populate_test_data(&db, &run_id);
+    let branch_id = test_run_id();
+    populate_test_data(&db, &branch_id);
 
     let hybrid = db.hybrid();
-    let req = SearchRequest::new(run_id, "test");
+    let req = SearchRequest::new(branch_id, "test");
     let response = hybrid.search(&req).unwrap();
 
     assert!(!response.hits.is_empty());
@@ -50,11 +50,11 @@ fn test_tier8_hybrid_finds_results() {
 #[test]
 fn test_tier8_hybrid_includes_kv() {
     let db = create_test_db();
-    let run_id = test_run_id();
-    populate_test_data(&db, &run_id);
+    let branch_id = test_run_id();
+    populate_test_data(&db, &branch_id);
 
     let hybrid = db.hybrid();
-    let req = SearchRequest::new(run_id, "test");
+    let req = SearchRequest::new(branch_id, "test");
     let response = hybrid.search(&req).unwrap();
 
     let primitives: HashSet<_> = response
@@ -74,11 +74,11 @@ fn test_tier8_hybrid_includes_kv() {
 #[test]
 fn test_tier8_hybrid_respects_filter() {
     let db = create_test_db();
-    let run_id = test_run_id();
-    populate_test_data(&db, &run_id);
+    let branch_id = test_run_id();
+    populate_test_data(&db, &branch_id);
 
     let hybrid = db.hybrid();
-    let req = SearchRequest::new(run_id, "test").with_primitive_filter(vec![PrimitiveType::Kv]);
+    let req = SearchRequest::new(branch_id, "test").with_primitive_filter(vec![PrimitiveType::Kv]);
     let response = hybrid.search(&req).unwrap();
 
     for hit in &response.hits {
@@ -90,11 +90,11 @@ fn test_tier8_hybrid_respects_filter() {
 #[test]
 fn test_tier8_hybrid_empty_filter() {
     let db = create_test_db();
-    let run_id = test_run_id();
-    populate_test_data(&db, &run_id);
+    let branch_id = test_run_id();
+    populate_test_data(&db, &branch_id);
 
     let hybrid = db.hybrid();
-    let req = SearchRequest::new(run_id, "test").with_primitive_filter(vec![]);
+    let req = SearchRequest::new(branch_id, "test").with_primitive_filter(vec![]);
     let response = hybrid.search(&req).unwrap();
 
     assert!(response.hits.is_empty());
@@ -104,18 +104,18 @@ fn test_tier8_hybrid_empty_filter() {
 #[test]
 fn test_tier8_hybrid_multi_filter() {
     let db = create_test_db();
-    let run_id = test_run_id();
-    populate_test_data(&db, &run_id);
+    let branch_id = test_run_id();
+    populate_test_data(&db, &branch_id);
 
     let hybrid = db.hybrid();
-    let req = SearchRequest::new(run_id, "test")
-        .with_primitive_filter(vec![PrimitiveType::Kv, PrimitiveType::Run]);
+    let req = SearchRequest::new(branch_id, "test")
+        .with_primitive_filter(vec![PrimitiveType::Kv, PrimitiveType::Branch]);
     let response = hybrid.search(&req).unwrap();
 
     for hit in &response.hits {
         let kind = hit.doc_ref.primitive_type();
         assert!(
-            kind == PrimitiveType::Kv || kind == PrimitiveType::Run,
+            kind == PrimitiveType::Kv || kind == PrimitiveType::Branch,
             "Should only include filtered primitives"
         );
     }
@@ -129,12 +129,12 @@ fn test_tier8_hybrid_multi_filter() {
 #[test]
 fn test_tier8_hybrid_custom_fuser() {
     let db = create_test_db();
-    let run_id = test_run_id();
-    populate_test_data(&db, &run_id);
+    let branch_id = test_run_id();
+    populate_test_data(&db, &branch_id);
 
     let hybrid = HybridSearch::new(db.clone()).with_fuser(Arc::new(RRFFuser::default()));
 
-    let req = SearchRequest::new(run_id, "test");
+    let req = SearchRequest::new(branch_id, "test");
     let response = hybrid.search(&req).unwrap();
 
     assert!(!response.hits.is_empty());
@@ -144,12 +144,12 @@ fn test_tier8_hybrid_custom_fuser() {
 #[test]
 fn test_tier8_hybrid_rrf_valid() {
     let db = create_test_db();
-    let run_id = test_run_id();
-    populate_test_data(&db, &run_id);
+    let branch_id = test_run_id();
+    populate_test_data(&db, &branch_id);
 
     let hybrid = HybridSearch::new(db.clone()).with_fuser(Arc::new(RRFFuser::default()));
 
-    let req = SearchRequest::new(run_id, "test").with_k(5);
+    let req = SearchRequest::new(branch_id, "test").with_k(5);
     let response = hybrid.search(&req).unwrap();
 
     // Should have valid structure
@@ -165,10 +165,10 @@ fn test_tier8_hybrid_rrf_valid() {
 #[test]
 fn test_tier8_hybrid_deterministic() {
     let db = create_test_db();
-    let run_id = test_run_id();
-    populate_test_data(&db, &run_id);
+    let branch_id = test_run_id();
+    populate_test_data(&db, &branch_id);
 
-    let req = SearchRequest::new(run_id, "test");
+    let req = SearchRequest::new(branch_id, "test");
     verify_deterministic(&db, &req);
 }
 
@@ -176,11 +176,11 @@ fn test_tier8_hybrid_deterministic() {
 #[test]
 fn test_tier8_hybrid_valid_ranks() {
     let db = create_test_db();
-    let run_id = test_run_id();
-    populate_test_data(&db, &run_id);
+    let branch_id = test_run_id();
+    populate_test_data(&db, &branch_id);
 
     let hybrid = db.hybrid();
-    let req = SearchRequest::new(run_id, "test");
+    let req = SearchRequest::new(branch_id, "test");
     let response = hybrid.search(&req).unwrap();
 
     verify_ranks_sequential(&response);
@@ -190,11 +190,11 @@ fn test_tier8_hybrid_valid_ranks() {
 #[test]
 fn test_tier8_hybrid_valid_scores() {
     let db = create_test_db();
-    let run_id = test_run_id();
-    populate_test_data(&db, &run_id);
+    let branch_id = test_run_id();
+    populate_test_data(&db, &branch_id);
 
     let hybrid = db.hybrid();
-    let req = SearchRequest::new(run_id, "test");
+    let req = SearchRequest::new(branch_id, "test");
     let response = hybrid.search(&req).unwrap();
 
     verify_scores_decreasing(&response);
@@ -208,11 +208,11 @@ fn test_tier8_hybrid_valid_scores() {
 #[test]
 fn test_tier8_hybrid_populates_stats() {
     let db = create_test_db();
-    let run_id = test_run_id();
-    populate_test_data(&db, &run_id);
+    let branch_id = test_run_id();
+    populate_test_data(&db, &branch_id);
 
     let hybrid = db.hybrid();
-    let req = SearchRequest::new(run_id, "test");
+    let req = SearchRequest::new(branch_id, "test");
     let response = hybrid.search(&req).unwrap();
 
     // Stats should be populated

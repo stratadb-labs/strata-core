@@ -737,43 +737,43 @@ fn executor_run_isolation() {
     let executor = create_executor();
 
     // Create two runs with human-readable names
-    let run_a = match executor.execute(Command::RunCreate {
-        run_id: Some("isolation-test-a".into()),
+    let branch_a = match executor.execute(Command::BranchCreate {
+        branch_id: Some("isolation-test-a".into()),
         metadata: None,
     }).unwrap() {
-        Output::RunWithVersion { info, .. } => info.id,
-        _ => panic!("Expected RunWithVersion"),
+        Output::BranchWithVersion { info, .. } => info.id,
+        _ => panic!("Expected BranchWithVersion"),
     };
 
-    let run_b = match executor.execute(Command::RunCreate {
-        run_id: Some("isolation-test-b".into()),
+    let branch_b = match executor.execute(Command::BranchCreate {
+        branch_id: Some("isolation-test-b".into()),
         metadata: None,
     }).unwrap() {
-        Output::RunWithVersion { info, .. } => info.id,
-        _ => panic!("Expected RunWithVersion"),
+        Output::BranchWithVersion { info, .. } => info.id,
+        _ => panic!("Expected BranchWithVersion"),
     };
 
     // Write same key to both runs with different values
     executor.execute(Command::KvPut {
-        run: Some(run_a.clone()),
+        run: Some(branch_a.clone()),
         key: "shared_key".into(),
         value: Value::String("value_in_run_a".into()),
     }).unwrap();
 
     executor.execute(Command::KvPut {
-        run: Some(run_b.clone()),
+        run: Some(branch_b.clone()),
         key: "shared_key".into(),
         value: Value::String("value_in_run_b".into()),
     }).unwrap();
 
     // Each run should see its own value
     let output_a = executor.execute(Command::KvGet {
-        run: Some(run_a),
+        run: Some(branch_a),
         key: "shared_key".into(),
     }).unwrap();
 
     let output_b = executor.execute(Command::KvGet {
-        run: Some(run_b),
+        run: Some(branch_b),
         key: "shared_key".into(),
     }).unwrap();
 

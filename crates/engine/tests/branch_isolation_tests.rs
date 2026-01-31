@@ -4,10 +4,10 @@
 //! Each run has its own namespace and cannot see or affect other runs' data.
 
 use strata_core::contract::Version;
-use strata_core::types::RunId;
+use strata_core::types::BranchId;
 use strata_core::value::Value;
 use strata_engine::Database;
-use strata_engine::{EventLog, KVStore, RunIndex, StateCell};
+use strata_engine::{EventLog, KVStore, BranchIndex, StateCell};
 use std::collections::HashMap;
 use std::sync::Arc;
 use tempfile::TempDir;
@@ -39,8 +39,8 @@ fn test_kv_isolation() {
     let (db, _temp) = setup();
     let kv = KVStore::new(db.clone());
 
-    let run1 = RunId::new();
-    let run2 = RunId::new();
+    let run1 = BranchId::new();
+    let run2 = BranchId::new();
 
     // Same key, different runs
     kv.put(&run1, "key", Value::Int(1)).unwrap();
@@ -68,8 +68,8 @@ fn test_event_log_isolation() {
 
     use strata_core::contract::Version;
 
-    let run1 = RunId::new();
-    let run2 = RunId::new();
+    let run1 = BranchId::new();
+    let run2 = BranchId::new();
 
     // Both runs start at sequence 0
     let v1 = event_log
@@ -107,8 +107,8 @@ fn test_state_cell_isolation() {
     let (db, _temp) = setup();
     let state_cell = StateCell::new(db.clone());
 
-    let run1 = RunId::new();
-    let run2 = RunId::new();
+    let run1 = BranchId::new();
+    let run2 = BranchId::new();
 
     // Same cell name, different runs
     state_cell.init(&run1, "counter", Value::Int(0)).unwrap();
@@ -136,8 +136,8 @@ fn test_state_cell_isolation() {
 fn test_cross_run_query_isolation() {
     let (db, _temp) = setup();
 
-    let run1 = RunId::new();
-    let run2 = RunId::new();
+    let run1 = BranchId::new();
+    let run2 = BranchId::new();
 
     // Create extensive data in both runs
     let kv = KVStore::new(db.clone());
@@ -194,17 +194,17 @@ fn test_cross_run_query_isolation() {
 fn test_run_delete_isolation() {
     let (db, _temp) = setup();
 
-    let run_index = RunIndex::new(db.clone());
+    let run_index = BranchIndex::new(db.clone());
     let kv = KVStore::new(db.clone());
     let event_log = EventLog::new(db.clone());
     let state_cell = StateCell::new(db.clone());
 
-    // Create two runs via RunIndex
-    let meta1 = run_index.create_run("run1").unwrap();
-    let meta2 = run_index.create_run("run2").unwrap();
+    // Create two runs via BranchIndex
+    let meta1 = run_index.create_branch("run1").unwrap();
+    let meta2 = run_index.create_branch("run2").unwrap();
 
-    let run1 = RunId::from_string(&meta1.value.run_id).unwrap();
-    let run2 = RunId::from_string(&meta2.value.run_id).unwrap();
+    let run1 = BranchId::from_string(&meta1.value.branch_id).unwrap();
+    let run2 = BranchId::from_string(&meta2.value.branch_id).unwrap();
 
     // Write data to both runs
     kv.put(&run1, "key", Value::Int(1)).unwrap();
@@ -221,7 +221,7 @@ fn test_run_delete_isolation() {
     assert!(kv.get(&run2, "key").unwrap().is_some());
 
     // Delete run1 (cascading delete)
-    run_index.delete_run("run1").unwrap();
+    run_index.delete_branch("run1").unwrap();
 
     // run1 data is GONE
     assert!(kv.get(&run1, "key").unwrap().is_none());
@@ -241,20 +241,20 @@ fn test_many_runs_isolation() {
     let kv = KVStore::new(db.clone());
 
     // Create 100 runs
-    let runs: Vec<RunId> = (0..100).map(|_| RunId::new()).collect();
+    let runs: Vec<BranchId> = (0..100).map(|_| BranchId::new()).collect();
 
     // Each run writes its own data
-    for (i, run_id) in runs.iter().enumerate() {
-        kv.put(run_id, "value", Value::Int(i as i64)).unwrap();
-        kv.put(run_id, "run_index", Value::Int(i as i64)).unwrap();
+    for (i, branch_id) in runs.iter().enumerate() {
+        kv.put(branch_id, "value", Value::Int(i as i64)).unwrap();
+        kv.put(branch_id, "run_index", Value::Int(i as i64)).unwrap();
     }
 
     // Verify each run sees only its data
-    for (i, run_id) in runs.iter().enumerate() {
-        let value = kv.get(run_id, "value").unwrap().unwrap();
+    for (i, branch_id) in runs.iter().enumerate() {
+        let value = kv.get(branch_id, "value").unwrap().unwrap();
         assert_eq!(value, Value::Int(i as i64));
 
-        let keys = kv.list(run_id, None).unwrap();
+        let keys = kv.list(branch_id, None).unwrap();
         assert_eq!(keys.len(), 2);
     }
 }
@@ -265,8 +265,8 @@ fn test_state_cell_cas_isolation() {
     let (db, _temp) = setup();
     let state_cell = StateCell::new(db.clone());
 
-    let run1 = RunId::new();
-    let run2 = RunId::new();
+    let run1 = BranchId::new();
+    let run2 = BranchId::new();
 
     // Both init same cell name
     state_cell.init(&run1, "cell", Value::Int(0)).unwrap();
@@ -293,8 +293,8 @@ fn test_event_log_chain_isolation() {
     let (db, _temp) = setup();
     let event_log = EventLog::new(db.clone());
 
-    let run1 = RunId::new();
-    let run2 = RunId::new();
+    let run1 = BranchId::new();
+    let run2 = BranchId::new();
 
     // Build chain in run1
     event_log.append(&run1, "e1", int_payload(0)).unwrap();

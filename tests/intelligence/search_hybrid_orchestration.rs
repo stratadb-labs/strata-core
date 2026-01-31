@@ -10,14 +10,14 @@ use strata_core::types::JsonDocId;
 #[test]
 fn test_hybrid_orchestrates_primitives() {
     let test_db = TestDb::new();
-    let run_id = test_db.run_id;
+    let branch_id = test_db.branch_id;
     let p = test_db.all_primitives();
 
     // Populate primitives with related content
-    p.kv.put(&run_id, "topic1", strata_core::value::Value::String("machine learning algorithm".into()))
+    p.kv.put(&branch_id, "topic1", strata_core::value::Value::String("machine learning algorithm".into()))
         .expect("kv");
     let doc_id = JsonDocId::new();
-    p.json.create(&run_id, &doc_id, JsonValue::from(serde_json::json!({
+    p.json.create(&branch_id, &doc_id, JsonValue::from(serde_json::json!({
         "title": "Introduction to Machine Learning",
         "content": "ML algorithms are powerful"
     }))).expect("json");

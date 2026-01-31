@@ -1,6 +1,6 @@
 # StrataDB
 
-**An embedded database for AI agents — six primitives, run isolation, and deterministic replay.**
+**An embedded database for AI agents — six primitives, branch isolation, and deterministic replay.**
 
 ```rust
 use stratadb::Strata;
@@ -20,7 +20,7 @@ db.state_cas("lock", None, "acquired")?;
 | **State Cell** | CAS-based coordination, counters, locks | `state_set`, `state_read`, `state_cas`, `state_init` |
 | **JSON Store** | Structured documents with path-level mutations | `json_set`, `json_get`, `json_delete`, `json_list` |
 | **Vector Store** | Embeddings and similarity search | `vector_upsert`, `vector_search`, `vector_create_collection` |
-| **Run** | Data isolation (like git branches) | `create_run`, `set_run`, `list_runs`, `delete_run` |
+| **Branch** | Data isolation (like git branches) | `create_branch`, `set_branch`, `list_branches`, `delete_branch` |
 
 ## Installation
 
@@ -43,20 +43,20 @@ fn main() -> stratadb::Result<()> {
     // Open a persistent database
     let mut db = Strata::open("./my-data")?;
 
-    // All data lives in a "run" (like a git branch)
-    // You start on the "default" run automatically
+    // All data lives in a "branch" (like a git branch)
+    // You start on the "default" branch automatically
     db.kv_put("user:name", "Alice")?;
     db.kv_put("user:score", 42i64)?;
 
-    // Create an isolated run for an experiment
-    db.create_run("experiment-1")?;
-    db.set_run("experiment-1")?;
+    // Create an isolated branch for an experiment
+    db.create_branch("experiment-1")?;
+    db.set_branch("experiment-1")?;
 
     // Data is isolated — "user:name" doesn't exist here
     assert!(db.kv_get("user:name")?.is_none());
 
     // Switch back to default
-    db.set_run("default")?;
+    db.set_branch("default")?;
     assert_eq!(db.kv_get("user:name")?, Some(Value::String("Alice".into())));
 
     Ok(())
@@ -77,7 +77,7 @@ Choose your speed/safety trade-off:
 
 ```
 +-----------------------------------------------------------+
-|  Strata API (KV, Event, State, JSON, Vector, Run)         |
+|  Strata API (KV, Event, State, JSON, Vector, Branch)         |
 +-----------------------------------------------------------+
 |  Executor (Command dispatch) / Session (Transactions)     |
 +-----------------------------------------------------------+
@@ -98,7 +98,7 @@ Choose your speed/safety trade-off:
 **Key design choices:**
 
 - **Unified storage** — all primitives share one sharded map, enabling atomic multi-primitive transactions
-- **Run-tagged keys** — every key includes its run ID, making replay O(run size)
+- **Branch-tagged keys** — every key includes its branch ID, making replay O(branch size)
 - **Optimistic concurrency** — lock-free transactions via compare-and-swap; agents rarely conflict
 - **Batched durability** — fsync batched by default; losing 100ms of work is acceptable for most agents
 
@@ -106,7 +106,7 @@ Choose your speed/safety trade-off:
 
 - [Documentation Hub](docs/index.md) — start here
 - [Getting Started](docs/getting-started/installation.md) — installation and first database
-- [Concepts](docs/concepts/index.md) — runs, primitives, value types, transactions, durability
+- [Concepts](docs/concepts/index.md) — branches, primitives, value types, transactions, durability
 - [Guides](docs/guides/kv-store.md) — per-primitive walkthroughs
 - [Cookbook](docs/cookbook/index.md) — real-world patterns
 - [API Reference](docs/reference/api-quick-reference.md) — every method at a glance

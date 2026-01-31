@@ -8,12 +8,12 @@ use crate::common::*;
 #[test]
 fn test_search_respects_time_budget() {
     let test_db = TestDb::new();
-    let run_id = test_db.run_id;
+    let branch_id = test_db.branch_id;
     let p = test_db.all_primitives();
 
     // Populate with lots of data
     for i in 0..1000 {
-        p.kv.put(&run_id, &format!("key_{}", i),
+        p.kv.put(&branch_id, &format!("key_{}", i),
             strata_core::value::Value::String(format!("value {}", i)))
             .expect("put");
     }
@@ -28,12 +28,12 @@ fn test_search_respects_time_budget() {
 #[test]
 fn test_search_respects_candidate_limit() {
     let test_db = TestDb::new();
-    let run_id = test_db.run_id;
+    let branch_id = test_db.branch_id;
     let p = test_db.all_primitives();
 
     // Populate data
     for i in 0..100 {
-        p.kv.put(&run_id, &format!("candidate_{}", i),
+        p.kv.put(&branch_id, &format!("candidate_{}", i),
             strata_core::value::Value::String("match".into()))
             .expect("put");
     }

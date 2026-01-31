@@ -218,7 +218,7 @@ impl RecoveryStats {
 mod tests {
     use super::*;
     use crate::payload::TransactionPayload;
-    use strata_core::types::{Key, Namespace, RunId};
+    use strata_core::types::{Key, Namespace, BranchId};
     use strata_core::value::Value;
     use strata_durability::codec::IdentityCodec;
     use strata_durability::format::WalRecord;
@@ -226,12 +226,12 @@ mod tests {
     use strata_durability::wal::{DurabilityMode, WalConfig, WalWriter};
     use tempfile::TempDir;
 
-    fn create_test_namespace(run_id: RunId) -> Namespace {
+    fn create_test_namespace(branch_id: BranchId) -> Namespace {
         Namespace::new(
             "tenant".to_string(),
             "app".to_string(),
             "agent".to_string(),
-            run_id,
+            branch_id,
         )
     }
 
@@ -250,7 +250,7 @@ mod tests {
     fn write_txn(
         wal: &mut WalWriter,
         txn_id: u64,
-        run_id: RunId,
+        branch_id: BranchId,
         puts: Vec<(Key, Value)>,
         deletes: Vec<Key>,
         version: u64,
@@ -262,7 +262,7 @@ mod tests {
         };
         let record = WalRecord::new(
             txn_id,
-            *run_id.as_bytes(),
+            *branch_id.as_bytes(),
             now_micros(),
             payload.to_bytes(),
         );
@@ -304,8 +304,8 @@ mod tests {
         let temp_dir = TempDir::new().unwrap();
         let wal_dir = temp_dir.path().join("wal");
 
-        let run_id = RunId::new();
-        let ns = create_test_namespace(run_id);
+        let branch_id = BranchId::new();
+        let ns = create_test_namespace(branch_id);
         let key = Key::new_kv(ns, "test_key");
 
         {
@@ -313,7 +313,7 @@ mod tests {
             write_txn(
                 &mut wal,
                 1,
-                run_id,
+                branch_id,
                 vec![(key.clone(), Value::Int(42))],
                 vec![],
                 100,
@@ -338,8 +338,8 @@ mod tests {
         let temp_dir = TempDir::new().unwrap();
         let wal_dir = temp_dir.path().join("wal");
 
-        let run_id = RunId::new();
-        let ns = create_test_namespace(run_id);
+        let branch_id = BranchId::new();
+        let ns = create_test_namespace(branch_id);
 
         {
             let mut wal = create_test_wal(&wal_dir);
@@ -348,7 +348,7 @@ mod tests {
             write_txn(
                 &mut wal,
                 1,
-                run_id,
+                branch_id,
                 vec![
                     (Key::new_kv(ns.clone(), "key1"), Value::Int(1)),
                     (Key::new_kv(ns.clone(), "key2"), Value::Int(2)),
@@ -361,7 +361,7 @@ mod tests {
             write_txn(
                 &mut wal,
                 2,
-                run_id,
+                branch_id,
                 vec![(Key::new_kv(ns.clone(), "key3"), Value::Int(3))],
                 vec![],
                 200,
@@ -398,8 +398,8 @@ mod tests {
         let temp_dir = TempDir::new().unwrap();
         let wal_dir = temp_dir.path().join("wal");
 
-        let run_id = RunId::new();
-        let ns = create_test_namespace(run_id);
+        let branch_id = BranchId::new();
+        let ns = create_test_namespace(branch_id);
 
         {
             let mut wal = create_test_wal(&wal_dir);
@@ -407,7 +407,7 @@ mod tests {
                 write_txn(
                     &mut wal,
                     i,
-                    run_id,
+                    branch_id,
                     vec![(Key::new_kv(ns.clone(), format!("key{}", i)), Value::Int(i as i64 * 10))],
                     vec![],
                     i * 100,
@@ -439,8 +439,8 @@ mod tests {
         let temp_dir = TempDir::new().unwrap();
         let wal_dir = temp_dir.path().join("wal");
 
-        let run_id = RunId::new();
-        let ns = create_test_namespace(run_id);
+        let branch_id = BranchId::new();
+        let ns = create_test_namespace(branch_id);
         let key = Key::new_kv(ns, "deleted_key");
 
         {
@@ -450,12 +450,12 @@ mod tests {
             write_txn(
                 &mut wal,
                 1,
-                run_id,
+                branch_id,
                 vec![(key.clone(), Value::String("exists".to_string()))],
                 vec![],
                 100,
             );
-            write_txn(&mut wal, 2, run_id, vec![], vec![key.clone()], 101);
+            write_txn(&mut wal, 2, branch_id, vec![], vec![key.clone()], 101);
         }
 
         let coordinator = RecoveryCoordinator::new(wal_dir);
@@ -531,15 +531,15 @@ mod tests {
         let temp_dir = TempDir::new().unwrap();
         let wal_dir = temp_dir.path().join("wal");
 
-        let run_id = RunId::new();
-        let ns = create_test_namespace(run_id);
+        let branch_id = BranchId::new();
+        let ns = create_test_namespace(branch_id);
 
         {
             let mut wal = create_test_wal(&wal_dir);
             write_txn(
                 &mut wal,
                 1,
-                run_id,
+                branch_id,
                 vec![(
                     Key::new_kv(ns.clone(), "durable_key"),
                     Value::String("must_exist".to_string()),
@@ -571,15 +571,15 @@ mod tests {
         let temp_dir = TempDir::new().unwrap();
         let wal_dir = temp_dir.path().join("wal");
 
-        let run_id = RunId::new();
-        let ns = create_test_namespace(run_id);
+        let branch_id = BranchId::new();
+        let ns = create_test_namespace(branch_id);
 
         {
             let mut wal = create_test_wal(&wal_dir);
             write_txn(
                 &mut wal,
                 1,
-                run_id,
+                branch_id,
                 vec![(Key::new_kv(ns.clone(), "valid"), Value::Int(42))],
                 vec![],
                 100,
@@ -614,15 +614,15 @@ mod tests {
         let temp_dir = TempDir::new().unwrap();
         let wal_dir = temp_dir.path().join("wal");
 
-        let run_id = RunId::new();
-        let ns = create_test_namespace(run_id);
+        let branch_id = BranchId::new();
+        let ns = create_test_namespace(branch_id);
 
         {
             let mut wal = create_test_wal(&wal_dir);
             write_txn(
                 &mut wal,
                 1,
-                run_id,
+                branch_id,
                 vec![(Key::new_kv(ns.clone(), "key"), Value::Int(42))],
                 vec![],
                 100,
@@ -658,15 +658,15 @@ mod tests {
         let temp_dir = TempDir::new().unwrap();
         let wal_dir = temp_dir.path().join("wal");
 
-        let run_id = RunId::new();
-        let ns = create_test_namespace(run_id);
+        let branch_id = BranchId::new();
+        let ns = create_test_namespace(branch_id);
 
         {
             let mut wal = create_test_wal(&wal_dir);
             write_txn(
                 &mut wal,
                 1,
-                run_id,
+                branch_id,
                 vec![(Key::new_kv(ns, "key"), Value::Int(1))],
                 vec![],
                 999,
@@ -685,8 +685,8 @@ mod tests {
         let temp_dir = TempDir::new().unwrap();
         let wal_dir = temp_dir.path().join("wal");
 
-        let run_id = RunId::new();
-        let ns = create_test_namespace(run_id);
+        let branch_id = BranchId::new();
+        let ns = create_test_namespace(branch_id);
 
         {
             let mut wal = create_test_wal(&wal_dir);
@@ -694,7 +694,7 @@ mod tests {
                 write_txn(
                     &mut wal,
                     i,
-                    run_id,
+                    branch_id,
                     vec![(
                         Key::new_kv(ns.clone(), format!("key{}", i)),
                         Value::Int(i as i64 * 10),
@@ -725,8 +725,8 @@ mod tests {
         let temp_dir = TempDir::new().unwrap();
         let wal_dir = temp_dir.path().join("wal");
 
-        let run_id = RunId::new();
-        let ns = create_test_namespace(run_id);
+        let branch_id = BranchId::new();
+        let ns = create_test_namespace(branch_id);
 
         {
             let mut wal = create_test_wal(&wal_dir);
@@ -735,7 +735,7 @@ mod tests {
             write_txn(
                 &mut wal,
                 1,
-                run_id,
+                branch_id,
                 vec![(
                     Key::new_kv(ns.clone(), "key1"),
                     Value::String("initial".to_string()),
@@ -748,7 +748,7 @@ mod tests {
             write_txn(
                 &mut wal,
                 2,
-                run_id,
+                branch_id,
                 vec![(
                     Key::new_kv(ns.clone(), "key1"),
                     Value::String("updated".to_string()),
@@ -761,7 +761,7 @@ mod tests {
             write_txn(
                 &mut wal,
                 3,
-                run_id,
+                branch_id,
                 vec![(
                     Key::new_kv(ns.clone(), "key2"),
                     Value::String("temp".to_string()),
@@ -774,7 +774,7 @@ mod tests {
             write_txn(
                 &mut wal,
                 4,
-                run_id,
+                branch_id,
                 vec![(Key::new_kv(ns.clone(), "key3"), Value::Int(42))],
                 vec![],
                 5,
@@ -820,8 +820,8 @@ mod tests {
         let temp_dir = TempDir::new().unwrap();
         let wal_dir = temp_dir.path().join("wal");
 
-        let run_id = RunId::new();
-        let ns = create_test_namespace(run_id);
+        let branch_id = BranchId::new();
+        let ns = create_test_namespace(branch_id);
 
         {
             let mut wal = create_test_wal(&wal_dir);
@@ -829,7 +829,7 @@ mod tests {
                 write_txn(
                     &mut wal,
                     v,
-                    run_id,
+                    branch_id,
                     vec![(Key::new_kv(ns.clone(), "counter"), Value::Int(v as i64))],
                     vec![],
                     v,
@@ -854,15 +854,15 @@ mod tests {
         let temp_dir = TempDir::new().unwrap();
         let wal_dir = temp_dir.path().join("wal");
 
-        let run_id = RunId::new();
-        let ns = create_test_namespace(run_id);
+        let branch_id = BranchId::new();
+        let ns = create_test_namespace(branch_id);
 
         {
             let mut wal = create_test_wal(&wal_dir);
             write_txn(
                 &mut wal,
                 1,
-                run_id,
+                branch_id,
                 vec![(Key::new_kv(ns, "existing"), Value::Int(100))],
                 vec![],
                 100,
@@ -882,8 +882,8 @@ mod tests {
         let temp_dir = TempDir::new().unwrap();
         let wal_dir = temp_dir.path().join("wal");
 
-        let run_id = RunId::new();
-        let ns = create_test_namespace(run_id);
+        let branch_id = BranchId::new();
+        let ns = create_test_namespace(branch_id);
         let num_txns = 100u64;
 
         {
@@ -892,7 +892,7 @@ mod tests {
                 write_txn(
                     &mut wal,
                     i,
-                    run_id,
+                    branch_id,
                     vec![(
                         Key::new_kv(ns.clone(), format!("key_{}", i)),
                         Value::Int(i as i64),

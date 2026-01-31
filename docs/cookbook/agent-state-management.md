@@ -4,7 +4,7 @@ This recipe shows how to manage a complete AI agent session using multiple primi
 
 ## Pattern
 
-Each agent session gets its own run. Within that run:
+Each agent session gets its own branch. Within that branch:
 - **KV Store** holds agent configuration and working memory
 - **State Cell** tracks the agent's current status
 - **Event Log** records every action for auditing and replay
@@ -15,9 +15,9 @@ Each agent session gets its own run. Within that run:
 use stratadb::{Strata, Value};
 
 fn run_agent_session(db: &mut Strata, session_id: &str) -> stratadb::Result<()> {
-    // Create an isolated run for this session
-    db.create_run(session_id)?;
-    db.set_run(session_id)?;
+    // Create an isolated branch for this session
+    db.create_branch(session_id)?;
+    db.set_branch(session_id)?;
 
     // === Configuration (KV) ===
     db.kv_put("config:model", "gpt-4")?;
@@ -61,8 +61,8 @@ fn run_agent_session(db: &mut Strata, session_id: &str) -> stratadb::Result<()> 
     println!("Session {}: status={:?}, events={}, steps={:?}",
         session_id, status, events, steps);
 
-    // Switch back to default run
-    db.set_run("default")?;
+    // Switch back to default branch
+    db.set_branch("default")?;
 
     Ok(())
 }
@@ -70,11 +70,11 @@ fn run_agent_session(db: &mut Strata, session_id: &str) -> stratadb::Result<()> 
 
 ## Reading Session History
 
-After a session completes, you can switch to its run and read everything:
+After a session completes, you can switch to its branch and read everything:
 
 ```rust
 fn review_session(db: &mut Strata, session_id: &str) -> stratadb::Result<()> {
-    db.set_run(session_id)?;
+    db.set_branch(session_id)?;
 
     // Read all tool calls
     let tool_calls = db.event_read_by_type("tool_call")?;
@@ -90,7 +90,7 @@ fn review_session(db: &mut Strata, session_id: &str) -> stratadb::Result<()> {
     let status = db.state_read("status")?;
     println!("Final status: {:?}", status);
 
-    db.set_run("default")?;
+    db.set_branch("default")?;
     Ok(())
 }
 ```
@@ -100,8 +100,8 @@ fn review_session(db: &mut Strata, session_id: &str) -> stratadb::Result<()> {
 Delete sessions you no longer need:
 
 ```rust
-db.set_run("default")?;
-db.delete_run("session-001")?; // Removes all data
+db.set_branch("default")?;
+db.delete_branch("session-001")?; // Removes all data
 ```
 
 ## See Also
@@ -109,4 +109,4 @@ db.delete_run("session-001")?; // Removes all data
 - [KV Store Guide](../guides/kv-store.md)
 - [Event Log Guide](../guides/event-log.md)
 - [State Cell Guide](../guides/state-cell.md)
-- [Run Management Guide](../guides/run-management.md)
+- [Branch Management Guide](../guides/branch-management.md)

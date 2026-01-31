@@ -12,7 +12,7 @@ fn test_r4_backend_tiebreak_by_vectorid() {
     let vector = test_db.vector();
 
     vector
-        .create_collection(test_db.run_id, "embeddings", config_custom(3, DistanceMetric::Cosine))
+        .create_collection(test_db.branch_id, "embeddings", config_custom(3, DistanceMetric::Cosine))
         .unwrap();
 
     // All identical vectors = all identical scores
@@ -21,26 +21,26 @@ fn test_r4_backend_tiebreak_by_vectorid() {
     // Insert in specific order to control VectorId assignment
     // First inserted gets lowest VectorId
     vector
-        .insert(test_db.run_id, "embeddings", "key_c", &identical, None)
+        .insert(test_db.branch_id, "embeddings", "key_c", &identical, None)
         .unwrap();
     vector
-        .insert(test_db.run_id, "embeddings", "key_a", &identical, None)
+        .insert(test_db.branch_id, "embeddings", "key_a", &identical, None)
         .unwrap();
     vector
-        .insert(test_db.run_id, "embeddings", "key_b", &identical, None)
+        .insert(test_db.branch_id, "embeddings", "key_b", &identical, None)
         .unwrap();
 
     // Get VectorIds to understand ordering
     let entry_c = vector
-        .get(test_db.run_id, "embeddings", "key_c")
+        .get(test_db.branch_id, "embeddings", "key_c")
         .unwrap()
         .unwrap();
     let entry_a = vector
-        .get(test_db.run_id, "embeddings", "key_a")
+        .get(test_db.branch_id, "embeddings", "key_a")
         .unwrap()
         .unwrap();
     let entry_b = vector
-        .get(test_db.run_id, "embeddings", "key_b")
+        .get(test_db.branch_id, "embeddings", "key_b")
         .unwrap()
         .unwrap();
 
@@ -56,7 +56,7 @@ fn test_r4_backend_tiebreak_by_vectorid() {
 
     let query = vec![1.0, 0.0, 0.0];
     let results = vector
-        .search(test_db.run_id, "embeddings", &query, 3, None)
+        .search(test_db.branch_id, "embeddings", &query, 3, None)
         .unwrap();
 
     // All scores are tied, so ordering should be deterministic
@@ -67,7 +67,7 @@ fn test_r4_backend_tiebreak_by_vectorid() {
     // Run multiple times to ensure consistency
     for _ in 0..10 {
         let results2 = vector
-            .search(test_db.run_id, "embeddings", &query, 3, None)
+            .search(test_db.branch_id, "embeddings", &query, 3, None)
             .unwrap();
         let keys1: Vec<&str> = results.iter().map(|r| r.key.as_str()).collect();
         let keys2: Vec<&str> = results2.iter().map(|r| r.key.as_str()).collect();
@@ -82,7 +82,7 @@ fn test_r4_many_tied_scores() {
     let vector = test_db.vector();
 
     vector
-        .create_collection(test_db.run_id, "embeddings", config_custom(3, DistanceMetric::Cosine))
+        .create_collection(test_db.branch_id, "embeddings", config_custom(3, DistanceMetric::Cosine))
         .unwrap();
 
     // Insert 20 identical vectors
@@ -90,7 +90,7 @@ fn test_r4_many_tied_scores() {
     for i in 0..20 {
         vector
             .insert(
-                test_db.run_id,
+                test_db.branch_id,
                 "embeddings",
                 &format!("key_{:02}", i),
                 &identical,
@@ -101,7 +101,7 @@ fn test_r4_many_tied_scores() {
 
     let query = vec![1.0, 0.0, 0.0];
     let results = vector
-        .search(test_db.run_id, "embeddings", &query, 20, None)
+        .search(test_db.branch_id, "embeddings", &query, 20, None)
         .unwrap();
 
     // Verify all scores are equal (or very close)
@@ -119,7 +119,7 @@ fn test_r4_many_tied_scores() {
     let keys_first: Vec<String> = results.iter().map(|r| r.key.clone()).collect();
     for _ in 0..10 {
         let results2 = vector
-            .search(test_db.run_id, "embeddings", &query, 20, None)
+            .search(test_db.branch_id, "embeddings", &query, 20, None)
             .unwrap();
         let keys_second: Vec<String> = results2.iter().map(|r| r.key.clone()).collect();
         assert_eq!(
@@ -136,7 +136,7 @@ fn test_r4_score_takes_precedence_over_tiebreak() {
     let vector = test_db.vector();
 
     vector
-        .create_collection(test_db.run_id, "embeddings", config_custom(3, DistanceMetric::Cosine))
+        .create_collection(test_db.branch_id, "embeddings", config_custom(3, DistanceMetric::Cosine))
         .unwrap();
 
     let query = vec![1.0, 0.0, 0.0];
@@ -145,15 +145,15 @@ fn test_r4_score_takes_precedence_over_tiebreak() {
 
     // Insert good match first (lower VectorId)
     vector
-        .insert(test_db.run_id, "embeddings", "good", &good, None)
+        .insert(test_db.branch_id, "embeddings", "good", &good, None)
         .unwrap();
     // Insert perfect match second (higher VectorId)
     vector
-        .insert(test_db.run_id, "embeddings", "perfect", &perfect, None)
+        .insert(test_db.branch_id, "embeddings", "perfect", &perfect, None)
         .unwrap();
 
     let results = vector
-        .search(test_db.run_id, "embeddings", &query, 2, None)
+        .search(test_db.branch_id, "embeddings", &query, 2, None)
         .unwrap();
 
     // Perfect match should be first despite higher VectorId

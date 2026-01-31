@@ -12,7 +12,7 @@ fn test_r2_cosine_higher_is_more_similar() {
     let vector = test_db.vector();
 
     vector
-        .create_collection(test_db.run_id, "embeddings", config_custom(3, DistanceMetric::Cosine))
+        .create_collection(test_db.branch_id, "embeddings", config_custom(3, DistanceMetric::Cosine))
         .unwrap();
 
     let query = vec![1.0, 0.0, 0.0];
@@ -21,17 +21,17 @@ fn test_r2_cosine_higher_is_more_similar() {
     let opposite = vec![-1.0, 0.0, 0.0]; // Opposite direction
 
     vector
-        .insert(test_db.run_id, "embeddings", "identical", &identical, None)
+        .insert(test_db.branch_id, "embeddings", "identical", &identical, None)
         .unwrap();
     vector
-        .insert(test_db.run_id, "embeddings", "orthogonal", &orthogonal, None)
+        .insert(test_db.branch_id, "embeddings", "orthogonal", &orthogonal, None)
         .unwrap();
     vector
-        .insert(test_db.run_id, "embeddings", "opposite", &opposite, None)
+        .insert(test_db.branch_id, "embeddings", "opposite", &opposite, None)
         .unwrap();
 
     let results = vector
-        .search(test_db.run_id, "embeddings", &query, 3, None)
+        .search(test_db.branch_id, "embeddings", &query, 3, None)
         .unwrap();
 
     // Identical should have highest score
@@ -52,7 +52,7 @@ fn test_r2_euclidean_higher_is_closer() {
     let vector = test_db.vector();
 
     vector
-        .create_collection(test_db.run_id, "embeddings", config_custom(3, DistanceMetric::Euclidean))
+        .create_collection(test_db.branch_id, "embeddings", config_custom(3, DistanceMetric::Euclidean))
         .unwrap();
 
     let query = vec![0.0, 0.0, 0.0];
@@ -61,17 +61,17 @@ fn test_r2_euclidean_higher_is_closer() {
     let far = vec![10.0, 0.0, 0.0]; // Distance 10.0
 
     vector
-        .insert(test_db.run_id, "embeddings", "close", &close, None)
+        .insert(test_db.branch_id, "embeddings", "close", &close, None)
         .unwrap();
     vector
-        .insert(test_db.run_id, "embeddings", "medium", &medium, None)
+        .insert(test_db.branch_id, "embeddings", "medium", &medium, None)
         .unwrap();
     vector
-        .insert(test_db.run_id, "embeddings", "far", &far, None)
+        .insert(test_db.branch_id, "embeddings", "far", &far, None)
         .unwrap();
 
     let results = vector
-        .search(test_db.run_id, "embeddings", &query, 3, None)
+        .search(test_db.branch_id, "embeddings", &query, 3, None)
         .unwrap();
 
     // Close should have highest score (1 / (1 + 0.1) ≈ 0.91)
@@ -92,7 +92,7 @@ fn test_r2_dotproduct_higher_is_more_similar() {
     let vector = test_db.vector();
 
     vector
-        .create_collection(test_db.run_id, "embeddings", config_custom(3, DistanceMetric::DotProduct))
+        .create_collection(test_db.branch_id, "embeddings", config_custom(3, DistanceMetric::DotProduct))
         .unwrap();
 
     let query = vec![1.0, 1.0, 1.0];
@@ -101,17 +101,17 @@ fn test_r2_dotproduct_higher_is_more_similar() {
     let negative = vec![-1.0, -1.0, -1.0]; // Dot = -3
 
     vector
-        .insert(test_db.run_id, "embeddings", "aligned", &aligned, None)
+        .insert(test_db.branch_id, "embeddings", "aligned", &aligned, None)
         .unwrap();
     vector
-        .insert(test_db.run_id, "embeddings", "partial", &partial, None)
+        .insert(test_db.branch_id, "embeddings", "partial", &partial, None)
         .unwrap();
     vector
-        .insert(test_db.run_id, "embeddings", "negative", &negative, None)
+        .insert(test_db.branch_id, "embeddings", "negative", &negative, None)
         .unwrap();
 
     let results = vector
-        .search(test_db.run_id, "embeddings", &query, 3, None)
+        .search(test_db.branch_id, "embeddings", &query, 3, None)
         .unwrap();
 
     assert_eq!(results[0].key, "aligned", "R2 VIOLATED: Aligned vector not first");
@@ -125,7 +125,7 @@ fn test_r2_score_normalization_consistency() {
     let vector = test_db.vector();
 
     vector
-        .create_collection(test_db.run_id, "embeddings", config_custom(3, DistanceMetric::Cosine))
+        .create_collection(test_db.branch_id, "embeddings", config_custom(3, DistanceMetric::Cosine))
         .unwrap();
 
     // Insert 10 vectors at various angles
@@ -133,13 +133,13 @@ fn test_r2_score_normalization_consistency() {
         let angle = (i as f32) * 0.1 * std::f32::consts::PI; // 0 to π
         let v = vec![angle.cos(), angle.sin(), 0.0];
         vector
-            .insert(test_db.run_id, "embeddings", &format!("v_{}", i), &v, None)
+            .insert(test_db.branch_id, "embeddings", &format!("v_{}", i), &v, None)
             .unwrap();
     }
 
     let query = vec![1.0, 0.0, 0.0];
     let results = vector
-        .search(test_db.run_id, "embeddings", &query, 10, None)
+        .search(test_db.branch_id, "embeddings", &query, 10, None)
         .unwrap();
 
     // Scores should be monotonically decreasing (for vectors at increasing angles from query)
@@ -161,14 +161,14 @@ fn test_r2_scores_always_finite() {
     let vector = test_db.vector();
 
     vector
-        .create_collection(test_db.run_id, "embeddings", config_minilm())
+        .create_collection(test_db.branch_id, "embeddings", config_minilm())
         .unwrap();
 
     // Insert various vectors
     for i in 0..20 {
         vector
             .insert(
-                test_db.run_id,
+                test_db.branch_id,
                 "embeddings",
                 &format!("key_{}", i),
                 &random_vector(384),
@@ -178,7 +178,7 @@ fn test_r2_scores_always_finite() {
     }
 
     let results = vector
-        .search(test_db.run_id, "embeddings", &random_vector(384), 20, None)
+        .search(test_db.branch_id, "embeddings", &random_vector(384), 20, None)
         .unwrap();
 
     for result in &results {

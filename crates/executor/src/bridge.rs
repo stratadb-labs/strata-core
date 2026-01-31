@@ -4,7 +4,7 @@
 //! engine primitive access. It provides:
 //!
 //! - [`Primitives`]: Holds all 6 engine primitives + database reference
-//! - [`to_core_run_id`]: Converts executor's string-based RunId to core RunId
+//! - [`to_core_branch_id`]: Converts executor's string-based BranchId to core BranchId
 //! - Validation helpers: Key, stream, event payload, collection name validation
 //! - Type conversion helpers: Value ↔ JsonValue, DistanceMetric, etc.
 
@@ -17,12 +17,12 @@ use strata_engine::{
     EventLog as PrimitiveEventLog,
     JsonStore as PrimitiveJsonStore,
     KVStore as PrimitiveKVStore,
-    RunIndex as PrimitiveRunIndex,
+    BranchIndex as PrimitiveBranchIndex,
     StateCell as PrimitiveStateCell,
     VectorStore as PrimitiveVectorStore,
 };
 
-use crate::types::RunId;
+use crate::types::BranchId;
 
 // =============================================================================
 // Primitives
@@ -44,8 +44,8 @@ pub struct Primitives {
     pub event: PrimitiveEventLog,
     /// State primitive
     pub state: PrimitiveStateCell,
-    /// Run primitive
-    pub run: PrimitiveRunIndex,
+    /// Branch primitive
+    pub branch: PrimitiveBranchIndex,
     /// Vector primitive
     pub vector: PrimitiveVectorStore,
 }
@@ -58,7 +58,7 @@ impl Primitives {
             json: PrimitiveJsonStore::new(db.clone()),
             event: PrimitiveEventLog::new(db.clone()),
             state: PrimitiveStateCell::new(db.clone()),
-            run: PrimitiveRunIndex::new(db.clone()),
+            branch: PrimitiveBranchIndex::new(db.clone()),
             vector: PrimitiveVectorStore::new(db.clone()),
             db,
         }
@@ -66,7 +66,7 @@ impl Primitives {
 }
 
 // =============================================================================
-// RunId Conversion
+// BranchId Conversion
 // =============================================================================
 
 /// Namespace UUID for generating deterministic run IDs.
@@ -76,25 +76,25 @@ const RUN_NAMESPACE: uuid::Uuid = uuid::Uuid::from_bytes([
     0x80, 0xb4, 0x00, 0xc0, 0x4f, 0xd4, 0x30, 0xc8,
 ]);
 
-/// Convert executor's string-based RunId to core RunId.
+/// Convert executor's string-based BranchId to core BranchId.
 ///
-/// - "default" → `RunId` with UUID::nil (all zeros)
-/// - Valid UUID string → `RunId` with parsed UUID bytes
-/// - Any other string → `RunId` with deterministic UUID v5 generated from name
+/// - "default" → `BranchId` with UUID::nil (all zeros)
+/// - Valid UUID string → `BranchId` with parsed UUID bytes
+/// - Any other string → `BranchId` with deterministic UUID v5 generated from name
 ///
 /// This allows users to use human-readable run names like "main", "experiment-1",
 /// etc. while still providing a unique UUID for internal namespacing.
-pub fn to_core_run_id(run: &RunId) -> crate::Result<strata_core::types::RunId> {
+pub fn to_core_branch_id(run: &BranchId) -> crate::Result<strata_core::types::BranchId> {
     let s = run.as_str();
     if s == "default" {
-        Ok(strata_core::types::RunId::from_bytes([0u8; 16]))
+        Ok(strata_core::types::BranchId::from_bytes([0u8; 16]))
     } else if let Ok(u) = uuid::Uuid::parse_str(s) {
         // If it's already a valid UUID, use it directly
-        Ok(strata_core::types::RunId::from_bytes(*u.as_bytes()))
+        Ok(strata_core::types::BranchId::from_bytes(*u.as_bytes()))
     } else {
         // Generate a deterministic UUID v5 from the run name
         let uuid = uuid::Uuid::new_v5(&RUN_NAMESPACE, s.as_bytes());
-        Ok(strata_core::types::RunId::from_bytes(*uuid.as_bytes()))
+        Ok(strata_core::types::BranchId::from_bytes(*uuid.as_bytes()))
     }
 }
 
@@ -346,18 +346,18 @@ fn value_to_json_scalar(value: &Value) -> strata_engine::JsonScalar {
 }
 
 // =============================================================================
-// RunStatus Conversion
+// BranchStatus Conversion
 // =============================================================================
 
-/// Convert engine RunStatus to executor RunStatus.
-pub fn from_engine_run_status(status: strata_engine::RunStatus) -> crate::types::RunStatus {
+/// Convert engine BranchStatus to executor BranchStatus.
+pub fn from_engine_branch_status(status: strata_engine::BranchStatus) -> crate::types::BranchStatus {
     match status {
-        strata_engine::RunStatus::Active => crate::types::RunStatus::Active,
-        strata_engine::RunStatus::Completed => crate::types::RunStatus::Completed,
-        strata_engine::RunStatus::Failed => crate::types::RunStatus::Failed,
-        strata_engine::RunStatus::Cancelled => crate::types::RunStatus::Cancelled,
-        strata_engine::RunStatus::Paused => crate::types::RunStatus::Paused,
-        strata_engine::RunStatus::Archived => crate::types::RunStatus::Archived,
+        strata_engine::BranchStatus::Active => crate::types::BranchStatus::Active,
+        strata_engine::BranchStatus::Completed => crate::types::BranchStatus::Completed,
+        strata_engine::BranchStatus::Failed => crate::types::BranchStatus::Failed,
+        strata_engine::BranchStatus::Cancelled => crate::types::BranchStatus::Cancelled,
+        strata_engine::BranchStatus::Paused => crate::types::BranchStatus::Paused,
+        strata_engine::BranchStatus::Archived => crate::types::BranchStatus::Archived,
     }
 }
 
@@ -381,15 +381,15 @@ mod tests {
 
     #[test]
     fn test_to_core_run_id_default() {
-        let run = RunId::from("default");
-        let core_id = to_core_run_id(&run).unwrap();
+        let run = BranchId::from("default");
+        let core_id = to_core_branch_id(&run).unwrap();
         assert_eq!(core_id.as_bytes(), &[0u8; 16]);
     }
 
     #[test]
     fn test_to_core_run_id_uuid() {
-        let run = RunId::from("f47ac10b-58cc-4372-a567-0e02b2c3d479");
-        let core_id = to_core_run_id(&run).unwrap();
+        let run = BranchId::from("f47ac10b-58cc-4372-a567-0e02b2c3d479");
+        let core_id = to_core_branch_id(&run).unwrap();
         let expected = uuid::Uuid::parse_str("f47ac10b-58cc-4372-a567-0e02b2c3d479").unwrap();
         assert_eq!(core_id.as_bytes(), expected.as_bytes());
     }
@@ -397,13 +397,13 @@ mod tests {
     #[test]
     fn test_to_core_run_id_name_generates_v5_uuid() {
         // Non-UUID names generate a deterministic UUID v5
-        let run = RunId::from("not-a-valid-id");
-        let result = to_core_run_id(&run);
+        let run = BranchId::from("not-a-valid-id");
+        let result = to_core_branch_id(&run);
         assert!(result.is_ok(), "Arbitrary names should generate valid v5 UUIDs");
 
         // Same name should produce same UUID (deterministic)
-        let run2 = RunId::from("not-a-valid-id");
-        let result2 = to_core_run_id(&run2).unwrap();
+        let run2 = BranchId::from("not-a-valid-id");
+        let result2 = to_core_branch_id(&run2).unwrap();
         assert_eq!(result.unwrap().as_bytes(), result2.as_bytes());
     }
 

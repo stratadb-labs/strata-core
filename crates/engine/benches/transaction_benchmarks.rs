@@ -8,19 +8,19 @@
 
 use criterion::{black_box, criterion_group, criterion_main, BenchmarkId, Criterion, Throughput};
 use strata_core::Storage;
-use strata_core::types::{Key, Namespace, RunId};
+use strata_core::types::{Key, Namespace, BranchId};
 use strata_core::value::Value;
 use strata_engine::Database;
 use std::sync::Arc;
 use std::thread;
 use tempfile::TempDir;
 
-fn create_ns(run_id: RunId) -> Namespace {
+fn create_ns(branch_id: BranchId) -> Namespace {
     Namespace::new(
         "tenant".to_string(),
         "app".to_string(),
         "agent".to_string(),
-        run_id,
+        branch_id,
     )
 }
 
@@ -28,8 +28,8 @@ fn create_ns(run_id: RunId) -> Namespace {
 fn bench_single_threaded_transactions(c: &mut Criterion) {
     let temp_dir = TempDir::new().unwrap();
     let db = Database::open(temp_dir.path().join("db")).unwrap();
-    let run_id = RunId::new();
-    let ns = create_ns(run_id);
+    let branch_id = BranchId::new();
+    let ns = create_ns(branch_id);
 
     let mut group = c.benchmark_group("single_threaded");
     group.throughput(Throughput::Elements(1));
@@ -38,7 +38,7 @@ fn bench_single_threaded_transactions(c: &mut Criterion) {
         let mut i = 0u64;
         b.iter(|| {
             let key = Key::new_kv(ns.clone(), format!("key_{}", i));
-            let result = db.transaction(run_id, |txn| {
+            let result = db.transaction(branch_id, |txn| {
                 txn.put(key.clone(), Value::Int(i as i64))?;
                 Ok(())
             });
@@ -49,14 +49,14 @@ fn bench_single_threaded_transactions(c: &mut Criterion) {
 
     group.bench_function("transaction_get_put", |b| {
         let key = Key::new_kv(ns.clone(), "get_put_key");
-        db.transaction(run_id, |txn| {
+        db.transaction(branch_id, |txn| {
             txn.put(key.clone(), Value::Int(0))?;
             Ok(())
         })
         .unwrap();
 
         b.iter(|| {
-            let result = db.transaction(run_id, |txn| {
+            let result = db.transaction(branch_id, |txn| {
                 let val = txn.get(&key)?;
                 let new_val = match val {
                     Some(Value::Int(n)) => n + 1,
@@ -86,21 +86,21 @@ fn bench_multi_threaded_no_conflict(c: &mut Criterion) {
                 b.iter_custom(|iters| {
                     let temp_dir = TempDir::new().unwrap();
                     let db = Database::open(temp_dir.path().join("db")).unwrap();
-                    let run_id = RunId::new();
+                    let branch_id = BranchId::new();
 
                     let start = std::time::Instant::now();
 
                     let handles: Vec<_> = (0..num_threads)
                         .map(|thread_id| {
                             let db = Arc::clone(&db);
-                            let ns = create_ns(run_id);
+                            let ns = create_ns(branch_id);
 
                             thread::spawn(move || {
                                 for i in 0..iters {
                                     // Each thread writes to its own key prefix
                                     let key =
                                         Key::new_kv(ns.clone(), format!("t{}_{}", thread_id, i));
-                                    db.transaction(run_id, |txn| {
+                                    db.transaction(branch_id, |txn| {
                                         txn.put(key.clone(), Value::Int(i as i64))?;
                                         Ok(())
                                     })
@@ -137,12 +137,12 @@ fn bench_multi_threaded_with_conflict(c: &mut Criterion) {
                 b.iter_custom(|iters| {
                     let temp_dir = TempDir::new().unwrap();
                     let db = Database::open(temp_dir.path().join("db")).unwrap();
-                    let run_id = RunId::new();
-                    let ns = create_ns(run_id);
+                    let branch_id = BranchId::new();
+                    let ns = create_ns(branch_id);
                     let key = Key::new_kv(ns, "contested_key");
 
                     // Pre-populate
-                    db.transaction(run_id, |txn| {
+                    db.transaction(branch_id, |txn| {
                         txn.put(key.clone(), Value::Int(0))?;
                         Ok(())
                     })
@@ -158,7 +158,7 @@ fn bench_multi_threaded_with_conflict(c: &mut Criterion) {
                             thread::spawn(move || {
                                 for _ in 0..iters {
                                     // All threads contend on same key
-                                    let _ = db.transaction(run_id, |txn| {
+                                    let _ = db.transaction(branch_id, |txn| {
                                         let val = txn.get(&key)?;
                                         let new_val = match val {
                                             Some(Value::Int(n)) => n + 1,
@@ -189,13 +189,13 @@ fn bench_multi_threaded_with_conflict(c: &mut Criterion) {
 fn bench_read_only_transactions(c: &mut Criterion) {
     let temp_dir = TempDir::new().unwrap();
     let db = Database::open(temp_dir.path().join("db")).unwrap();
-    let run_id = RunId::new();
-    let ns = create_ns(run_id);
+    let branch_id = BranchId::new();
+    let ns = create_ns(branch_id);
 
     // Pre-populate
     for i in 0..1000 {
         let key = Key::new_kv(ns.clone(), format!("key_{}", i));
-        db.transaction(run_id, |txn| {
+        db.transaction(branch_id, |txn| {
             txn.put(key.clone(), Value::Int(i as i64))?;
             Ok(())
         })
@@ -208,7 +208,7 @@ fn bench_read_only_transactions(c: &mut Criterion) {
     group.bench_function("single_read", |b| {
         let key = Key::new_kv(ns.clone(), "key_500");
         b.iter(|| {
-            let result = db.transaction(run_id, |txn| txn.get(&key));
+            let result = db.transaction(branch_id, |txn| txn.get(&key));
             black_box(result.unwrap());
         });
     });
@@ -219,7 +219,7 @@ fn bench_read_only_transactions(c: &mut Criterion) {
             .collect();
 
         b.iter(|| {
-            let result = db.transaction(run_id, |txn| {
+            let result = db.transaction(branch_id, |txn| {
                 for key in &keys {
                     txn.get(key)?;
                 }
@@ -236,8 +236,8 @@ fn bench_read_only_transactions(c: &mut Criterion) {
 fn bench_direct_operations(c: &mut Criterion) {
     let temp_dir = TempDir::new().unwrap();
     let db = Database::open(temp_dir.path().join("db")).unwrap();
-    let run_id = RunId::new();
-    let ns = create_ns(run_id);
+    let branch_id = BranchId::new();
+    let ns = create_ns(branch_id);
 
     let mut group = c.benchmark_group("direct_operations");
     group.throughput(Throughput::Elements(1));
@@ -246,7 +246,7 @@ fn bench_direct_operations(c: &mut Criterion) {
         let mut i = 0u64;
         b.iter(|| {
             let key = Key::new_kv(ns.clone(), format!("direct_key_{}", i));
-            let result = db.transaction(run_id, |txn| {
+            let result = db.transaction(branch_id, |txn| {
                 txn.put(key.clone(), Value::Int(i as i64))?;
                 Ok(())
             });
@@ -257,7 +257,7 @@ fn bench_direct_operations(c: &mut Criterion) {
 
     // Pre-populate for get benchmark
     let get_key = Key::new_kv(ns.clone(), "get_key");
-    db.transaction(run_id, |txn| {
+    db.transaction(branch_id, |txn| {
         txn.put(get_key.clone(), Value::Int(42))?;
         Ok(())
     })

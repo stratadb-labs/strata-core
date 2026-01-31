@@ -13,7 +13,7 @@
 //! - Multiple write/close/reopen cycles
 
 use strata_core::contract::Version;
-use strata_core::types::{Key, Namespace, RunId};
+use strata_core::types::{Key, Namespace, BranchId};
 use strata_core::value::Value;
 use strata_core::Timestamp;
 use strata_core::Storage;
@@ -30,12 +30,12 @@ fn test_database_lifecycle() {
     let temp_dir = TempDir::new().unwrap();
     let db_path = temp_dir.path().join("lifecycle_test");
 
-    let run_id = RunId::new();
+    let branch_id = BranchId::new();
     let ns = Namespace::new(
         "tenant".to_string(),
         "app".to_string(),
         "agent".to_string(),
-        run_id,
+        branch_id,
     );
 
     // Phase 1: Create database and write data
@@ -49,14 +49,14 @@ fn test_database_lifecycle() {
         wal_guard
             .append(&WALEntry::BeginTxn {
                 txn_id: 1,
-                run_id,
+                branch_id,
                 timestamp: now(),
             })
             .unwrap();
 
         wal_guard
             .append(&WALEntry::Write {
-                run_id,
+                branch_id,
                 key: Key::new_kv(ns.clone(), "user:1"),
                 value: Value::String("Alice".to_string()),
                 version: 1,
@@ -65,7 +65,7 @@ fn test_database_lifecycle() {
 
         wal_guard
             .append(&WALEntry::Write {
-                run_id,
+                branch_id,
                 key: Key::new_kv(ns.clone(), "user:2"),
                 value: Value::String("Bob".to_string()),
                 version: 2,
@@ -73,7 +73,7 @@ fn test_database_lifecycle() {
             .unwrap();
 
         wal_guard
-            .append(&WALEntry::CommitTxn { txn_id: 1, run_id })
+            .append(&WALEntry::CommitTxn { txn_id: 1, branch_id })
             .unwrap();
 
         drop(wal_guard);
@@ -108,14 +108,14 @@ fn test_database_lifecycle() {
         wal_guard
             .append(&WALEntry::BeginTxn {
                 txn_id: 2,
-                run_id,
+                branch_id,
                 timestamp: now(),
             })
             .unwrap();
 
         wal_guard
             .append(&WALEntry::Write {
-                run_id,
+                branch_id,
                 key: Key::new_kv(ns.clone(), "user:3"),
                 value: Value::String("Charlie".to_string()),
                 version: 3,
@@ -123,7 +123,7 @@ fn test_database_lifecycle() {
             .unwrap();
 
         wal_guard
-            .append(&WALEntry::CommitTxn { txn_id: 2, run_id })
+            .append(&WALEntry::CommitTxn { txn_id: 2, branch_id })
             .unwrap();
 
         drop(wal_guard);
@@ -161,12 +161,12 @@ fn test_crash_recovery() {
     let temp_dir = TempDir::new().unwrap();
     let db_path = temp_dir.path().join("crash_test");
 
-    let run_id = RunId::new();
+    let branch_id = BranchId::new();
     let ns = Namespace::new(
         "tenant".to_string(),
         "app".to_string(),
         "agent".to_string(),
-        run_id,
+        branch_id,
     );
 
     // Write some committed and some uncommitted transactions
@@ -180,14 +180,14 @@ fn test_crash_recovery() {
         wal_guard
             .append(&WALEntry::BeginTxn {
                 txn_id: 1,
-                run_id,
+                branch_id,
                 timestamp: now(),
             })
             .unwrap();
 
         wal_guard
             .append(&WALEntry::Write {
-                run_id,
+                branch_id,
                 key: Key::new_kv(ns.clone(), "committed_key"),
                 value: Value::Int(42),
                 version: 1,
@@ -195,21 +195,21 @@ fn test_crash_recovery() {
             .unwrap();
 
         wal_guard
-            .append(&WALEntry::CommitTxn { txn_id: 1, run_id })
+            .append(&WALEntry::CommitTxn { txn_id: 1, branch_id })
             .unwrap();
 
         // Uncommitted transaction (simulates crash mid-transaction)
         wal_guard
             .append(&WALEntry::BeginTxn {
                 txn_id: 2,
-                run_id,
+                branch_id,
                 timestamp: now(),
             })
             .unwrap();
 
         wal_guard
             .append(&WALEntry::Write {
-                run_id,
+                branch_id,
                 key: Key::new_kv(ns.clone(), "uncommitted_key"),
                 value: Value::Int(999),
                 version: 2,
@@ -248,8 +248,8 @@ fn test_multiple_run_ids() {
     let temp_dir = TempDir::new().unwrap();
     let db_path = temp_dir.path().join("multi_run_test");
 
-    let run_id1 = RunId::new();
-    let run_id2 = RunId::new();
+    let run_id1 = BranchId::new();
+    let run_id2 = BranchId::new();
 
     let ns1 = Namespace::new(
         "tenant".to_string(),
@@ -275,14 +275,14 @@ fn test_multiple_run_ids() {
         wal_guard
             .append(&WALEntry::BeginTxn {
                 txn_id: 1,
-                run_id: run_id1,
+                branch_id: run_id1,
                 timestamp: now(),
             })
             .unwrap();
 
         wal_guard
             .append(&WALEntry::Write {
-                run_id: run_id1,
+                branch_id: run_id1,
                 key: Key::new_kv(ns1.clone(), "run1_key"),
                 value: Value::String("run1_value".to_string()),
                 version: 1,
@@ -292,7 +292,7 @@ fn test_multiple_run_ids() {
         wal_guard
             .append(&WALEntry::CommitTxn {
                 txn_id: 1,
-                run_id: run_id1,
+                branch_id: run_id1,
             })
             .unwrap();
 
@@ -300,14 +300,14 @@ fn test_multiple_run_ids() {
         wal_guard
             .append(&WALEntry::BeginTxn {
                 txn_id: 2,
-                run_id: run_id2,
+                branch_id: run_id2,
                 timestamp: now(),
             })
             .unwrap();
 
         wal_guard
             .append(&WALEntry::Write {
-                run_id: run_id2,
+                branch_id: run_id2,
                 key: Key::new_kv(ns2.clone(), "run2_key"),
                 value: Value::String("run2_value".to_string()),
                 version: 2,
@@ -317,7 +317,7 @@ fn test_multiple_run_ids() {
         wal_guard
             .append(&WALEntry::CommitTxn {
                 txn_id: 2,
-                run_id: run_id2,
+                branch_id: run_id2,
             })
             .unwrap();
 
@@ -352,12 +352,12 @@ fn test_delete_operations() {
     let temp_dir = TempDir::new().unwrap();
     let db_path = temp_dir.path().join("delete_test");
 
-    let run_id = RunId::new();
+    let branch_id = BranchId::new();
     let ns = Namespace::new(
         "tenant".to_string(),
         "app".to_string(),
         "agent".to_string(),
-        run_id,
+        branch_id,
     );
 
     // Write then delete
@@ -371,14 +371,14 @@ fn test_delete_operations() {
         wal_guard
             .append(&WALEntry::BeginTxn {
                 txn_id: 1,
-                run_id,
+                branch_id,
                 timestamp: now(),
             })
             .unwrap();
 
         wal_guard
             .append(&WALEntry::Write {
-                run_id,
+                branch_id,
                 key: Key::new_kv(ns.clone(), "to_delete"),
                 value: Value::String("temp_value".to_string()),
                 version: 1,
@@ -386,28 +386,28 @@ fn test_delete_operations() {
             .unwrap();
 
         wal_guard
-            .append(&WALEntry::CommitTxn { txn_id: 1, run_id })
+            .append(&WALEntry::CommitTxn { txn_id: 1, branch_id })
             .unwrap();
 
         // Delete key
         wal_guard
             .append(&WALEntry::BeginTxn {
                 txn_id: 2,
-                run_id,
+                branch_id,
                 timestamp: now(),
             })
             .unwrap();
 
         wal_guard
             .append(&WALEntry::Delete {
-                run_id,
+                branch_id,
                 key: Key::new_kv(ns.clone(), "to_delete"),
                 version: 2,
             })
             .unwrap();
 
         wal_guard
-            .append(&WALEntry::CommitTxn { txn_id: 2, run_id })
+            .append(&WALEntry::CommitTxn { txn_id: 2, branch_id })
             .unwrap();
 
         drop(wal_guard);
@@ -430,12 +430,12 @@ fn test_delete_operations() {
 fn test_durability_modes() {
     let temp_dir = TempDir::new().unwrap();
 
-    let run_id = RunId::new();
+    let branch_id = BranchId::new();
     let ns = Namespace::new(
         "tenant".to_string(),
         "app".to_string(),
         "agent".to_string(),
-        run_id,
+        branch_id,
     );
 
     // Test with Strict mode
@@ -450,14 +450,14 @@ fn test_durability_modes() {
         wal_guard
             .append(&WALEntry::BeginTxn {
                 txn_id: 1,
-                run_id,
+                branch_id,
                 timestamp: now(),
             })
             .unwrap();
 
         wal_guard
             .append(&WALEntry::Write {
-                run_id,
+                branch_id,
                 key: Key::new_kv(ns.clone(), "strict_key"),
                 value: Value::Int(1),
                 version: 1,
@@ -465,7 +465,7 @@ fn test_durability_modes() {
             .unwrap();
 
         wal_guard
-            .append(&WALEntry::CommitTxn { txn_id: 1, run_id })
+            .append(&WALEntry::CommitTxn { txn_id: 1, branch_id })
             .unwrap();
 
         drop(wal_guard);
@@ -498,14 +498,14 @@ fn test_durability_modes() {
         wal_guard
             .append(&WALEntry::BeginTxn {
                 txn_id: 1,
-                run_id,
+                branch_id,
                 timestamp: now(),
             })
             .unwrap();
 
         wal_guard
             .append(&WALEntry::Write {
-                run_id,
+                branch_id,
                 key: Key::new_kv(ns.clone(), "batched_key"),
                 value: Value::Int(2),
                 version: 1,
@@ -513,7 +513,7 @@ fn test_durability_modes() {
             .unwrap();
 
         wal_guard
-            .append(&WALEntry::CommitTxn { txn_id: 1, run_id })
+            .append(&WALEntry::CommitTxn { txn_id: 1, branch_id })
             .unwrap();
 
         drop(wal_guard);
@@ -535,12 +535,12 @@ fn test_large_transaction() {
     let temp_dir = TempDir::new().unwrap();
     let db_path = temp_dir.path().join("large_txn_test");
 
-    let run_id = RunId::new();
+    let branch_id = BranchId::new();
     let ns = Namespace::new(
         "tenant".to_string(),
         "app".to_string(),
         "agent".to_string(),
-        run_id,
+        branch_id,
     );
 
     const NUM_ENTRIES: usize = 100;
@@ -555,7 +555,7 @@ fn test_large_transaction() {
         wal_guard
             .append(&WALEntry::BeginTxn {
                 txn_id: 1,
-                run_id,
+                branch_id,
                 timestamp: now(),
             })
             .unwrap();
@@ -563,7 +563,7 @@ fn test_large_transaction() {
         for i in 0..NUM_ENTRIES {
             wal_guard
                 .append(&WALEntry::Write {
-                    run_id,
+                    branch_id,
                     key: Key::new_kv(ns.clone(), format!("key_{}", i)),
                     value: Value::Int(i as i64),
                     version: (i + 1) as u64,
@@ -572,7 +572,7 @@ fn test_large_transaction() {
         }
 
         wal_guard
-            .append(&WALEntry::CommitTxn { txn_id: 1, run_id })
+            .append(&WALEntry::CommitTxn { txn_id: 1, branch_id })
             .unwrap();
 
         drop(wal_guard);
@@ -602,12 +602,12 @@ fn test_aborted_transaction_discarded() {
     let temp_dir = TempDir::new().unwrap();
     let db_path = temp_dir.path().join("aborted_test");
 
-    let run_id = RunId::new();
+    let branch_id = BranchId::new();
     let ns = Namespace::new(
         "tenant".to_string(),
         "app".to_string(),
         "agent".to_string(),
-        run_id,
+        branch_id,
     );
 
     // Write committed and aborted transactions
@@ -621,14 +621,14 @@ fn test_aborted_transaction_discarded() {
         wal_guard
             .append(&WALEntry::BeginTxn {
                 txn_id: 1,
-                run_id,
+                branch_id,
                 timestamp: now(),
             })
             .unwrap();
 
         wal_guard
             .append(&WALEntry::Write {
-                run_id,
+                branch_id,
                 key: Key::new_kv(ns.clone(), "committed"),
                 value: Value::Bool(true),
                 version: 1,
@@ -636,21 +636,21 @@ fn test_aborted_transaction_discarded() {
             .unwrap();
 
         wal_guard
-            .append(&WALEntry::CommitTxn { txn_id: 1, run_id })
+            .append(&WALEntry::CommitTxn { txn_id: 1, branch_id })
             .unwrap();
 
         // Aborted transaction
         wal_guard
             .append(&WALEntry::BeginTxn {
                 txn_id: 2,
-                run_id,
+                branch_id,
                 timestamp: now(),
             })
             .unwrap();
 
         wal_guard
             .append(&WALEntry::Write {
-                run_id,
+                branch_id,
                 key: Key::new_kv(ns.clone(), "aborted"),
                 value: Value::Bool(false),
                 version: 2,
@@ -658,7 +658,7 @@ fn test_aborted_transaction_discarded() {
             .unwrap();
 
         wal_guard
-            .append(&WALEntry::AbortTxn { txn_id: 2, run_id })
+            .append(&WALEntry::AbortTxn { txn_id: 2, branch_id })
             .unwrap();
 
         drop(wal_guard);
@@ -717,12 +717,12 @@ fn test_multiple_crash_cycles_with_high_level_api() {
     let temp_dir = TempDir::new().unwrap();
     let db_path = temp_dir.path().join("multi_cycle_test");
 
-    let run_id = RunId::new();
+    let branch_id = BranchId::new();
     let ns = Namespace::new(
         "tenant".to_string(),
         "app".to_string(),
         "agent".to_string(),
-        run_id,
+        branch_id,
     );
 
     const NUM_CYCLES: usize = 5;
@@ -737,7 +737,7 @@ fn test_multiple_crash_cycles_with_high_level_api() {
             for i in 0..KEYS_PER_CYCLE {
                 let key = Key::new_kv(ns.clone(), format!("cycle{}_key{}", cycle, i));
                 let value = Value::Int((cycle * 100 + i) as i64);
-                db.put(run_id, key, value).expect("Put should succeed");
+                db.put(branch_id, key, value).expect("Put should succeed");
             }
             // Database is dropped here - simulates crash
         }
@@ -781,12 +781,12 @@ fn test_twenty_sequential_puts_recover() {
     let temp_dir = TempDir::new().unwrap();
     let db_path = temp_dir.path().join("twenty_puts_test");
 
-    let run_id = RunId::new();
+    let branch_id = BranchId::new();
     let ns = Namespace::new(
         "tenant".to_string(),
         "app".to_string(),
         "agent".to_string(),
-        run_id,
+        branch_id,
     );
 
     const NUM_PUTS: usize = 20;
@@ -798,7 +798,7 @@ fn test_twenty_sequential_puts_recover() {
 
         for i in 0..NUM_PUTS {
             let key = Key::new_kv(ns.clone(), format!("key{}", i));
-            db.put(run_id, key, Value::Int(i as i64))
+            db.put(branch_id, key, Value::Int(i as i64))
                 .expect("Put should succeed");
         }
 

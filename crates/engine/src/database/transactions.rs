@@ -20,7 +20,7 @@ use std::time::Duration;
 ///     base_delay_ms: 10,
 ///     max_delay_ms: 200,
 /// };
-/// db.transaction_with_retry(run_id, config, |txn| { ... })?;
+/// db.transaction_with_retry(branch_id, config, |txn| { ... })?;
 /// ```
 #[derive(Debug, Clone)]
 pub struct RetryConfig {

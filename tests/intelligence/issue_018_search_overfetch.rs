@@ -15,14 +15,14 @@ use crate::common::*;
 fn test_search_with_selective_filter() {
     let test_db = TestDb::new();
     let vector = test_db.vector();
-    let run_id = test_db.run_id;
+    let branch_id = test_db.branch_id;
 
-    vector.create_collection(run_id, "filter_test", config_small()).expect("create");
+    vector.create_collection(branch_id, "filter_test", config_small()).expect("create");
 
     // Insert 100 vectors with metadata
     for i in 0..100 {
         let metadata = serde_json::json!({"category": i % 10});
-        vector.insert(run_id, "filter_test", &format!("v_{}", i), &seeded_vector(3, i as u64), Some(metadata))
+        vector.insert(branch_id, "filter_test", &format!("v_{}", i), &seeded_vector(3, i as u64), Some(metadata))
             .expect("insert");
     }
 
@@ -40,21 +40,21 @@ fn test_search_with_selective_filter() {
 fn test_search_returns_k_results() {
     let test_db = TestDb::new();
     let vector = test_db.vector();
-    let run_id = test_db.run_id;
+    let branch_id = test_db.branch_id;
 
-    vector.create_collection(run_id, "k_test", config_small()).expect("create");
+    vector.create_collection(branch_id, "k_test", config_small()).expect("create");
 
     for i in 0..50 {
-        vector.insert(run_id, "k_test", &format!("v_{}", i), &seeded_vector(3, i as u64), None)
+        vector.insert(branch_id, "k_test", &format!("v_{}", i), &seeded_vector(3, i as u64), None)
             .expect("insert");
     }
 
     let query = seeded_vector(3, 42);
 
     // Without filter, should always return k results (if k <= count)
-    let results = vector.search(run_id, "k_test", &query, 10, None).expect("search");
+    let results = vector.search(branch_id, "k_test", &query, 10, None).expect("search");
     assert_eq!(results.len(), 10, "Should return exactly k results");
 
-    let results = vector.search(run_id, "k_test", &query, 100, None).expect("search");
+    let results = vector.search(branch_id, "k_test", &query, 100, None).expect("search");
     assert_eq!(results.len(), 50, "Should return all vectors when k > count");
 }

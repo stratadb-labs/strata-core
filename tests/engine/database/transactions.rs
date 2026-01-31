@@ -15,43 +15,43 @@ use std::sync::Arc;
 fn transaction_commit_makes_data_visible() {
     let test_db = TestDb::new();
     let kv = test_db.kv();
-    let run_id = test_db.run_id;
+    let branch_id = test_db.branch_id;
 
     // Transaction commits
-    kv.put(&run_id, "key", Value::Int(42)).unwrap();
+    kv.put(&branch_id, "key", Value::Int(42)).unwrap();
 
     // Data visible after commit
-    let result = kv.get(&run_id, "key").unwrap();
+    let result = kv.get(&branch_id, "key").unwrap();
     assert_eq!(result.unwrap(), Value::Int(42));
 }
 
 #[test]
 fn transaction_closure_api() {
     let test_db = TestDb::new();
-    let run_id = test_db.run_id;
+    let branch_id = test_db.branch_id;
 
     // Use the transaction closure API
-    test_db.db.transaction(run_id, |txn| {
+    test_db.db.transaction(branch_id, |txn| {
         txn.kv_put("tx_key", Value::Int(100))?;
         Ok(())
     }).unwrap();
 
     // Verify data committed
     let kv = test_db.kv();
-    let result = kv.get(&run_id, "tx_key").unwrap();
+    let result = kv.get(&branch_id, "tx_key").unwrap();
     assert_eq!(result.unwrap(), Value::Int(100));
 }
 
 #[test]
 fn transaction_returns_value() {
     let test_db = TestDb::new();
-    let run_id = test_db.run_id;
+    let branch_id = test_db.branch_id;
     let kv = test_db.kv();
 
-    kv.put(&run_id, "counter", Value::Int(10)).unwrap();
+    kv.put(&branch_id, "counter", Value::Int(10)).unwrap();
 
     // Transaction can return a value
-    let result: i64 = test_db.db.transaction(run_id, |txn| {
+    let result: i64 = test_db.db.transaction(branch_id, |txn| {
         let val = txn.kv_get("counter")?;
         match val {
             Some(Value::Int(n)) => {
@@ -65,21 +65,21 @@ fn transaction_returns_value() {
     assert_eq!(result, 10);
 
     // Counter was incremented
-    let new_val = kv.get(&run_id, "counter").unwrap();
+    let new_val = kv.get(&branch_id, "counter").unwrap();
     assert_eq!(new_val.unwrap(), Value::Int(11));
 }
 
 #[test]
 fn transaction_error_aborts() {
     let test_db = TestDb::new();
-    let run_id = test_db.run_id;
+    let branch_id = test_db.branch_id;
     let kv = test_db.kv();
 
     // Put initial value
-    kv.put(&run_id, "abort_test", Value::Int(1)).unwrap();
+    kv.put(&branch_id, "abort_test", Value::Int(1)).unwrap();
 
     // Transaction that errors
-    let result: Result<(), _> = test_db.db.transaction(run_id, |txn| {
+    let result: Result<(), _> = test_db.db.transaction(branch_id, |txn| {
         txn.kv_put("abort_test", Value::Int(999))?;
         // Return an error
         Err(strata_core::StrataError::invalid_input("forced error"))
@@ -88,7 +88,7 @@ fn transaction_error_aborts() {
     assert!(result.is_err());
 
     // Original value unchanged
-    let val = kv.get(&run_id, "abort_test").unwrap();
+    let val = kv.get(&branch_id, "abort_test").unwrap();
     assert_eq!(val.unwrap(), Value::Int(1));
 }
 
@@ -100,13 +100,13 @@ fn transaction_error_aborts() {
 fn read_only_transaction_sees_committed_data() {
     let test_db = TestDb::new();
     let kv = test_db.kv();
-    let run_id = test_db.run_id;
+    let branch_id = test_db.branch_id;
 
     // Write data
-    kv.put(&run_id, "ro_key", Value::Int(42)).unwrap();
+    kv.put(&branch_id, "ro_key", Value::Int(42)).unwrap();
 
     // Read in transaction
-    let result: Option<Value> = test_db.db.transaction(run_id, |txn| {
+    let result: Option<Value> = test_db.db.transaction(branch_id, |txn| {
         let v = txn.kv_get("ro_key")?;
         Ok(v)
     }).unwrap();
@@ -118,13 +118,13 @@ fn read_only_transaction_sees_committed_data() {
 fn read_only_transaction_never_conflicts() {
     let test_db = TestDb::new();
     let kv = test_db.kv();
-    let run_id = test_db.run_id;
+    let branch_id = test_db.branch_id;
 
-    kv.put(&run_id, "ro_key", Value::Int(1)).unwrap();
+    kv.put(&branch_id, "ro_key", Value::Int(1)).unwrap();
 
     // Multiple read-only transactions should all succeed
     for _ in 0..10 {
-        let result: Option<Value> = test_db.db.transaction(run_id, |txn| {
+        let result: Option<Value> = test_db.db.transaction(branch_id, |txn| {
             let v = txn.kv_get("ro_key")?;
             Ok(v)
         }).unwrap();
@@ -140,17 +140,17 @@ fn read_only_transaction_never_conflicts() {
 #[test]
 fn transaction_retries_on_conflict() {
     let test_db = TestDb::new();
-    let run_id = test_db.run_id;
+    let branch_id = test_db.branch_id;
     let kv = test_db.kv();
 
-    kv.put(&run_id, "retry_key", Value::Int(0)).unwrap();
+    kv.put(&branch_id, "retry_key", Value::Int(0)).unwrap();
 
     let attempt_count = Arc::new(AtomicU64::new(0));
     let attempt_count_clone = attempt_count.clone();
 
     // This transaction increments the key
     // If there's conflict, it will retry
-    test_db.db.transaction(run_id, |txn| {
+    test_db.db.transaction(branch_id, |txn| {
         attempt_count_clone.fetch_add(1, Ordering::SeqCst);
 
         let val = txn.kv_get("retry_key")?;
@@ -164,7 +164,7 @@ fn transaction_retries_on_conflict() {
     assert!(attempt_count.load(Ordering::SeqCst) >= 1);
 
     // Value was incremented
-    let final_val = kv.get(&run_id, "retry_key").unwrap();
+    let final_val = kv.get(&branch_id, "retry_key").unwrap();
     assert_eq!(final_val.unwrap(), Value::Int(1));
 }
 
@@ -175,13 +175,13 @@ fn transaction_retries_on_conflict() {
 #[test]
 fn begin_transaction_returns_context() {
     let test_db = TestDb::new();
-    let run_id = test_db.run_id;
+    let branch_id = test_db.branch_id;
 
-    let ctx = test_db.db.begin_transaction(run_id);
+    let ctx = test_db.db.begin_transaction(branch_id);
 
     // Context is active
     assert!(ctx.is_active());
-    assert_eq!(ctx.run_id, run_id);
+    assert_eq!(ctx.branch_id, branch_id);
 
     // Clean up
     test_db.db.end_transaction(ctx);
@@ -190,13 +190,13 @@ fn begin_transaction_returns_context() {
 #[test]
 fn commit_transaction_returns_version() {
     let test_db = TestDb::new();
-    let run_id = test_db.run_id;
+    let branch_id = test_db.branch_id;
 
-    let mut ctx = test_db.db.begin_transaction(run_id);
+    let mut ctx = test_db.db.begin_transaction(branch_id);
 
     // Add a write to the transaction
     use strata_core::types::{Key, Namespace};
-    let key = Key::new_kv(Namespace::for_run(run_id), "manual_tx_key");
+    let key = Key::new_kv(Namespace::for_branch(branch_id), "manual_tx_key");
     ctx.write_set.insert(key, Value::Int(42));
 
     // Commit
@@ -209,9 +209,9 @@ fn commit_transaction_returns_version() {
 #[test]
 fn end_transaction_cleans_up() {
     let test_db = TestDb::new();
-    let run_id = test_db.run_id;
+    let branch_id = test_db.branch_id;
 
-    let ctx = test_db.db.begin_transaction(run_id);
+    let ctx = test_db.db.begin_transaction(branch_id);
 
     // End without commit
     test_db.db.end_transaction(ctx);
@@ -226,9 +226,9 @@ fn end_transaction_cleans_up() {
 #[test]
 fn transaction_multiple_puts() {
     let test_db = TestDb::new();
-    let run_id = test_db.run_id;
+    let branch_id = test_db.branch_id;
 
-    test_db.db.transaction(run_id, |txn| {
+    test_db.db.transaction(branch_id, |txn| {
         for i in 0..10 {
             txn.kv_put(&format!("multi_{}", i), Value::Int(i))?;
         }
@@ -238,7 +238,7 @@ fn transaction_multiple_puts() {
     // All visible
     let kv = test_db.kv();
     for i in 0..10 {
-        let val = kv.get(&run_id, &format!("multi_{}", i)).unwrap();
+        let val = kv.get(&branch_id, &format!("multi_{}", i)).unwrap();
         assert_eq!(val.unwrap(), Value::Int(i));
     }
 }
@@ -246,20 +246,20 @@ fn transaction_multiple_puts() {
 #[test]
 fn transaction_put_and_delete() {
     let test_db = TestDb::new();
-    let run_id = test_db.run_id;
+    let branch_id = test_db.branch_id;
     let kv = test_db.kv();
 
     // Pre-existing key
-    kv.put(&run_id, "to_delete", Value::Int(1)).unwrap();
+    kv.put(&branch_id, "to_delete", Value::Int(1)).unwrap();
 
-    test_db.db.transaction(run_id, |txn| {
+    test_db.db.transaction(branch_id, |txn| {
         txn.kv_put("new_key", Value::Int(42))?;
         txn.kv_delete("to_delete")?;
         Ok(())
     }).unwrap();
 
     // New key exists
-    assert_eq!(kv.get(&run_id, "new_key").unwrap(), Some(Value::Int(42)));
+    assert_eq!(kv.get(&branch_id, "new_key").unwrap(), Some(Value::Int(42)));
     // Old key gone
-    assert!(kv.get(&run_id, "to_delete").unwrap().is_none());
+    assert!(kv.get(&branch_id, "to_delete").unwrap().is_none());
 }

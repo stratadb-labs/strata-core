@@ -78,9 +78,9 @@ T1: begin → cas(K, v=1, "new") → commit ✓
 T2: begin → cas(K, v=1, "new") → commit → CONFLICT (version is now 2)
 ```
 
-## Per-Run Isolation
+## Per-Branch Isolation
 
-Transactions operate within a single run. Two transactions on different runs can never conflict because they read and write different keys (keys are prefixed with run ID).
+Transactions operate within a single branch. Two transactions on different branches can never conflict because they read and write different keys (keys are prefixed with branch ID).
 
 ## Thread Safety
 

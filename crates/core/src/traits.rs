@@ -7,7 +7,7 @@ use std::time::Duration;
 
 use crate::contract::VersionedValue;
 use crate::error::StrataResult;
-use crate::types::{Key, RunId};
+use crate::types::{Key, BranchId};
 use crate::value::Value;
 
 /// Storage abstraction for unified backend
@@ -98,7 +98,7 @@ pub trait Storage: Send + Sync {
     /// Returns an error if the storage operation fails.
     fn scan_prefix(&self, prefix: &Key, max_version: u64) -> StrataResult<Vec<(Key, VersionedValue)>>;
 
-    /// Scan all keys for a given run_id at or before max_version
+    /// Scan all keys for a given branch_id at or before max_version
     ///
     /// Critical for replay: fetch all writes for a specific run.
     /// Results are sorted by key order.
@@ -106,7 +106,7 @@ pub trait Storage: Send + Sync {
     /// # Errors
     ///
     /// Returns an error if the storage operation fails.
-    fn scan_by_run(&self, run_id: RunId, max_version: u64) -> StrataResult<Vec<(Key, VersionedValue)>>;
+    fn scan_by_branch(&self, branch_id: BranchId, max_version: u64) -> StrataResult<Vec<(Key, VersionedValue)>>;
 
     /// Get current global version
     ///
@@ -287,11 +287,11 @@ mod tests {
             Ok(result)
         }
 
-        fn scan_by_run(&self, run_id: RunId, max_version: u64) -> StrataResult<Vec<(Key, VersionedValue)>> {
+        fn scan_by_branch(&self, branch_id: BranchId, max_version: u64) -> StrataResult<Vec<(Key, VersionedValue)>> {
             let data = self.data.read().unwrap();
             let mut result = vec![];
             for (k, versions) in data.iter() {
-                if k.namespace.run_id == run_id {
+                if k.namespace.branch_id == branch_id {
                     if let Some(v) = versions.iter().rev()
                         .find(|v| v.version().as_u64() <= max_version) {
                         result.push((k.clone(), v.clone()));
@@ -355,7 +355,7 @@ mod tests {
     }
 
     fn test_ns() -> Namespace {
-        Namespace::new("test".into(), "app".into(), "agent".into(), RunId::new())
+        Namespace::new("test".into(), "app".into(), "agent".into(), BranchId::new())
     }
 
     fn test_key(ns: &Namespace, name: &str) -> Key {
@@ -569,17 +569,17 @@ mod tests {
     }
 
     #[test]
-    fn storage_scan_by_run_isolates_runs() {
+    fn storage_scan_by_branch_isolates_branches() {
         let store = MockStorage::new();
-        let run1 = RunId::new();
-        let run2 = RunId::new();
+        let run1 = BranchId::new();
+        let run2 = BranchId::new();
         let ns1 = Namespace::new("t".into(), "a".into(), "g".into(), run1);
         let ns2 = Namespace::new("t".into(), "a".into(), "g".into(), run2);
 
         store.put(Key::new_kv(ns1.clone(), "k1"), Value::Int(1), None).unwrap();
         store.put(Key::new_kv(ns2.clone(), "k2"), Value::Int(2), None).unwrap();
 
-        let results = store.scan_by_run(run1, u64::MAX).unwrap();
+        let results = store.scan_by_branch(run1, u64::MAX).unwrap();
         assert_eq!(results.len(), 1);
         assert_eq!(results[0].1.value, Value::Int(1));
     }
@@ -664,7 +664,7 @@ mod tests {
         fn scan_prefix(&self, _: &Key, _: u64) -> StrataResult<Vec<(Key, VersionedValue)>> {
             Err(StrataError::storage("disk read failed"))
         }
-        fn scan_by_run(&self, _: RunId, _: u64) -> StrataResult<Vec<(Key, VersionedValue)>> {
+        fn scan_by_branch(&self, _: BranchId, _: u64) -> StrataResult<Vec<(Key, VersionedValue)>> {
             Err(StrataError::storage("disk read failed"))
         }
         fn current_version(&self) -> u64 { 0 }
@@ -688,7 +688,7 @@ mod tests {
         assert!(store.get_versioned(&key, 0).is_err());
         assert!(store.get_history(&key, None, None).is_err());
         assert!(store.scan_prefix(&key, 0).is_err());
-        assert!(store.scan_by_run(RunId::new(), 0).is_err());
+        assert!(store.scan_by_branch(BranchId::new(), 0).is_err());
         assert!(store.put_with_version(key.clone(), Value::Null, 1, None).is_err());
         assert!(store.delete_with_version(&key, 1).is_err());
     }

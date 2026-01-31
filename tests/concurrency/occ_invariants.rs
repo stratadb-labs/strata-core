@@ -11,12 +11,12 @@ use strata_concurrency::validation::{validate_transaction, ConflictType, Validat
 use strata_core::traits::Storage;
 use strata_core::types::{Key, Namespace};
 use strata_core::value::Value;
-use strata_core::RunId;
+use strata_core::BranchId;
 use strata_storage::sharded::ShardedStore;
 use std::sync::Arc;
 
-fn create_test_key(run_id: RunId, name: &str) -> Key {
-    let ns = Namespace::for_run(run_id);
+fn create_test_key(branch_id: BranchId, name: &str) -> Key {
+    let ns = Namespace::for_branch(branch_id);
     Key::new_kv(ns, name)
 }
 
@@ -27,19 +27,19 @@ fn create_test_key(run_id: RunId, name: &str) -> Key {
 #[test]
 fn first_committer_wins_read_write_conflict() {
     let store = Arc::new(ShardedStore::new());
-    let run_id = RunId::new();
-    let key = create_test_key(run_id, "contested");
+    let branch_id = BranchId::new();
+    let key = create_test_key(branch_id, "contested");
 
     // Initial value
     Storage::put(&*store, key.clone(), Value::Int(100), None).unwrap();
 
     // T1 reads the key
-    let mut t1 = TransactionContext::new(1, run_id, 1);
+    let mut t1 = TransactionContext::new(1, branch_id, 1);
     let value = Storage::get(&*store, &key).unwrap();
     t1.read_set.insert(key.clone(), value.unwrap().version.as_u64());
 
     // T2 reads and commits first
-    let mut t2 = TransactionContext::new(2, run_id, 1);
+    let mut t2 = TransactionContext::new(2, branch_id, 1);
     let value = Storage::get(&*store, &key).unwrap();
     t2.read_set.insert(key.clone(), value.unwrap().version.as_u64());
     t2.write_set.insert(key.clone(), Value::Int(200));
@@ -71,14 +71,14 @@ fn first_committer_wins_read_write_conflict() {
 #[test]
 fn blind_writes_dont_conflict() {
     let store = Arc::new(ShardedStore::new());
-    let run_id = RunId::new();
-    let key = create_test_key(run_id, "blind");
+    let branch_id = BranchId::new();
+    let key = create_test_key(branch_id, "blind");
 
     // Initial value
     Storage::put(&*store, key.clone(), Value::Int(100), None).unwrap();
 
     // T1 does a blind write (no read)
-    let mut t1 = TransactionContext::new(1, run_id, 1);
+    let mut t1 = TransactionContext::new(1, branch_id, 1);
     t1.write_set.insert(key.clone(), Value::Int(200));
 
     // T2 modifies the key
@@ -92,14 +92,14 @@ fn blind_writes_dont_conflict() {
 #[test]
 fn read_only_transaction_always_commits() {
     let store = Arc::new(ShardedStore::new());
-    let run_id = RunId::new();
-    let key = create_test_key(run_id, "readonly");
+    let branch_id = BranchId::new();
+    let key = create_test_key(branch_id, "readonly");
 
     // Initial value
     Storage::put(&*store, key.clone(), Value::Int(100), None).unwrap();
 
     // T1 only reads
-    let mut t1 = TransactionContext::new(1, run_id, 1);
+    let mut t1 = TransactionContext::new(1, branch_id, 1);
     let value = Storage::get(&*store, &key).unwrap();
     t1.read_set.insert(key.clone(), value.unwrap().version.as_u64());
 
@@ -122,16 +122,16 @@ fn write_skew_is_allowed() {
     // Per spec: write skew is ALLOWED (we don't try to prevent it)
 
     let store = Arc::new(ShardedStore::new());
-    let run_id = RunId::new();
-    let key_a = create_test_key(run_id, "account_a");
-    let key_b = create_test_key(run_id, "account_b");
+    let branch_id = BranchId::new();
+    let key_a = create_test_key(branch_id, "account_a");
+    let key_b = create_test_key(branch_id, "account_b");
 
     // Initial balances
     Storage::put(&*store, key_a.clone(), Value::Int(50), None).unwrap();
     Storage::put(&*store, key_b.clone(), Value::Int(50), None).unwrap();
 
     // T1 reads A and B, writes A
-    let mut t1 = TransactionContext::new(1, run_id, 1);
+    let mut t1 = TransactionContext::new(1, branch_id, 1);
     let val_a = Storage::get(&*store, &key_a).unwrap().unwrap();
     let val_b = Storage::get(&*store, &key_b).unwrap().unwrap();
     t1.read_set.insert(key_a.clone(), val_a.version.as_u64());
@@ -139,7 +139,7 @@ fn write_skew_is_allowed() {
     t1.write_set.insert(key_a.clone(), Value::Int(-10));
 
     // T2 reads A and B, writes B
-    let mut t2 = TransactionContext::new(2, run_id, 1);
+    let mut t2 = TransactionContext::new(2, branch_id, 1);
     t2.read_set.insert(key_a.clone(), val_a.version.as_u64());
     t2.read_set.insert(key_b.clone(), val_b.version.as_u64());
     t2.write_set.insert(key_b.clone(), Value::Int(-10));
@@ -159,15 +159,15 @@ fn write_skew_is_allowed() {
 #[test]
 fn conflict_reports_correct_versions() {
     let store = Arc::new(ShardedStore::new());
-    let run_id = RunId::new();
-    let key = create_test_key(run_id, "versioned");
+    let branch_id = BranchId::new();
+    let key = create_test_key(branch_id, "versioned");
 
     // Initial value at version 1
     Storage::put(&*store, key.clone(), Value::Int(100), None).unwrap();
     let v1 = Storage::get(&*store, &key).unwrap().unwrap().version.as_u64();
 
     // T1 reads at version 1
-    let mut t1 = TransactionContext::new(1, run_id, 1);
+    let mut t1 = TransactionContext::new(1, branch_id, 1);
     t1.read_set.insert(key.clone(), v1);
 
     // Update to version 2
@@ -192,9 +192,9 @@ fn conflict_reports_correct_versions() {
 #[test]
 fn multiple_conflicts_all_reported() {
     let store = Arc::new(ShardedStore::new());
-    let run_id = RunId::new();
-    let key1 = create_test_key(run_id, "key1");
-    let key2 = create_test_key(run_id, "key2");
+    let branch_id = BranchId::new();
+    let key1 = create_test_key(branch_id, "key1");
+    let key2 = create_test_key(branch_id, "key2");
 
     // Initial values
     Storage::put(&*store, key1.clone(), Value::Int(1), None).unwrap();
@@ -204,7 +204,7 @@ fn multiple_conflicts_all_reported() {
     let v2 = Storage::get(&*store, &key2).unwrap().unwrap().version.as_u64();
 
     // T1 reads both
-    let mut t1 = TransactionContext::new(1, run_id, 1);
+    let mut t1 = TransactionContext::new(1, branch_id, 1);
     t1.read_set.insert(key1.clone(), v1);
     t1.read_set.insert(key2.clone(), v2);
 
@@ -223,15 +223,15 @@ fn multiple_conflicts_all_reported() {
 #[test]
 fn no_conflict_when_versions_match() {
     let store = Arc::new(ShardedStore::new());
-    let run_id = RunId::new();
-    let key = create_test_key(run_id, "stable");
+    let branch_id = BranchId::new();
+    let key = create_test_key(branch_id, "stable");
 
     // Initial value
     Storage::put(&*store, key.clone(), Value::Int(100), None).unwrap();
     let version = Storage::get(&*store, &key).unwrap().unwrap().version.as_u64();
 
     // T1 reads and writes
-    let mut t1 = TransactionContext::new(1, run_id, 1);
+    let mut t1 = TransactionContext::new(1, branch_id, 1);
     t1.read_set.insert(key.clone(), version);
     t1.write_set.insert(key.clone(), Value::Int(200));
 
@@ -247,9 +247,9 @@ fn no_conflict_when_versions_match() {
 #[test]
 fn empty_transaction_validates() {
     let store = Arc::new(ShardedStore::new());
-    let run_id = RunId::new();
+    let branch_id = BranchId::new();
 
-    let t1 = TransactionContext::new(1, run_id, 1);
+    let t1 = TransactionContext::new(1, branch_id, 1);
     assert!(t1.is_read_only());
 
     let result = validate_transaction(&t1, &*store);
@@ -259,11 +259,11 @@ fn empty_transaction_validates() {
 #[test]
 fn read_nonexistent_key_tracks_version_zero() {
     let store = Arc::new(ShardedStore::new());
-    let run_id = RunId::new();
-    let key = create_test_key(run_id, "ghost");
+    let branch_id = BranchId::new();
+    let key = create_test_key(branch_id, "ghost");
 
     // T1 reads nonexistent key (version 0)
-    let mut t1 = TransactionContext::new(1, run_id, 1);
+    let mut t1 = TransactionContext::new(1, branch_id, 1);
     let result = Storage::get(&*store, &key).unwrap();
     assert!(result.is_none());
     t1.read_set.insert(key.clone(), 0); // Version 0 = doesn't exist
@@ -281,15 +281,15 @@ fn read_nonexistent_key_tracks_version_zero() {
 #[test]
 fn delete_after_read_causes_conflict() {
     let store = Arc::new(ShardedStore::new());
-    let run_id = RunId::new();
-    let key = create_test_key(run_id, "deleted");
+    let branch_id = BranchId::new();
+    let key = create_test_key(branch_id, "deleted");
 
     // Initial value
     Storage::put(&*store, key.clone(), Value::Int(100), None).unwrap();
     let version = Storage::get(&*store, &key).unwrap().unwrap().version.as_u64();
 
     // T1 reads
-    let mut t1 = TransactionContext::new(1, run_id, 1);
+    let mut t1 = TransactionContext::new(1, branch_id, 1);
     t1.read_set.insert(key.clone(), version);
 
     // Key is deleted
@@ -306,7 +306,7 @@ fn delete_after_read_causes_conflict() {
 fn validation_result_merge_combines_conflicts() {
     let mut result1 = ValidationResult::ok();
     let result2 = ValidationResult::conflict(ConflictType::ReadWriteConflict {
-        key: create_test_key(RunId::new(), "k1"),
+        key: create_test_key(BranchId::new(), "k1"),
         read_version: 1,
         current_version: 2,
     });

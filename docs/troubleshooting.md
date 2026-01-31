@@ -6,15 +6,15 @@ Common issues and their solutions.
 
 **Symptom:** You wrote data with `kv_put` but `kv_get` returns `None`.
 
-**Likely cause:** You are on a different run than where you wrote the data.
+**Likely cause:** You are on a different branch than where you wrote the data.
 
-**Fix:** Check your current run with `db.current_run()` and make sure you are reading from the same run where you wrote:
+**Fix:** Check your current branch with `db.current_branch()` and make sure you are reading from the same branch where you wrote:
 
 ```rust
-println!("Current run: {}", db.current_run());
+println!("Current branch: {}", db.current_branch());
 ```
 
-All data in StrataDB is run-scoped. Data written in one run is invisible from another. See [Runs](concepts/runs.md).
+All data in StrataDB is branch-scoped. Data written in one branch is invisible from another. See [Branches](concepts/branches.md).
 
 ## TransactionConflict Error
 
@@ -26,7 +26,7 @@ All data in StrataDB is run-scoped. Data written in one run is invisible from an
 
 ```rust
 loop {
-    session.execute(Command::TxnBegin { run: None, options: None })?;
+    session.execute(Command::TxnBegin { branch: None, options: None })?;
     // ... your operations ...
     match session.execute(Command::TxnCommit) {
         Ok(_) => break,
@@ -55,46 +55,46 @@ let embedding = vec![0.0f32; 384]; // correct
 db.vector_upsert("col", "key", embedding, None)?;
 ```
 
-## Cannot Delete Current Run
+## Cannot Delete Current Branch
 
-**Symptom:** `Error::ConstraintViolation` when deleting a run.
+**Symptom:** `Error::ConstraintViolation` when deleting a branch.
 
-**Cause:** You are trying to delete the run you are currently on, or the "default" run.
+**Cause:** You are trying to delete the branch you are currently on, or the "default" branch.
 
-**Fix:** Switch to a different run before deleting:
+**Fix:** Switch to a different branch before deleting:
 
 ```rust
-db.set_run("default")?;
-db.delete_run("the-run-to-delete")?;
+db.set_branch("default")?;
+db.delete_branch("the-branch-to-delete")?;
 ```
 
-The "default" run cannot be deleted.
+The "default" branch cannot be deleted.
 
-## RunNotFound When Switching
+## BranchNotFound When Switching
 
-**Symptom:** `Error::RunNotFound` when calling `set_run`.
+**Symptom:** `Error::BranchNotFound` when calling `set_branch`.
 
-**Cause:** The run doesn't exist yet.
+**Cause:** The branch doesn't exist yet.
 
 **Fix:** Create it first:
 
 ```rust
-db.create_run("my-run")?;
-db.set_run("my-run")?;
+db.create_branch("my-branch")?;
+db.set_branch("my-branch")?;
 ```
 
-## RunExists When Creating
+## BranchExists When Creating
 
-**Symptom:** `Error::RunExists` when calling `create_run`.
+**Symptom:** `Error::BranchExists` when calling `create_branch`.
 
-**Cause:** A run with that name already exists.
+**Cause:** A branch with that name already exists.
 
 **Fix:** Check existence first, or ignore the error:
 
 ```rust
-match db.create_run("my-run") {
+match db.create_branch("my-branch") {
     Ok(()) => {},
-    Err(Error::RunExists { .. }) => {}, // Already exists
+    Err(Error::BranchExists { .. }) => {}, // Already exists
     Err(e) => return Err(e),
 }
 ```
@@ -120,23 +120,23 @@ db.event_append("log", payload)?;
 
 **Symptom:** `Error::CollectionNotFound` when upserting or searching vectors.
 
-**Cause:** The vector collection hasn't been created yet, or you are on a different run.
+**Cause:** The vector collection hasn't been created yet, or you are on a different branch.
 
-**Fix:** Create the collection first in the current run:
+**Fix:** Create the collection first in the current branch:
 
 ```rust
 db.vector_create_collection("my-collection", 384, DistanceMetric::Cosine)?;
 ```
 
-Remember: collections are run-scoped. Creating a collection in one run doesn't make it available in another.
+Remember: collections are branch-scoped. Creating a collection in one branch doesn't make it available in another.
 
 ## NotImplemented Error
 
-**Symptom:** `Error::NotImplemented` for `fork_run` or `diff_runs`.
+**Symptom:** `Error::NotImplemented` for `fork_branch` or `diff_branches`.
 
 **Cause:** These features are planned but not yet available.
 
-**Workaround:** For forking, create a new run and manually copy the data you need. For diffing, read from both runs and compare in your application code.
+**Workaround:** For forking, create a new branch and manually copy the data you need. For diffing, read from both branches and compare in your application code.
 
 ## Getting Help
 

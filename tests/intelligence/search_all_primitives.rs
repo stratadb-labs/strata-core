@@ -46,17 +46,17 @@ fn test_primitive_kinds() {
 #[test]
 fn test_search_returns_response() {
     let test_db = TestDb::new();
-    let run_id = test_db.run_id;
+    let branch_id = test_db.branch_id;
     let p = test_db.all_primitives();
 
     // Populate primitives with searchable data
-    p.kv.put(&run_id, "search_test", strata_core::value::Value::String("searchable content".into()))
+    p.kv.put(&branch_id, "search_test", strata_core::value::Value::String("searchable content".into()))
         .expect("kv");
     let doc_id = JsonDocId::new();
-    p.json.create(&run_id, &doc_id, JsonValue::from(serde_json::json!({"text": "searchable json content"})))
+    p.json.create(&branch_id, &doc_id, JsonValue::from(serde_json::json!({"text": "searchable json content"})))
         .expect("json");
 
-    let search_req = SearchRequest::new(run_id, "searchable").with_k(10);
+    let search_req = SearchRequest::new(branch_id, "searchable").with_k(10);
 
     // Search each primitive
     let kv_response = p.kv.search(&search_req).expect("kv search");

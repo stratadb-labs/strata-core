@@ -6,7 +6,7 @@ use thiserror::Error;
 /// Errors that can occur during RunBundle operations
 #[derive(Debug, Error)]
 pub enum RunBundleError {
-    /// Run not found in RunIndex
+    /// Run not found in BranchIndex
     #[error("Run not found: {0}")]
     RunNotFound(String),
 

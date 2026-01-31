@@ -146,7 +146,7 @@ mod tests {
     // Verify ClonedSnapshotView is Send + Sync (required by SnapshotView trait)
     static_assertions::assert_impl_all!(super::ClonedSnapshotView: Send, Sync);
     use super::*;
-    use strata_core::types::{Namespace, RunId, TypeTag};
+    use strata_core::types::{Namespace, BranchId, TypeTag};
     use strata_core::value::Value;
     use strata_core::Version;
 
@@ -157,7 +157,7 @@ mod tests {
             "tenant".to_string(),
             "app".to_string(),
             "agent".to_string(),
-            RunId::new(),
+            BranchId::new(),
         )
     }
 
@@ -278,7 +278,7 @@ mod tests {
             "other_tenant".to_string(),
             "app".to_string(),
             "agent".to_string(),
-            RunId::new(),
+            BranchId::new(),
         );
         let key = create_test_key(&other_ns, b"key1");
 
@@ -340,7 +340,7 @@ mod tests {
             "other_tenant".to_string(),
             "app".to_string(),
             "agent".to_string(),
-            RunId::new(),
+            BranchId::new(),
         );
         let prefix = create_test_key(&other_ns, b"key");
 

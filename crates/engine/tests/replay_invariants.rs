@@ -12,26 +12,26 @@
 //! **CRITICAL**: Replay NEVER writes to the canonical store.
 //! ReadOnlyView is derived, not authoritative.
 
-use strata_core::types::{Key, Namespace, RunId};
+use strata_core::types::{Key, Namespace, BranchId};
 use strata_core::value::Value;
 use strata_core::PrimitiveType;
 use strata_engine::{diff_views, ReadOnlyView};
 use std::collections::HashMap;
 
 /// Helper to create a test namespace
-fn test_namespace(run_id: RunId) -> Namespace {
+fn test_namespace(branch_id: BranchId) -> Namespace {
     Namespace::new(
         "tenant".to_string(),
         "app".to_string(),
         "agent".to_string(),
-        run_id,
+        branch_id,
     )
 }
 
 /// Helper to build a ReadOnlyView with specified KV entries
-fn build_view_with_kv(run_id: RunId, entries: &[(&str, i64)]) -> ReadOnlyView {
-    let ns = test_namespace(run_id);
-    let mut view = ReadOnlyView::new(run_id);
+fn build_view_with_kv(branch_id: BranchId, entries: &[(&str, i64)]) -> ReadOnlyView {
+    let ns = test_namespace(branch_id);
+    let mut view = ReadOnlyView::new(branch_id);
 
     for (key, value) in entries {
         view.apply_kv_put(Key::new_kv(ns.clone(), *key), Value::Int(*value));
@@ -41,8 +41,8 @@ fn build_view_with_kv(run_id: RunId, entries: &[(&str, i64)]) -> ReadOnlyView {
 }
 
 /// Helper to build a ReadOnlyView with events
-fn build_view_with_events(run_id: RunId, events: &[(&str, &str)]) -> ReadOnlyView {
-    let mut view = ReadOnlyView::new(run_id);
+fn build_view_with_events(branch_id: BranchId, events: &[(&str, &str)]) -> ReadOnlyView {
+    let mut view = ReadOnlyView::new(branch_id);
 
     for (event_type, data) in events {
         view.append_event(
@@ -62,8 +62,8 @@ fn build_view_with_events(run_id: RunId, events: &[(&str, &str)]) -> ReadOnlyVie
 /// P1: Same inputs produce same outputs - basic case
 #[test]
 fn test_replay_pure_function_p1_basic() {
-    let run_id = RunId::new();
-    let ns = test_namespace(run_id);
+    let branch_id = BranchId::new();
+    let ns = test_namespace(branch_id);
 
     // Simulate replaying the same "inputs" multiple times
     // In a real scenario, this would read from WAL/EventLog
@@ -71,7 +71,7 @@ fn test_replay_pure_function_p1_basic() {
     // produces identical results
 
     let build_view = || {
-        let mut view = ReadOnlyView::new(run_id);
+        let mut view = ReadOnlyView::new(branch_id);
         view.apply_kv_put(Key::new_kv(ns.clone(), "key1"), Value::Int(100));
         view.apply_kv_put(
             Key::new_kv(ns.clone(), "key2"),
@@ -102,12 +102,12 @@ fn test_replay_pure_function_p1_basic() {
 /// P1: Complex operation sequences produce same results
 #[test]
 fn test_replay_pure_function_p1_complex_sequence() {
-    let run_id = RunId::new();
-    let ns = test_namespace(run_id);
+    let branch_id = BranchId::new();
+    let ns = test_namespace(branch_id);
 
     // Complex sequence: create, update, delete, recreate
     let build_complex_view = || {
-        let mut view = ReadOnlyView::new(run_id);
+        let mut view = ReadOnlyView::new(branch_id);
         let key = Key::new_kv(ns.clone(), "counter");
 
         // Create
@@ -150,15 +150,15 @@ fn test_replay_pure_function_p1_complex_sequence() {
 /// P2: ReadOnlyView operations don't affect external state
 #[test]
 fn test_replay_side_effect_free_p2_basic() {
-    let run_id = RunId::new();
-    let ns = test_namespace(run_id);
+    let branch_id = BranchId::new();
+    let ns = test_namespace(branch_id);
 
     // External "canonical" state (simulated)
     let mut canonical_state: HashMap<String, Value> = HashMap::new();
     canonical_state.insert("existing_key".into(), Value::Int(999));
 
     // Build a view that "conflicts" with canonical state
-    let mut view = ReadOnlyView::new(run_id);
+    let mut view = ReadOnlyView::new(branch_id);
     view.apply_kv_put(Key::new_kv(ns.clone(), "existing_key"), Value::Int(1)); // Different value
     view.apply_kv_put(Key::new_kv(ns.clone(), "new_key"), Value::Int(2));
 
@@ -174,12 +174,12 @@ fn test_replay_side_effect_free_p2_basic() {
 /// P2: Multiple replays don't accumulate side effects
 #[test]
 fn test_replay_side_effect_free_p2_no_accumulation() {
-    let run_id = RunId::new();
-    let ns = test_namespace(run_id);
+    let branch_id = BranchId::new();
+    let ns = test_namespace(branch_id);
 
     // Replay multiple times
     for iteration in 0..10 {
-        let mut view = ReadOnlyView::new(run_id);
+        let mut view = ReadOnlyView::new(branch_id);
         view.apply_kv_put(Key::new_kv(ns.clone(), "key"), Value::Int(iteration));
 
         // Each view is independent - check it has exactly what we put
@@ -203,10 +203,10 @@ fn test_replay_side_effect_free_p2_no_accumulation() {
 /// P3: View is read-only (no mutable external interface)
 #[test]
 fn test_replay_derived_view_p3_read_only() {
-    let run_id = RunId::new();
-    let ns = test_namespace(run_id);
+    let branch_id = BranchId::new();
+    let ns = test_namespace(branch_id);
 
-    let mut view = ReadOnlyView::new(run_id);
+    let mut view = ReadOnlyView::new(branch_id);
     view.apply_kv_put(Key::new_kv(ns.clone(), "key"), Value::Int(42));
 
     // View can only be read, not mutated through public read interface
@@ -230,17 +230,17 @@ fn test_replay_derived_view_p3_read_only() {
 fn test_replay_derived_view_p3_input_specific() {
     // Two different "runs" with different inputs produce different views
 
-    let run_a = RunId::new();
-    let run_b = RunId::new();
+    let branch_a = BranchId::new();
+    let branch_b = BranchId::new();
 
     // Different namespaces for different runs
-    let ns_a = test_namespace(run_a);
-    let ns_b = test_namespace(run_b);
+    let ns_a = test_namespace(branch_a);
+    let ns_b = test_namespace(branch_b);
 
-    let mut view_a = ReadOnlyView::new(run_a);
+    let mut view_a = ReadOnlyView::new(branch_a);
     view_a.apply_kv_put(Key::new_kv(ns_a.clone(), "unique_a"), Value::Int(1));
 
-    let mut view_b = ReadOnlyView::new(run_b);
+    let mut view_b = ReadOnlyView::new(branch_b);
     view_b.apply_kv_put(Key::new_kv(ns_b.clone(), "unique_b"), Value::Int(2));
 
     // Views are independent
@@ -260,19 +260,19 @@ fn test_replay_derived_view_p3_input_specific() {
 /// P4: View state is transient (goes away when dropped)
 #[test]
 fn test_replay_no_persist_p4_transient() {
-    let run_id = RunId::new();
-    let ns = test_namespace(run_id);
+    let branch_id = BranchId::new();
+    let ns = test_namespace(branch_id);
 
     // Build and drop a view
     {
-        let mut view = ReadOnlyView::new(run_id);
+        let mut view = ReadOnlyView::new(branch_id);
         view.apply_kv_put(Key::new_kv(ns.clone(), "temporary"), Value::Int(999));
         assert_eq!(view.kv_count(), 1);
         // View dropped here
     }
 
     // Build another view - it starts empty
-    let view2 = ReadOnlyView::new(run_id);
+    let view2 = ReadOnlyView::new(branch_id);
     assert_eq!(view2.kv_count(), 0);
     assert!(!view2.contains_kv(&Key::new_kv(ns.clone(), "temporary")));
 }
@@ -280,12 +280,12 @@ fn test_replay_no_persist_p4_transient() {
 /// P4: View is not automatically persisted
 #[test]
 fn test_replay_no_persist_p4_no_auto_persist() {
-    let run_id = RunId::new();
-    let ns = test_namespace(run_id);
+    let branch_id = BranchId::new();
+    let ns = test_namespace(branch_id);
 
     // Simulate many views being created and destroyed
     for _ in 0..100 {
-        let mut view = ReadOnlyView::new(run_id);
+        let mut view = ReadOnlyView::new(branch_id);
         view.apply_kv_put(Key::new_kv(ns.clone(), "key"), Value::Int(42));
 
         // These operations don't touch any persistent storage
@@ -295,7 +295,7 @@ fn test_replay_no_persist_p4_no_auto_persist() {
     // No persistent state accumulated
     // (In a real test, we'd check that no files were created, WAL unchanged, etc.)
     // Here we verify that new views start empty
-    let fresh_view = ReadOnlyView::new(run_id);
+    let fresh_view = ReadOnlyView::new(branch_id);
     assert_eq!(fresh_view.kv_count(), 0);
 }
 
@@ -307,8 +307,8 @@ fn test_replay_no_persist_p4_no_auto_persist() {
 /// P5: Multiple replays produce identical views
 #[test]
 fn test_replay_deterministic_p5_multiple_runs() {
-    let run_id = RunId::new();
-    let ns = test_namespace(run_id);
+    let branch_id = BranchId::new();
+    let ns = test_namespace(branch_id);
 
     // Define a sequence of operations (simulating WAL replay)
     let operations: Vec<(&str, i64)> = vec![
@@ -320,7 +320,7 @@ fn test_replay_deterministic_p5_multiple_runs() {
     ];
 
     let build_view = || {
-        let mut view = ReadOnlyView::new(run_id);
+        let mut view = ReadOnlyView::new(branch_id);
         for (key, value) in &operations {
             view.apply_kv_put(Key::new_kv(ns.clone(), *key), Value::Int(*value));
         }
@@ -349,20 +349,20 @@ fn test_replay_deterministic_p5_multiple_runs() {
 /// P5: Order of operations matters (deterministically)
 #[test]
 fn test_replay_deterministic_p5_order_matters() {
-    let run_id = RunId::new();
-    let ns = test_namespace(run_id);
+    let branch_id = BranchId::new();
+    let ns = test_namespace(branch_id);
 
     // Two different orderings produce different (but deterministic) results
 
     let build_order_a = || {
-        let mut view = ReadOnlyView::new(run_id);
+        let mut view = ReadOnlyView::new(branch_id);
         view.apply_kv_put(Key::new_kv(ns.clone(), "x"), Value::Int(1));
         view.apply_kv_put(Key::new_kv(ns.clone(), "x"), Value::Int(2));
         view
     };
 
     let build_order_b = || {
-        let mut view = ReadOnlyView::new(run_id);
+        let mut view = ReadOnlyView::new(branch_id);
         view.apply_kv_put(Key::new_kv(ns.clone(), "x"), Value::Int(2));
         view.apply_kv_put(Key::new_kv(ns.clone(), "x"), Value::Int(1));
         view
@@ -389,7 +389,7 @@ fn test_replay_deterministic_p5_order_matters() {
 /// P5: Events are ordered deterministically
 #[test]
 fn test_replay_deterministic_p5_events_ordered() {
-    let run_id = RunId::new();
+    let branch_id = BranchId::new();
 
     let events = vec![
         ("EventA", "data1"),
@@ -398,7 +398,7 @@ fn test_replay_deterministic_p5_events_ordered() {
     ];
 
     let build_view = || {
-        let mut view = ReadOnlyView::new(run_id);
+        let mut view = ReadOnlyView::new(branch_id);
         for (event_type, data) in &events {
             view.append_event(
                 (*event_type).to_string(),
@@ -428,19 +428,19 @@ fn test_replay_deterministic_p5_events_ordered() {
 /// P6: Applying operations twice produces same view
 #[test]
 fn test_replay_idempotent_p6_basic() {
-    let run_id = RunId::new();
-    let ns = test_namespace(run_id);
+    let branch_id = BranchId::new();
+    let ns = test_namespace(branch_id);
 
     // Single replay
     let view_once = {
-        let mut view = ReadOnlyView::new(run_id);
+        let mut view = ReadOnlyView::new(branch_id);
         view.apply_kv_put(Key::new_kv(ns.clone(), "key"), Value::Int(42));
         view
     };
 
     // "Double replay" - simulating replaying the same run twice
     let view_twice = {
-        let mut view = ReadOnlyView::new(run_id);
+        let mut view = ReadOnlyView::new(branch_id);
         view.apply_kv_put(Key::new_kv(ns.clone(), "key"), Value::Int(42));
         // Apply same operation again (idempotent put)
         view.apply_kv_put(Key::new_kv(ns.clone(), "key"), Value::Int(42));
@@ -457,7 +457,7 @@ fn test_replay_idempotent_p6_basic() {
 /// P6: Building view multiple times from same source is idempotent
 #[test]
 fn test_replay_idempotent_p6_full_rebuild() {
-    let run_id = RunId::new();
+    let branch_id = BranchId::new();
 
     // Define source operations
     let operations = vec![
@@ -472,7 +472,7 @@ fn test_replay_idempotent_p6_full_rebuild() {
     let mut views = Vec::new();
     for _ in 0..10 {
         let view = build_view_with_kv(
-            run_id,
+            branch_id,
             &operations.iter().map(|(k, v)| (*k, *v)).collect::<Vec<_>>(),
         );
         views.push(view);
@@ -493,7 +493,7 @@ fn test_replay_idempotent_p6_full_rebuild() {
 /// P6: Event replay is idempotent
 #[test]
 fn test_replay_idempotent_p6_events() {
-    let run_id = RunId::new();
+    let branch_id = BranchId::new();
 
     let events = vec![
         ("Created", "user:1"),
@@ -505,7 +505,7 @@ fn test_replay_idempotent_p6_events() {
     let mut views = Vec::new();
     for _ in 0..5 {
         let view = build_view_with_events(
-            run_id,
+            branch_id,
             &events.iter().map(|(t, d)| (*t, *d)).collect::<Vec<_>>(),
         );
         views.push(view);
@@ -527,12 +527,12 @@ fn test_replay_idempotent_p6_events() {
 /// Test all invariants together with realistic workload
 #[test]
 fn test_all_replay_invariants_combined() {
-    let run_id = RunId::new();
-    let ns = test_namespace(run_id);
+    let branch_id = BranchId::new();
+    let ns = test_namespace(branch_id);
 
     // Complex operation sequence
     let build_realistic_view = || {
-        let mut view = ReadOnlyView::new(run_id);
+        let mut view = ReadOnlyView::new(branch_id);
 
         // Initial creates
         view.apply_kv_put(
@@ -587,7 +587,7 @@ fn test_all_replay_invariants_combined() {
     assert_eq!(view.event_count(), 4);
 
     // P4: New view starts empty (implicit - new views don't persist)
-    let fresh = ReadOnlyView::new(run_id);
+    let fresh = ReadOnlyView::new(branch_id);
     assert_eq!(fresh.kv_count(), 0);
 
     // Verify final expected state
@@ -604,10 +604,10 @@ fn test_all_replay_invariants_combined() {
 /// Test diff_runs self-comparison
 #[test]
 fn test_diff_runs_self_comparison() {
-    let run_id = RunId::new();
-    let ns = test_namespace(run_id);
+    let branch_id = BranchId::new();
+    let ns = test_namespace(branch_id);
 
-    let mut view = ReadOnlyView::new(run_id);
+    let mut view = ReadOnlyView::new(branch_id);
     view.apply_kv_put(Key::new_kv(ns.clone(), "key1"), Value::Int(100));
     view.apply_kv_put(
         Key::new_kv(ns.clone(), "key2"),
@@ -624,18 +624,18 @@ fn test_diff_runs_self_comparison() {
 /// Test diff between different views
 #[test]
 fn test_diff_views_different() {
-    let run_a = RunId::new();
-    let run_b = RunId::new();
-    let ns_a = test_namespace(run_a);
-    let ns_b = test_namespace(run_b);
+    let branch_a = BranchId::new();
+    let branch_b = BranchId::new();
+    let ns_a = test_namespace(branch_a);
+    let ns_b = test_namespace(branch_b);
 
     // View A: has key1, key2
-    let mut view_a = ReadOnlyView::new(run_a);
+    let mut view_a = ReadOnlyView::new(branch_a);
     view_a.apply_kv_put(Key::new_kv(ns_a.clone(), "shared"), Value::Int(1));
     view_a.apply_kv_put(Key::new_kv(ns_a.clone(), "only_a"), Value::Int(2));
 
     // View B: has shared (different value), key3
-    let mut view_b = ReadOnlyView::new(run_b);
+    let mut view_b = ReadOnlyView::new(branch_b);
     view_b.apply_kv_put(Key::new_kv(ns_b.clone(), "shared"), Value::Int(100)); // Different value
     view_b.apply_kv_put(Key::new_kv(ns_b.clone(), "only_b"), Value::Int(3));
 
@@ -651,16 +651,16 @@ fn test_diff_views_different() {
 /// Test event diff
 #[test]
 fn test_diff_events() {
-    let run_a = RunId::new();
-    let run_b = RunId::new();
+    let branch_a = BranchId::new();
+    let branch_b = BranchId::new();
 
     // View A: 2 events
-    let mut view_a = ReadOnlyView::new(run_a);
+    let mut view_a = ReadOnlyView::new(branch_a);
     view_a.append_event("E1".into(), Value::Int(1));
     view_a.append_event("E2".into(), Value::Int(2));
 
     // View B: 3 events
-    let mut view_b = ReadOnlyView::new(run_b);
+    let mut view_b = ReadOnlyView::new(branch_b);
     view_b.append_event("E1".into(), Value::Int(1));
     view_b.append_event("E2".into(), Value::Int(2));
     view_b.append_event("E3".into(), Value::Int(3)); // Extra event

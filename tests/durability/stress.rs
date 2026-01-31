@@ -12,11 +12,11 @@ use std::time::{Duration, Instant};
 #[ignore]
 fn stress_large_wal_recovery() {
     let mut test_db = TestDb::new_strict();
-    let run_id = test_db.run_id;
+    let branch_id = test_db.branch_id;
 
     let kv = test_db.kv();
     for i in 0..10_000 {
-        kv.put(&run_id, &format!("key_{}", i), Value::Int(i))
+        kv.put(&branch_id, &format!("key_{}", i), Value::Int(i))
             .unwrap();
     }
 
@@ -27,7 +27,7 @@ fn stress_large_wal_recovery() {
 
     let kv = test_db.kv();
     for i in (0..10_000).step_by(100) {
-        let val = kv.get(&run_id, &format!("key_{}", i)).unwrap();
+        let val = kv.get(&branch_id, &format!("key_{}", i)).unwrap();
         assert_eq!(val, Some(Value::Int(i)), "Key {} should be {} after recovery", i, i);
     }
 }
@@ -43,10 +43,10 @@ fn stress_concurrent_writes() {
         .map(|thread_id| {
             let db = db.clone();
             thread::spawn(move || {
-                let run_id = RunId::new();
+                let branch_id = BranchId::new();
                 let kv = KVStore::new(db);
                 for i in 0..1000 {
-                    kv.put(&run_id, &format!("t{}_k{}", thread_id, i), Value::Int(i))
+                    kv.put(&branch_id, &format!("t{}_k{}", thread_id, i), Value::Int(i))
                         .unwrap();
                 }
             })
@@ -63,20 +63,20 @@ fn stress_concurrent_writes() {
 #[ignore]
 fn stress_concurrent_read_write() {
     let test_db = TestDb::new_in_memory();
-    let run_id = test_db.run_id;
+    let branch_id = test_db.branch_id;
     let db = test_db.db.clone();
 
     // Pre-populate
     let kv = KVStore::new(db.clone());
     for i in 0..500 {
-        kv.put(&run_id, &format!("rw_{}", i), Value::Int(i)).unwrap();
+        kv.put(&branch_id, &format!("rw_{}", i), Value::Int(i)).unwrap();
     }
 
     let writer_db = db.clone();
     let writer = thread::spawn(move || {
         let kv = KVStore::new(writer_db);
         for i in 500..1000 {
-            kv.put(&run_id, &format!("rw_{}", i), Value::Int(i))
+            kv.put(&branch_id, &format!("rw_{}", i), Value::Int(i))
                 .unwrap();
         }
     });
@@ -89,7 +89,7 @@ fn stress_concurrent_read_write() {
                 let mut reads = 0u64;
                 for _ in 0..1000 {
                     for i in 0..500 {
-                        let _ = kv.get(&run_id, &format!("rw_{}", i));
+                        let _ = kv.get(&branch_id, &format!("rw_{}", i));
                         reads += 1;
                     }
                 }
@@ -110,12 +110,12 @@ fn stress_concurrent_read_write() {
 #[ignore]
 fn stress_many_small_writes() {
     let test_db = TestDb::new_in_memory();
-    let run_id = test_db.run_id;
+    let branch_id = test_db.branch_id;
 
     let kv = test_db.kv();
     let start = Instant::now();
     for i in 0..100_000 {
-        kv.put(&run_id, &format!("k{}", i), Value::Int(i)).unwrap();
+        kv.put(&branch_id, &format!("k{}", i), Value::Int(i)).unwrap();
     }
     let elapsed = start.elapsed();
 
@@ -127,7 +127,7 @@ fn stress_many_small_writes() {
 
     // Verify sampling
     for i in (0..100_000).step_by(10_000) {
-        let val = kv.get(&run_id, &format!("k{}", i)).unwrap();
+        let val = kv.get(&branch_id, &format!("k{}", i)).unwrap();
         assert_eq!(val, Some(Value::Int(i)));
     }
 }
@@ -137,18 +137,18 @@ fn stress_many_small_writes() {
 #[ignore]
 fn stress_large_values() {
     let test_db = TestDb::new_in_memory();
-    let run_id = test_db.run_id;
+    let branch_id = test_db.branch_id;
 
     let kv = test_db.kv();
     let large = Value::String("x".repeat(1_000_000)); // 1MB
 
     for i in 0..50 {
-        kv.put(&run_id, &format!("large_{}", i), large.clone())
+        kv.put(&branch_id, &format!("large_{}", i), large.clone())
             .unwrap();
     }
 
     for i in 0..50 {
-        let val = kv.get(&run_id, &format!("large_{}", i)).unwrap();
+        let val = kv.get(&branch_id, &format!("large_{}", i)).unwrap();
         assert_eq!(val, Some(large.clone()), "Large value {} should be preserved", i);
     }
 }
@@ -158,23 +158,23 @@ fn stress_large_values() {
 #[ignore]
 fn stress_mixed_operations() {
     let test_db = TestDb::new_in_memory();
-    let run_id = test_db.run_id;
+    let branch_id = test_db.branch_id;
 
     let kv = test_db.kv();
     for i in 0..10_000 {
         match i % 4 {
             0 => {
-                kv.put(&run_id, &format!("k{}", i % 500), Value::Int(i))
+                kv.put(&branch_id, &format!("k{}", i % 500), Value::Int(i))
                     .unwrap();
             }
             1 => {
-                let _ = kv.get(&run_id, &format!("k{}", i % 500));
+                let _ = kv.get(&branch_id, &format!("k{}", i % 500));
             }
             2 => {
-                kv.delete(&run_id, &format!("k{}", (i + 250) % 500)).ok();
+                kv.delete(&branch_id, &format!("k{}", (i + 250) % 500)).ok();
             }
             3 => {
-                let _ = kv.list(&run_id, None);
+                let _ = kv.list(&branch_id, None);
             }
             _ => {}
         }
@@ -186,19 +186,19 @@ fn stress_mixed_operations() {
 #[ignore]
 fn stress_recovery_after_churn() {
     let mut test_db = TestDb::new_strict();
-    let run_id = test_db.run_id;
+    let branch_id = test_db.branch_id;
 
     let kv = test_db.kv();
     for i in 0..10_000 {
-        kv.put(&run_id, &format!("churn_{}", i % 100), Value::Int(i))
+        kv.put(&branch_id, &format!("churn_{}", i % 100), Value::Int(i))
             .unwrap();
     }
 
-    let state_before = CapturedState::capture(&test_db.db, &run_id);
+    let state_before = CapturedState::capture(&test_db.db, &branch_id);
 
     test_db.reopen();
 
-    let state_after = CapturedState::capture(&test_db.db, &run_id);
+    let state_after = CapturedState::capture(&test_db.db, &branch_id);
     assert_states_equal(&state_before, &state_after, "Churn recovery mismatch");
 }
 
@@ -207,13 +207,13 @@ fn stress_recovery_after_churn() {
 #[ignore]
 fn stress_repeated_reopen() {
     let mut test_db = TestDb::new_strict();
-    let run_id = test_db.run_id;
+    let branch_id = test_db.branch_id;
 
     for cycle in 0..20 {
         let kv = test_db.kv();
         for i in 0..100 {
             kv.put(
-                &run_id,
+                &branch_id,
                 &format!("c{}_k{}", cycle, i),
                 Value::Int((cycle * 100 + i) as i64),
             )
@@ -226,7 +226,7 @@ fn stress_repeated_reopen() {
     let kv = test_db.kv();
     for cycle in 0..20 {
         let val = kv
-            .get(&run_id, &format!("c{}_k0", cycle))
+            .get(&branch_id, &format!("c{}_k0", cycle))
             .unwrap();
         assert_eq!(val, Some(Value::Int((cycle * 100) as i64)), "Data from cycle {} should survive repeated reopens", cycle);
     }
@@ -237,7 +237,7 @@ fn stress_repeated_reopen() {
 #[ignore]
 fn stress_all_primitives_sustained() {
     let test_db = TestDb::new_in_memory();
-    let run_id = test_db.run_id;
+    let branch_id = test_db.branch_id;
     let p = test_db.all_primitives();
 
     let duration = Duration::from_secs(5);
@@ -246,17 +246,17 @@ fn stress_all_primitives_sustained() {
 
     while start.elapsed() < duration {
         let key = format!("k{}", ops);
-        p.kv.put(&run_id, &key, Value::Int(ops as i64)).unwrap();
+        p.kv.put(&branch_id, &key, Value::Int(ops as i64)).unwrap();
 
         if ops % 10 == 0 {
             p.event
-                .append(&run_id, "load_stream", int_payload(ops as i64))
+                .append(&branch_id, "load_stream", int_payload(ops as i64))
                 .unwrap();
         }
         if ops % 50 == 0 {
             let doc = format!("doc_{}", ops);
             p.json
-                .create(&run_id, &doc, test_json_value(ops as usize))
+                .create(&branch_id, &doc, test_json_value(ops as usize))
                 .unwrap();
         }
 

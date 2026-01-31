@@ -14,7 +14,7 @@
 //! - VectorId monotonicity across restarts (Invariant T4)
 //! - Cross-primitive consistency (Vector + KV)
 
-use strata_core::types::{Key, Namespace, RunId};
+use strata_core::types::{Key, Namespace, BranchId};
 use strata_core::value::Value;
 use strata_engine::Database;
 use strata_engine::vector::{DistanceMetric, VectorConfig, VectorStore};
@@ -35,12 +35,12 @@ fn ensure_recovery_registered() {
 // Test Helpers
 // ============================================================================
 
-fn create_ns(run_id: RunId) -> Namespace {
+fn create_ns(branch_id: BranchId) -> Namespace {
     Namespace::new(
         "tenant".to_string(),
         "app".to_string(),
         "agent".to_string(),
-        run_id,
+        branch_id,
     )
 }
 
@@ -62,7 +62,7 @@ fn test_collection_survives_restart() {
     ensure_recovery_registered();
     let temp_dir = TempDir::new().unwrap();
     let db_path = temp_dir.path().to_path_buf();
-    let run_id = RunId::new();
+    let branch_id = BranchId::new();
 
     // Create collection
     {
@@ -70,10 +70,10 @@ fn test_collection_survives_restart() {
         let store = VectorStore::new(db.clone());
 
         let config = VectorConfig::new(3, DistanceMetric::Cosine).unwrap();
-        store.create_collection(run_id, "test_col", config).unwrap();
+        store.create_collection(branch_id, "test_col", config).unwrap();
 
         // Verify it exists
-        assert!(store.collection_exists(run_id, "test_col").unwrap());
+        assert!(store.collection_exists(branch_id, "test_col").unwrap());
 
         // Flush before "crash"
         db.flush().unwrap();
@@ -84,7 +84,7 @@ fn test_collection_survives_restart() {
         let db = Database::open(&db_path).unwrap();
         let store = VectorStore::new(db.clone());
 
-        let info = store.get_collection(run_id, "test_col").unwrap();
+        let info = store.get_collection(branch_id, "test_col").unwrap();
         assert!(info.is_some(), "Collection should survive restart");
 
         let info = info.unwrap();
@@ -100,7 +100,7 @@ fn test_multiple_collections_survive_restart() {
     ensure_recovery_registered();
     let temp_dir = TempDir::new().unwrap();
     let db_path = temp_dir.path().to_path_buf();
-    let run_id = RunId::new();
+    let branch_id = BranchId::new();
 
     // Create multiple collections with different configs
     {
@@ -109,7 +109,7 @@ fn test_multiple_collections_survive_restart() {
 
         store
             .create_collection(
-                run_id,
+                branch_id,
                 "col_cosine",
                 VectorConfig::new(64, DistanceMetric::Cosine).unwrap(),
             )
@@ -117,7 +117,7 @@ fn test_multiple_collections_survive_restart() {
 
         store
             .create_collection(
-                run_id,
+                branch_id,
                 "col_euclidean",
                 VectorConfig::new(128, DistanceMetric::Euclidean).unwrap(),
             )
@@ -125,7 +125,7 @@ fn test_multiple_collections_survive_restart() {
 
         store
             .create_collection(
-                run_id,
+                branch_id,
                 "col_dot",
                 VectorConfig::new(256, DistanceMetric::DotProduct).unwrap(),
             )
@@ -139,7 +139,7 @@ fn test_multiple_collections_survive_restart() {
         let db = Database::open(&db_path).unwrap();
         let store = VectorStore::new(db.clone());
 
-        let collections = store.list_collections(run_id).unwrap();
+        let collections = store.list_collections(branch_id).unwrap();
         assert_eq!(collections.len(), 3);
 
         // Collections should be sorted by name
@@ -167,7 +167,7 @@ fn test_vectors_survive_restart() {
     ensure_recovery_registered();
     let temp_dir = TempDir::new().unwrap();
     let db_path = temp_dir.path().to_path_buf();
-    let run_id = RunId::new();
+    let branch_id = BranchId::new();
 
     // Insert vectors
     {
@@ -175,17 +175,17 @@ fn test_vectors_survive_restart() {
         let store = VectorStore::new(db.clone());
 
         let config = VectorConfig::new(3, DistanceMetric::Cosine).unwrap();
-        store.create_collection(run_id, "test", config).unwrap();
+        store.create_collection(branch_id, "test", config).unwrap();
 
         store
-            .insert(run_id, "test", "vec1", &[1.0, 0.0, 0.0], None)
+            .insert(branch_id, "test", "vec1", &[1.0, 0.0, 0.0], None)
             .unwrap();
         store
-            .insert(run_id, "test", "vec2", &[0.0, 1.0, 0.0], None)
+            .insert(branch_id, "test", "vec2", &[0.0, 1.0, 0.0], None)
             .unwrap();
         store
             .insert(
-                run_id,
+                branch_id,
                 "test",
                 "vec3",
                 &[0.0, 0.0, 1.0],
@@ -193,7 +193,7 @@ fn test_vectors_survive_restart() {
             )
             .unwrap();
 
-        assert_eq!(store.count(run_id, "test").unwrap(), 3);
+        assert_eq!(store.count(branch_id, "test").unwrap(), 3);
         db.flush().unwrap();
     }
 
@@ -203,7 +203,7 @@ fn test_vectors_survive_restart() {
         let store = VectorStore::new(db.clone());
 
         // Collection should exist with config
-        let info = store.get_collection(run_id, "test").unwrap().unwrap();
+        let info = store.get_collection(branch_id, "test").unwrap().unwrap();
         assert_eq!(info.value.config.dimension, 3);
 
         // Note: After restart, vectors need to be loaded into backend
@@ -212,7 +212,7 @@ fn test_vectors_survive_restart() {
 
         // Verify we can still use the collection
         store
-            .insert(run_id, "test", "vec4", &[1.0, 1.0, 0.0], None)
+            .insert(branch_id, "test", "vec4", &[1.0, 1.0, 0.0], None)
             .unwrap();
     }
 }
@@ -223,7 +223,7 @@ fn test_vector_metadata_survives_restart() {
     ensure_recovery_registered();
     let temp_dir = TempDir::new().unwrap();
     let db_path = temp_dir.path().to_path_buf();
-    let run_id = RunId::new();
+    let branch_id = BranchId::new();
 
     // Insert vectors with metadata
     {
@@ -231,11 +231,11 @@ fn test_vector_metadata_survives_restart() {
         let store = VectorStore::new(db.clone());
 
         let config = VectorConfig::new(4, DistanceMetric::Cosine).unwrap();
-        store.create_collection(run_id, "docs", config).unwrap();
+        store.create_collection(branch_id, "docs", config).unwrap();
 
         store
             .insert(
-                run_id,
+                branch_id,
                 "docs",
                 "doc1",
                 &[1.0, 0.0, 0.0, 0.0],
@@ -249,7 +249,7 @@ fn test_vector_metadata_survives_restart() {
 
         store
             .insert(
-                run_id,
+                branch_id,
                 "docs",
                 "doc2",
                 &[0.0, 1.0, 0.0, 0.0],
@@ -271,7 +271,7 @@ fn test_vector_metadata_survives_restart() {
         // Vector records are stored in KV - verify they exist
         // The key format is based on Vector namespace
         let collections = VectorStore::new(db.clone())
-            .list_collections(run_id)
+            .list_collections(branch_id)
             .unwrap();
         assert_eq!(collections.len(), 1);
         assert_eq!(collections[0].name, "docs");
@@ -288,8 +288,8 @@ fn test_kv_and_vector_both_persist() {
     ensure_recovery_registered();
     let temp_dir = TempDir::new().unwrap();
     let db_path = temp_dir.path().to_path_buf();
-    let run_id = RunId::new();
-    let ns = create_ns(run_id);
+    let branch_id = BranchId::new();
+    let ns = create_ns(branch_id);
 
     // Write to both KV and Vector
     {
@@ -298,14 +298,14 @@ fn test_kv_and_vector_both_persist() {
 
         // Create vector collection
         let config = VectorConfig::new(3, DistanceMetric::Cosine).unwrap();
-        store.create_collection(run_id, "test", config).unwrap();
+        store.create_collection(branch_id, "test", config).unwrap();
         store
-            .insert(run_id, "test", "vec1", &[1.0, 0.0, 0.0], None)
+            .insert(branch_id, "test", "vec1", &[1.0, 0.0, 0.0], None)
             .unwrap();
 
         // Also write to KV directly
         let kv_key = Key::new_kv(ns.clone(), "user_state");
-        db.transaction(run_id, |txn| {
+        db.transaction(branch_id, |txn| {
             txn.put(kv_key.clone(), Value::String("active".to_string()))
         })
         .unwrap();
@@ -319,7 +319,7 @@ fn test_kv_and_vector_both_persist() {
         let store = VectorStore::new(db.clone());
 
         // Vector collection should exist
-        assert!(store.collection_exists(run_id, "test").unwrap());
+        assert!(store.collection_exists(branch_id, "test").unwrap());
 
         // KV data should exist
         let kv_key = Key::new_kv(ns, "user_state");
@@ -335,7 +335,7 @@ fn test_operation_sequence_survives_restart() {
     ensure_recovery_registered();
     let temp_dir = TempDir::new().unwrap();
     let db_path = temp_dir.path().to_path_buf();
-    let run_id = RunId::new();
+    let branch_id = BranchId::new();
 
     // Perform sequence of operations
     {
@@ -344,13 +344,13 @@ fn test_operation_sequence_survives_restart() {
 
         // Create collection
         let config = VectorConfig::new(3, DistanceMetric::Cosine).unwrap();
-        store.create_collection(run_id, "ops", config).unwrap();
+        store.create_collection(branch_id, "ops", config).unwrap();
 
         // Insert some vectors
         for i in 0..10 {
             store
                 .insert(
-                    run_id,
+                    branch_id,
                     "ops",
                     &format!("key{}", i),
                     &[i as f32, 0.0, 0.0],
@@ -359,19 +359,19 @@ fn test_operation_sequence_survives_restart() {
                 .unwrap();
         }
 
-        assert_eq!(store.count(run_id, "ops").unwrap(), 10);
+        assert_eq!(store.count(branch_id, "ops").unwrap(), 10);
 
         // Delete some
         for i in 0..5 {
-            store.delete(run_id, "ops", &format!("key{}", i)).unwrap();
+            store.delete(branch_id, "ops", &format!("key{}", i)).unwrap();
         }
 
-        assert_eq!(store.count(run_id, "ops").unwrap(), 5);
+        assert_eq!(store.count(branch_id, "ops").unwrap(), 5);
 
         // Update one (upsert)
         store
             .insert(
-                run_id,
+                branch_id,
                 "ops",
                 "key5",
                 &[99.0, 99.0, 99.0],
@@ -388,7 +388,7 @@ fn test_operation_sequence_survives_restart() {
         let store = VectorStore::new(db.clone());
 
         // Collection should exist
-        let info = store.get_collection(run_id, "ops").unwrap();
+        let info = store.get_collection(branch_id, "ops").unwrap();
         assert!(info.is_some());
     }
 }
@@ -403,8 +403,8 @@ fn test_run_isolation_survives_restart() {
     ensure_recovery_registered();
     let temp_dir = TempDir::new().unwrap();
     let db_path = temp_dir.path().to_path_buf();
-    let run1 = RunId::new();
-    let run2 = RunId::new();
+    let run1 = BranchId::new();
+    let run2 = BranchId::new();
 
     // Create collections in different runs
     {
@@ -456,7 +456,7 @@ fn test_deleted_collection_stays_deleted() {
     ensure_recovery_registered();
     let temp_dir = TempDir::new().unwrap();
     let db_path = temp_dir.path().to_path_buf();
-    let run_id = RunId::new();
+    let branch_id = BranchId::new();
 
     // Create and delete collection
     {
@@ -465,15 +465,15 @@ fn test_deleted_collection_stays_deleted() {
 
         let config = VectorConfig::new(3, DistanceMetric::Cosine).unwrap();
         store
-            .create_collection(run_id, "to_delete", config)
+            .create_collection(branch_id, "to_delete", config)
             .unwrap();
         store
-            .insert(run_id, "to_delete", "vec1", &[1.0, 0.0, 0.0], None)
+            .insert(branch_id, "to_delete", "vec1", &[1.0, 0.0, 0.0], None)
             .unwrap();
 
         // Delete collection
-        store.delete_collection(run_id, "to_delete").unwrap();
-        assert!(!store.collection_exists(run_id, "to_delete").unwrap());
+        store.delete_collection(branch_id, "to_delete").unwrap();
+        assert!(!store.collection_exists(branch_id, "to_delete").unwrap());
 
         db.flush().unwrap();
     }
@@ -484,14 +484,14 @@ fn test_deleted_collection_stays_deleted() {
         let store = VectorStore::new(db.clone());
 
         // Collection should NOT exist
-        assert!(!store.collection_exists(run_id, "to_delete").unwrap());
+        assert!(!store.collection_exists(branch_id, "to_delete").unwrap());
 
         // Should be able to create new collection with same name
         let config = VectorConfig::new(3, DistanceMetric::Cosine).unwrap();
         store
-            .create_collection(run_id, "to_delete", config)
+            .create_collection(branch_id, "to_delete", config)
             .unwrap();
-        assert!(store.collection_exists(run_id, "to_delete").unwrap());
+        assert!(store.collection_exists(branch_id, "to_delete").unwrap());
     }
 }
 
@@ -503,13 +503,13 @@ fn test_deleted_collection_stays_deleted() {
 #[test]
 fn test_wal_replayer() {
     let (_temp, _db, store) = setup_db();
-    let run_id = RunId::new();
+    let branch_id = BranchId::new();
 
     let config = VectorConfig::new(3, DistanceMetric::Cosine).unwrap();
 
     // Simulate WAL replay sequence
     store
-        .replay_create_collection(run_id, "replayed", config)
+        .replay_create_collection(branch_id, "replayed", config)
         .unwrap();
 
     // Replay upserts with specific VectorIds
@@ -517,7 +517,7 @@ fn test_wal_replayer() {
 
     store
         .replay_upsert(
-            run_id,
+            branch_id,
             "replayed",
             "key1",
             VectorId::new(1),
@@ -529,7 +529,7 @@ fn test_wal_replayer() {
 
     store
         .replay_upsert(
-            run_id,
+            branch_id,
             "replayed",
             "key2",
             VectorId::new(2),
@@ -541,7 +541,7 @@ fn test_wal_replayer() {
 
     store
         .replay_upsert(
-            run_id,
+            branch_id,
             "replayed",
             "key3",
             VectorId::new(3),
@@ -553,12 +553,12 @@ fn test_wal_replayer() {
 
     // Replay delete
     store
-        .replay_delete(run_id, "replayed", "key2", VectorId::new(2))
+        .replay_delete(branch_id, "replayed", "key2", VectorId::new(2))
         .unwrap();
 
     // Verify final state
     use strata_engine::vector::CollectionId;
-    let collection_id = CollectionId::new(run_id, "replayed");
+    let collection_id = CollectionId::new(branch_id, "replayed");
     let state = store.backends();
     let guard = state.backends.read();
     let backend = guard.get(&collection_id).unwrap();
@@ -574,11 +574,11 @@ fn test_wal_replayer() {
 #[test]
 fn test_replay_maintains_id_ordering() {
     let (_temp, _db, store) = setup_db();
-    let run_id = RunId::new();
+    let branch_id = BranchId::new();
 
     let config = VectorConfig::new(4, DistanceMetric::Euclidean).unwrap();
     store
-        .replay_create_collection(run_id, "ordered", config)
+        .replay_create_collection(branch_id, "ordered", config)
         .unwrap();
 
     use strata_engine::vector::VectorId;
@@ -586,7 +586,7 @@ fn test_replay_maintains_id_ordering() {
     // Replay with non-sequential IDs (simulating gaps from deletes)
     store
         .replay_upsert(
-            run_id,
+            branch_id,
             "ordered",
             "a",
             VectorId::new(1),
@@ -598,7 +598,7 @@ fn test_replay_maintains_id_ordering() {
 
     store
         .replay_upsert(
-            run_id,
+            branch_id,
             "ordered",
             "b",
             VectorId::new(5),
@@ -610,7 +610,7 @@ fn test_replay_maintains_id_ordering() {
 
     store
         .replay_upsert(
-            run_id,
+            branch_id,
             "ordered",
             "c",
             VectorId::new(100),
@@ -621,7 +621,7 @@ fn test_replay_maintains_id_ordering() {
         .unwrap();
 
     use strata_engine::vector::CollectionId;
-    let collection_id = CollectionId::new(run_id, "ordered");
+    let collection_id = CollectionId::new(branch_id, "ordered");
     let state = store.backends();
     let guard = state.backends.read();
     let backend = guard.get(&collection_id).unwrap();
@@ -640,12 +640,12 @@ fn test_replay_maintains_id_ordering() {
 #[test]
 fn test_replay_delete_missing_collection() {
     let (_temp, _db, store) = setup_db();
-    let run_id = RunId::new();
+    let branch_id = BranchId::new();
 
     use strata_engine::vector::VectorId;
 
     // Should not error - idempotent operation
-    let result = store.replay_delete(run_id, "nonexistent", "key", VectorId::new(1));
+    let result = store.replay_delete(branch_id, "nonexistent", "key", VectorId::new(1));
     assert!(result.is_ok());
 }
 
@@ -653,15 +653,15 @@ fn test_replay_delete_missing_collection() {
 #[test]
 fn test_replay_delete_collection() {
     let (_temp, _db, store) = setup_db();
-    let run_id = RunId::new();
+    let branch_id = BranchId::new();
 
     let config = VectorConfig::new(3, DistanceMetric::Cosine).unwrap();
     store
-        .replay_create_collection(run_id, "to_remove", config)
+        .replay_create_collection(branch_id, "to_remove", config)
         .unwrap();
 
     use strata_engine::vector::CollectionId;
-    let collection_id = CollectionId::new(run_id, "to_remove");
+    let collection_id = CollectionId::new(branch_id, "to_remove");
 
     // Backend should exist
     assert!(store
@@ -671,7 +671,7 @@ fn test_replay_delete_collection() {
         .contains_key(&collection_id));
 
     // Replay deletion
-    store.replay_delete_collection(run_id, "to_remove").unwrap();
+    store.replay_delete_collection(branch_id, "to_remove").unwrap();
 
     // Backend should be gone
     assert!(!store
@@ -694,13 +694,13 @@ fn test_concurrent_inserts_different_collections() {
     let temp_dir = TempDir::new().unwrap();
     let db = Database::open(temp_dir.path()).unwrap();
     let store = VectorStore::new(db.clone());
-    let run_id = RunId::new();
+    let branch_id = BranchId::new();
 
     // Create multiple collections
     for i in 0..4 {
         let config = VectorConfig::new(3, DistanceMetric::Cosine).unwrap();
         store
-            .create_collection(run_id, &format!("col{}", i), config)
+            .create_collection(branch_id, &format!("col{}", i), config)
             .unwrap();
     }
 
@@ -712,7 +712,7 @@ fn test_concurrent_inserts_different_collections() {
                 for j in 0..10 {
                     store
                         .insert(
-                            run_id,
+                            branch_id,
                             &format!("col{}", i),
                             &format!("key{}", j),
                             &[j as f32, i as f32, 0.0],
@@ -731,7 +731,7 @@ fn test_concurrent_inserts_different_collections() {
 
     // Verify counts
     for i in 0..4 {
-        assert_eq!(store.count(run_id, &format!("col{}", i)).unwrap(), 10);
+        assert_eq!(store.count(branch_id, &format!("col{}", i)).unwrap(), 10);
     }
 }
 

@@ -113,7 +113,7 @@ pub struct BundleContents {
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct BundleRunInfo {
     /// Run ID (UUID string)
-    pub run_id: String,
+    pub branch_id: String,
 
     /// Human-readable run name
     pub name: String,
@@ -162,7 +162,7 @@ impl BundleRunInfo {
 #[derive(Debug, Clone)]
 pub struct RunExportInfo {
     /// ID of the exported run
-    pub run_id: String,
+    pub branch_id: String,
 
     /// Path where the bundle was written
     pub path: PathBuf,
@@ -200,7 +200,7 @@ impl Default for ExportOptions {
 #[derive(Debug, Clone)]
 pub struct BundleVerifyInfo {
     /// Run ID from the bundle
-    pub run_id: String,
+    pub branch_id: String,
 
     /// Format version of the bundle
     pub format_version: u32,
@@ -220,7 +220,7 @@ pub struct BundleVerifyInfo {
 #[derive(Debug, Clone)]
 pub struct ImportedRunInfo {
     /// Run ID of the imported run
-    pub run_id: String,
+    pub branch_id: String,
 
     /// Number of WAL entries that were replayed
     pub wal_entries_replayed: u64,
@@ -329,7 +329,7 @@ mod tests {
     #[test]
     fn test_run_info_terminal_states() {
         let make_run = |state: &str| BundleRunInfo {
-            run_id: "test".to_string(),
+            branch_id: "test".to_string(),
             name: "test".to_string(),
             state: state.to_string(),
             created_at: "2025-01-24T00:00:00Z".to_string(),
@@ -353,7 +353,7 @@ mod tests {
     #[test]
     fn test_run_info_json_roundtrip() {
         let run_info = BundleRunInfo {
-            run_id: "550e8400-e29b-41d4-a716-446655440000".to_string(),
+            branch_id: "550e8400-e29b-41d4-a716-446655440000".to_string(),
             name: "my-test-run".to_string(),
             state: "completed".to_string(),
             created_at: "2025-01-24T10:00:00Z".to_string(),
@@ -373,7 +373,7 @@ mod tests {
     #[test]
     fn test_run_info_with_error() {
         let run_info = BundleRunInfo {
-            run_id: "test".to_string(),
+            branch_id: "test".to_string(),
             name: "failed-run".to_string(),
             state: "failed".to_string(),
             created_at: "2025-01-24T10:00:00Z".to_string(),

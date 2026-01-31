@@ -19,8 +19,8 @@ During replay, the agent reads from the Event Log instead of making external cal
 use stratadb::{Strata, Value};
 
 fn live_session(db: &mut Strata, session_id: &str) -> stratadb::Result<()> {
-    db.create_run(session_id)?;
-    db.set_run(session_id)?;
+    db.create_branch(session_id)?;
+    db.set_branch(session_id)?;
 
     // Record external API response
     let api_response = call_external_api("weather"); // nondeterministic
@@ -53,7 +53,7 @@ fn live_session(db: &mut Strata, session_id: &str) -> stratadb::Result<()> {
     db.kv_put("decision", format!("chose option {}", random_choice))?;
     db.state_set("status", "completed")?;
 
-    db.set_run("default")?;
+    db.set_branch("default")?;
     Ok(())
 }
 
@@ -66,7 +66,7 @@ fn call_external_api(query: &str) -> String {
 
 ```rust
 fn replay_session(db: &mut Strata, session_id: &str) -> stratadb::Result<()> {
-    db.set_run(session_id)?;
+    db.set_branch(session_id)?;
 
     // Read all external inputs in order
     let inputs = db.event_read_by_type("external_input")?;
@@ -81,7 +81,7 @@ fn replay_session(db: &mut Strata, session_id: &str) -> stratadb::Result<()> {
     // The agent can now re-execute its logic using recorded inputs
     // and produce the exact same results
 
-    db.set_run("default")?;
+    db.set_branch("default")?;
     Ok(())
 }
 ```
@@ -133,5 +133,5 @@ impl<'a> InputRecorder<'a> {
 ## See Also
 
 - [Event Log Guide](../guides/event-log.md) — event append and read operations
-- [Run Management Guide](../guides/run-management.md) — run-per-session pattern
+- [Branch Management Guide](../guides/branch-management.md) — branch-per-session pattern
 - [Agent State Management](agent-state-management.md) — full session pattern

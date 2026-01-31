@@ -176,7 +176,7 @@ impl ReferenceModel {
     }
 
     /// Get all run names in the model
-    pub fn run_names(&self) -> impl Iterator<Item = &String> {
+    pub fn branch_names(&self) -> impl Iterator<Item = &String> {
         self.kv_state
             .keys()
             .chain(self.event_state.keys())

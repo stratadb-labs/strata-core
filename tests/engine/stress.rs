@@ -23,7 +23,7 @@ fn event_payload(data: Value) -> Value {
 #[ignore]
 fn stress_concurrent_kv_operations() {
     let test_db = TestDb::new_in_memory();
-    let run_id = test_db.run_id;
+    let branch_id = test_db.branch_id;
     let db = test_db.db.clone();
 
     let barrier = Arc::new(Barrier::new(8));
@@ -40,8 +40,8 @@ fn stress_concurrent_kv_operations() {
 
             for i in 0..1000 {
                 let key = format!("thread_{}_key_{}", thread_id, i);
-                kv.put(&run_id, &key, Value::Int(i)).unwrap();
-                let _ = kv.get(&run_id, &key);
+                kv.put(&branch_id, &key, Value::Int(i)).unwrap();
+                let _ = kv.get(&branch_id, &key);
                 ops.fetch_add(2, Ordering::Relaxed);
             }
         })
@@ -61,17 +61,17 @@ fn stress_concurrent_kv_operations() {
 #[ignore]
 fn stress_transaction_throughput() {
     let test_db = TestDb::new_in_memory();
-    let run_id = test_db.run_id;
+    let branch_id = test_db.branch_id;
     let kv = test_db.kv();
 
-    kv.put(&run_id, "counter", Value::Int(0)).unwrap();
+    kv.put(&branch_id, "counter", Value::Int(0)).unwrap();
 
     let duration = Duration::from_secs(5);
     let start = Instant::now();
     let mut commits = 0u64;
 
     while start.elapsed() < duration {
-        let result = test_db.db.transaction(run_id, |txn| {
+        let result = test_db.db.transaction(branch_id, |txn| {
             let val = txn.kv_get("counter")?.unwrap();
             if let Value::Int(n) = val {
                 txn.kv_put("counter", Value::Int(n + 1))?;
@@ -96,14 +96,14 @@ fn stress_transaction_throughput() {
 #[ignore]
 fn stress_large_batch_kv() {
     let test_db = TestDb::new();
-    let run_id = test_db.run_id;
+    let branch_id = test_db.branch_id;
     let kv = test_db.kv();
 
     let start = Instant::now();
 
     // Write 10K keys
     for i in 0..10_000 {
-        kv.put(&run_id, &format!("key_{}", i), Value::Int(i)).unwrap();
+        kv.put(&branch_id, &format!("key_{}", i), Value::Int(i)).unwrap();
     }
 
     let write_time = start.elapsed();
@@ -111,7 +111,7 @@ fn stress_large_batch_kv() {
     // Read all keys
     let read_start = Instant::now();
     for i in 0..10_000 {
-        let _ = kv.get(&run_id, &format!("key_{}", i));
+        let _ = kv.get(&branch_id, &format!("key_{}", i));
     }
     let read_time = read_start.elapsed();
 
@@ -122,7 +122,7 @@ fn stress_large_batch_kv() {
 
     // List all keys
     let list_start = Instant::now();
-    let keys = kv.list(&run_id, None).unwrap();
+    let keys = kv.list(&branch_id, None).unwrap();
     let list_time = list_start.elapsed();
 
     println!("List {} keys: {:?}", keys.len(), list_time);
@@ -145,19 +145,19 @@ fn stress_many_concurrent_runs() {
         let success = success.clone();
 
         thread::spawn(move || {
-            let run_id = RunId::new(); // Each thread has its own run
+            let branch_id = BranchId::new(); // Each thread has its own run
             let kv = KVStore::new(db.clone());
 
             barrier.wait();
 
             // Each run does independent work
             for i in 0..100 {
-                kv.put(&run_id, &format!("key_{}", i), Value::Int(i)).unwrap();
+                kv.put(&branch_id, &format!("key_{}", i), Value::Int(i)).unwrap();
             }
 
             // Verify
             for i in 0..100 {
-                let val = kv.get(&run_id, &format!("key_{}", i)).unwrap();
+                let val = kv.get(&branch_id, &format!("key_{}", i)).unwrap();
                 if val.is_some() && val.unwrap() == Value::Int(i) {
                     success.fetch_add(1, Ordering::Relaxed);
                 }
@@ -179,7 +179,7 @@ fn stress_many_concurrent_runs() {
 #[ignore]
 fn stress_cross_primitive_transactions() {
     let test_db = TestDb::new_in_memory();
-    let run_id = test_db.run_id;
+    let branch_id = test_db.branch_id;
     let db = test_db.db.clone();
 
     let barrier = Arc::new(Barrier::new(4));
@@ -194,7 +194,7 @@ fn stress_cross_primitive_transactions() {
             barrier.wait();
 
             for i in 0..100 {
-                let result = db.transaction(run_id, |txn| {
+                let result = db.transaction(branch_id, |txn| {
                     let key = format!("thread_{}_iter_{}", thread_id, i);
 
                     // KV + Event in same transaction
@@ -227,16 +227,16 @@ fn stress_cross_primitive_transactions() {
 fn stress_vector_search() {
     let test_db = TestDb::new_in_memory();
     let vector = test_db.vector();
-    let run_id = test_db.run_id;
+    let branch_id = test_db.branch_id;
 
     let config = config_standard(); // 384 dimensions
-    vector.create_collection(run_id, "stress_coll", config).unwrap();
+    vector.create_collection(branch_id, "stress_coll", config).unwrap();
 
     // Insert 1000 vectors
     let insert_start = Instant::now();
     for i in 0..1000 {
         let v = seeded_vector(384, i as u64);
-        vector.insert(run_id, "stress_coll", &format!("vec_{}", i), &v, None).unwrap();
+        vector.insert(branch_id, "stress_coll", &format!("vec_{}", i), &v, None).unwrap();
     }
     let insert_time = insert_start.elapsed();
 
@@ -246,7 +246,7 @@ fn stress_vector_search() {
     let search_start = Instant::now();
     for i in 0..100 {
         let query = seeded_vector(384, i * 10);
-        let _ = vector.search(run_id, "stress_coll", &query, 10, None).unwrap();
+        let _ = vector.search(branch_id, "stress_coll", &query, 10, None).unwrap();
     }
     let search_time = search_start.elapsed();
 
@@ -263,13 +263,13 @@ fn stress_vector_search() {
 fn stress_eventlog_append() {
     let test_db = TestDb::new_in_memory();
     let event = test_db.event();
-    let run_id = test_db.run_id;
+    let branch_id = test_db.branch_id;
 
     let start = Instant::now();
 
     // Append 10K events
     for i in 0..10_000 {
-        event.append(&run_id, "stress_event", event_payload(Value::Int(i))).unwrap();
+        event.append(&branch_id, "stress_event", event_payload(Value::Int(i))).unwrap();
     }
 
     let elapsed = start.elapsed();
@@ -280,12 +280,12 @@ fn stress_eventlog_append() {
         10_000.0 / elapsed.as_secs_f64()
     );
 
-    assert_eq!(event.len(&run_id).unwrap(), 10_000);
+    assert_eq!(event.len(&branch_id).unwrap(), 10_000);
 
     // Verify all events are readable
     let verify_start = Instant::now();
     for i in 0..10_000u64 {
-        let ev = event.read(&run_id, i).unwrap();
+        let ev = event.read(&branch_id, i).unwrap();
         assert!(ev.is_some(), "Event at sequence {} should exist", i);
     }
     let verify_time = verify_start.elapsed();

@@ -23,7 +23,7 @@
 //!
 //! Export a completed run:
 //! ```ignore
-//! let info = db.export_run(&run_id, Path::new("./my-run.runbundle.tar.zst"))?;
+//! let info = db.export_run(&branch_id, Path::new("./my-run.runbundle.tar.zst"))?;
 //! ```
 //!
 //! Verify a bundle:

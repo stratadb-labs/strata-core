@@ -116,24 +116,24 @@ pub enum Output {
     /// List of vector collections
     VectorCollectionList(Vec<CollectionInfo>),
 
-    // ==================== Run-specific ====================
-    /// Single run info (unversioned)
-    RunInfo(RunInfo),
+    // ==================== Branch-specific ====================
+    /// Single branch info (unversioned)
+    BranchInfo(BranchInfo),
 
-    /// Versioned run info
-    RunInfoVersioned(VersionedRunInfo),
+    /// Versioned branch info
+    BranchInfoVersioned(VersionedBranchInfo),
 
-    /// List of versioned run infos
-    RunInfoList(Vec<VersionedRunInfo>),
+    /// List of versioned branch infos
+    BranchInfoList(Vec<VersionedBranchInfo>),
 
-    /// Run creation result (info + version)
-    RunWithVersion {
-        info: RunInfo,
+    /// Branch creation result (info + version)
+    BranchWithVersion {
+        info: BranchInfo,
         version: u64,
     },
 
-    /// Optional run ID (for parent lookup)
-    MaybeRunId(Option<RunId>),
+    /// Optional branch ID (for parent lookup)
+    MaybeBranchId(Option<BranchId>),
 
     // ==================== Transaction-specific ====================
     /// Transaction ID
@@ -173,11 +173,11 @@ pub enum Output {
     SearchResults(Vec<SearchResultHit>),
 
     // ==================== Bundle ====================
-    /// Run export result
-    RunExported(RunExportResult),
+    /// Branch export result
+    BranchExported(BranchExportResult),
 
-    /// Run import result
-    RunImported(RunImportResult),
+    /// Branch import result
+    BranchImported(BranchImportResult),
 
     /// Bundle validation result
     BundleValidated(BundleValidateResult),

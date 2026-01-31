@@ -17,7 +17,7 @@
 /*
 use strata_core::Storage;
 use strata_core::StrataError;
-use strata_core::types::{Key, Namespace, RunId};
+use strata_core::types::{Key, Namespace, BranchId};
 use strata_core::value::Value;
 use strata_engine::Database;
 use tempfile::TempDir;

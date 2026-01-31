@@ -4,7 +4,7 @@
 //! - **KVStore**: General-purpose key-value storage
 //! - **EventLog**: Immutable append-only event stream with causal hash chaining
 //! - **StateCell**: CAS-based versioned cells for coordination
-//! - **RunIndex**: Run lifecycle management
+//! - **BranchIndex**: Branch lifecycle management
 //! - **JsonStore**: JSON document storage with path-based operations
 //! - **VectorStore**: Vector storage with similarity search and collection management
 //!
@@ -19,9 +19,9 @@
 //! - Idempotent retry works correctly
 //! - Replay produces same results
 //!
-//! ## Run Isolation
+//! ## Branch Isolation
 //!
-//! Every operation is scoped to a `RunId`. Different runs cannot see
+//! Every operation is scoped to a `BranchId`. Different runs cannot see
 //! each other's data. This is enforced through key prefix isolation.
 //!
 //! ## Cross-Primitive Transactions
@@ -31,7 +31,7 @@
 //! ```rust,ignore
 //! use strata_engine::primitives::extensions::*;
 //!
-//! db.transaction(run_id, |txn| {
+//! db.transaction(branch_id, |txn| {
 //!     txn.kv_put("key", value)?;
 //!     txn.event_append("type", payload)?;
 //!     txn.state_cas("cell", version, new_value)?;
@@ -43,7 +43,7 @@ pub mod event;
 pub mod extensions;
 pub mod json;
 pub mod kv;
-pub mod run;
+pub mod branch;
 pub mod state;
 pub mod vector;
 
@@ -51,8 +51,8 @@ pub mod vector;
 pub use event::{Event, EventLog};
 pub use json::{JsonDoc, JsonStore};
 pub use kv::KVStore;
-pub use run::{RunHandle, EventHandle, JsonHandle, KvHandle, StateHandle, VectorHandle};
-pub use run::{RunIndex, RunMetadata, RunStatus};
+pub use branch::{BranchHandle, EventHandle, JsonHandle, KvHandle, StateHandle, VectorHandle};
+pub use branch::{BranchIndex, BranchMetadata, BranchStatus};
 pub use state::{State, StateCell};
 pub use vector::{
     register_vector_recovery, validate_collection_name, validate_vector_key, BruteForceBackend,

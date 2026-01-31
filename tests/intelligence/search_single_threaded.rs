@@ -13,13 +13,13 @@ fn test_r8_search_deterministic_across_threads() {
     let vector = test_db.vector();
 
     vector
-        .create_collection(test_db.run_id, "embeddings", config_minilm())
+        .create_collection(test_db.branch_id, "embeddings", config_minilm())
         .unwrap();
 
     for i in 0..100 {
         vector
             .insert(
-                test_db.run_id,
+                test_db.branch_id,
                 "embeddings",
                 &format!("key_{}", i),
                 &seeded_random_vector(384, i as u64),
@@ -30,7 +30,7 @@ fn test_r8_search_deterministic_across_threads() {
 
     let query = seeded_random_vector(384, 54321);
     let db = test_db.db.clone();
-    let run_id = test_db.run_id;
+    let branch_id = test_db.branch_id;
 
     // Run search from multiple threads concurrently
     let handles: Vec<_> = (0..10)
@@ -39,7 +39,7 @@ fn test_r8_search_deterministic_across_threads() {
             let query = query.clone();
             thread::spawn(move || {
                 let vector = strata_engine::vector::VectorStore::new(db);
-                vector.search(run_id, "embeddings", &query, 20, None).unwrap()
+                vector.search(branch_id, "embeddings", &query, 20, None).unwrap()
             })
         })
         .collect();
@@ -61,13 +61,13 @@ fn test_r8_scores_identical_across_threads() {
     let vector = test_db.vector();
 
     vector
-        .create_collection(test_db.run_id, "embeddings", config_minilm())
+        .create_collection(test_db.branch_id, "embeddings", config_minilm())
         .unwrap();
 
     for i in 0..50 {
         vector
             .insert(
-                test_db.run_id,
+                test_db.branch_id,
                 "embeddings",
                 &format!("key_{}", i),
                 &seeded_random_vector(384, i as u64),
@@ -78,7 +78,7 @@ fn test_r8_scores_identical_across_threads() {
 
     let query = seeded_random_vector(384, 11111);
     let db = test_db.db.clone();
-    let run_id = test_db.run_id;
+    let branch_id = test_db.branch_id;
 
     let handles: Vec<_> = (0..5)
         .map(|_| {
@@ -86,7 +86,7 @@ fn test_r8_scores_identical_across_threads() {
             let query = query.clone();
             thread::spawn(move || {
                 let vector = strata_engine::vector::VectorStore::new(db);
-                vector.search(run_id, "embeddings", &query, 10, None).unwrap()
+                vector.search(branch_id, "embeddings", &query, 10, None).unwrap()
             })
         })
         .collect();
@@ -115,14 +115,14 @@ fn test_r8_concurrent_search_and_modify() {
     let vector = test_db.vector();
 
     vector
-        .create_collection(test_db.run_id, "embeddings", config_minilm())
+        .create_collection(test_db.branch_id, "embeddings", config_minilm())
         .unwrap();
 
     // Insert initial vectors
     for i in 0..50 {
         vector
             .insert(
-                test_db.run_id,
+                test_db.branch_id,
                 "embeddings",
                 &format!("key_{}", i),
                 &seeded_random_vector(384, i as u64),
@@ -132,7 +132,7 @@ fn test_r8_concurrent_search_and_modify() {
     }
 
     let db = test_db.db.clone();
-    let run_id = test_db.run_id;
+    let branch_id = test_db.branch_id;
 
     // Launch search threads
     let search_handles: Vec<_> = (0..5)
@@ -142,7 +142,7 @@ fn test_r8_concurrent_search_and_modify() {
             thread::spawn(move || {
                 let vector = strata_engine::vector::VectorStore::new(db);
                 for _ in 0..10 {
-                    let _ = vector.search(run_id, "embeddings", &query, 10, None);
+                    let _ = vector.search(branch_id, "embeddings", &query, 10, None);
                 }
             })
         })
@@ -154,7 +154,7 @@ fn test_r8_concurrent_search_and_modify() {
     }
 
     // System should remain stable
-    let count = vector.count(test_db.run_id, "embeddings").unwrap();
+    let count = vector.count(test_db.branch_id, "embeddings").unwrap();
     assert!(count >= 50, "Concurrent access should not corrupt data");
 }
 
@@ -165,13 +165,13 @@ fn test_r8_single_search_determinism() {
     let vector = test_db.vector();
 
     vector
-        .create_collection(test_db.run_id, "embeddings", config_minilm())
+        .create_collection(test_db.branch_id, "embeddings", config_minilm())
         .unwrap();
 
     for i in 0..200 {
         vector
             .insert(
-                test_db.run_id,
+                test_db.branch_id,
                 "embeddings",
                 &format!("key_{}", i),
                 &seeded_random_vector(384, i as u64),
@@ -186,7 +186,7 @@ fn test_r8_single_search_determinism() {
     let mut all_results: Vec<Vec<String>> = Vec::new();
     for _ in 0..50 {
         let results = vector
-            .search(test_db.run_id, "embeddings", &query, 50, None)
+            .search(test_db.branch_id, "embeddings", &query, 50, None)
             .unwrap();
         let keys: Vec<String> = results.iter().map(|r| r.key.clone()).collect();
         all_results.push(keys);

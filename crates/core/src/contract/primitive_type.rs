@@ -12,7 +12,7 @@
 //! | Kv | Key-value store | TxnId |
 //! | Event | Append-only event log | Sequence |
 //! | State | Named state cells with CAS | Counter |
-//! | Run | Run lifecycle management | TxnId |
+//! | Branch | Branch lifecycle management | TxnId |
 //! | Json | JSON document store | TxnId |
 //! | Vector | Vector similarity search | TxnId |
 
@@ -47,11 +47,11 @@ pub enum PrimitiveType {
     /// Versioning: Counter
     State,
 
-    /// Run index
+    /// Branch index
     ///
-    /// Run lifecycle management (create, status, metadata).
+    /// Branch lifecycle management (create, status, metadata).
     /// Versioning: TxnId
-    Run,
+    Branch,
 
     /// JSON document store
     ///
@@ -72,7 +72,7 @@ impl PrimitiveType {
         PrimitiveType::Kv,
         PrimitiveType::Event,
         PrimitiveType::State,
-        PrimitiveType::Run,
+        PrimitiveType::Branch,
         PrimitiveType::Json,
         PrimitiveType::Vector,
     ];
@@ -88,7 +88,7 @@ impl PrimitiveType {
             PrimitiveType::Kv => "KVStore",
             PrimitiveType::Event => "EventLog",
             PrimitiveType::State => "StateCell",
-            PrimitiveType::Run => "RunIndex",
+            PrimitiveType::Branch => "BranchIndex",
             PrimitiveType::Json => "JsonStore",
             PrimitiveType::Vector => "VectorStore",
         }
@@ -100,7 +100,7 @@ impl PrimitiveType {
             PrimitiveType::Kv => "kv",
             PrimitiveType::Event => "event",
             PrimitiveType::State => "state",
-            PrimitiveType::Run => "run",
+            PrimitiveType::Branch => "branch",
             PrimitiveType::Json => "json",
             PrimitiveType::Vector => "vector",
         }
@@ -112,7 +112,7 @@ impl PrimitiveType {
             "kv" => Some(PrimitiveType::Kv),
             "event" => Some(PrimitiveType::Event),
             "state" => Some(PrimitiveType::State),
-            "run" => Some(PrimitiveType::Run),
+            "branch" => Some(PrimitiveType::Branch),
             "json" => Some(PrimitiveType::Json),
             "vector" => Some(PrimitiveType::Vector),
             _ => None,
@@ -121,14 +121,14 @@ impl PrimitiveType {
 
     /// Check if this primitive supports CRUD lifecycle
     ///
-    /// Kv, State, Run, Json, Vector support full CRUD.
+    /// Kv, State, Branch, Json, Vector support full CRUD.
     /// Event is append-only (CR only).
     pub const fn supports_crud(&self) -> bool {
         match self {
             PrimitiveType::Kv => true,
             PrimitiveType::Event => false, // Append-only
             PrimitiveType::State => true,
-            PrimitiveType::Run => true,
+            PrimitiveType::Branch => true,
             PrimitiveType::Json => true,
             PrimitiveType::Vector => true,
         }
@@ -146,7 +146,7 @@ impl PrimitiveType {
     /// - JSON: 0x20-0x2F
     /// - Event: 0x30-0x3F
     /// - State: 0x40-0x4F
-    /// - Run: 0x60-0x6F
+    /// - Branch: 0x60-0x6F
     /// - Vector: 0x70-0x7F
     pub const fn entry_type_range(&self) -> (u8, u8) {
         match self {
@@ -154,7 +154,7 @@ impl PrimitiveType {
             PrimitiveType::Json => (0x20, 0x2F),
             PrimitiveType::Event => (0x30, 0x3F),
             PrimitiveType::State => (0x40, 0x4F),
-            PrimitiveType::Run => (0x60, 0x6F),
+            PrimitiveType::Branch => (0x60, 0x6F),
             PrimitiveType::Vector => (0x70, 0x7F),
         }
     }
@@ -168,7 +168,7 @@ impl PrimitiveType {
             PrimitiveType::Json => 2,
             PrimitiveType::Event => 3,
             PrimitiveType::State => 4,
-            PrimitiveType::Run => 6,
+            PrimitiveType::Branch => 6,
             PrimitiveType::Vector => 7,
         }
     }
@@ -197,7 +197,7 @@ mod tests {
         assert!(all.contains(&PrimitiveType::Kv));
         assert!(all.contains(&PrimitiveType::Event));
         assert!(all.contains(&PrimitiveType::State));
-        assert!(all.contains(&PrimitiveType::Run));
+        assert!(all.contains(&PrimitiveType::Branch));
         assert!(all.contains(&PrimitiveType::Json));
         assert!(all.contains(&PrimitiveType::Vector));
     }
@@ -212,7 +212,7 @@ mod tests {
         assert_eq!(PrimitiveType::Kv.name(), "KVStore");
         assert_eq!(PrimitiveType::Event.name(), "EventLog");
         assert_eq!(PrimitiveType::State.name(), "StateCell");
-        assert_eq!(PrimitiveType::Run.name(), "RunIndex");
+        assert_eq!(PrimitiveType::Branch.name(), "BranchIndex");
         assert_eq!(PrimitiveType::Json.name(), "JsonStore");
         assert_eq!(PrimitiveType::Vector.name(), "VectorStore");
     }
@@ -222,7 +222,7 @@ mod tests {
         assert_eq!(PrimitiveType::Kv.id(), "kv");
         assert_eq!(PrimitiveType::Event.id(), "event");
         assert_eq!(PrimitiveType::State.id(), "state");
-        assert_eq!(PrimitiveType::Run.id(), "run");
+        assert_eq!(PrimitiveType::Branch.id(), "branch");
         assert_eq!(PrimitiveType::Json.id(), "json");
         assert_eq!(PrimitiveType::Vector.id(), "vector");
     }
@@ -232,7 +232,7 @@ mod tests {
         assert_eq!(PrimitiveType::from_id("kv"), Some(PrimitiveType::Kv));
         assert_eq!(PrimitiveType::from_id("event"), Some(PrimitiveType::Event));
         assert_eq!(PrimitiveType::from_id("state"), Some(PrimitiveType::State));
-        assert_eq!(PrimitiveType::from_id("run"), Some(PrimitiveType::Run));
+        assert_eq!(PrimitiveType::from_id("branch"), Some(PrimitiveType::Branch));
         assert_eq!(PrimitiveType::from_id("json"), Some(PrimitiveType::Json));
         assert_eq!(
             PrimitiveType::from_id("vector"),
@@ -262,7 +262,7 @@ mod tests {
         // Full CRUD
         assert!(PrimitiveType::Kv.supports_crud());
         assert!(PrimitiveType::State.supports_crud());
-        assert!(PrimitiveType::Run.supports_crud());
+        assert!(PrimitiveType::Branch.supports_crud());
         assert!(PrimitiveType::Json.supports_crud());
         assert!(PrimitiveType::Vector.supports_crud());
 
@@ -276,7 +276,7 @@ mod tests {
 
         assert!(!PrimitiveType::Kv.is_append_only());
         assert!(!PrimitiveType::State.is_append_only());
-        assert!(!PrimitiveType::Run.is_append_only());
+        assert!(!PrimitiveType::Branch.is_append_only());
         assert!(!PrimitiveType::Json.is_append_only());
         assert!(!PrimitiveType::Vector.is_append_only());
     }
@@ -321,7 +321,7 @@ mod tests {
         assert_eq!(PrimitiveType::Json.entry_type_range(), (0x20, 0x2F));
         assert_eq!(PrimitiveType::Event.entry_type_range(), (0x30, 0x3F));
         assert_eq!(PrimitiveType::State.entry_type_range(), (0x40, 0x4F));
-        assert_eq!(PrimitiveType::Run.entry_type_range(), (0x60, 0x6F));
+        assert_eq!(PrimitiveType::Branch.entry_type_range(), (0x60, 0x6F));
         assert_eq!(PrimitiveType::Vector.entry_type_range(), (0x70, 0x7F));
     }
 
@@ -331,7 +331,7 @@ mod tests {
         assert_eq!(PrimitiveType::Json.primitive_id(), 2);
         assert_eq!(PrimitiveType::Event.primitive_id(), 3);
         assert_eq!(PrimitiveType::State.primitive_id(), 4);
-        assert_eq!(PrimitiveType::Run.primitive_id(), 6);
+        assert_eq!(PrimitiveType::Branch.primitive_id(), 6);
         assert_eq!(PrimitiveType::Vector.primitive_id(), 7);
     }
 

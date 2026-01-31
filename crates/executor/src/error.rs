@@ -17,11 +17,11 @@ use serde::{Deserialize, Serialize};
 ///
 /// | Category | Variants | Description |
 /// |----------|----------|-------------|
-/// | Not Found | `KeyNotFound`, `RunNotFound`, etc. | Entity doesn't exist |
+/// | Not Found | `KeyNotFound`, `BranchNotFound`, etc. | Entity doesn't exist |
 /// | Type | `WrongType` | Type mismatch |
 /// | Validation | `InvalidKey`, `InvalidPath`, `InvalidInput` | Bad input |
 /// | Concurrency | `VersionConflict`, `TransitionFailed`, `Conflict` | Race conditions |
-/// | State | `RunClosed`, `RunExists`, `CollectionExists` | Invalid state transition |
+/// | State | `BranchClosed`, `BranchExists`, `CollectionExists` | Invalid state transition |
 /// | Constraint | `DimensionMismatch`, `ConstraintViolation`, etc. | Limits exceeded |
 /// | Transaction | `TransactionNotActive`, `TransactionAlreadyActive` | Transaction state |
 /// | System | `Io`, `Serialization`, `Internal` | Infrastructure errors |
@@ -48,9 +48,9 @@ pub enum Error {
     #[error("key not found: {key}")]
     KeyNotFound { key: String },
 
-    /// Run not found
-    #[error("run not found: {run}")]
-    RunNotFound { run: String },
+    /// Branch not found
+    #[error("branch not found: {branch}")]
+    BranchNotFound { branch: String },
 
     /// Vector collection not found
     #[error("collection not found: {collection}")]
@@ -100,13 +100,13 @@ pub enum Error {
     Conflict { reason: String },
 
     // ==================== State Errors ====================
-    /// Run is closed
-    #[error("run closed: {run}")]
-    RunClosed { run: String },
+    /// Branch is closed
+    #[error("branch closed: {branch}")]
+    BranchClosed { branch: String },
 
-    /// Run already exists
-    #[error("run already exists: {run}")]
-    RunExists { run: String },
+    /// Branch already exists
+    #[error("branch already exists: {branch}")]
+    BranchExists { branch: String },
 
     /// Collection already exists
     #[error("collection already exists: {collection}")]

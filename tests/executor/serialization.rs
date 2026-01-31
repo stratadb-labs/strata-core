@@ -4,7 +4,7 @@
 //! This is critical for cross-language SDKs (Python, CLI, MCP).
 
 use strata_core::Value;
-use strata_executor::{Command, Output, DistanceMetric, RunId, RunStatus, VersionedValue};
+use strata_executor::{Command, Output, DistanceMetric, BranchId, BranchStatus, VersionedValue};
 
 // ============================================================================
 // Command Serialization Roundtrip
@@ -27,7 +27,7 @@ fn kv_put_roundtrip() {
 #[test]
 fn kv_put_with_run_roundtrip() {
     let cmd = Command::KvPut {
-        run: Some(RunId::from("550e8400-e29b-41d4-a716-446655440401")),
+        run: Some(BranchId::from("550e8400-e29b-41d4-a716-446655440401")),
         key: "key".into(),
         value: Value::Int(42),
     };
@@ -86,8 +86,8 @@ fn vector_search_roundtrip() {
 
 #[test]
 fn run_create_roundtrip() {
-    let cmd = Command::RunCreate {
-        run_id: Some("550e8400-e29b-41d4-a716-446655440401-id".into()),
+    let cmd = Command::BranchCreate {
+        branch_id: Some("550e8400-e29b-41d4-a716-446655440401-id".into()),
         metadata: Some(Value::Object([
             ("key".to_string(), Value::String("value".into())),
         ].into_iter().collect())),
@@ -148,7 +148,7 @@ fn run_field_omitted_when_none() {
 #[test]
 fn run_field_present_when_some() {
     let cmd = Command::KvPut {
-        run: Some(RunId::from("550e8400-e29b-41d4-a716-446655440401")),
+        run: Some(BranchId::from("550e8400-e29b-41d4-a716-446655440401")),
         key: "k".into(),
         value: Value::Int(1),
     };
@@ -417,22 +417,22 @@ fn distance_metric_roundtrip() {
 }
 
 // ============================================================================
-// RunStatus Serialization
+// BranchStatus Serialization
 // ============================================================================
 
 #[test]
 fn run_status_roundtrip() {
     let statuses = [
-        RunStatus::Active,
-        RunStatus::Completed,
-        RunStatus::Failed,
-        RunStatus::Cancelled,
-        RunStatus::Paused,
-        RunStatus::Archived,
+        BranchStatus::Active,
+        BranchStatus::Completed,
+        BranchStatus::Failed,
+        BranchStatus::Cancelled,
+        BranchStatus::Paused,
+        BranchStatus::Archived,
     ];
 
     for status in statuses {
-        let cmd = Command::RunList {
+        let cmd = Command::BranchList {
             state: Some(status),
             limit: None,
             offset: None,

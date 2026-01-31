@@ -23,7 +23,7 @@ Returned when an entity doesn't exist.
 | Variant | When |
 |---------|------|
 | `KeyNotFound { key }` | KV key not found |
-| `RunNotFound { run }` | Run doesn't exist |
+| `BranchNotFound { branch }` | Branch doesn't exist |
 | `CollectionNotFound { collection }` | Vector collection doesn't exist |
 | `StreamNotFound { stream }` | Event stream not found |
 | `CellNotFound { cell }` | State cell not found |
@@ -66,8 +66,8 @@ Returned when an operation violates state constraints.
 
 | Variant | When |
 |---------|------|
-| `RunClosed { run }` | Operation on a closed run |
-| `RunExists { run }` | Creating a run that already exists |
+| `BranchClosed { branch }` | Operation on a closed branch |
+| `BranchExists { branch }` | Creating a branch that already exists |
 | `CollectionExists { collection }` | Creating a collection that already exists |
 
 ### Constraint Errors
@@ -77,7 +77,7 @@ Returned when limits or constraints are violated.
 | Variant | When |
 |---------|------|
 | `DimensionMismatch { expected, actual }` | Vector dimension doesn't match collection |
-| `ConstraintViolation { reason }` | General constraint violation (e.g., deleting default run) |
+| `ConstraintViolation { reason }` | General constraint violation (e.g., deleting default branch) |
 | `HistoryTrimmed { requested, earliest }` | Requested version was removed by retention |
 | `Overflow { reason }` | Numeric overflow |
 
@@ -109,9 +109,9 @@ Returned for infrastructure-level failures.
 ```rust
 use stratadb::Error;
 
-match db.create_run("my-run") {
+match db.create_branch("my-branch") {
     Ok(()) => println!("Created"),
-    Err(Error::RunExists { run }) => println!("Run {} already exists", run),
+    Err(Error::BranchExists { branch }) => println!("Branch {} already exists", branch),
     Err(e) => return Err(e),
 }
 ```
@@ -120,7 +120,7 @@ match db.create_run("my-run") {
 
 ```rust
 loop {
-    session.execute(Command::TxnBegin { run: None, options: None })?;
+    session.execute(Command::TxnBegin { branch: None, options: None })?;
     // ... operations ...
     match session.execute(Command::TxnCommit) {
         Ok(_) => break,
@@ -132,13 +132,13 @@ loop {
 
 ### Idempotent Operations
 
-Use `state_init` and check for `RunExists` to write idempotent code:
+Use `state_init` and check for `BranchExists` to write idempotent code:
 
 ```rust
-// Create run only if it doesn't exist
-match db.create_run("session-001") {
+// Create branch only if it doesn't exist
+match db.create_branch("session-001") {
     Ok(()) => {},
-    Err(Error::RunExists { .. }) => {},  // Already exists — fine
+    Err(Error::BranchExists { .. }) => {},  // Already exists — fine
     Err(e) => return Err(e),
 }
 ```

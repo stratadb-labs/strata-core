@@ -20,7 +20,7 @@ let mut session = Session::new(db);
 
 ```rust
 session.execute(Command::TxnBegin {
-    run: None,      // Uses default run
+    branch: None,      // Uses default branch
     options: None,  // Default options
 })?;
 ```
@@ -34,14 +34,14 @@ Data commands (KV, Event, State, JSON) route through the transaction:
 ```rust
 // Write
 session.execute(Command::KvPut {
-    run: None,
+    branch: None,
     key: "key-a".into(),
     value: Value::Int(1),
 })?;
 
 // Read your own write
 let output = session.execute(Command::KvGet {
-    run: None,
+    branch: None,
     key: "key-a".into(),
 })?;
 // Returns the value you just wrote
@@ -78,9 +78,9 @@ If a `Session` is dropped while a transaction is active, the transaction is auto
 ```rust
 {
     let mut session = Session::new(db.clone());
-    session.execute(Command::TxnBegin { run: None, options: None })?;
+    session.execute(Command::TxnBegin { branch: None, options: None })?;
     session.execute(Command::KvPut {
-        run: None,
+        branch: None,
         key: "key".into(),
         value: Value::Int(1),
     })?;
@@ -108,7 +108,7 @@ These always execute directly, regardless of transaction state:
 | Category | Commands |
 |----------|----------|
 | **Vector** | All vector operations |
-| **Run** | RunCreate, RunGet, RunList, RunExists, RunDelete |
+| **Branch** | RunCreate, RunGet, RunList, BranchExists, RunDelete |
 | **Database** | Ping, Info, Flush, Compact |
 | **Retention** | RetentionApply, RetentionStats, RetentionPreview |
 
@@ -134,25 +134,25 @@ let output = session.execute(Command::TxnIsActive)?;
 Transactions span all transactional primitives. You can atomically update KV, State, and Event in a single transaction:
 
 ```rust
-session.execute(Command::TxnBegin { run: None, options: None })?;
+session.execute(Command::TxnBegin { branch: None, options: None })?;
 
 // KV write
 session.execute(Command::KvPut {
-    run: None,
+    branch: None,
     key: "config:version".into(),
     value: Value::Int(2),
 })?;
 
 // State update
 session.execute(Command::StateSet {
-    run: None,
+    branch: None,
     cell: "status".into(),
     value: Value::String("updated".into()),
 })?;
 
 // Event log
 session.execute(Command::EventAppend {
-    run: None,
+    branch: None,
     event_type: "config_change".into(),
     payload: serde_json::json!({"version": 2}).into(),
 })?;
@@ -167,11 +167,11 @@ When a transaction conflicts, retry the entire operation:
 
 ```rust
 loop {
-    session.execute(Command::TxnBegin { run: None, options: None })?;
+    session.execute(Command::TxnBegin { branch: None, options: None })?;
 
     // Read current state
     let output = session.execute(Command::KvGet {
-        run: None,
+        branch: None,
         key: "counter".into(),
     })?;
 
@@ -182,7 +182,7 @@ loop {
 
     // Modify and write back
     session.execute(Command::KvPut {
-        run: None,
+        branch: None,
         key: "counter".into(),
         value: Value::Int(current + 1),
     })?;

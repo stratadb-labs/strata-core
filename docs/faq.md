@@ -4,15 +4,15 @@
 
 ### What is StrataDB?
 
-StrataDB is an embedded database designed for AI agents. It provides six data primitives (KV, EventLog, StateCell, JSON, Vector, Run) with run-based data isolation, OCC transactions, and three durability modes.
+StrataDB is an embedded database designed for AI agents. It provides six data primitives (KV, EventLog, StateCell, JSON, Vector, Branch) with branch-based data isolation, OCC transactions, and three durability modes.
 
 ### Is StrataDB a replacement for Redis or Postgres?
 
-No. StrataDB complements traditional databases. Use Postgres for application data, Redis for caching, and a dedicated vector database for large-scale embedding search. Use StrataDB for agent state that needs run isolation, atomicity across primitives, and deterministic replay.
+No. StrataDB complements traditional databases. Use Postgres for application data, Redis for caching, and a dedicated vector database for large-scale embedding search. Use StrataDB for agent state that needs branch isolation, atomicity across primitives, and deterministic replay.
 
 ### Why not just use SQLite?
 
-SQLite is excellent for relational data but doesn't provide run-scoped operations, purpose-built primitives for agent state (EventLog, StateCell, VectorStore), or multi-primitive transactions out of the box. You would build these features yourself on top of SQLite.
+SQLite is excellent for relational data but doesn't provide branch-scoped operations, purpose-built primitives for agent state (EventLog, StateCell, VectorStore), or multi-primitive transactions out of the box. You would build these features yourself on top of SQLite.
 
 ### Is StrataDB production-ready?
 
@@ -20,13 +20,13 @@ StrataDB is production-ready for embedded (in-process) use. It has comprehensive
 
 ## Data Model
 
-### What are runs?
+### What are branches?
 
-Runs are isolated data namespaces, similar to git branches. All data in StrataDB lives in a run. Data written in one run is invisible from another. See [Concepts: Runs](concepts/runs.md).
+Branches are isolated data namespaces, similar to git branches. All data in StrataDB lives in a branch. Data written in one branch is invisible from another. See [Concepts: Branches](concepts/branches.md).
 
 ### How many primitives are there?
 
-Six: KV Store, Event Log, State Cell, JSON Store, Vector Store, and Run. See [Concepts: Primitives](concepts/primitives.md).
+Six: KV Store, Event Log, State Cell, JSON Store, Vector Store, and Branch. See [Concepts: Primitives](concepts/primitives.md).
 
 ### What value types are supported?
 
@@ -52,7 +52,7 @@ Fast path reads (in-memory, no transaction) are typically under 10 microseconds.
 
 ### How does the Vector Store compare to dedicated vector databases?
 
-The Vector Store is designed for run-scoped agent memory (hundreds to tens of thousands of vectors per collection), not large-scale similarity search. For million-scale embeddings, use a dedicated vector database. For agent context, working memory, and session-scoped RAG, use StrataDB's Vector Store.
+The Vector Store is designed for branch-scoped agent memory (hundreds to tens of thousands of vectors per collection), not large-scale similarity search. For million-scale embeddings, use a dedicated vector database. For agent context, working memory, and session-scoped RAG, use StrataDB's Vector Store.
 
 ## Transactions
 

@@ -14,7 +14,7 @@ impl Strata {
     /// Append an event to the log.
     pub fn event_append(&self, event_type: &str, payload: Value) -> Result<u64> {
         match self.executor.execute(Command::EventAppend {
-            run: self.run_id(),
+            run: self.branch_id(),
             event_type: event_type.to_string(),
             payload,
         })? {
@@ -28,7 +28,7 @@ impl Strata {
     /// Read a specific event by sequence number.
     pub fn event_read(&self, sequence: u64) -> Result<Option<VersionedValue>> {
         match self.executor.execute(Command::EventRead {
-            run: self.run_id(),
+            run: self.branch_id(),
             sequence,
         })? {
             Output::MaybeVersioned(v) => Ok(v),
@@ -41,7 +41,7 @@ impl Strata {
     /// Read all events of a specific type.
     pub fn event_read_by_type(&self, event_type: &str) -> Result<Vec<VersionedValue>> {
         match self.executor.execute(Command::EventReadByType {
-            run: self.run_id(),
+            run: self.branch_id(),
             event_type: event_type.to_string(),
         })? {
             Output::VersionedValues(events) => Ok(events),
@@ -54,7 +54,7 @@ impl Strata {
     /// Get the total count of events in the log.
     pub fn event_len(&self) -> Result<u64> {
         match self.executor.execute(Command::EventLen {
-            run: self.run_id(),
+            run: self.branch_id(),
         })? {
             Output::Uint(len) => Ok(len),
             _ => Err(Error::Internal {

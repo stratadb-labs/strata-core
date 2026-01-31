@@ -10,7 +10,7 @@
 //!
 //! The Database provides two ways to execute transactions:
 //!
-//! 1. **Closure API** (recommended): `db.transaction(run_id, |txn| { ... })`
+//! 1. **Closure API** (recommended): `db.transaction(branch_id, |txn| { ... })`
 //!    - Automatic commit on success, abort on error
 //!    - Returns the closure's return value
 //!
@@ -33,7 +33,7 @@ use dashmap::DashMap;
 use parking_lot::Mutex as ParkingMutex;
 use strata_concurrency::{RecoveryCoordinator, TransactionContext};
 use strata_core::{StrataResult, VersionedValue};
-use strata_core::types::{Key, RunId};
+use strata_core::types::{Key, BranchId};
 use strata_core::StrataError;
 use strata_durability::codec::IdentityCodec;
 use strata_durability::wal::{DurabilityMode, WalConfig, WalWriter};
@@ -114,13 +114,13 @@ impl Default for PersistenceMode {
 ///
 /// ```ignore
 /// use strata_engine::Database;
-/// use strata_core::types::RunId;
+/// use strata_core::types::BranchId;
 ///
 /// let db = Database::open("/path/to/data")?;
-/// let run_id = RunId::new();
+/// let branch_id = BranchId::new();
 ///
 /// // Closure API (recommended)
-/// let result = db.transaction(run_id, |txn| {
+/// let result = db.transaction(branch_id, |txn| {
 ///     txn.put(key, value)?;
 ///     Ok(())
 /// })?;
@@ -345,13 +345,13 @@ impl Database {
     ///
     /// ```ignore
     /// use strata_engine::Database;
-    /// use strata_core::types::RunId;
+    /// use strata_core::types::BranchId;
     ///
     /// let db = Database::ephemeral()?;
-    /// let run_id = RunId::new();
+    /// let branch_id = BranchId::new();
     ///
     /// // All operations work normally
-    /// db.transaction(run_id, |txn| {
+    /// db.transaction(branch_id, |txn| {
     ///     txn.put(key, value)?;
     ///     Ok(())
     /// })?;
@@ -578,7 +578,7 @@ impl Database {
     /// - Aborts on error
     ///
     /// # Arguments
-    /// * `run_id` - RunId for namespace isolation
+    /// * `branch_id` - BranchId for namespace isolation
     /// * `f` - Closure that performs transaction operations
     ///
     /// # Returns
@@ -587,18 +587,18 @@ impl Database {
     ///
     /// # Example
     /// ```ignore
-    /// let result = db.transaction(run_id, |txn| {
+    /// let result = db.transaction(branch_id, |txn| {
     ///     let val = txn.get(&key)?;
     ///     txn.put(key, new_value)?;
     ///     Ok(val)
     /// })?;
     /// ```
-    pub fn transaction<F, T>(&self, run_id: RunId, f: F) -> StrataResult<T>
+    pub fn transaction<F, T>(&self, branch_id: BranchId, f: F) -> StrataResult<T>
     where
         F: FnOnce(&mut TransactionContext) -> StrataResult<T>,
     {
         self.check_accepting()?;
-        let mut txn = self.begin_transaction(run_id);
+        let mut txn = self.begin_transaction(branch_id);
         let result = f(&mut txn);
         let outcome = self.run_single_attempt(&mut txn, result, self.durability_mode);
         self.end_transaction(txn);
@@ -616,18 +616,18 @@ impl Database {
     ///
     /// # Example
     /// ```ignore
-    /// let (result, commit_version) = db.transaction_with_version(run_id, |txn| {
+    /// let (result, commit_version) = db.transaction_with_version(branch_id, |txn| {
     ///     txn.put(key, value)?;
     ///     Ok("success")
     /// })?;
     /// // commit_version now contains the version assigned to the put
     /// ```
-    pub(crate) fn transaction_with_version<F, T>(&self, run_id: RunId, f: F) -> StrataResult<(T, u64)>
+    pub(crate) fn transaction_with_version<F, T>(&self, branch_id: BranchId, f: F) -> StrataResult<(T, u64)>
     where
         F: FnOnce(&mut TransactionContext) -> StrataResult<T>,
     {
         self.check_accepting()?;
-        let mut txn = self.begin_transaction(run_id);
+        let mut txn = self.begin_transaction(branch_id);
         let result = f(&mut txn);
         let outcome = self.run_single_attempt(&mut txn, result, self.durability_mode);
         self.end_transaction(txn);
@@ -645,7 +645,7 @@ impl Database {
     /// - Maximum retries are exceeded
     ///
     /// # Arguments
-    /// * `run_id` - RunId for namespace isolation
+    /// * `branch_id` - BranchId for namespace isolation
     /// * `config` - Retry configuration (max retries, delays)
     /// * `f` - Closure that performs transaction operations (must be `Fn`, not `FnOnce`)
     ///
@@ -656,7 +656,7 @@ impl Database {
     /// # Example
     /// ```ignore
     /// let config = RetryConfig::default();
-    /// let result = db.transaction_with_retry(run_id, config, |txn| {
+    /// let result = db.transaction_with_retry(branch_id, config, |txn| {
     ///     let val = txn.get(&key)?;
     ///     txn.put(key.clone(), Value::Int(val.value + 1))?;
     ///     Ok(())
@@ -664,7 +664,7 @@ impl Database {
     /// ```
     pub(crate) fn transaction_with_retry<F, T>(
         &self,
-        run_id: RunId,
+        branch_id: BranchId,
         config: RetryConfig,
         f: F,
     ) -> StrataResult<T>
@@ -676,7 +676,7 @@ impl Database {
         let mut last_error = None;
 
         for attempt in 0..=config.max_retries {
-            let mut txn = self.begin_transaction(run_id);
+            let mut txn = self.begin_transaction(branch_id);
             let result = f(&mut txn);
             let outcome = self.run_single_attempt(&mut txn, result, self.durability_mode);
             self.end_transaction(txn);
@@ -705,24 +705,24 @@ impl Database {
     /// Call `end_transaction()` after commit/abort to return context to pool.
     ///
     /// # Arguments
-    /// * `run_id` - RunId for namespace isolation
+    /// * `branch_id` - BranchId for namespace isolation
     ///
     /// # Returns
     /// * `TransactionContext` - Active transaction ready for operations
     ///
     /// # Example
     /// ```ignore
-    /// let mut txn = db.begin_transaction(run_id);
+    /// let mut txn = db.begin_transaction(branch_id);
     /// txn.put(key, value)?;
     /// db.commit_transaction(&mut txn)?;
     /// db.end_transaction(txn); // Return to pool
     /// ```
-    pub fn begin_transaction(&self, run_id: RunId) -> TransactionContext {
+    pub fn begin_transaction(&self, branch_id: BranchId) -> TransactionContext {
         let txn_id = self.coordinator.next_txn_id();
         let snapshot = self.storage.create_snapshot();
         self.coordinator.record_start();
 
-        TransactionPool::acquire(txn_id, run_id, Some(Box::new(snapshot)))
+        TransactionPool::acquire(txn_id, branch_id, Some(Box::new(snapshot)))
     }
 
     /// End a transaction (return to pool)
@@ -738,7 +738,7 @@ impl Database {
     ///
     /// # Example
     /// ```ignore
-    /// let mut txn = db.begin_transaction(run_id);
+    /// let mut txn = db.begin_transaction(branch_id);
     /// txn.put(key, value)?;
     /// db.commit_transaction(&mut txn)?;
     /// db.end_transaction(txn); // Return to pool for reuse
@@ -868,7 +868,7 @@ mod tests {
     fn write_wal_txn(
         wal_dir: &std::path::Path,
         txn_id: u64,
-        run_id: RunId,
+        branch_id: BranchId,
         puts: Vec<(Key, Value)>,
         deletes: Vec<Key>,
         version: u64,
@@ -889,7 +889,7 @@ mod tests {
         };
         let record = WalRecord::new(
             txn_id,
-            *run_id.as_bytes(),
+            *branch_id.as_bytes(),
             now_micros(),
             payload.to_bytes(),
         );
@@ -920,12 +920,12 @@ mod tests {
         let temp_dir = TempDir::new().unwrap();
         let db_path = temp_dir.path().join("db");
 
-        let run_id = RunId::new();
+        let branch_id = BranchId::new();
         let ns = Namespace::new(
             "tenant".to_string(),
             "app".to_string(),
             "agent".to_string(),
-            run_id,
+            branch_id,
         );
 
         // Write directly to segmented WAL (simulating a crash recovery scenario)
@@ -935,7 +935,7 @@ mod tests {
             write_wal_txn(
                 &wal_dir,
                 1,
-                run_id,
+                branch_id,
                 vec![(Key::new_kv(ns.clone(), "key1"), Value::Bytes(b"value1".to_vec()))],
                 vec![],
                 1,
@@ -961,19 +961,19 @@ mod tests {
         let temp_dir = TempDir::new().unwrap();
         let db_path = temp_dir.path().join("db");
 
-        let run_id = RunId::new();
+        let branch_id = BranchId::new();
         let ns = Namespace::new(
             "tenant".to_string(),
             "app".to_string(),
             "agent".to_string(),
-            run_id,
+            branch_id,
         );
 
         // Open database, write via transaction, close
         {
             let db = Database::open(&db_path).unwrap();
 
-            db.transaction(run_id, |txn| {
+            db.transaction(branch_id, |txn| {
                 txn.put(
                     Key::new_kv(ns.clone(), "persistent"),
                     Value::Bytes(b"data".to_vec()),
@@ -1009,12 +1009,12 @@ mod tests {
         let temp_dir = TempDir::new().unwrap();
         let db_path = temp_dir.path().join("db");
 
-        let run_id = RunId::new();
+        let branch_id = BranchId::new();
         let ns = Namespace::new(
             "tenant".to_string(),
             "app".to_string(),
             "agent".to_string(),
-            run_id,
+            branch_id,
         );
 
         // Write one valid record, then append garbage to simulate crash
@@ -1024,7 +1024,7 @@ mod tests {
             write_wal_txn(
                 &wal_dir,
                 1,
-                run_id,
+                branch_id,
                 vec![(Key::new_kv(ns.clone(), "valid"), Value::Int(42))],
                 vec![],
                 1,
@@ -1121,12 +1121,12 @@ mod tests {
     // Transaction API Tests
     // ========================================================================
 
-    fn create_test_namespace(run_id: RunId) -> Namespace {
+    fn create_test_namespace(branch_id: BranchId) -> Namespace {
         Namespace::new(
             "tenant".to_string(),
             "app".to_string(),
             "agent".to_string(),
-            run_id,
+            branch_id,
         )
     }
 
@@ -1135,12 +1135,12 @@ mod tests {
         let temp_dir = TempDir::new().unwrap();
         let db = Database::open(temp_dir.path().join("db")).unwrap();
 
-        let run_id = RunId::new();
-        let ns = create_test_namespace(run_id);
+        let branch_id = BranchId::new();
+        let ns = create_test_namespace(branch_id);
         let key = Key::new_kv(ns, "test_key");
 
         // Execute transaction
-        let result = db.transaction(run_id, |txn| {
+        let result = db.transaction(branch_id, |txn| {
             txn.put(key.clone(), Value::Int(42))?;
             Ok(())
         });
@@ -1157,19 +1157,19 @@ mod tests {
         let temp_dir = TempDir::new().unwrap();
         let db = Database::open(temp_dir.path().join("db")).unwrap();
 
-        let run_id = RunId::new();
-        let ns = create_test_namespace(run_id);
+        let branch_id = BranchId::new();
+        let ns = create_test_namespace(branch_id);
         let key = Key::new_kv(ns, "test_key");
 
         // Pre-populate using transaction
-        db.transaction(run_id, |txn| {
+        db.transaction(branch_id, |txn| {
             txn.put(key.clone(), Value::Int(100))?;
             Ok(())
         })
         .unwrap();
 
         // Transaction returns a value
-        let result: StrataResult<i64> = db.transaction(run_id, |txn| {
+        let result: StrataResult<i64> = db.transaction(branch_id, |txn| {
             let val = txn.get(&key)?.unwrap();
             if let Value::Int(n) = val {
                 Ok(n)
@@ -1186,12 +1186,12 @@ mod tests {
         let temp_dir = TempDir::new().unwrap();
         let db = Database::open(temp_dir.path().join("db")).unwrap();
 
-        let run_id = RunId::new();
-        let ns = create_test_namespace(run_id);
+        let branch_id = BranchId::new();
+        let ns = create_test_namespace(branch_id);
         let key = Key::new_kv(ns, "ryw_key");
 
         // Per spec Section 2.1: "Its own uncommitted writes - always visible"
-        let result: StrataResult<Value> = db.transaction(run_id, |txn| {
+        let result: StrataResult<Value> = db.transaction(branch_id, |txn| {
             txn.put(key.clone(), Value::String("written".to_string()))?;
 
             // Should see our own write
@@ -1207,12 +1207,12 @@ mod tests {
         let temp_dir = TempDir::new().unwrap();
         let db = Database::open(temp_dir.path().join("db")).unwrap();
 
-        let run_id = RunId::new();
-        let ns = create_test_namespace(run_id);
+        let branch_id = BranchId::new();
+        let ns = create_test_namespace(branch_id);
         let key = Key::new_kv(ns, "abort_key");
 
         // Transaction that errors
-        let result: StrataResult<()> = db.transaction(run_id, |txn| {
+        let result: StrataResult<()> = db.transaction(branch_id, |txn| {
             txn.put(key.clone(), Value::Int(999))?;
             Err(StrataError::invalid_input("intentional error".to_string()))
         });
@@ -1228,12 +1228,12 @@ mod tests {
         let temp_dir = TempDir::new().unwrap();
         let db = Database::open(temp_dir.path().join("db")).unwrap();
 
-        let run_id = RunId::new();
-        let ns = create_test_namespace(run_id);
+        let branch_id = BranchId::new();
+        let ns = create_test_namespace(branch_id);
         let key = Key::new_kv(ns, "manual_key");
 
         // Manual transaction control
-        let mut txn = db.begin_transaction(run_id);
+        let mut txn = db.begin_transaction(branch_id);
         txn.put(key.clone(), Value::Int(123)).unwrap();
 
         // Commit manually
@@ -1323,15 +1323,15 @@ mod tests {
         let temp_dir = TempDir::new().unwrap();
         let db = Database::open(temp_dir.path().join("db")).unwrap();
 
-        let run_id = RunId::new();
-        let ns = create_test_namespace(run_id);
+        let branch_id = BranchId::new();
+        let ns = create_test_namespace(branch_id);
         let key = Key::new_kv(ns, "after_shutdown");
 
         // Shutdown the database
         db.shutdown().unwrap();
 
         // New transactions should be rejected
-        let result = db.transaction(run_id, |txn| {
+        let result = db.transaction(branch_id, |txn| {
             txn.put(key.clone(), Value::Int(42))?;
             Ok(())
         });

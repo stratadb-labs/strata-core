@@ -40,7 +40,7 @@ use strata_concurrency::TransactionContext;
 use strata_core::contract::{Timestamp, Version, Versioned};
 use strata_core::StrataResult;
 use strata_core::StrataError;
-use strata_core::types::{Key, Namespace, RunId};
+use strata_core::types::{Key, Namespace, BranchId};
 use strata_core::value::Value;
 use crate::database::{Database, RetryConfig};
 use serde::{Deserialize, Serialize};
@@ -237,21 +237,21 @@ fn from_stored_value<T: for<'de> Deserialize<'de>>(
 /// ```ignore
 /// use strata_primitives::EventLog;
 /// use strata_engine::Database;
-/// use strata_core::types::RunId;
+/// use strata_core::types::BranchId;
 /// use strata_core::value::Value;
 ///
 /// let db = Database::open("/path/to/data")?;
 /// let log = EventLog::new(db);
-/// let run_id = RunId::new();
+/// let branch_id = BranchId::new();
 ///
 /// // Append events
-/// let (seq, hash) = log.append(&run_id, "tool_call", Value::String("search".into()))?;
+/// let (seq, hash) = log.append(&branch_id, "tool_call", Value::String("search".into()))?;
 ///
 /// // Read events
-/// let event = log.read(&run_id, seq)?;
+/// let event = log.read(&branch_id, seq)?;
 ///
 /// // Verify chain
-/// let verification = log.verify_chain(&run_id)?;
+/// let verification = log.verify_chain(&branch_id)?;
 /// assert!(verification.is_valid);
 /// ```
 #[derive(Clone)]
@@ -271,8 +271,8 @@ impl EventLog {
     }
 
     /// Build namespace for run-scoped operations
-    fn namespace_for_run(&self, run_id: &RunId) -> Namespace {
-        Namespace::for_run(*run_id)
+    fn namespace_for_branch(&self, branch_id: &BranchId) -> Namespace {
+        Namespace::for_branch(*branch_id)
     }
 
     // ========== Append Operation ==========
@@ -284,7 +284,7 @@ impl EventLog {
     /// automatically with exponential backoff.
     ///
     /// # Arguments
-    /// * `run_id` - The run to append to
+    /// * `branch_id` - The run to append to
     /// * `event_type` - User-defined event category (non-empty, max 256 chars)
     /// * `payload` - Event data (must be a JSON object, no NaN/Infinity)
     ///
@@ -298,7 +298,7 @@ impl EventLog {
     /// - `payload` contains NaN or Infinity float values
     pub fn append(
         &self,
-        run_id: &RunId,
+        branch_id: &BranchId,
         event_type: &str,
         payload: Value,
     ) -> StrataResult<Version> {
@@ -317,11 +317,11 @@ impl EventLog {
             .with_base_delay_ms(1)
             .with_max_delay_ms(50);
 
-        let ns = self.namespace_for_run(run_id);
+        let ns = self.namespace_for_branch(branch_id);
         let event_type_owned = event_type.to_string();
 
         let result = self.db
-            .transaction_with_retry(*run_id, retry_config, |txn| {
+            .transaction_with_retry(*branch_id, retry_config, |txn| {
                 // Read current metadata (or default)
                 let meta_key = Key::new_event_meta(ns.clone());
                 let mut meta: EventLogMeta = match txn.get(&meta_key)? {
@@ -383,7 +383,7 @@ impl EventLog {
             let text = format!("{} {}", event_type, serde_json::to_string(&payload).unwrap_or_default());
             if let Version::Sequence(seq) = result {
                 let entity_ref = crate::search::EntityRef::Event {
-                    run_id: *run_id,
+                    branch_id: *branch_id,
                     sequence: seq,
                 };
                 idx.index_document(&entity_ref, &text, None);
@@ -398,9 +398,9 @@ impl EventLog {
     /// Read a single event by sequence number.
     ///
     /// Returns Versioned<Event> if found.
-    pub fn read(&self, run_id: &RunId, sequence: u64) -> StrataResult<Option<Versioned<Event>>> {
-        self.db.transaction(*run_id, |txn| {
-            let ns = self.namespace_for_run(run_id);
+    pub fn read(&self, branch_id: &BranchId, sequence: u64) -> StrataResult<Option<Versioned<Event>>> {
+        self.db.transaction(*branch_id, |txn| {
+            let ns = self.namespace_for_branch(branch_id);
             let event_key = Key::new_event(ns, sequence);
 
             match txn.get(&event_key)? {
@@ -419,9 +419,9 @@ impl EventLog {
     }
 
     /// Get the current length of the log.
-    pub fn len(&self, run_id: &RunId) -> StrataResult<u64> {
-        self.db.transaction(*run_id, |txn| {
-            let ns = self.namespace_for_run(run_id);
+    pub fn len(&self, branch_id: &BranchId) -> StrataResult<u64> {
+        self.db.transaction(*branch_id, |txn| {
+            let ns = self.namespace_for_branch(branch_id);
             let meta_key = Key::new_event_meta(ns);
 
             let meta: EventLogMeta = match txn.get(&meta_key)? {
@@ -438,9 +438,9 @@ impl EventLog {
     /// Read events filtered by type
     ///
     /// Returns Vec<Versioned<Event>> for events matching the type.
-    pub fn read_by_type(&self, run_id: &RunId, event_type: &str) -> StrataResult<Vec<Versioned<Event>>> {
-        self.db.transaction(*run_id, |txn| {
-            let ns = self.namespace_for_run(run_id);
+    pub fn read_by_type(&self, branch_id: &BranchId, event_type: &str) -> StrataResult<Vec<Versioned<Event>>> {
+        self.db.transaction(*branch_id, |txn| {
+            let ns = self.namespace_for_branch(branch_id);
             let meta_key = Key::new_event_meta(ns.clone());
 
             let meta: EventLogMeta = match txn.get(&meta_key)? {
@@ -497,7 +497,7 @@ impl EventLogExt for TransactionContext {
         validate_payload(&payload)
             .map_err(|e| StrataError::invalid_input(e.to_string()))?;
 
-        let ns = Namespace::for_run(self.run_id);
+        let ns = Namespace::for_branch(self.branch_id);
 
         // Read current metadata (or default)
         let meta_key = Key::new_event_meta(ns.clone());
@@ -556,7 +556,7 @@ impl EventLogExt for TransactionContext {
     }
 
     fn event_read(&mut self, sequence: u64) -> StrataResult<Option<Value>> {
-        let ns = Namespace::for_run(self.run_id);
+        let ns = Namespace::for_branch(self.branch_id);
         let event_key = Key::new_event(ns, sequence);
         self.get(&event_key)
     }
@@ -640,9 +640,9 @@ mod tests {
     #[test]
     fn test_validation_rejects_null_payload() {
         let (_temp, _db, log) = setup();
-        let run_id = RunId::new();
+        let branch_id = BranchId::new();
 
-        let result = log.append(&run_id, "test", Value::Null);
+        let result = log.append(&branch_id, "test", Value::Null);
         assert!(result.is_err());
         let err = result.unwrap_err();
         assert!(err.to_string().contains("object"));
@@ -651,31 +651,31 @@ mod tests {
     #[test]
     fn test_validation_rejects_primitive_payload() {
         let (_temp, _db, log) = setup();
-        let run_id = RunId::new();
+        let branch_id = BranchId::new();
 
         // Test various primitive types
-        assert!(log.append(&run_id, "test", Value::Int(42)).is_err());
-        assert!(log.append(&run_id, "test", Value::String("hello".into())).is_err());
-        assert!(log.append(&run_id, "test", Value::Bool(true)).is_err());
-        assert!(log.append(&run_id, "test", Value::Float(3.14)).is_err());
+        assert!(log.append(&branch_id, "test", Value::Int(42)).is_err());
+        assert!(log.append(&branch_id, "test", Value::String("hello".into())).is_err());
+        assert!(log.append(&branch_id, "test", Value::Bool(true)).is_err());
+        assert!(log.append(&branch_id, "test", Value::Float(3.14)).is_err());
     }
 
     #[test]
     fn test_validation_rejects_array_payload() {
         let (_temp, _db, log) = setup();
-        let run_id = RunId::new();
+        let branch_id = BranchId::new();
 
-        let result = log.append(&run_id, "test", Value::Array(vec![Value::Int(1)]));
+        let result = log.append(&branch_id, "test", Value::Array(vec![Value::Int(1)]));
         assert!(result.is_err());
     }
 
     #[test]
     fn test_validation_rejects_nan_in_payload() {
         let (_temp, _db, log) = setup();
-        let run_id = RunId::new();
+        let branch_id = BranchId::new();
 
         let payload = payload_with("value", Value::Float(f64::NAN));
-        let result = log.append(&run_id, "test", payload);
+        let result = log.append(&branch_id, "test", payload);
         assert!(result.is_err());
         assert!(result.unwrap_err().to_string().contains("NaN"));
     }
@@ -683,19 +683,19 @@ mod tests {
     #[test]
     fn test_validation_rejects_infinity_in_payload() {
         let (_temp, _db, log) = setup();
-        let run_id = RunId::new();
+        let branch_id = BranchId::new();
 
         let payload = payload_with("value", Value::Float(f64::INFINITY));
-        let result = log.append(&run_id, "test", payload);
+        let result = log.append(&branch_id, "test", payload);
         assert!(result.is_err());
     }
 
     #[test]
     fn test_validation_rejects_empty_event_type() {
         let (_temp, _db, log) = setup();
-        let run_id = RunId::new();
+        let branch_id = BranchId::new();
 
-        let result = log.append(&run_id, "", empty_payload());
+        let result = log.append(&branch_id, "", empty_payload());
         assert!(result.is_err());
         assert!(result.unwrap_err().to_string().contains("empty"));
     }
@@ -703,10 +703,10 @@ mod tests {
     #[test]
     fn test_validation_rejects_too_long_event_type() {
         let (_temp, _db, log) = setup();
-        let run_id = RunId::new();
+        let branch_id = BranchId::new();
 
         let long_type = "x".repeat(MAX_EVENT_TYPE_LENGTH + 1);
-        let result = log.append(&run_id, &long_type, empty_payload());
+        let result = log.append(&branch_id, &long_type, empty_payload());
         assert!(result.is_err());
         assert!(result.unwrap_err().to_string().contains("length"));
     }
@@ -714,14 +714,14 @@ mod tests {
     #[test]
     fn test_validation_accepts_valid_object_payload() {
         let (_temp, _db, log) = setup();
-        let run_id = RunId::new();
+        let branch_id = BranchId::new();
 
         let payload = Value::Object(HashMap::from([
             ("tool".to_string(), Value::String("search".into())),
             ("count".to_string(), Value::Int(42)),
         ]));
 
-        let result = log.append(&run_id, "test", payload);
+        let result = log.append(&branch_id, "test", payload);
         assert!(result.is_ok());
     }
 
@@ -730,20 +730,20 @@ mod tests {
     #[test]
     fn test_append_first_event() {
         let (_temp, _db, log) = setup();
-        let run_id = RunId::new();
+        let branch_id = BranchId::new();
 
-        let version = log.append(&run_id, "test", empty_payload()).unwrap();
+        let version = log.append(&branch_id, "test", empty_payload()).unwrap();
         assert!(matches!(version, Version::Sequence(0)));
     }
 
     #[test]
     fn test_append_increments_sequence() {
         let (_temp, _db, log) = setup();
-        let run_id = RunId::new();
+        let branch_id = BranchId::new();
 
-        let v1 = log.append(&run_id, "test", empty_payload()).unwrap();
-        let v2 = log.append(&run_id, "test", empty_payload()).unwrap();
-        let v3 = log.append(&run_id, "test", empty_payload()).unwrap();
+        let v1 = log.append(&branch_id, "test", empty_payload()).unwrap();
+        let v2 = log.append(&branch_id, "test", empty_payload()).unwrap();
+        let v3 = log.append(&branch_id, "test", empty_payload()).unwrap();
 
         assert!(matches!(v1, Version::Sequence(0)));
         assert!(matches!(v2, Version::Sequence(1)));
@@ -753,30 +753,30 @@ mod tests {
     #[test]
     fn test_hash_chain_links() {
         let (_temp, _db, log) = setup();
-        let run_id = RunId::new();
+        let branch_id = BranchId::new();
 
-        log.append(&run_id, "test", empty_payload()).unwrap();
-        let event1 = log.read(&run_id, 0).unwrap().unwrap();
-        log.append(&run_id, "test", empty_payload()).unwrap();
+        log.append(&branch_id, "test", empty_payload()).unwrap();
+        let event1 = log.read(&branch_id, 0).unwrap().unwrap();
+        log.append(&branch_id, "test", empty_payload()).unwrap();
 
         // Verify chain through read
-        let event2 = log.read(&run_id, 1).unwrap().unwrap();
+        let event2 = log.read(&branch_id, 1).unwrap().unwrap();
         assert_eq!(event2.value.prev_hash, event1.value.hash);
     }
 
     #[test]
     fn test_append_with_payload() {
         let (_temp, _db, log) = setup();
-        let run_id = RunId::new();
+        let branch_id = BranchId::new();
 
         let payload = Value::Object(HashMap::from([
             ("tool".to_string(), Value::String("search".into())),
             ("query".to_string(), Value::String("rust async".into())),
         ]));
 
-        let version = log.append(&run_id, "tool_call", payload.clone()).unwrap();
+        let version = log.append(&branch_id, "tool_call", payload.clone()).unwrap();
         let seq = match version { Version::Sequence(s) => s, _ => panic!("Expected sequence") };
-        let event = log.read(&run_id, seq).unwrap().unwrap();
+        let event = log.read(&branch_id, seq).unwrap().unwrap();
 
         assert_eq!(event.value.event_type, "tool_call");
         assert_eq!(event.value.payload, payload);
@@ -785,8 +785,8 @@ mod tests {
     #[test]
     fn test_run_isolation() {
         let (_temp, _db, log) = setup();
-        let run1 = RunId::new();
-        let run2 = RunId::new();
+        let run1 = BranchId::new();
+        let run2 = BranchId::new();
 
         log.append(&run1, "run1_event", int_payload(1)).unwrap();
         log.append(&run1, "run1_event", int_payload(2)).unwrap();
@@ -811,12 +811,12 @@ mod tests {
     #[test]
     fn test_read_single_event() {
         let (_temp, _db, log) = setup();
-        let run_id = RunId::new();
+        let branch_id = BranchId::new();
 
         let payload = payload_with("data", Value::String("test".into()));
-        log.append(&run_id, "test", payload.clone()).unwrap();
+        log.append(&branch_id, "test", payload.clone()).unwrap();
 
-        let versioned = log.read(&run_id, 0).unwrap().unwrap();
+        let versioned = log.read(&branch_id, 0).unwrap().unwrap();
         assert_eq!(versioned.value.sequence, 0);
         assert_eq!(versioned.value.event_type, "test");
         assert_eq!(versioned.value.payload, payload);
@@ -826,25 +826,25 @@ mod tests {
     #[test]
     fn test_read_nonexistent() {
         let (_temp, _db, log) = setup();
-        let run_id = RunId::new();
+        let branch_id = BranchId::new();
 
-        let event = log.read(&run_id, 999).unwrap();
+        let event = log.read(&branch_id, 999).unwrap();
         assert!(event.is_none());
     }
 
     #[test]
     fn test_len() {
         let (_temp, _db, log) = setup();
-        let run_id = RunId::new();
+        let branch_id = BranchId::new();
 
-        assert_eq!(log.len(&run_id).unwrap(), 0);
+        assert_eq!(log.len(&branch_id).unwrap(), 0);
 
-        log.append(&run_id, "test", empty_payload()).unwrap();
-        assert_eq!(log.len(&run_id).unwrap(), 1);
+        log.append(&branch_id, "test", empty_payload()).unwrap();
+        assert_eq!(log.len(&branch_id).unwrap(), 1);
 
-        log.append(&run_id, "test", empty_payload()).unwrap();
-        log.append(&run_id, "test", empty_payload()).unwrap();
-        assert_eq!(log.len(&run_id).unwrap(), 3);
+        log.append(&branch_id, "test", empty_payload()).unwrap();
+        log.append(&branch_id, "test", empty_payload()).unwrap();
+        assert_eq!(log.len(&branch_id).unwrap(), 3);
     }
 
     // ========== SHA-256 Hash Tests ==========
@@ -905,24 +905,24 @@ mod tests {
     #[test]
     fn test_read_by_type() {
         let (_temp, _db, log) = setup();
-        let run_id = RunId::new();
+        let branch_id = BranchId::new();
 
-        log.append(&run_id, "tool_call", int_payload(1)).unwrap();
-        log.append(&run_id, "tool_result", int_payload(2)).unwrap();
-        log.append(&run_id, "tool_call", int_payload(3)).unwrap();
-        log.append(&run_id, "thought", int_payload(4)).unwrap();
-        log.append(&run_id, "tool_call", int_payload(5)).unwrap();
+        log.append(&branch_id, "tool_call", int_payload(1)).unwrap();
+        log.append(&branch_id, "tool_result", int_payload(2)).unwrap();
+        log.append(&branch_id, "tool_call", int_payload(3)).unwrap();
+        log.append(&branch_id, "thought", int_payload(4)).unwrap();
+        log.append(&branch_id, "tool_call", int_payload(5)).unwrap();
 
-        let tool_calls = log.read_by_type(&run_id, "tool_call").unwrap();
+        let tool_calls = log.read_by_type(&branch_id, "tool_call").unwrap();
         assert_eq!(tool_calls.len(), 3);
         assert_eq!(tool_calls[0].value.payload, int_payload(1));
         assert_eq!(tool_calls[1].value.payload, int_payload(3));
         assert_eq!(tool_calls[2].value.payload, int_payload(5));
 
-        let thoughts = log.read_by_type(&run_id, "thought").unwrap();
+        let thoughts = log.read_by_type(&branch_id, "thought").unwrap();
         assert_eq!(thoughts.len(), 1);
 
-        let nonexistent = log.read_by_type(&run_id, "nonexistent").unwrap();
+        let nonexistent = log.read_by_type(&branch_id, "nonexistent").unwrap();
         assert!(nonexistent.is_empty());
     }
 
@@ -933,10 +933,10 @@ mod tests {
         use crate::primitives::extensions::EventLogExt;
 
         let (_temp, db, log) = setup();
-        let run_id = RunId::new();
+        let branch_id = BranchId::new();
 
         // Append via extension trait
-        db.transaction(run_id, |txn| {
+        db.transaction(branch_id, |txn| {
             let seq = txn.event_append("ext_event", payload_with("data", Value::String("test".into())))?;
             assert_eq!(seq, 0);
             Ok(())
@@ -944,7 +944,7 @@ mod tests {
         .unwrap();
 
         // Verify via EventLog
-        let versioned = log.read(&run_id, 0).unwrap().unwrap();
+        let versioned = log.read(&branch_id, 0).unwrap().unwrap();
         assert_eq!(versioned.value.event_type, "ext_event");
     }
 
@@ -953,13 +953,13 @@ mod tests {
         use crate::primitives::extensions::EventLogExt;
 
         let (_temp, db, log) = setup();
-        let run_id = RunId::new();
+        let branch_id = BranchId::new();
 
         // Append via EventLog
-        log.append(&run_id, "test", int_payload(42)).unwrap();
+        log.append(&branch_id, "test", int_payload(42)).unwrap();
 
         // Read via extension trait
-        db.transaction(run_id, |txn| {
+        db.transaction(branch_id, |txn| {
             let value = txn.event_read(0)?;
             assert!(value.is_some());
             Ok(())
@@ -972,10 +972,10 @@ mod tests {
         use crate::primitives::extensions::EventLogExt;
 
         let (_temp, db, _log) = setup();
-        let run_id = RunId::new();
+        let branch_id = BranchId::new();
 
         // EventLogExt should also validate payloads
-        let result = db.transaction(run_id, |txn| {
+        let result = db.transaction(branch_id, |txn| {
             txn.event_append("test", Value::Int(42)) // primitive not allowed
         });
         assert!(result.is_err());
@@ -986,10 +986,10 @@ mod tests {
         use crate::primitives::extensions::{EventLogExt, KVStoreExt};
 
         let (_temp, db, _log) = setup();
-        let run_id = RunId::new();
+        let branch_id = BranchId::new();
 
         // Atomic: KV put + event append
-        db.transaction(run_id, |txn| {
+        db.transaction(branch_id, |txn| {
             txn.kv_put("key", Value::String("value".into()))?;
             txn.event_append("kv_updated", payload_with("key", Value::String("key".into())))?;
             Ok(())
@@ -997,7 +997,7 @@ mod tests {
         .unwrap();
 
         // Verify both operations committed
-        db.transaction(run_id, |txn| {
+        db.transaction(branch_id, |txn| {
             let kv_val = txn.kv_get("key")?;
             assert_eq!(kv_val, Some(Value::String("value".into())));
 
@@ -1013,12 +1013,12 @@ mod tests {
     #[test]
     fn test_fast_read_returns_correct_value() {
         let (_temp, _db, log) = setup();
-        let run_id = RunId::new();
+        let branch_id = BranchId::new();
 
         let payload = payload_with("data", Value::String("test".into()));
-        log.append(&run_id, "test", payload.clone()).unwrap();
+        log.append(&branch_id, "test", payload.clone()).unwrap();
 
-        let versioned = log.read(&run_id, 0).unwrap().unwrap();
+        let versioned = log.read(&branch_id, 0).unwrap().unwrap();
         assert_eq!(versioned.value.event_type, "test");
         assert_eq!(versioned.value.payload, payload);
     }
@@ -1026,32 +1026,32 @@ mod tests {
     #[test]
     fn test_fast_read_returns_none_for_missing() {
         let (_temp, _db, log) = setup();
-        let run_id = RunId::new();
+        let branch_id = BranchId::new();
 
-        let event = log.read(&run_id, 999).unwrap();
+        let event = log.read(&branch_id, 999).unwrap();
         assert!(event.is_none());
     }
 
     #[test]
     fn test_fast_len_returns_correct_count() {
         let (_temp, _db, log) = setup();
-        let run_id = RunId::new();
+        let branch_id = BranchId::new();
 
-        assert_eq!(log.len(&run_id).unwrap(), 0);
+        assert_eq!(log.len(&branch_id).unwrap(), 0);
 
-        log.append(&run_id, "test", empty_payload()).unwrap();
-        assert_eq!(log.len(&run_id).unwrap(), 1);
+        log.append(&branch_id, "test", empty_payload()).unwrap();
+        assert_eq!(log.len(&branch_id).unwrap(), 1);
 
-        log.append(&run_id, "test", empty_payload()).unwrap();
-        log.append(&run_id, "test", empty_payload()).unwrap();
-        assert_eq!(log.len(&run_id).unwrap(), 3);
+        log.append(&branch_id, "test", empty_payload()).unwrap();
+        log.append(&branch_id, "test", empty_payload()).unwrap();
+        assert_eq!(log.len(&branch_id).unwrap(), 3);
     }
 
     #[test]
     fn test_fast_read_run_isolation() {
         let (_temp, _db, log) = setup();
-        let run1 = RunId::new();
-        let run2 = RunId::new();
+        let run1 = BranchId::new();
+        let run2 = BranchId::new();
 
         log.append(&run1, "run1", int_payload(1)).unwrap();
         log.append(&run2, "run2", int_payload(2)).unwrap();

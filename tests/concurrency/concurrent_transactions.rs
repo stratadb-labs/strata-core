@@ -11,14 +11,14 @@ use strata_concurrency::validation::validate_transaction;
 use strata_core::traits::Storage;
 use strata_core::types::{Key, Namespace};
 use strata_core::value::Value;
-use strata_core::RunId;
+use strata_core::BranchId;
 use strata_storage::sharded::ShardedStore;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Barrier};
 use std::thread;
 
-fn create_test_key(run_id: RunId, name: &str) -> Key {
-    let ns = Namespace::for_run(run_id);
+fn create_test_key(branch_id: BranchId, name: &str) -> Key {
+    let ns = Namespace::for_branch(branch_id);
     Key::new_kv(ns, name)
 }
 
@@ -41,8 +41,8 @@ fn parallel_commits_different_runs_no_contention() {
             let commits = Arc::clone(&commits);
 
             thread::spawn(move || {
-                let run_id = RunId::new(); // Each thread gets unique run
-                let key = create_test_key(run_id, "data");
+                let branch_id = BranchId::new(); // Each thread gets unique run
+                let key = create_test_key(branch_id, "data");
 
                 // Setup initial value
                 Storage::put(&*store, key.clone(), Value::Int(0), None).unwrap();
@@ -52,7 +52,7 @@ fn parallel_commits_different_runs_no_contention() {
                 // Each thread commits 10 transactions
                 for i in 0..10 {
                     let txn_id = manager.next_txn_id();
-                    let mut txn = TransactionContext::new(txn_id, run_id, manager.allocate_version());
+                    let mut txn = TransactionContext::new(txn_id, branch_id, manager.allocate_version());
 
                     // Read and write
                     let v = Storage::get(&*store, &key).unwrap().unwrap().version.as_u64();
@@ -81,8 +81,8 @@ fn parallel_commits_different_runs_no_contention() {
 #[test]
 fn different_runs_have_independent_namespaces() {
     let store = Arc::new(ShardedStore::new());
-    let run1 = RunId::new();
-    let run2 = RunId::new();
+    let run1 = BranchId::new();
+    let run2 = BranchId::new();
 
     let key1 = create_test_key(run1, "shared_name");
     let key2 = create_test_key(run2, "shared_name");
@@ -107,8 +107,8 @@ fn different_runs_have_independent_namespaces() {
 fn high_contention_single_key() {
     let store = Arc::new(ShardedStore::new());
     let manager = Arc::new(TransactionManager::new(1));
-    let run_id = RunId::new();
-    let key = create_test_key(run_id, "contested");
+    let branch_id = BranchId::new();
+    let key = create_test_key(branch_id, "contested");
 
     // Initial value
     Storage::put(&*store, key.clone(), Value::Int(0), None).unwrap();
@@ -137,7 +137,7 @@ fn high_contention_single_key() {
 
                         // Create transaction
                         let txn_id = manager.next_txn_id();
-                        let mut txn = TransactionContext::new(txn_id, run_id, read_version);
+                        let mut txn = TransactionContext::new(txn_id, branch_id, read_version);
                         txn.read_set.insert(key.clone(), read_version);
                         txn.write_set
                             .insert(key.clone(), Value::Int((thread_id * 100 + i) as i64));
@@ -181,9 +181,9 @@ fn high_contention_single_key() {
 #[test]
 fn interleaved_disjoint_operations_both_commit() {
     let store = Arc::new(ShardedStore::new());
-    let run_id = RunId::new();
-    let key_a = create_test_key(run_id, "A");
-    let key_b = create_test_key(run_id, "B");
+    let branch_id = BranchId::new();
+    let key_a = create_test_key(branch_id, "A");
+    let key_b = create_test_key(branch_id, "B");
 
     // Initial values
     Storage::put(&*store, key_a.clone(), Value::Int(1), None).unwrap();
@@ -193,12 +193,12 @@ fn interleaved_disjoint_operations_both_commit() {
     let vb = Storage::get(&*store, &key_b).unwrap().unwrap().version.as_u64();
 
     // T1: reads A, writes B
-    let mut t1 = TransactionContext::new(1, run_id, 1);
+    let mut t1 = TransactionContext::new(1, branch_id, 1);
     t1.read_set.insert(key_a.clone(), va);
     t1.write_set.insert(key_b.clone(), Value::Int(20));
 
     // T2: reads B, writes A
-    let mut t2 = TransactionContext::new(2, run_id, 1);
+    let mut t2 = TransactionContext::new(2, branch_id, 1);
     t2.read_set.insert(key_b.clone(), vb);
     t2.write_set.insert(key_a.clone(), Value::Int(10));
 
@@ -324,7 +324,7 @@ fn manager_with_txn_id_recovery() {
 #[test]
 fn concurrent_empty_transactions() {
     let store = Arc::new(ShardedStore::new());
-    let run_id = RunId::new();
+    let branch_id = BranchId::new();
     let barrier = Arc::new(Barrier::new(4));
 
     let handles: Vec<_> = (0..4)
@@ -336,7 +336,7 @@ fn concurrent_empty_transactions() {
                 barrier.wait();
 
                 // Empty transaction (read-only)
-                let txn = TransactionContext::new(i as u64, run_id, 1);
+                let txn = TransactionContext::new(i as u64, branch_id, 1);
                 let result = validate_transaction(&txn, &*store);
                 result.is_valid()
             })
@@ -351,14 +351,14 @@ fn concurrent_empty_transactions() {
 #[test]
 fn rapid_transaction_creation() {
     let manager = TransactionManager::new(1);
-    let run_id = RunId::new();
+    let branch_id = BranchId::new();
 
     // Create many transactions rapidly
     let txns: Vec<_> = (0..1000)
         .map(|_| {
             let txn_id = manager.next_txn_id();
             let start_version = manager.allocate_version();
-            TransactionContext::new(txn_id, run_id, start_version)
+            TransactionContext::new(txn_id, branch_id, start_version)
         })
         .collect();
 

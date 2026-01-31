@@ -11,14 +11,14 @@ fn test_r3_same_query_same_order() {
     let vector = test_db.vector();
 
     vector
-        .create_collection(test_db.run_id, "embeddings", config_minilm())
+        .create_collection(test_db.branch_id, "embeddings", config_minilm())
         .unwrap();
 
     // Insert 100 vectors
     for i in 0..100 {
         vector
             .insert(
-                test_db.run_id,
+                test_db.branch_id,
                 "embeddings",
                 &format!("key_{}", i),
                 &seeded_random_vector(384, i as u64),
@@ -33,7 +33,7 @@ fn test_r3_same_query_same_order() {
     let mut results_list: Vec<Vec<String>> = Vec::new();
     for _ in 0..100 {
         let results = vector
-            .search(test_db.run_id, "embeddings", &query, 20, None)
+            .search(test_db.branch_id, "embeddings", &query, 20, None)
             .unwrap();
         let keys: Vec<String> = results.iter().map(|r| r.key.clone()).collect();
         results_list.push(keys);
@@ -53,20 +53,20 @@ fn test_r3_same_query_same_order() {
 #[test]
 fn test_r3_deterministic_across_restart() {
     let mut test_db = TestDb::new();
-    let run_id = test_db.run_id;
+    let branch_id = test_db.branch_id;
     let query = seeded_random_vector(384, 99999);
 
     let results_before;
     {
         let vector = test_db.vector();
         vector
-            .create_collection(run_id, "embeddings", config_minilm())
+            .create_collection(branch_id, "embeddings", config_minilm())
             .unwrap();
 
         for i in 0..50 {
             vector
                 .insert(
-                    run_id,
+                    branch_id,
                     "embeddings",
                     &format!("key_{}", i),
                     &seeded_random_vector(384, i as u64),
@@ -76,14 +76,14 @@ fn test_r3_deterministic_across_restart() {
         }
 
         results_before = vector
-            .search(run_id, "embeddings", &query, 20, None)
+            .search(branch_id, "embeddings", &query, 20, None)
             .unwrap();
     }
 
     test_db.reopen();
 
     let vector = test_db.vector();
-    let results_after = vector.search(run_id, "embeddings", &query, 20, None).unwrap();
+    let results_after = vector.search(branch_id, "embeddings", &query, 20, None).unwrap();
 
     let keys_before: Vec<&str> = results_before.iter().map(|r| r.key.as_str()).collect();
     let keys_after: Vec<&str> = results_after.iter().map(|r| r.key.as_str()).collect();
@@ -101,13 +101,13 @@ fn test_r3_deterministic_different_k() {
     let vector = test_db.vector();
 
     vector
-        .create_collection(test_db.run_id, "embeddings", config_minilm())
+        .create_collection(test_db.branch_id, "embeddings", config_minilm())
         .unwrap();
 
     for i in 0..100 {
         vector
             .insert(
-                test_db.run_id,
+                test_db.branch_id,
                 "embeddings",
                 &format!("key_{}", i),
                 &seeded_random_vector(384, i as u64),
@@ -120,12 +120,12 @@ fn test_r3_deterministic_different_k() {
 
     // Get top 50
     let results_50 = vector
-        .search(test_db.run_id, "embeddings", &query, 50, None)
+        .search(test_db.branch_id, "embeddings", &query, 50, None)
         .unwrap();
 
     // Get top 20
     let results_20 = vector
-        .search(test_db.run_id, "embeddings", &query, 20, None)
+        .search(test_db.branch_id, "embeddings", &query, 20, None)
         .unwrap();
 
     // Top 20 from k=50 should match k=20
@@ -145,13 +145,13 @@ fn test_r3_deterministic_scores() {
     let vector = test_db.vector();
 
     vector
-        .create_collection(test_db.run_id, "embeddings", config_minilm())
+        .create_collection(test_db.branch_id, "embeddings", config_minilm())
         .unwrap();
 
     for i in 0..50 {
         vector
             .insert(
-                test_db.run_id,
+                test_db.branch_id,
                 "embeddings",
                 &format!("key_{}", i),
                 &seeded_random_vector(384, i as u64),
@@ -164,10 +164,10 @@ fn test_r3_deterministic_scores() {
 
     // Run search twice
     let results1 = vector
-        .search(test_db.run_id, "embeddings", &query, 20, None)
+        .search(test_db.branch_id, "embeddings", &query, 20, None)
         .unwrap();
     let results2 = vector
-        .search(test_db.run_id, "embeddings", &query, 20, None)
+        .search(test_db.branch_id, "embeddings", &query, 20, None)
         .unwrap();
 
     // Scores should be identical
@@ -190,14 +190,14 @@ fn test_r3_deterministic_after_modifications() {
     let vector = test_db.vector();
 
     vector
-        .create_collection(test_db.run_id, "embeddings", config_minilm())
+        .create_collection(test_db.branch_id, "embeddings", config_minilm())
         .unwrap();
 
     // Insert initial vectors
     for i in 0..30 {
         vector
             .insert(
-                test_db.run_id,
+                test_db.branch_id,
                 "embeddings",
                 &format!("key_{}", i),
                 &seeded_random_vector(384, i as u64),
@@ -210,14 +210,14 @@ fn test_r3_deterministic_after_modifications() {
 
     // Search before modifications
     let results_before = vector
-        .search(test_db.run_id, "embeddings", &query, 10, None)
+        .search(test_db.branch_id, "embeddings", &query, 10, None)
         .unwrap();
 
     // Modify unrelated vectors
     for i in 30..40 {
         vector
             .insert(
-                test_db.run_id,
+                test_db.branch_id,
                 "embeddings",
                 &format!("key_{}", i),
                 &seeded_random_vector(384, i as u64),
@@ -228,7 +228,7 @@ fn test_r3_deterministic_after_modifications() {
 
     // Search after modifications (limiting to original keys)
     let results_after = vector
-        .search(test_db.run_id, "embeddings", &query, 40, None)
+        .search(test_db.branch_id, "embeddings", &query, 40, None)
         .unwrap();
 
     // Find original keys in results_after

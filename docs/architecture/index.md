@@ -7,7 +7,7 @@ StrataDB is a layered embedded database built as a Rust workspace of 7 crates. T
 ```
 +-----------------------------------------------------------+
 |  Strata API                                                |
-|  (KV, Event, State, JSON, Vector, Run)                     |
+|  (KV, Event, State, JSON, Vector, Branch)                     |
 +-----------------------------------------------------------+
 |  Executor (Command dispatch)                               |
 |  Session (Transaction lifecycle + read-your-writes)         |
@@ -19,7 +19,7 @@ StrataDB is a layered embedded database built as a Rust workspace of 7 crates. T
 +-----v-------+  +------------v----------+  +--------------+
 | Concurrency |  |  Durability           |  | Intelligence |
 | OCC, CAS    |  |  WAL, Snapshots       |  | BM25, RRF    |
-| Validation  |  |  Recovery, RunBundle  |  | Hybrid Search|
+| Validation  |  |  Recovery, BranchBundle  |  | Hybrid Search|
 +------+------+  +----------+------------+  +------+-------+
        |                     |                      |
        +----------+----------+----------------------+
@@ -38,19 +38,19 @@ StrataDB is a layered embedded database built as a Rust workspace of 7 crates. T
 
 ### Unified Storage
 
-All six primitives store their data in a single `ShardedStore` (DashMap-based). Keys are prefixed with the run ID and primitive type. This enables:
+All six primitives store their data in a single `ShardedStore` (DashMap-based). Keys are prefixed with the branch ID and primitive type. This enables:
 
 - **Atomic multi-primitive transactions** — a single OCC validation covers KV, State, Event, and JSON
 - **Simple storage layer** — one sorted map, no separate data files per primitive
-- **Run deletion** — scan and delete by prefix
+- **Branch deletion** — scan and delete by prefix
 
-### Run-Tagged Keys
+### Branch-Tagged Keys
 
-Every key in storage includes the run ID: `{run_id}:{primitive}:{user_key}`. This makes:
+Every key in storage includes the branch ID: `{branch_id}:{primitive}:{user_key}`. This makes:
 
-- **Run isolation** automatic — no filtering needed
-- **Run replay** O(run size) instead of O(total database size)
-- **Run deletion** a prefix scan
+- **Branch isolation** automatic — no filtering needed
+- **Branch replay** O(branch size) instead of O(total database size)
+- **Branch deletion** a prefix scan
 
 ### Optimistic Concurrency Control
 
@@ -61,7 +61,7 @@ Transactions use OCC rather than locks:
 - Validate: check that reads haven't been modified by concurrent commits
 - Commit: apply writes atomically
 
-This works well for AI agents because they rarely conflict (different keys, different runs).
+This works well for AI agents because they rarely conflict (different keys, different branches).
 
 ### Stateless Primitives
 

@@ -3,7 +3,7 @@
 //! Tests verifying that multiple primitives can participate in atomic transactions.
 
 use strata_core::contract::Version;
-use strata_core::types::RunId;
+use strata_core::types::BranchId;
 use strata_core::value::Value;
 use strata_engine::Database;
 use strata_engine::{
@@ -28,24 +28,24 @@ fn int_payload(v: i64) -> Value {
     Value::Object(HashMap::from([("value".to_string(), Value::Int(v))]))
 }
 
-fn setup() -> (Arc<Database>, TempDir, RunId) {
+fn setup() -> (Arc<Database>, TempDir, BranchId) {
     let temp_dir = TempDir::new().unwrap();
     let db = Database::open(temp_dir.path()).unwrap();
-    let run_id = RunId::new();
-    (db, temp_dir, run_id)
+    let branch_id = BranchId::new();
+    (db, temp_dir, branch_id)
 }
 
 /// Test that KV, Event, and State operations work atomically in a single transaction
 #[test]
 fn test_kv_event_state_atomic() {
-    let (db, _temp, run_id) = setup();
+    let (db, _temp, branch_id) = setup();
 
     // Initialize state cell first (needed for CAS)
     let state_cell = StateCell::new(db.clone());
-    state_cell.init(&run_id, "workflow", Value::Int(0)).unwrap();
+    state_cell.init(&branch_id, "workflow", Value::Int(0)).unwrap();
 
     // Perform atomic transaction with all 3 primitives
-    let result = db.transaction(run_id, |txn| {
+    let result = db.transaction(branch_id, |txn| {
         // KV operation
         txn.kv_put("task/status", Value::String("running".into()))?;
 
@@ -67,26 +67,26 @@ fn test_kv_event_state_atomic() {
     let event_log = EventLog::new(db.clone());
 
     assert_eq!(
-        kv.get(&run_id, "task/status").unwrap(),
+        kv.get(&branch_id, "task/status").unwrap(),
         Some(Value::String("running".into()))
     );
-    assert_eq!(event_log.len(&run_id).unwrap(), 1);
+    assert_eq!(event_log.len(&branch_id).unwrap(), 1);
 
-    let state = state_cell.read(&run_id, "workflow").unwrap().unwrap();
+    let state = state_cell.read(&branch_id, "workflow").unwrap().unwrap();
     assert_eq!(state, Value::String("step1".into()));
 }
 
 /// Test that a failed operation causes full rollback of all primitives
 #[test]
 fn test_cross_primitive_rollback() {
-    let (db, _temp, run_id) = setup();
+    let (db, _temp, branch_id) = setup();
 
     // Initialize state cell with version 1
     let state_cell = StateCell::new(db.clone());
-    state_cell.init(&run_id, "cell", Value::Int(100)).unwrap();
+    state_cell.init(&branch_id, "cell", Value::Int(100)).unwrap();
 
     // Attempt transaction with wrong CAS version - should fail and rollback
-    let result = db.transaction(run_id, |txn| {
+    let result = db.transaction(branch_id, |txn| {
         // KV put (should succeed alone)
         txn.kv_put("key_to_rollback", Value::Int(42))?;
 
@@ -105,28 +105,28 @@ fn test_cross_primitive_rollback() {
 
     // Verify KV was NOT written (rollback affected all)
     let kv = KVStore::new(db.clone());
-    assert!(kv.get(&run_id, "key_to_rollback").unwrap().is_none());
+    assert!(kv.get(&branch_id, "key_to_rollback").unwrap().is_none());
 
     // Verify Event was NOT written
     let event_log = EventLog::new(db.clone());
-    assert_eq!(event_log.len(&run_id).unwrap(), 0);
+    assert_eq!(event_log.len(&branch_id).unwrap(), 0);
 
     // Verify StateCell unchanged
-    let state = state_cell.read(&run_id, "cell").unwrap().unwrap();
+    let state = state_cell.read(&branch_id, "cell").unwrap().unwrap();
     assert_eq!(state, Value::Int(100));
 }
 
 /// Test that all 3 extension traits compose correctly in single transaction
 #[test]
 fn test_all_extension_traits_compose() {
-    let (db, _temp, run_id) = setup();
+    let (db, _temp, branch_id) = setup();
 
     // Pre-initialize state cell
     let state_cell = StateCell::new(db.clone());
-    state_cell.init(&run_id, "counter", Value::Int(0)).unwrap();
+    state_cell.init(&branch_id, "counter", Value::Int(0)).unwrap();
 
     // Use all 3 extension traits in single transaction
-    let result = db.transaction(run_id, |txn| {
+    let result = db.transaction(branch_id, |txn| {
         // KVStoreExt::kv_put()
         txn.kv_put("config", Value::String("enabled".into()))?;
 
@@ -147,22 +147,22 @@ fn test_all_extension_traits_compose() {
     let kv = KVStore::new(db.clone());
     let event_log = EventLog::new(db.clone());
 
-    assert!(kv.get(&run_id, "config").unwrap().is_some());
-    assert_eq!(event_log.len(&run_id).unwrap(), 1);
-    assert!(state_cell.read(&run_id, "counter").unwrap().is_some());
+    assert!(kv.get(&branch_id, "config").unwrap().is_some());
+    assert_eq!(event_log.len(&branch_id).unwrap(), 1);
+    assert!(state_cell.read(&branch_id, "counter").unwrap().is_some());
 }
 
 /// Test that partial failure in any primitive causes full rollback
 #[test]
 fn test_partial_failure_full_rollback() {
-    let (db, _temp, run_id) = setup();
+    let (db, _temp, branch_id) = setup();
 
     // Initialize state cell
     let state_cell = StateCell::new(db.clone());
-    state_cell.init(&run_id, "state", Value::Int(0)).unwrap();
+    state_cell.init(&branch_id, "state", Value::Int(0)).unwrap();
 
     // Write successfully to 2 primitives, then fail on 3rd
-    let result = db.transaction(run_id, |txn| {
+    let result = db.transaction(branch_id, |txn| {
         // 1. KV - success
         txn.kv_put("partial_key", Value::Int(1))?;
 
@@ -182,30 +182,30 @@ fn test_partial_failure_full_rollback() {
     let kv = KVStore::new(db.clone());
     let event_log = EventLog::new(db.clone());
 
-    assert!(kv.get(&run_id, "partial_key").unwrap().is_none());
-    assert_eq!(event_log.len(&run_id).unwrap(), 0);
+    assert!(kv.get(&branch_id, "partial_key").unwrap().is_none());
+    assert_eq!(event_log.len(&branch_id).unwrap(), 0);
 
-    let state = state_cell.read(&run_id, "state").unwrap().unwrap();
+    let state = state_cell.read(&branch_id, "state").unwrap().unwrap();
     assert_eq!(state, Value::Int(0)); // Unchanged
 }
 
 /// Test nested/chained primitive operations within single transaction
 #[test]
 fn test_nested_primitive_operations() {
-    let (db, _temp, run_id) = setup();
+    let (db, _temp, branch_id) = setup();
 
     // Pre-populate some KV data
     let kv = KVStore::new(db.clone());
-    kv.put(&run_id, "initial_value", Value::Int(42)).unwrap();
+    kv.put(&branch_id, "initial_value", Value::Int(42)).unwrap();
 
     // Initialize state
     let state_cell = StateCell::new(db.clone());
     state_cell
-        .init(&run_id, "sequence_tracker", Value::Int(0))
+        .init(&branch_id, "sequence_tracker", Value::Int(0))
         .unwrap();
 
     // Chain operations: read KV -> use in Event -> update State
-    let result = db.transaction(run_id, |txn| {
+    let result = db.transaction(branch_id, |txn| {
         // Read KV -> use value in Event payload (wrapped in object)
         let kv_value = txn.kv_get("initial_value")?;
         let inner_value = kv_value.unwrap_or(Value::Null);
@@ -227,13 +227,13 @@ fn test_nested_primitive_operations() {
 
     // Verify causal chain worked
     let event_log = EventLog::new(db.clone());
-    let event = event_log.read(&run_id, 0).unwrap().unwrap();
+    let event = event_log.read(&branch_id, 0).unwrap().unwrap();
     // Payload is now wrapped: {"from_kv": 42}
     let expected_payload = Value::Object(HashMap::from([("from_kv".to_string(), Value::Int(42))]));
     assert_eq!(event.value.payload, expected_payload);
 
     let state = state_cell
-        .read(&run_id, "sequence_tracker")
+        .read(&branch_id, "sequence_tracker")
         .unwrap()
         .unwrap();
     assert_eq!(state, Value::Int(0)); // Sequence number (starts at 0)
@@ -242,15 +242,15 @@ fn test_nested_primitive_operations() {
 /// Test multiple sequential transactions with all primitives
 #[test]
 fn test_multiple_transactions_consistency() {
-    let (db, _temp, run_id) = setup();
+    let (db, _temp, branch_id) = setup();
 
     // Initialize state
     let state_cell = StateCell::new(db.clone());
-    state_cell.init(&run_id, "counter", Value::Int(0)).unwrap();
+    state_cell.init(&branch_id, "counter", Value::Int(0)).unwrap();
 
     // Run 10 sequential transactions
     for i in 1..=10 {
-        let result = db.transaction(run_id, |txn| {
+        let result = db.transaction(branch_id, |txn| {
             txn.kv_put(&format!("key_{}", i), Value::Int(i))?;
             txn.event_append("iteration", int_payload(i))?;
             txn.state_set("counter", Value::Int(i))?;
@@ -266,25 +266,25 @@ fn test_multiple_transactions_consistency() {
     // All 10 KV entries exist
     for i in 1..=10 {
         assert_eq!(
-            kv.get(&run_id, &format!("key_{}", i)).unwrap(),
+            kv.get(&branch_id, &format!("key_{}", i)).unwrap(),
             Some(Value::Int(i))
         );
     }
 
     // 10 events
-    assert_eq!(event_log.len(&run_id).unwrap(), 10);
+    assert_eq!(event_log.len(&branch_id).unwrap(), 10);
 
     // Counter at 10
-    let state = state_cell.read(&run_id, "counter").unwrap().unwrap();
+    let state = state_cell.read(&branch_id, "counter").unwrap().unwrap();
     assert_eq!(state, Value::Int(10));
 }
 
 /// Test read operations within transaction see uncommitted writes
 #[test]
 fn test_read_your_writes_in_transaction() {
-    let (db, _temp, run_id) = setup();
+    let (db, _temp, branch_id) = setup();
 
-    let result = db.transaction(run_id, |txn| {
+    let result = db.transaction(branch_id, |txn| {
         // Write KV
         txn.kv_put("test_key", Value::String("test_value".into()))?;
 
@@ -309,17 +309,17 @@ fn test_read_your_writes_in_transaction() {
 /// Test transaction with only reads doesn't modify anything
 #[test]
 fn test_read_only_transaction() {
-    let (db, _temp, run_id) = setup();
+    let (db, _temp, branch_id) = setup();
 
     // Pre-populate data
     let kv = KVStore::new(db.clone());
-    kv.put(&run_id, "existing", Value::Int(100)).unwrap();
+    kv.put(&branch_id, "existing", Value::Int(100)).unwrap();
 
     let state_cell = StateCell::new(db.clone());
-    state_cell.init(&run_id, "cell", Value::Int(50)).unwrap();
+    state_cell.init(&branch_id, "cell", Value::Int(50)).unwrap();
 
     // Read-only transaction
-    let result = db.transaction(run_id, |txn| {
+    let result = db.transaction(branch_id, |txn| {
         let kv_val = txn.kv_get("existing")?;
         assert_eq!(kv_val, Some(Value::Int(100)));
 
@@ -332,7 +332,7 @@ fn test_read_only_transaction() {
     assert!(result.is_ok());
 
     // Data unchanged
-    assert_eq!(kv.get(&run_id, "existing").unwrap(), Some(Value::Int(100)));
-    let state = state_cell.read(&run_id, "cell").unwrap().unwrap();
+    assert_eq!(kv.get(&branch_id, "existing").unwrap(), Some(Value::Int(100)));
+    let state = state_cell.read(&branch_id, "cell").unwrap().unwrap();
     assert_eq!(state, Value::Int(50));
 }

@@ -66,7 +66,7 @@ fn test_kv_get_nonexistent_determinism() {
     let results: Vec<_> = (0..5)
         .map(|_| {
             executor.execute(Command::KvGet {
-                run: Some(RunId::from("default")),
+                run: Some(BranchId::from("default")),
                 key: "nonexistent-key".to_string(),
             })
         })
@@ -91,7 +91,7 @@ fn test_kv_write_read_determinism() {
     // Write a value
     executor
         .execute(Command::KvPut {
-            run: Some(RunId::from("default")),
+            run: Some(BranchId::from("default")),
             key: "test-key".to_string(),
             value: Value::String("test-value".into()),
         })
@@ -101,7 +101,7 @@ fn test_kv_write_read_determinism() {
     let results: Vec<_> = (0..5)
         .map(|_| {
             executor.execute(Command::KvGet {
-                run: Some(RunId::from("default")),
+                run: Some(BranchId::from("default")),
                 key: "test-key".to_string(),
             })
         })
@@ -124,7 +124,7 @@ fn test_state_write_read_determinism() {
     // Write a value
     executor
         .execute(Command::StateSet {
-            run: Some(RunId::from("default")),
+            run: Some(BranchId::from("default")),
             cell: "counter".to_string(),
             value: Value::Int(42),
         })
@@ -134,7 +134,7 @@ fn test_state_write_read_determinism() {
     let results: Vec<_> = (0..5)
         .map(|_| {
             executor.execute(Command::StateRead {
-                run: Some(RunId::from("default")),
+                run: Some(BranchId::from("default")),
                 cell: "counter".to_string(),
             })
         })
@@ -162,7 +162,7 @@ fn test_kv_delete_nonexistent_determinism() {
     let results: Vec<_> = (0..5)
         .map(|_| {
             executor.execute(Command::KvDelete {
-                run: Some(RunId::from("default")),
+                run: Some(BranchId::from("default")),
                 key: "nonexistent-key".to_string(),
             })
         })
@@ -188,7 +188,7 @@ fn test_sequential_writes_determinism() {
     // Write multiple values sequentially
     for i in 0..10 {
         let result = executor.execute(Command::KvPut {
-            run: Some(RunId::from("default")),
+            run: Some(BranchId::from("default")),
             key: format!("key-{}", i),
             value: Value::Int(i),
         });
@@ -205,7 +205,7 @@ fn test_sequential_writes_determinism() {
     // Read them back - each should have the value we wrote
     for i in 0..10 {
         let result = executor.execute(Command::KvGet {
-            run: Some(RunId::from("default")),
+            run: Some(BranchId::from("default")),
             key: format!("key-{}", i),
         });
 
@@ -226,7 +226,7 @@ fn test_kv_list_determinism() {
     for i in 0..5 {
         executor
             .execute(Command::KvPut {
-                run: Some(RunId::from("default")),
+                run: Some(BranchId::from("default")),
                 key: format!("user:{}", i),
                 value: Value::Int(i),
             })
@@ -237,7 +237,7 @@ fn test_kv_list_determinism() {
     let results: Vec<_> = (0..5)
         .map(|_| {
             executor.execute(Command::KvList {
-                run: Some(RunId::from("default")),
+                run: Some(BranchId::from("default")),
                 prefix: Some("user:".to_string()),
             })
         })
@@ -275,7 +275,7 @@ fn test_vector_search_determinism() {
     // Create collection
     executor
         .execute(Command::VectorCreateCollection {
-            run: Some(RunId::from("default")),
+            run: Some(BranchId::from("default")),
             collection: "embeddings".to_string(),
             dimension: 4,
             metric: DistanceMetric::Cosine,
@@ -288,7 +288,7 @@ fn test_vector_search_determinism() {
         vec[i % 4] = 1.0;
         executor
             .execute(Command::VectorUpsert {
-                run: Some(RunId::from("default")),
+                run: Some(BranchId::from("default")),
                 collection: "embeddings".to_string(),
                 key: format!("v{}", i),
                 vector: vec,
@@ -302,7 +302,7 @@ fn test_vector_search_determinism() {
     let results: Vec<_> = (0..5)
         .map(|_| {
             executor.execute(Command::VectorSearch {
-                run: Some(RunId::from("default")),
+                run: Some(BranchId::from("default")),
                 collection: "embeddings".to_string(),
                 query: query.clone(),
                 k: 3,
@@ -343,7 +343,7 @@ fn test_event_read_by_type_determinism() {
     for i in 0..5 {
         executor
             .execute(Command::EventAppend {
-                run: Some(RunId::from("default")),
+                run: Some(BranchId::from("default")),
                 event_type: "events".to_string(),
                 payload: Value::Object(
                     [("seq".to_string(), Value::Int(i))]
@@ -358,7 +358,7 @@ fn test_event_read_by_type_determinism() {
     let results: Vec<_> = (0..5)
         .map(|_| {
             executor.execute(Command::EventReadByType {
-                run: Some(RunId::from("default")),
+                run: Some(BranchId::from("default")),
                 event_type: "events".to_string(),
             })
         })
@@ -386,7 +386,7 @@ fn test_json_get_determinism() {
     // Set a JSON document
     executor
         .execute(Command::JsonSet {
-            run: Some(RunId::from("default")),
+            run: Some(BranchId::from("default")),
             key: "doc".to_string(),
             path: "".to_string(),
             value: Value::Object(
@@ -404,7 +404,7 @@ fn test_json_get_determinism() {
     let results: Vec<_> = (0..5)
         .map(|_| {
             executor.execute(Command::JsonGet {
-                run: Some(RunId::from("default")),
+                run: Some(BranchId::from("default")),
                 key: "doc".to_string(),
                 path: ".name".to_string(),
             })

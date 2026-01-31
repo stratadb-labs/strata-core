@@ -6,7 +6,7 @@
 //! - Active → Aborted (explicit)
 
 use strata_concurrency::transaction::{TransactionContext, TransactionStatus};
-use strata_core::RunId;
+use strata_core::BranchId;
 
 // ============================================================================
 // State Inspection
@@ -14,8 +14,8 @@ use strata_core::RunId;
 
 #[test]
 fn new_transaction_is_active() {
-    let run_id = RunId::new();
-    let txn = TransactionContext::new(1, run_id, 100);
+    let branch_id = BranchId::new();
+    let txn = TransactionContext::new(1, branch_id, 100);
 
     assert!(txn.is_active());
     assert!(!txn.is_committed());
@@ -25,8 +25,8 @@ fn new_transaction_is_active() {
 
 #[test]
 fn transaction_status_active_variant() {
-    let run_id = RunId::new();
-    let txn = TransactionContext::new(1, run_id, 100);
+    let branch_id = BranchId::new();
+    let txn = TransactionContext::new(1, branch_id, 100);
 
     match txn.status.clone() {
         TransactionStatus::Active => {}
@@ -40,8 +40,8 @@ fn transaction_status_active_variant() {
 
 #[test]
 fn active_to_validating_succeeds() {
-    let run_id = RunId::new();
-    let mut txn = TransactionContext::new(1, run_id, 100);
+    let branch_id = BranchId::new();
+    let mut txn = TransactionContext::new(1, branch_id, 100);
 
     assert!(txn.is_active());
     txn.mark_validating().unwrap();
@@ -50,8 +50,8 @@ fn active_to_validating_succeeds() {
 
 #[test]
 fn validating_to_committed_succeeds() {
-    let run_id = RunId::new();
-    let mut txn = TransactionContext::new(1, run_id, 100);
+    let branch_id = BranchId::new();
+    let mut txn = TransactionContext::new(1, branch_id, 100);
 
     txn.mark_validating().unwrap();
     txn.mark_committed().unwrap();
@@ -64,8 +64,8 @@ fn validating_to_committed_succeeds() {
 
 #[test]
 fn validating_to_aborted_succeeds() {
-    let run_id = RunId::new();
-    let mut txn = TransactionContext::new(1, run_id, 100);
+    let branch_id = BranchId::new();
+    let mut txn = TransactionContext::new(1, branch_id, 100);
 
     txn.mark_validating().unwrap();
     txn.mark_aborted("validation failed".to_string()).unwrap();
@@ -77,8 +77,8 @@ fn validating_to_aborted_succeeds() {
 
 #[test]
 fn active_to_aborted_succeeds() {
-    let run_id = RunId::new();
-    let mut txn = TransactionContext::new(1, run_id, 100);
+    let branch_id = BranchId::new();
+    let mut txn = TransactionContext::new(1, branch_id, 100);
 
     txn.mark_aborted("explicit abort".to_string()).unwrap();
 
@@ -88,8 +88,8 @@ fn active_to_aborted_succeeds() {
 
 #[test]
 fn aborted_status_contains_reason() {
-    let run_id = RunId::new();
-    let mut txn = TransactionContext::new(1, run_id, 100);
+    let branch_id = BranchId::new();
+    let mut txn = TransactionContext::new(1, branch_id, 100);
 
     txn.mark_aborted("conflict detected".to_string()).unwrap();
 
@@ -103,8 +103,8 @@ fn aborted_status_contains_reason() {
 
 #[test]
 fn committed_status_is_committed() {
-    let run_id = RunId::new();
-    let mut txn = TransactionContext::new(1, run_id, 100);
+    let branch_id = BranchId::new();
+    let mut txn = TransactionContext::new(1, branch_id, 100);
 
     txn.mark_validating().unwrap();
     txn.mark_committed().unwrap();
@@ -118,8 +118,8 @@ fn committed_status_is_committed() {
 
 #[test]
 fn double_mark_validating_fails() {
-    let run_id = RunId::new();
-    let mut txn = TransactionContext::new(1, run_id, 100);
+    let branch_id = BranchId::new();
+    let mut txn = TransactionContext::new(1, branch_id, 100);
 
     txn.mark_validating().unwrap();
     let result = txn.mark_validating();
@@ -133,8 +133,8 @@ fn double_mark_validating_fails() {
 
 #[test]
 fn commit_while_active_fails() {
-    let run_id = RunId::new();
-    let mut txn = TransactionContext::new(1, run_id, 100);
+    let branch_id = BranchId::new();
+    let mut txn = TransactionContext::new(1, branch_id, 100);
 
     // Skip validating state
     let result = txn.mark_committed();
@@ -148,8 +148,8 @@ fn commit_while_active_fails() {
 
 #[test]
 fn commit_while_aborted_fails() {
-    let run_id = RunId::new();
-    let mut txn = TransactionContext::new(1, run_id, 100);
+    let branch_id = BranchId::new();
+    let mut txn = TransactionContext::new(1, branch_id, 100);
 
     txn.mark_aborted("aborted".to_string()).unwrap();
     let result = txn.mark_committed();
@@ -163,8 +163,8 @@ fn commit_while_aborted_fails() {
 
 #[test]
 fn commit_while_already_committed_fails() {
-    let run_id = RunId::new();
-    let mut txn = TransactionContext::new(1, run_id, 100);
+    let branch_id = BranchId::new();
+    let mut txn = TransactionContext::new(1, branch_id, 100);
 
     txn.mark_validating().unwrap();
     txn.mark_committed().unwrap();
@@ -183,18 +183,18 @@ fn commit_while_already_committed_fails() {
 
 #[test]
 fn transaction_preserves_ids() {
-    let run_id = RunId::new();
-    let txn = TransactionContext::new(42, run_id, 100);
+    let branch_id = BranchId::new();
+    let txn = TransactionContext::new(42, branch_id, 100);
 
     assert_eq!(txn.txn_id, 42);
-    assert_eq!(txn.run_id, run_id);
+    assert_eq!(txn.branch_id, branch_id);
     assert_eq!(txn.start_version, 100);
 }
 
 #[test]
 fn transaction_tracks_elapsed_time() {
-    let run_id = RunId::new();
-    let txn = TransactionContext::new(1, run_id, 100);
+    let branch_id = BranchId::new();
+    let txn = TransactionContext::new(1, branch_id, 100);
 
     let elapsed = txn.elapsed();
     assert!(elapsed.as_secs() < 1, "Elapsed should be very small");
@@ -204,8 +204,8 @@ fn transaction_tracks_elapsed_time() {
 fn transaction_expiration_check() {
     use std::time::Duration;
 
-    let run_id = RunId::new();
-    let txn = TransactionContext::new(1, run_id, 100);
+    let branch_id = BranchId::new();
+    let txn = TransactionContext::new(1, branch_id, 100);
 
     // Should not be expired with 1 hour timeout
     assert!(!txn.is_expired(Duration::from_secs(3600)));
@@ -220,8 +220,8 @@ fn transaction_expiration_check() {
 
 #[test]
 fn empty_transaction_is_read_only() {
-    let run_id = RunId::new();
-    let txn = TransactionContext::new(1, run_id, 100);
+    let branch_id = BranchId::new();
+    let txn = TransactionContext::new(1, branch_id, 100);
 
     assert!(txn.is_read_only());
 }
@@ -231,10 +231,10 @@ fn transaction_with_write_is_not_read_only() {
     use strata_core::types::{Key, Namespace};
     use strata_core::value::Value;
 
-    let run_id = RunId::new();
-    let mut txn = TransactionContext::new(1, run_id, 100);
+    let branch_id = BranchId::new();
+    let mut txn = TransactionContext::new(1, branch_id, 100);
 
-    let key = Key::new_kv(Namespace::for_run(run_id), "test");
+    let key = Key::new_kv(Namespace::for_branch(branch_id), "test");
     txn.write_set.insert(key, Value::Int(42));
 
     assert!(!txn.is_read_only());
@@ -244,10 +244,10 @@ fn transaction_with_write_is_not_read_only() {
 fn transaction_with_delete_is_not_read_only() {
     use strata_core::types::{Key, Namespace};
 
-    let run_id = RunId::new();
-    let mut txn = TransactionContext::new(1, run_id, 100);
+    let branch_id = BranchId::new();
+    let mut txn = TransactionContext::new(1, branch_id, 100);
 
-    let key = Key::new_kv(Namespace::for_run(run_id), "test");
+    let key = Key::new_kv(Namespace::for_branch(branch_id), "test");
     txn.delete_set.insert(key);
 
     assert!(!txn.is_read_only());
@@ -259,10 +259,10 @@ fn transaction_with_cas_is_not_read_only() {
     use strata_core::types::{Key, Namespace};
     use strata_core::value::Value;
 
-    let run_id = RunId::new();
-    let mut txn = TransactionContext::new(1, run_id, 100);
+    let branch_id = BranchId::new();
+    let mut txn = TransactionContext::new(1, branch_id, 100);
 
-    let key = Key::new_kv(Namespace::for_run(run_id), "test");
+    let key = Key::new_kv(Namespace::for_branch(branch_id), "test");
     txn.cas_set.push(CASOperation {
         key,
         expected_version: 1,
@@ -276,10 +276,10 @@ fn transaction_with_cas_is_not_read_only() {
 fn transaction_with_only_reads_is_read_only() {
     use strata_core::types::{Key, Namespace};
 
-    let run_id = RunId::new();
-    let mut txn = TransactionContext::new(1, run_id, 100);
+    let branch_id = BranchId::new();
+    let mut txn = TransactionContext::new(1, branch_id, 100);
 
-    let key = Key::new_kv(Namespace::for_run(run_id), "test");
+    let key = Key::new_kv(Namespace::for_branch(branch_id), "test");
     txn.read_set.insert(key, 1);
 
     assert!(txn.is_read_only());
@@ -294,10 +294,10 @@ fn pending_operations_count() {
     use strata_core::types::{Key, Namespace};
     use strata_core::value::Value;
 
-    let run_id = RunId::new();
-    let mut txn = TransactionContext::new(1, run_id, 100);
+    let branch_id = BranchId::new();
+    let mut txn = TransactionContext::new(1, branch_id, 100);
 
-    let ns = Namespace::for_run(run_id);
+    let ns = Namespace::for_branch(branch_id);
 
     // Add some operations
     txn.write_set.insert(Key::new_kv(ns.clone(), "w1"), Value::Int(1));
@@ -314,10 +314,10 @@ fn pending_operations_count() {
 fn read_count_tracks_reads() {
     use strata_core::types::{Key, Namespace};
 
-    let run_id = RunId::new();
-    let mut txn = TransactionContext::new(1, run_id, 100);
+    let branch_id = BranchId::new();
+    let mut txn = TransactionContext::new(1, branch_id, 100);
 
-    let ns = Namespace::for_run(run_id);
+    let ns = Namespace::for_branch(branch_id);
 
     txn.read_set.insert(Key::new_kv(ns.clone(), "r1"), 1);
     txn.read_set.insert(Key::new_kv(ns.clone(), "r2"), 2);
@@ -331,10 +331,10 @@ fn write_count_tracks_only_writes() {
     use strata_core::types::{Key, Namespace};
     use strata_core::value::Value;
 
-    let run_id = RunId::new();
-    let mut txn = TransactionContext::new(1, run_id, 100);
+    let branch_id = BranchId::new();
+    let mut txn = TransactionContext::new(1, branch_id, 100);
 
-    let ns = Namespace::for_run(run_id);
+    let ns = Namespace::for_branch(branch_id);
 
     txn.write_set.insert(Key::new_kv(ns.clone(), "w1"), Value::Int(1));
     txn.write_set.insert(Key::new_kv(ns.clone(), "w2"), Value::Int(2));

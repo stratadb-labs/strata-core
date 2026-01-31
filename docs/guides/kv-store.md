@@ -110,17 +110,17 @@ let user_keys = db.kv_list(Some("user:123:"))?;
 let config_keys = db.kv_list(Some("config:"))?;
 ```
 
-## Run Isolation
+## Branch Isolation
 
-KV data is isolated by run. See [Runs](../concepts/runs.md) for details.
+KV data is isolated by branch. See [Branches](../concepts/branches.md) for details.
 
 ```rust
 let mut db = Strata::open_temp()?;
 db.kv_put("key", "default-value")?;
 
-db.create_run("other")?;
-db.set_run("other")?;
-assert!(db.kv_get("key")?.is_none()); // Not visible in other run
+db.create_branch("other")?;
+db.set_branch("other")?;
+assert!(db.kv_get("key")?.is_none()); // Not visible in other branch
 ```
 
 ## Transactions
@@ -128,9 +128,9 @@ assert!(db.kv_get("key")?.is_none()); // Not visible in other run
 KV operations participate in transactions. Within a `Session`, reads and writes are atomic:
 
 ```rust
-session.execute(Command::TxnBegin { run: None, options: None })?;
-session.execute(Command::KvPut { run: None, key: "a".into(), value: Value::Int(1) })?;
-session.execute(Command::KvPut { run: None, key: "b".into(), value: Value::Int(2) })?;
+session.execute(Command::TxnBegin { branch: None, options: None })?;
+session.execute(Command::KvPut { branch: None, key: "a".into(), value: Value::Int(1) })?;
+session.execute(Command::KvPut { branch: None, key: "b".into(), value: Value::Int(2) })?;
 session.execute(Command::TxnCommit)?;
 // Both writes are visible atomically
 ```

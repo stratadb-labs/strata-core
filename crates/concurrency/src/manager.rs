@@ -32,7 +32,7 @@ use crate::{CommitError, TransactionContext, TransactionStatus};
 use dashmap::DashMap;
 use parking_lot::Mutex;
 use strata_core::traits::Storage;
-use strata_core::types::RunId;
+use strata_core::types::BranchId;
 use strata_durability::format::WalRecord;
 use strata_durability::now_micros;
 use strata_durability::wal::WalWriter;
@@ -80,7 +80,7 @@ pub struct TransactionManager {
     ///
     /// Using per-run locks allows parallel commits for different runs while
     /// still preventing TOCTOU within each run.
-    commit_locks: DashMap<RunId, Mutex<()>>,
+    commit_locks: DashMap<BranchId, Mutex<()>>,
 }
 
 impl TransactionManager {
@@ -185,7 +185,7 @@ impl TransactionManager {
         // This ensures no other transaction on the same run can modify storage between
         // our validation check and our apply_writes call.
         // Transactions on different runs can proceed in parallel.
-        let run_lock = self.commit_locks.entry(txn.run_id).or_insert_with(|| Mutex::new(()));
+        let run_lock = self.commit_locks.entry(txn.branch_id).or_insert_with(|| Mutex::new(()));
         let _commit_guard = run_lock.lock();
 
         // Step 1: Validate and mark committed (in-memory)
@@ -205,7 +205,7 @@ impl TransactionManager {
             let payload = TransactionPayload::from_transaction(txn, commit_version);
             let record = WalRecord::new(
                 txn.txn_id,
-                *txn.run_id.as_bytes(),
+                *txn.branch_id.as_bytes(),
                 now_micros(),
                 payload.to_bytes(),
             );
@@ -276,12 +276,12 @@ mod tests {
     use parking_lot::Mutex as ParkingMutex;
     use tempfile::TempDir;
 
-    fn create_test_namespace(run_id: RunId) -> Namespace {
+    fn create_test_namespace(branch_id: BranchId) -> Namespace {
         Namespace::new(
             "tenant".to_string(),
             "app".to_string(),
             "agent".to_string(),
-            run_id,
+            branch_id,
         )
     }
 
@@ -342,8 +342,8 @@ mod tests {
         let store = Arc::new(ShardedStore::new());
         let manager = Arc::new(TransactionManager::new(0));
 
-        let run_id1 = RunId::new();
-        let run_id2 = RunId::new();
+        let run_id1 = BranchId::new();
+        let run_id2 = BranchId::new();
         let ns1 = create_test_namespace(run_id1);
         let ns2 = create_test_namespace(run_id2);
         let key1 = create_test_key(&ns1, "key1");
@@ -400,15 +400,15 @@ mod tests {
         let store = Arc::new(ShardedStore::new());
         let manager = TransactionManager::new(0);
 
-        let run_id = RunId::new();
-        let ns = create_test_namespace(run_id);
+        let branch_id = BranchId::new();
+        let ns = create_test_namespace(branch_id);
         let key1 = create_test_key(&ns, "key1");
         let key2 = create_test_key(&ns, "key2");
 
         // Commit first transaction
         {
             let snapshot = store.snapshot();
-            let mut txn = TransactionContext::with_snapshot(1, run_id, Box::new(snapshot));
+            let mut txn = TransactionContext::with_snapshot(1, branch_id, Box::new(snapshot));
             txn.put(key1.clone(), Value::Int(100)).unwrap();
             let v = manager.commit(&mut txn, store.as_ref(), Some(&mut wal)).unwrap();
             assert_eq!(v, 1);
@@ -417,7 +417,7 @@ mod tests {
         // Commit second transaction on same run
         {
             let snapshot = store.snapshot();
-            let mut txn = TransactionContext::with_snapshot(2, run_id, Box::new(snapshot));
+            let mut txn = TransactionContext::with_snapshot(2, branch_id, Box::new(snapshot));
             txn.put(key2.clone(), Value::Int(200)).unwrap();
             let v = manager.commit(&mut txn, store.as_ref(), Some(&mut wal)).unwrap();
             assert_eq!(v, 2);
@@ -451,12 +451,12 @@ mod tests {
             let wal_clone = Arc::clone(&wal);
 
             handles.push(std::thread::spawn(move || {
-                let run_id = RunId::new();
-                let ns = create_test_namespace(run_id);
+                let branch_id = BranchId::new();
+                let ns = create_test_namespace(branch_id);
                 let key = create_test_key(&ns, &format!("key_{}", i));
 
                 let snapshot = store_clone.snapshot();
-                let mut txn = TransactionContext::with_snapshot(i as u64 + 1, run_id, Box::new(snapshot));
+                let mut txn = TransactionContext::with_snapshot(i as u64 + 1, branch_id, Box::new(snapshot));
                 txn.put(key, Value::Int(i as i64)).unwrap();
 
                 let mut guard = wal_clone.lock();
@@ -488,8 +488,8 @@ mod tests {
         let store = Arc::new(ShardedStore::new());
         let manager = TransactionManager::new(0);
 
-        let run_id = RunId::new();
-        let ns = create_test_namespace(run_id);
+        let branch_id = BranchId::new();
+        let ns = create_test_namespace(branch_id);
         let key_alice = create_test_key(&ns, "user:alice");
         let key_bob = create_test_key(&ns, "user:bob");
         let prefix = create_test_key(&ns, "user:");
@@ -497,7 +497,7 @@ mod tests {
         // Setup: Create initial data with alice and bob
         {
             let snapshot = store.snapshot();
-            let mut setup_txn = TransactionContext::with_snapshot(1, run_id, Box::new(snapshot));
+            let mut setup_txn = TransactionContext::with_snapshot(1, branch_id, Box::new(snapshot));
             setup_txn.put(key_alice.clone(), Value::Int(100)).unwrap();
             setup_txn.put(key_bob.clone(), Value::Int(200)).unwrap();
             manager.commit(&mut setup_txn, store.as_ref(), Some(&mut wal)).unwrap();
@@ -505,7 +505,7 @@ mod tests {
 
         // T1: Delete alice (blind), then scan
         let snapshot1 = store.snapshot();
-        let mut txn1 = TransactionContext::with_snapshot(2, run_id, Box::new(snapshot1));
+        let mut txn1 = TransactionContext::with_snapshot(2, branch_id, Box::new(snapshot1));
         txn1.delete(key_alice.clone()).unwrap(); // Blind delete
         let scan_result = txn1.scan_prefix(&prefix).unwrap();
 
@@ -516,7 +516,7 @@ mod tests {
         // T2: Update alice and commit first
         {
             let snapshot2 = store.snapshot();
-            let mut txn2 = TransactionContext::with_snapshot(3, run_id, Box::new(snapshot2));
+            let mut txn2 = TransactionContext::with_snapshot(3, branch_id, Box::new(snapshot2));
             // T2 reads alice first (creates read_set entry)
             let _ = txn2.get(&key_alice).unwrap();
             txn2.put(key_alice.clone(), Value::Int(999)).unwrap();
@@ -543,27 +543,27 @@ mod tests {
         let store = Arc::new(ShardedStore::new());
         let manager = TransactionManager::new(0);
 
-        let run_id = RunId::new();
-        let ns = create_test_namespace(run_id);
+        let branch_id = BranchId::new();
+        let ns = create_test_namespace(branch_id);
         let key_alice = create_test_key(&ns, "user:alice");
 
         // Setup: Create alice
         {
             let snapshot = store.snapshot();
-            let mut setup_txn = TransactionContext::with_snapshot(1, run_id, Box::new(snapshot));
+            let mut setup_txn = TransactionContext::with_snapshot(1, branch_id, Box::new(snapshot));
             setup_txn.put(key_alice.clone(), Value::Int(100)).unwrap();
             manager.commit(&mut setup_txn, store.as_ref(), Some(&mut wal)).unwrap();
         }
 
         // T1: Blind delete alice (no read, no scan)
         let snapshot1 = store.snapshot();
-        let mut txn1 = TransactionContext::with_snapshot(2, run_id, Box::new(snapshot1));
+        let mut txn1 = TransactionContext::with_snapshot(2, branch_id, Box::new(snapshot1));
         txn1.delete(key_alice.clone()).unwrap(); // Blind delete - no read_set entry
 
         // T2: Update alice and commit first
         {
             let snapshot2 = store.snapshot();
-            let mut txn2 = TransactionContext::with_snapshot(3, run_id, Box::new(snapshot2));
+            let mut txn2 = TransactionContext::with_snapshot(3, branch_id, Box::new(snapshot2));
             let _ = txn2.get(&key_alice).unwrap();
             txn2.put(key_alice.clone(), Value::Int(999)).unwrap();
             manager.commit(&mut txn2, store.as_ref(), Some(&mut wal)).unwrap();

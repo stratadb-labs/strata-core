@@ -15,11 +15,11 @@ use strata_intelligence::DatabaseSearchExt;
 #[test]
 fn test_tier9_hit_has_primitive_kind() {
     let db = create_test_db();
-    let run_id = test_run_id();
-    populate_test_data(&db, &run_id);
+    let branch_id = test_run_id();
+    populate_test_data(&db, &branch_id);
 
     let hybrid = db.hybrid();
-    let req = SearchRequest::new(run_id, "test");
+    let req = SearchRequest::new(branch_id, "test");
     let response = hybrid.search(&req).unwrap();
 
     for hit in &response.hits {
@@ -28,19 +28,19 @@ fn test_tier9_hit_has_primitive_kind() {
     }
 }
 
-/// Each hit has run_id
+/// Each hit has branch_id
 #[test]
 fn test_tier9_hit_has_run_id() {
     let db = create_test_db();
-    let run_id = test_run_id();
-    populate_test_data(&db, &run_id);
+    let branch_id = test_run_id();
+    populate_test_data(&db, &branch_id);
 
     let kv = KVStore::new(db.clone());
-    let req = SearchRequest::new(run_id, "test");
+    let req = SearchRequest::new(branch_id, "test");
     let response = kv.search(&req).unwrap();
 
     for hit in &response.hits {
-        assert_eq!(hit.doc_ref.run_id(), run_id);
+        assert_eq!(hit.doc_ref.branch_id(), branch_id);
     }
 }
 
@@ -48,11 +48,11 @@ fn test_tier9_hit_has_run_id() {
 #[test]
 fn test_tier9_hit_has_score() {
     let db = create_test_db();
-    let run_id = test_run_id();
-    populate_test_data(&db, &run_id);
+    let branch_id = test_run_id();
+    populate_test_data(&db, &branch_id);
 
     let kv = KVStore::new(db.clone());
-    let req = SearchRequest::new(run_id, "test");
+    let req = SearchRequest::new(branch_id, "test");
     let response = kv.search(&req).unwrap();
 
     for hit in &response.hits {
@@ -67,11 +67,11 @@ fn test_tier9_hit_has_score() {
 #[test]
 fn test_tier9_hit_has_rank() {
     let db = create_test_db();
-    let run_id = test_run_id();
-    populate_test_data(&db, &run_id);
+    let branch_id = test_run_id();
+    populate_test_data(&db, &branch_id);
 
     let kv = KVStore::new(db.clone());
-    let req = SearchRequest::new(run_id, "test");
+    let req = SearchRequest::new(branch_id, "test");
     let response = kv.search(&req).unwrap();
 
     for (i, hit) in response.hits.iter().enumerate() {
@@ -87,11 +87,11 @@ fn test_tier9_hit_has_rank() {
 #[test]
 fn test_tier9_response_has_stats() {
     let db = create_test_db();
-    let run_id = test_run_id();
-    populate_test_data(&db, &run_id);
+    let branch_id = test_run_id();
+    populate_test_data(&db, &branch_id);
 
     let kv = KVStore::new(db.clone());
-    let req = SearchRequest::new(run_id, "test");
+    let req = SearchRequest::new(branch_id, "test");
     let response = kv.search(&req).unwrap();
 
     let _: &SearchStats = &response.stats;
@@ -101,11 +101,11 @@ fn test_tier9_response_has_stats() {
 #[test]
 fn test_tier9_stats_has_elapsed() {
     let db = create_test_db();
-    let run_id = test_run_id();
-    populate_test_data(&db, &run_id);
+    let branch_id = test_run_id();
+    populate_test_data(&db, &branch_id);
 
     let kv = KVStore::new(db.clone());
-    let req = SearchRequest::new(run_id, "test");
+    let req = SearchRequest::new(branch_id, "test");
     let response = kv.search(&req).unwrap();
 
     // Should be a non-negative value
@@ -116,11 +116,11 @@ fn test_tier9_stats_has_elapsed() {
 #[test]
 fn test_tier9_stats_has_candidates() {
     let db = create_test_db();
-    let run_id = test_run_id();
-    populate_test_data(&db, &run_id);
+    let branch_id = test_run_id();
+    populate_test_data(&db, &branch_id);
 
     let kv = KVStore::new(db.clone());
-    let req = SearchRequest::new(run_id, "test");
+    let req = SearchRequest::new(branch_id, "test");
     let response = kv.search(&req).unwrap();
 
     // Should be a non-negative value
@@ -165,11 +165,11 @@ fn test_tier9_stats_index_used() {
 #[test]
 fn test_tier9_response_has_truncated() {
     let db = create_test_db();
-    let run_id = test_run_id();
-    populate_test_data(&db, &run_id);
+    let branch_id = test_run_id();
+    populate_test_data(&db, &branch_id);
 
     let kv = KVStore::new(db.clone());
-    let req = SearchRequest::new(run_id, "test");
+    let req = SearchRequest::new(branch_id, "test");
     let response = kv.search(&req).unwrap();
 
     let _: bool = response.truncated;
@@ -179,12 +179,12 @@ fn test_tier9_response_has_truncated() {
 #[test]
 fn test_tier9_truncated_false_when_not_truncated() {
     let db = create_test_db();
-    let run_id = test_run_id();
-    populate_test_data(&db, &run_id);
+    let branch_id = test_run_id();
+    populate_test_data(&db, &branch_id);
 
     let kv = KVStore::new(db.clone());
     // Request more than available
-    let req = SearchRequest::new(run_id, "test").with_k(100);
+    let req = SearchRequest::new(branch_id, "test").with_k(100);
     let response = kv.search(&req).unwrap();
 
     // With only 3 test documents, shouldn't be truncated
@@ -201,11 +201,11 @@ fn test_tier9_truncated_false_when_not_truncated() {
 #[test]
 fn test_tier9_docref_debug() {
     let db = create_test_db();
-    let run_id = test_run_id();
-    populate_test_data(&db, &run_id);
+    let branch_id = test_run_id();
+    populate_test_data(&db, &branch_id);
 
     let kv = KVStore::new(db.clone());
-    let req = SearchRequest::new(run_id, "test");
+    let req = SearchRequest::new(branch_id, "test");
     let response = kv.search(&req).unwrap();
 
     for hit in &response.hits {
@@ -218,11 +218,11 @@ fn test_tier9_docref_debug() {
 #[test]
 fn test_tier9_searchhit_debug() {
     let db = create_test_db();
-    let run_id = test_run_id();
-    populate_test_data(&db, &run_id);
+    let branch_id = test_run_id();
+    populate_test_data(&db, &branch_id);
 
     let kv = KVStore::new(db.clone());
-    let req = SearchRequest::new(run_id, "test");
+    let req = SearchRequest::new(branch_id, "test");
     let response = kv.search(&req).unwrap();
 
     for hit in &response.hits {
@@ -234,11 +234,11 @@ fn test_tier9_searchhit_debug() {
 #[test]
 fn test_tier9_searchresponse_debug() {
     let db = create_test_db();
-    let run_id = test_run_id();
-    populate_test_data(&db, &run_id);
+    let branch_id = test_run_id();
+    populate_test_data(&db, &branch_id);
 
     let kv = KVStore::new(db.clone());
-    let req = SearchRequest::new(run_id, "test");
+    let req = SearchRequest::new(branch_id, "test");
     let response = kv.search(&req).unwrap();
 
     let _debug = format!("{:?}", response);

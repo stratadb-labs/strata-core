@@ -153,9 +153,9 @@ for m in &results {
 }
 ```
 
-## Run Isolation
+## Branch Isolation
 
-Vector collections and their data are isolated by run.
+Vector collections and their data are isolated by branch.
 
 ## Transactions
 
@@ -163,5 +163,5 @@ Vector operations **do not** participate in transactions. They are executed imme
 
 ## Next
 
-- [Run Management](run-management.md) — creating and managing runs
+- [Branch Management](branch-management.md) — creating and managing branches
 - [Cookbook: RAG with Vectors](../cookbook/rag-with-vectors.md) — full RAG pattern

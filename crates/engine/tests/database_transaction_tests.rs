@@ -17,19 +17,19 @@
 
 use strata_core::StrataError;
 use strata_core::traits::Storage;
-use strata_core::types::{Key, Namespace, RunId};
+use strata_core::types::{Key, Namespace, BranchId};
 use strata_core::value::Value;
 use strata_engine::{Database, RetryConfig};
 use std::sync::Arc;
 use std::thread;
 use tempfile::TempDir;
 
-fn create_ns(run_id: RunId) -> Namespace {
+fn create_ns(branch_id: BranchId) -> Namespace {
     Namespace::new(
         "tenant".to_string(),
         "app".to_string(),
         "agent".to_string(),
-        run_id,
+        branch_id,
     )
 }
 
@@ -42,15 +42,15 @@ fn test_e2e_read_modify_write() {
     let temp_dir = TempDir::new().unwrap();
     let db = Database::open(temp_dir.path().join("db")).unwrap();
 
-    let run_id = RunId::new();
-    let ns = create_ns(run_id);
+    let branch_id = BranchId::new();
+    let ns = create_ns(branch_id);
     let key = Key::new_kv(ns, "counter");
 
     // Initialize counter
-    db.put(run_id, key.clone(), Value::Int(0)).unwrap();
+    db.put(branch_id, key.clone(), Value::Int(0)).unwrap();
 
     // Read-modify-write in transaction
-    db.transaction(run_id, |txn| {
+    db.transaction(branch_id, |txn| {
         let val = txn.get(&key)?.unwrap();
         if let Value::Int(n) = val {
             txn.put(key.clone(), Value::Int(n + 1))?;
@@ -69,11 +69,11 @@ fn test_e2e_multi_key_transaction() {
     let temp_dir = TempDir::new().unwrap();
     let db = Database::open(temp_dir.path().join("db")).unwrap();
 
-    let run_id = RunId::new();
-    let ns = create_ns(run_id);
+    let branch_id = BranchId::new();
+    let ns = create_ns(branch_id);
 
     // Transaction with multiple keys
-    db.transaction(run_id, |txn| {
+    db.transaction(branch_id, |txn| {
         txn.put(Key::new_kv(ns.clone(), "a"), Value::Int(1))?;
         txn.put(Key::new_kv(ns.clone(), "b"), Value::Int(2))?;
         txn.put(Key::new_kv(ns.clone(), "c"), Value::Int(3))?;
@@ -110,15 +110,15 @@ fn test_e2e_transaction_abort_rollback() {
     let temp_dir = TempDir::new().unwrap();
     let db = Database::open(temp_dir.path().join("db")).unwrap();
 
-    let run_id = RunId::new();
-    let ns = create_ns(run_id);
+    let branch_id = BranchId::new();
+    let ns = create_ns(branch_id);
     let key = Key::new_kv(ns, "rollback_key");
 
     // Pre-populate
-    db.put(run_id, key.clone(), Value::Int(100)).unwrap();
+    db.put(branch_id, key.clone(), Value::Int(100)).unwrap();
 
     // Failing transaction
-    let result: Result<(), StrataError> = db.transaction(run_id, |txn| {
+    let result: Result<(), StrataError> = db.transaction(branch_id, |txn| {
         txn.put(key.clone(), Value::Int(999))?;
         Err(StrataError::invalid_input("rollback".to_string()))
     });
@@ -135,17 +135,17 @@ fn test_e2e_transaction_with_delete() {
     let temp_dir = TempDir::new().unwrap();
     let db = Database::open(temp_dir.path().join("db")).unwrap();
 
-    let run_id = RunId::new();
-    let ns = create_ns(run_id);
+    let branch_id = BranchId::new();
+    let ns = create_ns(branch_id);
     let key1 = Key::new_kv(ns.clone(), "key1");
     let key2 = Key::new_kv(ns.clone(), "key2");
 
     // Pre-populate
-    db.put(run_id, key1.clone(), Value::Int(1)).unwrap();
-    db.put(run_id, key2.clone(), Value::Int(2)).unwrap();
+    db.put(branch_id, key1.clone(), Value::Int(1)).unwrap();
+    db.put(branch_id, key2.clone(), Value::Int(2)).unwrap();
 
     // Transaction that deletes one key and updates another
-    db.transaction(run_id, |txn| {
+    db.transaction(branch_id, |txn| {
         txn.delete(key1.clone())?;
         txn.put(key2.clone(), Value::Int(20))?;
         Ok(())
@@ -162,10 +162,10 @@ fn test_e2e_nested_value_types() {
     let temp_dir = TempDir::new().unwrap();
     let db = Database::open(temp_dir.path().join("db")).unwrap();
 
-    let run_id = RunId::new();
-    let ns = create_ns(run_id);
+    let branch_id = BranchId::new();
+    let ns = create_ns(branch_id);
 
-    db.transaction(run_id, |txn| {
+    db.transaction(branch_id, |txn| {
         txn.put(
             Key::new_kv(ns.clone(), "string"),
             Value::String("hello".to_string()),
@@ -228,8 +228,8 @@ fn test_concurrent_transactions_different_keys() {
     let temp_dir = TempDir::new().unwrap();
     let db = Database::open(temp_dir.path().join("db")).unwrap();
 
-    let run_id = RunId::new();
-    let ns = create_ns(run_id);
+    let branch_id = BranchId::new();
+    let ns = create_ns(branch_id);
 
     let mut handles = vec![];
 
@@ -240,7 +240,7 @@ fn test_concurrent_transactions_different_keys() {
 
         handles.push(thread::spawn(move || {
             let key = Key::new_kv(ns, &format!("thread_{}", i));
-            db.put(run_id, key, Value::Int(i as i64)).unwrap();
+            db.put(branch_id, key, Value::Int(i as i64)).unwrap();
         }));
     }
 
@@ -262,8 +262,8 @@ fn test_concurrent_transactions_same_key_blind_write() {
     let temp_dir = TempDir::new().unwrap();
     let db = Database::open(temp_dir.path().join("db")).unwrap();
 
-    let run_id = RunId::new();
-    let ns = create_ns(run_id);
+    let branch_id = BranchId::new();
+    let ns = create_ns(branch_id);
     let key = Key::new_kv(ns, "contested");
 
     let mut handles = vec![];
@@ -274,7 +274,7 @@ fn test_concurrent_transactions_same_key_blind_write() {
         let key = key.clone();
 
         handles.push(thread::spawn(move || {
-            db.put(run_id, key, Value::Int(i as i64)).unwrap();
+            db.put(branch_id, key, Value::Int(i as i64)).unwrap();
         }));
     }
 
@@ -293,8 +293,8 @@ fn test_concurrent_writes_different_keys_no_conflicts() {
     let temp_dir = TempDir::new().unwrap();
     let db = Database::open(temp_dir.path().join("db")).unwrap();
 
-    let run_id = RunId::new();
-    let ns = create_ns(run_id);
+    let branch_id = BranchId::new();
+    let ns = create_ns(branch_id);
     let mut handles = vec![];
 
     // 5 threads, each doing 10 operations on their own key
@@ -306,11 +306,11 @@ fn test_concurrent_writes_different_keys_no_conflicts() {
             let key = Key::new_kv(ns, &format!("thread_{}_key", thread_id));
 
             // Initialize
-            db.put(run_id, key.clone(), Value::Int(0)).unwrap();
+            db.put(branch_id, key.clone(), Value::Int(0)).unwrap();
 
             // Increment 10 times
             for _ in 0..10 {
-                db.transaction(run_id, |txn| {
+                db.transaction(branch_id, |txn| {
                     let val = txn.get(&key)?.unwrap();
                     if let Value::Int(n) = val {
                         txn.put(key.clone(), Value::Int(n + 1))?;
@@ -344,12 +344,12 @@ fn test_retry_simulated_conflict() {
     let temp_dir = TempDir::new().unwrap();
     let db = Database::open(temp_dir.path().join("db")).unwrap();
 
-    let run_id = RunId::new();
-    let ns = create_ns(run_id);
+    let branch_id = BranchId::new();
+    let ns = create_ns(branch_id);
     let key = Key::new_kv(ns, "retry_key");
 
     // Pre-populate
-    db.put(run_id, key.clone(), Value::Int(0)).unwrap();
+    db.put(branch_id, key.clone(), Value::Int(0)).unwrap();
 
     let attempts = AtomicU64::new(0);
 
@@ -360,7 +360,7 @@ fn test_retry_simulated_conflict() {
         .with_max_delay_ms(5);
 
     // Fail first 2 times, succeed on 3rd
-    let result = db.transaction_with_retry(run_id, config, |txn| {
+    let result = db.transaction_with_retry(branch_id, config, |txn| {
         let count = attempts.fetch_add(1, Ordering::Relaxed);
 
         if count < 2 {
@@ -385,21 +385,21 @@ fn test_recovery_preserves_transactions() {
     let temp_dir = TempDir::new().unwrap();
     let db_path = temp_dir.path().join("db");
 
-    let run_id = RunId::new();
-    let ns = create_ns(run_id);
+    let branch_id = BranchId::new();
+    let ns = create_ns(branch_id);
 
     // Write data and close
     {
         let db = Database::open(&db_path).unwrap();
 
-        db.transaction(run_id, |txn| {
+        db.transaction(branch_id, |txn| {
             txn.put(Key::new_kv(ns.clone(), "key1"), Value::Int(1))?;
             txn.put(Key::new_kv(ns.clone(), "key2"), Value::Int(2))?;
             Ok(())
         })
         .unwrap();
 
-        db.transaction(run_id, |txn| {
+        db.transaction(branch_id, |txn| {
             txn.put(Key::new_kv(ns.clone(), "key3"), Value::Int(3))?;
             Ok(())
         })
@@ -439,15 +439,15 @@ fn test_recovery_version_continuity() {
     let temp_dir = TempDir::new().unwrap();
     let db_path = temp_dir.path().join("db");
 
-    let run_id = RunId::new();
-    let ns = create_ns(run_id);
+    let branch_id = BranchId::new();
+    let ns = create_ns(branch_id);
 
     let version_before;
 
     // Write data and capture version
     {
         let db = Database::open(&db_path).unwrap();
-        db.put(run_id, Key::new_kv(ns.clone(), "key"), Value::Int(1))
+        db.put(branch_id, Key::new_kv(ns.clone(), "key"), Value::Int(1))
             .unwrap();
         version_before = db.storage().current_version();
     }
@@ -461,7 +461,7 @@ fn test_recovery_version_continuity() {
         assert_eq!(version_before, version_after);
 
         // New writes should get higher versions
-        db.put(run_id, Key::new_kv(ns.clone(), "key2"), Value::Int(2))
+        db.put(branch_id, Key::new_kv(ns.clone(), "key2"), Value::Int(2))
             .unwrap();
         assert!(db.storage().current_version() > version_before);
     }
@@ -472,15 +472,15 @@ fn test_recovery_aborted_transaction_not_visible() {
     let temp_dir = TempDir::new().unwrap();
     let db_path = temp_dir.path().join("db");
 
-    let run_id = RunId::new();
-    let ns = create_ns(run_id);
+    let branch_id = BranchId::new();
+    let ns = create_ns(branch_id);
 
     // Write and abort
     {
         let db = Database::open(&db_path).unwrap();
 
         // This will abort
-        let _result: Result<(), StrataError> = db.transaction(run_id, |txn| {
+        let _result: Result<(), StrataError> = db.transaction(branch_id, |txn| {
             txn.put(Key::new_kv(ns.clone(), "aborted_key"), Value::Int(999))?;
             Err(StrataError::invalid_input("abort".to_string()))
         });
@@ -501,18 +501,18 @@ fn test_recovery_with_deletes() {
     let temp_dir = TempDir::new().unwrap();
     let db_path = temp_dir.path().join("db");
 
-    let run_id = RunId::new();
-    let ns = create_ns(run_id);
+    let branch_id = BranchId::new();
+    let ns = create_ns(branch_id);
 
     // Write, then delete
     {
         let db = Database::open(&db_path).unwrap();
 
-        db.put(run_id, Key::new_kv(ns.clone(), "to_delete"), Value::Int(1))
+        db.put(branch_id, Key::new_kv(ns.clone(), "to_delete"), Value::Int(1))
             .unwrap();
-        db.put(run_id, Key::new_kv(ns.clone(), "to_keep"), Value::Int(2))
+        db.put(branch_id, Key::new_kv(ns.clone(), "to_keep"), Value::Int(2))
             .unwrap();
-        db.delete(run_id, Key::new_kv(ns.clone(), "to_delete"))
+        db.delete(branch_id, Key::new_kv(ns.clone(), "to_delete"))
             .unwrap();
     }
 
@@ -542,17 +542,17 @@ fn test_m1_api_compatibility() {
     let temp_dir = TempDir::new().unwrap();
     let db = Database::open(temp_dir.path().join("db")).unwrap();
 
-    let run_id = RunId::new();
-    let ns = create_ns(run_id);
+    let branch_id = BranchId::new();
+    let ns = create_ns(branch_id);
     let key = Key::new_kv(ns, "m1_key");
 
     // legacy-style operations
-    db.put(run_id, key.clone(), Value::String("value1".to_string()))
+    db.put(branch_id, key.clone(), Value::String("value1".to_string()))
         .unwrap();
     let val = db.get(&key).unwrap().unwrap();
     assert_eq!(val.value, Value::String("value1".to_string()));
 
-    db.delete(run_id, key.clone()).unwrap();
+    db.delete(branch_id, key.clone()).unwrap();
     assert!(db.get(&key).unwrap().is_none());
 }
 
@@ -561,12 +561,12 @@ fn test_m1_cas_operations() {
     let temp_dir = TempDir::new().unwrap();
     let db = Database::open(temp_dir.path().join("db")).unwrap();
 
-    let run_id = RunId::new();
-    let ns = create_ns(run_id);
+    let branch_id = BranchId::new();
+    let ns = create_ns(branch_id);
     let key = Key::new_kv(ns, "cas_key");
 
     // Create new key (version 0 = must not exist)
-    db.cas(run_id, key.clone(), 0, Value::Int(1)).unwrap();
+    db.cas(branch_id, key.clone(), 0, Value::Int(1)).unwrap();
 
     // Get version
     let val = db.get(&key).unwrap().unwrap();
@@ -574,13 +574,13 @@ fn test_m1_cas_operations() {
     let version = val.version.as_u64();
 
     // Update with correct version
-    db.cas(run_id, key.clone(), version, Value::Int(2)).unwrap();
+    db.cas(branch_id, key.clone(), version, Value::Int(2)).unwrap();
 
     // Verify
     assert_eq!(db.get(&key).unwrap().unwrap(), Value::Int(2));
 
     // Try with wrong version - should fail
-    let result = db.cas(run_id, key.clone(), version, Value::Int(3));
+    let result = db.cas(branch_id, key.clone(), version, Value::Int(3));
     assert!(result.is_err());
 }
 
@@ -589,13 +589,13 @@ fn test_m1_sequence_of_operations() {
     let temp_dir = TempDir::new().unwrap();
     let db = Database::open(temp_dir.path().join("db")).unwrap();
 
-    let run_id = RunId::new();
-    let ns = create_ns(run_id);
+    let branch_id = BranchId::new();
+    let ns = create_ns(branch_id);
 
     // Create 100 keys
     for i in 0..100 {
         let key = Key::new_kv(ns.clone(), &format!("key_{}", i));
-        db.put(run_id, key, Value::Int(i as i64)).unwrap();
+        db.put(branch_id, key, Value::Int(i as i64)).unwrap();
     }
 
     // Verify all exist
@@ -608,7 +608,7 @@ fn test_m1_sequence_of_operations() {
     // Delete even keys
     for i in (0..100).step_by(2) {
         let key = Key::new_kv(ns.clone(), &format!("key_{}", i));
-        db.delete(run_id, key).unwrap();
+        db.delete(branch_id, key).unwrap();
     }
 
     // Verify odd keys exist, even keys don't
@@ -631,13 +631,13 @@ fn test_transaction_metrics() {
     let temp_dir = TempDir::new().unwrap();
     let db = Database::open(temp_dir.path().join("db")).unwrap();
 
-    let run_id = RunId::new();
-    let ns = create_ns(run_id);
+    let branch_id = BranchId::new();
+    let ns = create_ns(branch_id);
 
     // Execute some transactions
     for i in 0..5 {
         db.put(
-            run_id,
+            branch_id,
             Key::new_kv(ns.clone(), &format!("key{}", i)),
             Value::Int(i as i64),
         )
@@ -654,15 +654,15 @@ fn test_transaction_metrics_with_aborts() {
     let temp_dir = TempDir::new().unwrap();
     let db = Database::open(temp_dir.path().join("db")).unwrap();
 
-    let run_id = RunId::new();
-    let ns = create_ns(run_id);
+    let branch_id = BranchId::new();
+    let ns = create_ns(branch_id);
 
     // Successful transaction
-    db.put(run_id, Key::new_kv(ns.clone(), "success"), Value::Int(1))
+    db.put(branch_id, Key::new_kv(ns.clone(), "success"), Value::Int(1))
         .unwrap();
 
     // Failed transaction
-    let _result: Result<(), StrataError> = db.transaction(run_id, |txn| {
+    let _result: Result<(), StrataError> = db.transaction(branch_id, |txn| {
         txn.put(Key::new_kv(ns.clone(), "fail"), Value::Int(2))?;
         Err(StrataError::invalid_input("intentional".to_string()))
     });
@@ -681,10 +681,10 @@ fn test_empty_transaction() {
     let temp_dir = TempDir::new().unwrap();
     let db = Database::open(temp_dir.path().join("db")).unwrap();
 
-    let run_id = RunId::new();
+    let branch_id = BranchId::new();
 
     // Transaction with no operations
-    let result = db.transaction(run_id, |_txn| Ok(42));
+    let result = db.transaction(branch_id, |_txn| Ok(42));
     assert_eq!(result.unwrap(), 42);
 }
 
@@ -693,13 +693,13 @@ fn test_large_value() {
     let temp_dir = TempDir::new().unwrap();
     let db = Database::open(temp_dir.path().join("db")).unwrap();
 
-    let run_id = RunId::new();
-    let ns = create_ns(run_id);
+    let branch_id = BranchId::new();
+    let ns = create_ns(branch_id);
     let key = Key::new_kv(ns, "large_value");
 
     // 1MB value
     let large_data = vec![42u8; 1024 * 1024];
-    db.put(run_id, key.clone(), Value::Bytes(large_data.clone()))
+    db.put(branch_id, key.clone(), Value::Bytes(large_data.clone()))
         .unwrap();
 
     let stored = db.get(&key).unwrap().unwrap();
@@ -711,11 +711,11 @@ fn test_many_keys_in_single_transaction() {
     let temp_dir = TempDir::new().unwrap();
     let db = Database::open(temp_dir.path().join("db")).unwrap();
 
-    let run_id = RunId::new();
-    let ns = create_ns(run_id);
+    let branch_id = BranchId::new();
+    let ns = create_ns(branch_id);
 
     // Single transaction with 100 keys
-    db.transaction(run_id, |txn| {
+    db.transaction(branch_id, |txn| {
         for i in 0..100 {
             txn.put(
                 Key::new_kv(ns.clone(), &format!("batch_key_{}", i)),
@@ -738,12 +738,12 @@ fn test_overwrite_in_same_transaction() {
     let temp_dir = TempDir::new().unwrap();
     let db = Database::open(temp_dir.path().join("db")).unwrap();
 
-    let run_id = RunId::new();
-    let ns = create_ns(run_id);
+    let branch_id = BranchId::new();
+    let ns = create_ns(branch_id);
     let key = Key::new_kv(ns, "overwrite");
 
     // Multiple writes to same key in same transaction
-    db.transaction(run_id, |txn| {
+    db.transaction(branch_id, |txn| {
         txn.put(key.clone(), Value::Int(1))?;
         txn.put(key.clone(), Value::Int(2))?;
         txn.put(key.clone(), Value::Int(3))?;
@@ -760,15 +760,15 @@ fn test_delete_then_write_in_same_transaction() {
     let temp_dir = TempDir::new().unwrap();
     let db = Database::open(temp_dir.path().join("db")).unwrap();
 
-    let run_id = RunId::new();
-    let ns = create_ns(run_id);
+    let branch_id = BranchId::new();
+    let ns = create_ns(branch_id);
     let key = Key::new_kv(ns, "delete_write");
 
     // Pre-populate
-    db.put(run_id, key.clone(), Value::Int(100)).unwrap();
+    db.put(branch_id, key.clone(), Value::Int(100)).unwrap();
 
     // Delete then write
-    db.transaction(run_id, |txn| {
+    db.transaction(branch_id, |txn| {
         txn.delete(key.clone())?;
         txn.put(key.clone(), Value::Int(200))?;
         Ok(())
@@ -784,12 +784,12 @@ fn test_write_then_delete_in_same_transaction() {
     let temp_dir = TempDir::new().unwrap();
     let db = Database::open(temp_dir.path().join("db")).unwrap();
 
-    let run_id = RunId::new();
-    let ns = create_ns(run_id);
+    let branch_id = BranchId::new();
+    let ns = create_ns(branch_id);
     let key = Key::new_kv(ns, "write_delete");
 
     // Write then delete
-    db.transaction(run_id, |txn| {
+    db.transaction(branch_id, |txn| {
         txn.put(key.clone(), Value::Int(100))?;
         txn.delete(key.clone())?;
         Ok(())

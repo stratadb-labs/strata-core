@@ -14,17 +14,17 @@ Every method on the `Strata` struct, grouped by category.
 | `flush` | `() -> Result<()>` | Flushes pending writes |
 | `compact` | `() -> Result<()>` | Triggers compaction |
 
-## Run Context
+## Branch Context
 
 | Method | Signature | Returns |
 |--------|-----------|---------|
-| `current_run` | `() -> &str` | Current run name |
-| `set_run` | `(name: &str) -> Result<()>` | Switches current run |
-| `create_run` | `(name: &str) -> Result<()>` | Creates empty run |
-| `list_runs` | `() -> Result<Vec<String>>` | All run names |
-| `delete_run` | `(name: &str) -> Result<()>` | Deletes run + data |
-| `fork_run` | `(dest: &str) -> Result<()>` | **Not yet implemented** |
-| `runs` | `() -> Runs<'_>` | Power API handle |
+| `current_branch` | `() -> &str` | Current branch name |
+| `set_branch` | `(name: &str) -> Result<()>` | Switches current branch |
+| `create_branch` | `(name: &str) -> Result<()>` | Creates empty branch |
+| `list_branches` | `() -> Result<Vec<String>>` | All branch names |
+| `delete_branch` | `(name: &str) -> Result<()>` | Deletes branch + data |
+| `fork_branch` | `(dest: &str) -> Result<()>` | **Not yet implemented** |
+| `branches` | `() -> Branches<'_>` | Power API handle |
 
 ## KV Store
 
@@ -74,36 +74,36 @@ Every method on the `Strata` struct, grouped by category.
 | `vector_delete` | `(collection: &str, key: &str) -> Result<bool>` | Whether it existed | |
 | `vector_search` | `(collection: &str, query: Vec<f32>, k: u64) -> Result<Vec<VectorMatch>>` | Top-k matches | |
 
-## Run Operations (Low-Level)
+## Branch Operations (Low-Level)
 
 | Method | Signature | Returns |
 |--------|-----------|---------|
-| `run_create` | `(run_id: Option<String>, metadata: Option<Value>) -> Result<(RunInfo, u64)>` | Info + version |
-| `run_get` | `(run: &str) -> Result<Option<VersionedRunInfo>>` | Run info or None |
-| `run_list` | `(state: Option<RunStatus>, limit: Option<u64>, offset: Option<u64>) -> Result<Vec<VersionedRunInfo>>` | Run info list |
-| `run_exists` | `(run: &str) -> Result<bool>` | Whether run exists |
-| `run_delete` | `(run: &str) -> Result<()>` | Deletes run |
+| `branch_create` | `(branch_id: Option<String>, metadata: Option<Value>) -> Result<(RunInfo, u64)>` | Info + version |
+| `branch_get` | `(branch: &str) -> Result<Option<VersionedBranchInfo>>` | Branch info or None |
+| `branch_list` | `(state: Option<BranchStatus>, limit: Option<u64>, offset: Option<u64>) -> Result<Vec<VersionedBranchInfo>>` | Branch info list |
+| `branch_exists` | `(branch: &str) -> Result<bool>` | Whether branch exists |
+| `branch_delete` | `(branch: &str) -> Result<()>` | Deletes branch |
 
 ## Bundle Operations
 
 | Method | Signature | Returns |
 |--------|-----------|---------|
-| `run_export` | `(run_id: &str, path: &str) -> Result<RunExportResult>` | Export info |
-| `run_import` | `(path: &str) -> Result<RunImportResult>` | Import info |
+| `branch_export` | `(branch_id: &str, path: &str) -> Result<RunExportResult>` | Export info |
+| `branch_import` | `(path: &str) -> Result<RunImportResult>` | Import info |
 | `run_validate_bundle` | `(path: &str) -> Result<BundleValidateResult>` | Validation info |
 
-## Runs Power API
+## Branches Power API
 
-Methods on the `Runs` handle returned by `db.runs()`:
+Methods on the `Branches` handle returned by `db.branches()`:
 
 | Method | Signature | Returns |
 |--------|-----------|---------|
-| `list` | `() -> Result<Vec<String>>` | Run names |
-| `exists` | `(name: &str) -> Result<bool>` | Whether run exists |
-| `create` | `(name: &str) -> Result<()>` | Creates empty run |
-| `delete` | `(name: &str) -> Result<()>` | Deletes run |
+| `list` | `() -> Result<Vec<String>>` | Branch names |
+| `exists` | `(name: &str) -> Result<bool>` | Whether branch exists |
+| `create` | `(name: &str) -> Result<()>` | Creates empty branch |
+| `delete` | `(name: &str) -> Result<()>` | Deletes branch |
 | `fork` | `(dest: &str) -> Result<()>` | **Not yet implemented** |
-| `diff` | `(run1: &str, run2: &str) -> Result<RunDiff>` | **Not yet implemented** |
+| `diff` | `(run1: &str, run2: &str) -> Result<BranchDiff>` | **Not yet implemented** |
 
 ## Session
 

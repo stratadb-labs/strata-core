@@ -6,15 +6,15 @@
 use strata_core::traits::{SnapshotView, Storage};
 use strata_core::types::{Key, Namespace};
 use strata_core::value::Value;
-use strata_core::RunId;
+use strata_core::BranchId;
 use strata_storage::sharded::ShardedStore;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::Arc;
 use std::thread;
 use std::time::{Duration, Instant};
 
-fn create_test_key(run_id: RunId, name: &str) -> Key {
-    let ns = Namespace::for_run(run_id);
+fn create_test_key(branch_id: BranchId, name: &str) -> Key {
+    let ns = Namespace::for_branch(branch_id);
     Key::new_kv(ns, name)
 }
 
@@ -23,14 +23,14 @@ fn create_test_key(run_id: RunId, name: &str) -> Key {
 #[ignore]
 fn stress_concurrent_writers_readers() {
     let store = Arc::new(ShardedStore::new());
-    let run_id = RunId::new();
+    let branch_id = BranchId::new();
     let stop = Arc::new(AtomicBool::new(false));
     let writes = Arc::new(AtomicU64::new(0));
     let reads = Arc::new(AtomicU64::new(0));
 
     // Pre-populate
     for i in 0..100 {
-        let key = create_test_key(run_id, &format!("key_{}", i));
+        let key = create_test_key(branch_id, &format!("key_{}", i));
         Storage::put(&*store, key, Value::Int(i), None).unwrap();
     }
 
@@ -44,7 +44,7 @@ fn stress_concurrent_writers_readers() {
                 let mut counter = 0i64;
                 while !stop.load(Ordering::Relaxed) {
                     for i in 0..100 {
-                        let key = create_test_key(run_id, &format!("key_{}", i));
+                        let key = create_test_key(branch_id, &format!("key_{}", i));
                         let _ = Storage::put(&*store, key, Value::Int(t * 10000 + counter), None);
                         writes.fetch_add(1, Ordering::Relaxed);
                     }
@@ -66,7 +66,7 @@ fn stress_concurrent_writers_readers() {
             thread::spawn(move || {
                 while !stop.load(Ordering::Relaxed) {
                     for i in 0..100 {
-                        let key = create_test_key(run_id, &format!("key_{}", i));
+                        let key = create_test_key(branch_id, &format!("key_{}", i));
                         let _ = Storage::get(&*store, &key);
                         reads.fetch_add(1, Ordering::Relaxed);
                     }
@@ -102,11 +102,11 @@ fn stress_concurrent_writers_readers() {
 #[ignore]
 fn stress_rapid_snapshot_creation() {
     let store = Arc::new(ShardedStore::new());
-    let run_id = RunId::new();
+    let branch_id = BranchId::new();
 
     // Populate
     for i in 0..1000 {
-        let key = create_test_key(run_id, &format!("key_{}", i));
+        let key = create_test_key(branch_id, &format!("key_{}", i));
         Storage::put(&*store, key, Value::Int(i), None).unwrap();
     }
 
@@ -126,7 +126,7 @@ fn stress_rapid_snapshot_creation() {
 
     // Verify snapshots work
     for snapshot in snapshots.iter().take(100) {
-        let key = create_test_key(run_id, "key_0");
+        let key = create_test_key(branch_id, "key_0");
         let result = SnapshotView::get(snapshot, &key).unwrap();
         assert_eq!(result.unwrap().value, Value::Int(0));
     }
@@ -137,8 +137,8 @@ fn stress_rapid_snapshot_creation() {
 #[ignore]
 fn stress_version_chain_growth() {
     let store = ShardedStore::new();
-    let run_id = RunId::new();
-    let key = create_test_key(run_id, "deep_chain");
+    let branch_id = BranchId::new();
+    let key = create_test_key(branch_id, "deep_chain");
 
     let start = Instant::now();
 
@@ -171,12 +171,12 @@ fn stress_version_chain_growth() {
 #[ignore]
 fn stress_ttl_expiration_cleanup() {
     let store = ShardedStore::new();
-    let run_id = RunId::new();
+    let branch_id = BranchId::new();
 
     // Insert 10K keys with short TTL
     let ttl = Some(Duration::from_millis(100));
     for i in 0..10_000 {
-        let key = create_test_key(run_id, &format!("ttl_key_{}", i));
+        let key = create_test_key(branch_id, &format!("ttl_key_{}", i));
         Storage::put(&store, key, Value::Int(i), ttl).unwrap();
     }
 
@@ -186,7 +186,7 @@ fn stress_ttl_expiration_cleanup() {
     // All should be expired
     let mut expired_count = 0;
     for i in 0..10_000 {
-        let key = create_test_key(run_id, &format!("ttl_key_{}", i));
+        let key = create_test_key(branch_id, &format!("ttl_key_{}", i));
         if Storage::get(&store, &key).unwrap().is_none() {
             expired_count += 1;
         }
@@ -210,25 +210,25 @@ fn stress_many_runs_concurrent() {
         .map(|_| {
             let store = Arc::clone(&store);
             thread::spawn(move || {
-                let run_id = RunId::new();
+                let branch_id = BranchId::new();
                 for i in 0..keys_per_run {
-                    let key = create_test_key(run_id, &format!("key_{}", i));
+                    let key = create_test_key(branch_id, &format!("key_{}", i));
                     Storage::put(&*store, key, Value::Int(i), None).unwrap();
                 }
-                run_id
+                branch_id
             })
         })
         .collect();
 
-    let run_ids: Vec<RunId> = handles.into_iter().map(|h| h.join().unwrap()).collect();
+    let branch_ids: Vec<BranchId> = handles.into_iter().map(|h| h.join().unwrap()).collect();
 
     let write_elapsed = start.elapsed();
 
     // Verify all data
     let verify_start = Instant::now();
-    for run_id in run_ids {
+    for branch_id in branch_ids {
         for i in 0..keys_per_run {
-            let key = create_test_key(run_id, &format!("key_{}", i));
+            let key = create_test_key(branch_id, &format!("key_{}", i));
             let val = Storage::get(&*store, &key).unwrap();
             assert_eq!(val.unwrap().value, Value::Int(i));
         }
@@ -246,14 +246,14 @@ fn stress_many_runs_concurrent() {
 #[ignore]
 fn stress_sustained_throughput() {
     let store = ShardedStore::new();
-    let run_id = RunId::new();
+    let branch_id = BranchId::new();
 
     let duration = Duration::from_secs(5);
     let start = Instant::now();
     let mut ops = 0u64;
 
     while start.elapsed() < duration {
-        let key = create_test_key(run_id, &format!("key_{}", ops % 1000));
+        let key = create_test_key(branch_id, &format!("key_{}", ops % 1000));
         Storage::put(&store, key.clone(), Value::Int(ops as i64), None).unwrap();
         let _ = Storage::get(&store, &key);
         ops += 2; // put + get

@@ -29,10 +29,10 @@ cargo test --workspace
 strata-core/
   Cargo.toml                  # Workspace root (re-exports strata-executor)
   crates/
-    core/                     # Shared types: Value, RunId, Key, Namespace
+    core/                     # Shared types: Value, BranchId, Key, Namespace
     storage/                  # ShardedStore (DashMap), inverted index, TTL
     concurrency/              # OCC transactions, conflict detection, CAS
-    durability/               # WAL, snapshots, crash recovery, RunBundle
+    durability/               # WAL, snapshots, crash recovery, BranchBundle
     engine/                   # Database, primitives, transaction coordination
     intelligence/             # BM25, RRF, hybrid search
     executor/                 # Public API: Strata, Session, Command, Output
@@ -99,7 +99,7 @@ Write clear, concise commit messages:
 
 - **Keep crate boundaries clean.** Don't add cross-crate dependencies unless necessary.
 - **All public API goes through `strata-executor`.** Users should never need to import internal crates.
-- **All data operations are run-scoped.** Never write code that ignores run isolation.
+- **All data operations are branch-scoped.** Never write code that ignores branch isolation.
 - **Prefer `Into<Value>` for public APIs.** Users shouldn't need to construct `Value` manually.
 - **Test at the right level.** Unit tests in each crate, integration tests in `tests/`.
 

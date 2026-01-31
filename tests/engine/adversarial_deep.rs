@@ -27,11 +27,11 @@ fn event_payload(data: Value) -> Value {
 #[test]
 fn lost_update_prevented() {
     let test_db = TestDb::new_in_memory();
-    let run_id = test_db.run_id;
+    let branch_id = test_db.branch_id;
     let db = test_db.db.clone();
 
     let kv = KVStore::new(db.clone());
-    kv.put(&run_id, "counter", Value::Int(0)).unwrap();
+    kv.put(&branch_id, "counter", Value::Int(0)).unwrap();
 
     let iterations = 100;
     let success_count = Arc::new(AtomicU64::new(0));
@@ -44,7 +44,7 @@ fn lost_update_prevented() {
         thread::spawn(move || {
             // Retry loop for OCC
             loop {
-                let result = db.transaction(run_id, |txn| {
+                let result = db.transaction(branch_id, |txn| {
                     // Read current value
                     let current = txn.kv_get("counter")?.expect("counter key must exist after initialization");
                     let n = match current {
@@ -79,7 +79,7 @@ fn lost_update_prevented() {
     assert_eq!(success_count.load(Ordering::SeqCst), iterations as u64);
 
     // Final value MUST be exactly `iterations` - no lost updates
-    let final_val = kv.get(&run_id, "counter").unwrap().unwrap();
+    let final_val = kv.get(&branch_id, "counter").unwrap().unwrap();
     assert_eq!(
         final_val,
         Value::Int(iterations),
@@ -102,13 +102,13 @@ fn lost_update_prevented() {
 #[test]
 fn write_skew_behavior() {
     let test_db = TestDb::new_in_memory();
-    let run_id = test_db.run_id;
+    let branch_id = test_db.branch_id;
     let db = test_db.db.clone();
 
     let kv = KVStore::new(db.clone());
     // Both doctors start on-call
-    kv.put(&run_id, "doctor_a_oncall", Value::Bool(true)).unwrap();
-    kv.put(&run_id, "doctor_b_oncall", Value::Bool(true)).unwrap();
+    kv.put(&branch_id, "doctor_a_oncall", Value::Bool(true)).unwrap();
+    kv.put(&branch_id, "doctor_b_oncall", Value::Bool(true)).unwrap();
 
     let barrier = Arc::new(Barrier::new(2));
     let both_succeeded = Arc::new(AtomicBool::new(false));
@@ -119,7 +119,7 @@ fn write_skew_behavior() {
 
     // Doctor A tries to go off-call
     let doctor_a = thread::spawn(move || {
-        db1.transaction(run_id, |txn| {
+        db1.transaction(branch_id, |txn| {
             // Check if doctor B is on-call
             let b_oncall = txn.kv_get("doctor_b_oncall")?;
 
@@ -138,7 +138,7 @@ fn write_skew_behavior() {
 
     // Doctor B tries to go off-call
     let doctor_b = thread::spawn(move || {
-        db2.transaction(run_id, |txn| {
+        db2.transaction(branch_id, |txn| {
             // Check if doctor A is on-call
             let a_oncall = txn.kv_get("doctor_a_oncall")?;
 
@@ -160,8 +160,8 @@ fn write_skew_behavior() {
     }
 
     // Check final state
-    let a_final = kv.get(&run_id, "doctor_a_oncall").unwrap().unwrap();
-    let b_final = kv.get(&run_id, "doctor_b_oncall").unwrap().unwrap();
+    let a_final = kv.get(&branch_id, "doctor_a_oncall").unwrap().unwrap();
+    let b_final = kv.get(&branch_id, "doctor_b_oncall").unwrap().unwrap();
 
     let a_oncall = a_final == Value::Bool(true);
     let b_oncall = b_final == Value::Bool(true);
@@ -200,16 +200,16 @@ fn write_skew_behavior() {
 #[test]
 fn phantom_read_within_transaction() {
     let test_db = TestDb::new();
-    let run_id = test_db.run_id;
+    let branch_id = test_db.branch_id;
 
     let kv = test_db.kv();
 
     // Pre-populate some keys
-    kv.put(&run_id, "key_1", Value::Int(1)).unwrap();
-    kv.put(&run_id, "key_2", Value::Int(2)).unwrap();
+    kv.put(&branch_id, "key_1", Value::Int(1)).unwrap();
+    kv.put(&branch_id, "key_2", Value::Int(2)).unwrap();
 
     // Transaction reads, does work, reads again - should see same data
-    let result = test_db.db.transaction(run_id, |txn| {
+    let result = test_db.db.transaction(branch_id, |txn| {
         // First read
         let v1_first = txn.kv_get("key_1")?;
         let v2_first = txn.kv_get("key_2")?;
@@ -240,22 +240,22 @@ fn phantom_read_within_transaction() {
 #[test]
 fn atomicity_on_operation_failure() {
     let test_db = TestDb::new();
-    let run_id = test_db.run_id;
+    let branch_id = test_db.branch_id;
 
     let kv = test_db.kv();
     let state = test_db.state();
 
     // Setup: existing key and cell
-    kv.put(&run_id, "existing", Value::Int(100)).unwrap();
-    state.init(&run_id, "cell", Value::Int(200)).unwrap();
-    let version = state.readv(&run_id, "cell").unwrap().unwrap().version();
+    kv.put(&branch_id, "existing", Value::Int(100)).unwrap();
+    state.init(&branch_id, "cell", Value::Int(200)).unwrap();
+    let version = state.readv(&branch_id, "cell").unwrap().unwrap().version();
 
     // First, modify cell outside transaction to make CAS fail
-    state.cas(&run_id, "cell", version, Value::Int(201)).unwrap();
+    state.cas(&branch_id, "cell", version, Value::Int(201)).unwrap();
 
     // Now try a transaction that writes to KV then does a CAS with stale version
     // The CAS should fail, rolling back the KV write
-    let result: Result<(), _> = test_db.db.transaction(run_id, |txn| {
+    let result: Result<(), _> = test_db.db.transaction(branch_id, |txn| {
         // This write should be rolled back
         txn.kv_put("new_key", Value::Int(999))?;
         txn.kv_put("existing", Value::Int(888))?;
@@ -270,11 +270,11 @@ fn atomicity_on_operation_failure() {
 
     // Verify atomicity: ALL writes rolled back
     assert!(
-        kv.get(&run_id, "new_key").unwrap().is_none(),
+        kv.get(&branch_id, "new_key").unwrap().is_none(),
         "new_key should not exist after failed transaction"
     );
     assert_eq!(
-        kv.get(&run_id, "existing").unwrap().unwrap(),
+        kv.get(&branch_id, "existing").unwrap().unwrap(),
         Value::Int(100),
         "existing key should have original value"
     );
@@ -289,11 +289,11 @@ fn atomicity_on_operation_failure() {
 #[test]
 fn stale_read_write_conflict() {
     let test_db = TestDb::new_in_memory();
-    let run_id = test_db.run_id;
+    let branch_id = test_db.branch_id;
     let db = test_db.db.clone();
 
     let kv = KVStore::new(db.clone());
-    kv.put(&run_id, "key", Value::Int(0)).unwrap();
+    kv.put(&branch_id, "key", Value::Int(0)).unwrap();
 
     let barrier = Arc::new(Barrier::new(2));
     let txn_a_result = Arc::new(AtomicBool::new(false));
@@ -304,7 +304,7 @@ fn stale_read_write_conflict() {
 
     // Transaction A: read, wait, write
     let txn_a = thread::spawn(move || {
-        let success = db1.transaction(run_id, |txn| {
+        let success = db1.transaction(branch_id, |txn| {
             // Read key (adds to read-set)
             let _val = txn.kv_get("key")?;
 
@@ -329,7 +329,7 @@ fn stale_read_write_conflict() {
 
         // Modify the key (commits before A tries to write)
         let kv_b = KVStore::new(db2);
-        kv_b.put(&run_id, "key", Value::Int(50)).unwrap();
+        kv_b.put(&branch_id, "key", Value::Int(50)).unwrap();
 
         b2.wait(); // Let A proceed
     });
@@ -345,7 +345,7 @@ fn stale_read_write_conflict() {
     );
 
     // Final value should be from B (the one that committed)
-    let final_val = kv.get(&run_id, "key").unwrap().unwrap();
+    let final_val = kv.get(&branch_id, "key").unwrap().unwrap();
     assert_eq!(final_val, Value::Int(50));
 }
 
@@ -358,17 +358,17 @@ fn stale_read_write_conflict() {
 #[test]
 fn high_version_numbers_work() {
     let test_db = TestDb::new();
-    let run_id = test_db.run_id;
+    let branch_id = test_db.branch_id;
 
     let kv = test_db.kv();
 
     // Do many writes to increment version
     for i in 0..1000 {
-        kv.put(&run_id, "key", Value::Int(i)).unwrap();
+        kv.put(&branch_id, "key", Value::Int(i)).unwrap();
     }
 
     // Verify we can still read the correct value
-    let result = kv.get(&run_id, "key").unwrap().unwrap();
+    let result = kv.get(&branch_id, "key").unwrap().unwrap();
     assert_eq!(result, Value::Int(999));
 }
 
@@ -381,7 +381,7 @@ fn high_version_numbers_work() {
 #[test]
 fn rapid_transaction_cycling() {
     let test_db = TestDb::new_in_memory();
-    let run_id = test_db.run_id;
+    let branch_id = test_db.branch_id;
 
     let kv = test_db.kv();
 
@@ -389,13 +389,13 @@ fn rapid_transaction_cycling() {
     for i in 0..500 {
         if i % 2 == 0 {
             // Commit
-            test_db.db.transaction(run_id, |txn| {
+            test_db.db.transaction(branch_id, |txn| {
                 txn.kv_put(&format!("key_{}", i), Value::Int(i))?;
                 Ok(())
             }).unwrap();
         } else {
             // Abort
-            let _: Result<(), _> = test_db.db.transaction(run_id, |txn| {
+            let _: Result<(), _> = test_db.db.transaction(branch_id, |txn| {
                 txn.kv_put(&format!("key_{}", i), Value::Int(i))?;
                 Err(strata_core::StrataError::invalid_input("abort"))
             });
@@ -404,7 +404,7 @@ fn rapid_transaction_cycling() {
 
     // Verify state: only even keys should exist
     for i in 0..500 {
-        let exists = kv.get(&run_id, &format!("key_{}", i)).unwrap().is_some();
+        let exists = kv.get(&branch_id, &format!("key_{}", i)).unwrap().is_some();
         if i % 2 == 0 {
             assert!(exists, "key_{} should exist (committed)", i);
         } else {
@@ -422,16 +422,16 @@ fn rapid_transaction_cycling() {
 #[test]
 fn cross_primitive_atomic_failure() {
     let test_db = TestDb::new();
-    let run_id = test_db.run_id;
+    let branch_id = test_db.branch_id;
 
     let kv = test_db.kv();
     let event = test_db.event();
 
     // Setup baseline
-    kv.put(&run_id, "balance", Value::Int(1000)).unwrap();
+    kv.put(&branch_id, "balance", Value::Int(1000)).unwrap();
 
     // Attempt a "transfer" that fails partway through
-    let result: Result<(), _> = test_db.db.transaction(run_id, |txn| {
+    let result: Result<(), _> = test_db.db.transaction(branch_id, |txn| {
         // Debit
         txn.kv_put("balance", Value::Int(900))?;
 
@@ -446,12 +446,12 @@ fn cross_primitive_atomic_failure() {
 
     // BOTH the debit and the log should be rolled back
     assert_eq!(
-        kv.get(&run_id, "balance").unwrap().unwrap(),
+        kv.get(&branch_id, "balance").unwrap().unwrap(),
         Value::Int(1000),
         "Balance should be unchanged after failed transfer"
     );
     assert_eq!(
-        event.len(&run_id).unwrap(),
+        event.len(&branch_id).unwrap(),
         0,
         "Event log should be empty after failed transfer"
     );
@@ -466,12 +466,12 @@ fn cross_primitive_atomic_failure() {
 #[test]
 fn interleaved_multikey_consistency() {
     let test_db = TestDb::new_in_memory();
-    let run_id = test_db.run_id;
+    let branch_id = test_db.branch_id;
     let db = test_db.db.clone();
 
     let kv = KVStore::new(db.clone());
-    kv.put(&run_id, "x", Value::Int(0)).unwrap();
-    kv.put(&run_id, "y", Value::Int(0)).unwrap();
+    kv.put(&branch_id, "x", Value::Int(0)).unwrap();
+    kv.put(&branch_id, "y", Value::Int(0)).unwrap();
 
     let barrier = Arc::new(Barrier::new(2));
     let invariant_violated = Arc::new(AtomicBool::new(false));
@@ -481,7 +481,7 @@ fn interleaved_multikey_consistency() {
 
     // Transaction A: sets x=1, y=1
     let txn_a = thread::spawn(move || {
-        let _ = db1.transaction(run_id, |txn| {
+        let _ = db1.transaction(branch_id, |txn| {
             txn.kv_put("x", Value::Int(1))?;
             b1.wait(); // Interleave
             txn.kv_put("y", Value::Int(1))?;
@@ -495,7 +495,7 @@ fn interleaved_multikey_consistency() {
 
     // Transaction B: reads x and y, checks invariant x == y
     let txn_b = thread::spawn(move || {
-        let result = db2.transaction(run_id, |txn| {
+        let result = db2.transaction(branch_id, |txn| {
             let x = txn.kv_get("x")?.map(|v| match v {
                 Value::Int(n) => n,
                 _ => 0,

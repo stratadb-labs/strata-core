@@ -5,22 +5,22 @@
 
 use std::sync::Arc;
 
-use strata_engine::RunMetadata;
+use strata_engine::BranchMetadata;
 
-use crate::bridge::{extract_version, from_engine_run_status, Primitives};
+use crate::bridge::{extract_version, from_engine_branch_status, Primitives};
 use crate::convert::convert_result;
-use crate::types::{RunId, RunInfo, VersionedRunInfo};
+use crate::types::{BranchId, BranchInfo, VersionedBranchInfo};
 use crate::{Error, Output, Result};
 
 // =============================================================================
 // Conversion Helpers
 // =============================================================================
 
-/// Convert engine RunMetadata to executor RunInfo.
-fn metadata_to_run_info(m: &RunMetadata) -> RunInfo {
-    RunInfo {
-        id: RunId::from(m.name.clone()),
-        status: from_engine_run_status(m.status),
+/// Convert engine BranchMetadata to executor BranchInfo.
+fn metadata_to_branch_info(m: &BranchMetadata) -> BranchInfo {
+    BranchInfo {
+        id: BranchId::from(m.name.clone()),
+        status: from_engine_branch_status(m.status),
         created_at: m.created_at,
         updated_at: m.updated_at,
         metadata: None, // MVP: metadata not exposed
@@ -29,10 +29,10 @@ fn metadata_to_run_info(m: &RunMetadata) -> RunInfo {
     }
 }
 
-/// Convert engine Versioned<RunMetadata> to executor VersionedRunInfo.
-fn versioned_to_run_info(v: strata_core::Versioned<RunMetadata>) -> VersionedRunInfo {
-    let info = metadata_to_run_info(&v.value);
-    VersionedRunInfo {
+/// Convert engine Versioned<BranchMetadata> to executor VersionedBranchInfo.
+fn versioned_to_branch_info(v: strata_core::Versioned<BranchMetadata>) -> VersionedBranchInfo {
+    let info = metadata_to_branch_info(&v.value);
+    VersionedBranchInfo {
         info,
         version: extract_version(&v.version),
         timestamp: v.timestamp.into(),
@@ -40,7 +40,7 @@ fn versioned_to_run_info(v: strata_core::Versioned<RunMetadata>) -> VersionedRun
 }
 
 /// Guard: reject operations on the default run that would delete it.
-fn reject_default_run(run: &RunId, operation: &str) -> Result<()> {
+fn reject_default_branch(run: &BranchId, operation: &str) -> Result<()> {
     if run.is_default() {
         return Err(Error::ConstraintViolation {
             reason: format!("Cannot {} the default run", operation),
@@ -53,73 +53,73 @@ fn reject_default_run(run: &RunId, operation: &str) -> Result<()> {
 // MVP Handlers
 // =============================================================================
 
-/// Handle RunCreate command.
-pub fn run_create(
+/// Handle BranchCreate command.
+pub fn branch_create(
     p: &Arc<Primitives>,
-    run_id: Option<String>,
+    branch_id: Option<String>,
     _metadata: Option<strata_core::Value>,
 ) -> Result<Output> {
     // Users can provide any string as a run name (like git branch names).
     // If not provided, generate a UUID for anonymous runs.
-    let run_str = match &run_id {
+    let run_str = match &branch_id {
         Some(s) => s.clone(),
         None => uuid::Uuid::new_v4().to_string(),
     };
 
-    // MVP: ignore metadata, use simple create_run
-    let versioned = convert_result(p.run.create_run(&run_str))?;
+    // MVP: ignore metadata, use simple create_branch
+    let versioned = convert_result(p.branch.create_branch(&run_str))?;
 
-    Ok(Output::RunWithVersion {
-        info: metadata_to_run_info(&versioned.value),
+    Ok(Output::BranchWithVersion {
+        info: metadata_to_branch_info(&versioned.value),
         version: extract_version(&versioned.version),
     })
 }
 
-/// Handle RunGet command.
-pub fn run_get(p: &Arc<Primitives>, run: RunId) -> Result<Output> {
-    let result = convert_result(p.run.get_run(run.as_str()))?;
+/// Handle BranchGet command.
+pub fn branch_get(p: &Arc<Primitives>, run: BranchId) -> Result<Output> {
+    let result = convert_result(p.branch.get_branch(run.as_str()))?;
     match result {
-        Some(v) => Ok(Output::RunInfoVersioned(versioned_to_run_info(v))),
+        Some(v) => Ok(Output::BranchInfoVersioned(versioned_to_branch_info(v))),
         None => Ok(Output::Maybe(None)),
     }
 }
 
-/// Handle RunList command.
-pub fn run_list(
+/// Handle BranchList command.
+pub fn branch_list(
     p: &Arc<Primitives>,
-    _state: Option<crate::types::RunStatus>,
+    _state: Option<crate::types::BranchStatus>,
     limit: Option<u64>,
     _offset: Option<u64>,
 ) -> Result<Output> {
     // MVP: ignore status filter, list all runs
-    let ids = convert_result(p.run.list_runs())?;
+    let ids = convert_result(p.branch.list_branches())?;
 
     let mut all = Vec::new();
     for id in ids {
-        if let Some(versioned) = convert_result(p.run.get_run(&id))? {
-            all.push(versioned_to_run_info(versioned));
+        if let Some(versioned) = convert_result(p.branch.get_branch(&id))? {
+            all.push(versioned_to_branch_info(versioned));
         }
     }
 
     // Apply limit if specified
-    let limited: Vec<VersionedRunInfo> = match limit {
+    let limited: Vec<VersionedBranchInfo> = match limit {
         Some(l) => all.into_iter().take(l as usize).collect(),
         None => all,
     };
 
-    Ok(Output::RunInfoList(limited))
+    Ok(Output::BranchInfoList(limited))
 }
 
-/// Handle RunExists command.
-pub fn run_exists(p: &Arc<Primitives>, run: RunId) -> Result<Output> {
-    let exists = convert_result(p.run.exists(run.as_str()))?;
+/// Handle BranchExists command.
+pub fn branch_exists(p: &Arc<Primitives>, run: BranchId) -> Result<Output> {
+    let exists = convert_result(p.branch.exists(run.as_str()))?;
     Ok(Output::Bool(exists))
 }
 
-/// Handle RunDelete command.
-pub fn run_delete(p: &Arc<Primitives>, run: RunId) -> Result<Output> {
-    reject_default_run(&run, "delete")?;
-    convert_result(p.run.delete_run(run.as_str()))?;
+/// Handle BranchDelete command.
+pub fn branch_delete(p: &Arc<Primitives>, run: BranchId) -> Result<Output> {
+    reject_default_branch(&run, "delete")?;
+    convert_result(p.branch.delete_branch(run.as_str()))?;
     Ok(Output::Unit)
 }
 
@@ -127,25 +127,25 @@ pub fn run_delete(p: &Arc<Primitives>, run: RunId) -> Result<Output> {
 // Bundle Handlers
 // =============================================================================
 
-/// Handle RunExport command.
-pub fn run_export(p: &Arc<Primitives>, run_id: String, path: String) -> Result<Output> {
+/// Handle BranchExport command.
+pub fn branch_export(p: &Arc<Primitives>, branch_id: String, path: String) -> Result<Output> {
     let export_path = std::path::Path::new(&path);
-    let info = strata_engine::bundle::export_run(&p.db, &run_id, export_path).map_err(|e| {
+    let info = strata_engine::bundle::export_run(&p.db, &branch_id, export_path).map_err(|e| {
         Error::Io {
             reason: format!("Export failed: {}", e),
         }
     })?;
 
-    Ok(Output::RunExported(crate::types::RunExportResult {
-        run_id: info.run_id,
+    Ok(Output::BranchExported(crate::types::BranchExportResult {
+        branch_id: info.branch_id,
         path: info.path.to_string_lossy().to_string(),
         entry_count: info.entry_count,
         bundle_size: info.bundle_size,
     }))
 }
 
-/// Handle RunImport command.
-pub fn run_import(p: &Arc<Primitives>, path: String) -> Result<Output> {
+/// Handle BranchImport command.
+pub fn branch_import(p: &Arc<Primitives>, path: String) -> Result<Output> {
     let import_path = std::path::Path::new(&path);
     let info = strata_engine::bundle::import_run(&p.db, import_path).map_err(|e| {
         Error::Io {
@@ -153,15 +153,15 @@ pub fn run_import(p: &Arc<Primitives>, path: String) -> Result<Output> {
         }
     })?;
 
-    Ok(Output::RunImported(crate::types::RunImportResult {
-        run_id: info.run_id,
+    Ok(Output::BranchImported(crate::types::BranchImportResult {
+        branch_id: info.branch_id,
         transactions_applied: info.transactions_applied,
         keys_written: info.keys_written,
     }))
 }
 
-/// Handle RunBundleValidate command.
-pub fn run_bundle_validate(path: String) -> Result<Output> {
+/// Handle BranchBundleValidate command.
+pub fn branch_bundle_validate(path: String) -> Result<Output> {
     let validate_path = std::path::Path::new(&path);
     let info = strata_engine::bundle::validate_bundle(validate_path).map_err(|e| {
         Error::Io {
@@ -170,7 +170,7 @@ pub fn run_bundle_validate(path: String) -> Result<Output> {
     })?;
 
     Ok(Output::BundleValidated(crate::types::BundleValidateResult {
-        run_id: info.run_id,
+        branch_id: info.branch_id,
         format_version: info.format_version,
         entry_count: info.entry_count,
         checksums_valid: info.checksums_valid,
@@ -183,20 +183,20 @@ mod tests {
 
     #[test]
     fn test_reject_default_run() {
-        let run = RunId::from("default");
-        assert!(reject_default_run(&run, "delete").is_err());
+        let run = BranchId::from("default");
+        assert!(reject_default_branch(&run, "delete").is_err());
 
-        let run = RunId::from("f47ac10b-58cc-4372-a567-0e02b2c3d479");
-        assert!(reject_default_run(&run, "delete").is_ok());
+        let run = BranchId::from("f47ac10b-58cc-4372-a567-0e02b2c3d479");
+        assert!(reject_default_branch(&run, "delete").is_ok());
     }
 
     #[test]
     fn test_metadata_to_run_info() {
-        let m = RunMetadata {
+        let m = BranchMetadata {
             name: "test-run".to_string(),
-            run_id: "some-uuid".to_string(),
+            branch_id: "some-uuid".to_string(),
             parent_run: None,
-            status: strata_engine::RunStatus::Active,
+            status: strata_engine::BranchStatus::Active,
             created_at: 1000000,
             updated_at: 2000000,
             completed_at: None,
@@ -205,8 +205,8 @@ mod tests {
             error: None,
             version: 1,
         };
-        let info = metadata_to_run_info(&m);
+        let info = metadata_to_branch_info(&m);
         assert_eq!(info.id.as_str(), "test-run");
-        assert_eq!(info.status, crate::types::RunStatus::Active);
+        assert_eq!(info.status, crate::types::BranchStatus::Active);
     }
 }

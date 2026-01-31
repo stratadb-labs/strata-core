@@ -153,10 +153,10 @@ pub fn check_write_write_conflicts(writes: &[JsonPatchEntry]) -> Vec<ConflictRes
 mod tests {
     use super::*;
     use strata_core::primitives::json::JsonPatch;
-    use strata_core::types::{Namespace, RunId};
+    use strata_core::types::{Namespace, BranchId};
 
     fn test_key() -> Key {
-        Key::new_json(Namespace::for_run(RunId::new()), "test-doc")
+        Key::new_json(Namespace::for_branch(BranchId::new()), "test-doc")
     }
 
     #[test]

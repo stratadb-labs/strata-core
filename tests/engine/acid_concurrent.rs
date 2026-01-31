@@ -27,12 +27,12 @@ fn event_payload(data: Value) -> Value {
 #[test]
 fn concurrent_transfers_conserve_total() {
     let test_db = TestDb::new_in_memory();
-    let run_id = test_db.run_id;
+    let branch_id = test_db.branch_id;
     let db = test_db.db.clone();
 
     let kv = KVStore::new(db.clone());
-    kv.put(&run_id, "account_a", Value::Int(1000)).unwrap();
-    kv.put(&run_id, "account_b", Value::Int(1000)).unwrap();
+    kv.put(&branch_id, "account_a", Value::Int(1000)).unwrap();
+    kv.put(&branch_id, "account_b", Value::Int(1000)).unwrap();
 
     let num_threads = 4;
     let transfers_per_thread = 25;
@@ -52,7 +52,7 @@ fn concurrent_transfers_conserve_total() {
 
             for _ in 0..transfers_per_thread {
                 loop {
-                    let result = db.transaction(run_id, |txn| {
+                    let result = db.transaction(branch_id, |txn| {
                         let a_val = txn.kv_get("account_a")?.expect("account_a must exist");
                         let b_val = txn.kv_get("account_b")?.expect("account_b must exist");
 
@@ -93,8 +93,8 @@ fn concurrent_transfers_conserve_total() {
         total_transfers
     );
 
-    let final_a = kv.get(&run_id, "account_a").unwrap().expect("account_a must exist");
-    let final_b = kv.get(&run_id, "account_b").unwrap().expect("account_b must exist");
+    let final_a = kv.get(&branch_id, "account_a").unwrap().expect("account_a must exist");
+    let final_b = kv.get(&branch_id, "account_b").unwrap().expect("account_b must exist");
 
     let expected_a = 1000 - (total_transfers as i64 * transfer_amount);
     let expected_b = 1000 + (total_transfers as i64 * transfer_amount);
@@ -121,11 +121,11 @@ fn concurrent_transfers_conserve_total() {
 #[test]
 fn concurrent_cross_primitive_transactions() {
     let test_db = TestDb::new_in_memory();
-    let run_id = test_db.run_id;
+    let branch_id = test_db.branch_id;
     let db = test_db.db.clone();
 
     let kv = KVStore::new(db.clone());
-    kv.put(&run_id, "counter", Value::Int(0)).unwrap();
+    kv.put(&branch_id, "counter", Value::Int(0)).unwrap();
 
     let num_threads = 4;
     let ops_per_thread = 25;
@@ -144,7 +144,7 @@ fn concurrent_cross_primitive_transactions() {
 
             for _ in 0..ops_per_thread {
                 loop {
-                    let result = db.transaction(run_id, |txn| {
+                    let result = db.transaction(branch_id, |txn| {
                         let current = txn.kv_get("counter")?.expect("counter must exist");
                         let n = match current {
                             Value::Int(v) => v,
@@ -180,11 +180,11 @@ fn concurrent_cross_primitive_transactions() {
         total_ops
     );
 
-    let final_counter = kv.get(&run_id, "counter").unwrap().expect("counter must exist");
+    let final_counter = kv.get(&branch_id, "counter").unwrap().expect("counter must exist");
     assert_eq!(final_counter, Value::Int(total_ops as i64), "Counter should be {}", total_ops);
 
     let event = EventLog::new(db.clone());
-    let event_count = event.len(&run_id).unwrap();
+    let event_count = event.len(&branch_id).unwrap();
     assert_eq!(event_count, total_ops as u64, "Event count should be {}", total_ops);
 }
 
@@ -195,14 +195,19 @@ fn concurrent_cross_primitive_transactions() {
 /// Shared key + Barrier(2) forcing simultaneous conflict.
 /// 2 threads: both read "shared", write KV + event + state.
 /// Assert: at most 1 winner; winner's primitives are all-or-nothing.
+///
+/// The barrier is placed INSIDE the transaction closure so both transactions
+/// have already acquired their snapshots before either begins reading.
+/// Without this, one transaction could fully commit before the other even
+/// starts, allowing the second to read the updated value without conflict.
 #[test]
 fn concurrent_cross_primitive_conflict_atomicity() {
     let test_db = TestDb::new_in_memory();
-    let run_id = test_db.run_id;
+    let branch_id = test_db.branch_id;
     let db = test_db.db.clone();
 
     let kv = KVStore::new(db.clone());
-    kv.put(&run_id, "shared", Value::Int(0)).unwrap();
+    kv.put(&branch_id, "shared", Value::Int(0)).unwrap();
 
     let barrier = Arc::new(Barrier::new(2));
 
@@ -211,9 +216,10 @@ fn concurrent_cross_primitive_conflict_atomicity() {
         let barrier = barrier.clone();
 
         thread::spawn(move || {
-            barrier.wait();
-
-            let result = db.transaction(run_id, |txn| {
+            let result = db.transaction(branch_id, |txn| {
+                // Barrier inside the closure: both transactions have snapshots
+                // before either reads, guaranteeing they see the same version.
+                barrier.wait();
                 let _current = txn.kv_get("shared")?;
                 txn.kv_put("shared", Value::Int(1))?;
                 txn.event_append("conflict_test", event_payload(Value::Int(i)))?;
@@ -230,9 +236,9 @@ fn concurrent_cross_primitive_conflict_atomicity() {
 
     assert!(winners <= 1, "At most one transaction should win, got {}", winners);
 
-    let final_shared = kv.get(&run_id, "shared").unwrap().expect("shared must exist");
+    let final_shared = kv.get(&branch_id, "shared").unwrap().expect("shared must exist");
     let event = EventLog::new(db.clone());
-    let event_count = event.len(&run_id).unwrap();
+    let event_count = event.len(&branch_id).unwrap();
 
     if winners == 1 {
         // Winner committed: all primitives must reflect the write
@@ -255,7 +261,7 @@ fn concurrent_cross_primitive_conflict_atomicity() {
 #[test]
 fn durability_under_concurrent_load() {
     let mut test_db = TestDb::new_strict();
-    let run_id = test_db.run_id;
+    let branch_id = test_db.branch_id;
 
     let num_threads = 4;
     let writes_per_thread = 50;
@@ -271,7 +277,7 @@ fn durability_under_concurrent_load() {
             let kv = KVStore::new(db);
             for i in 0..writes_per_thread {
                 let key = format!("t{}_{}", t, i);
-                kv.put(&run_id, &key, Value::Int((t * 1000 + i) as i64)).unwrap();
+                kv.put(&branch_id, &key, Value::Int((t * 1000 + i) as i64)).unwrap();
             }
         })
     }).collect();
@@ -290,7 +296,7 @@ fn durability_under_concurrent_load() {
         for i in 0..writes_per_thread {
             let key = format!("t{}_{}", t, i);
             let expected = Value::Int((t * 1000 + i) as i64);
-            let actual = kv.get(&run_id, &key).unwrap();
+            let actual = kv.get(&branch_id, &key).unwrap();
             assert_eq!(
                 actual,
                 Some(expected.clone()),
@@ -311,11 +317,11 @@ fn durability_under_concurrent_load() {
 #[test]
 fn durability_concurrent_transactions_survive_restart() {
     let mut test_db = TestDb::new_strict();
-    let run_id = test_db.run_id;
+    let branch_id = test_db.branch_id;
 
     {
         let kv = KVStore::new(test_db.db.clone());
-        kv.put(&run_id, "counter", Value::Int(0)).unwrap();
+        kv.put(&branch_id, "counter", Value::Int(0)).unwrap();
     }
 
     let num_threads = 4;
@@ -335,7 +341,7 @@ fn durability_concurrent_transactions_survive_restart() {
 
             for _ in 0..ops_per_thread {
                 loop {
-                    let result = db.transaction(run_id, |txn| {
+                    let result = db.transaction(branch_id, |txn| {
                         let current = txn.kv_get("counter")?.expect("counter must exist");
                         let n = match current {
                             Value::Int(v) => v,
@@ -371,7 +377,7 @@ fn durability_concurrent_transactions_survive_restart() {
     // Verify before restart
     {
         let kv = test_db.kv();
-        let counter_before = kv.get(&run_id, "counter").unwrap().expect("counter must exist");
+        let counter_before = kv.get(&branch_id, "counter").unwrap().expect("counter must exist");
         assert_eq!(counter_before, Value::Int(total_ops as i64), "Counter should be {} before restart", total_ops);
     }
 
@@ -381,7 +387,7 @@ fn durability_concurrent_transactions_survive_restart() {
 
     // Verify after restart
     let kv_after = test_db.kv();
-    let counter_after = kv_after.get(&run_id, "counter").unwrap().expect("counter must exist after restart");
+    let counter_after = kv_after.get(&branch_id, "counter").unwrap().expect("counter must exist after restart");
     assert_eq!(
         counter_after,
         Value::Int(total_ops as i64),

@@ -26,7 +26,7 @@ The `DatabaseInfo` struct returned by `db.info()`:
 |-------|------|-------------|
 | `version` | `String` | StrataDB version |
 | `uptime_secs` | `u64` | Seconds since database opened |
-| `run_count` | `u64` | Number of runs |
+| `branch_count` | `u64` | Number of branches |
 | `total_keys` | `u64` | Total key count across all primitives |
 
 ## Distance Metrics (Vector Store)
@@ -37,16 +37,16 @@ The `DatabaseInfo` struct returned by `db.info()`:
 | Euclidean | `DistanceMetric::Euclidean` | L2 distance |
 | Dot Product | `DistanceMetric::DotProduct` | Inner product |
 
-## Run Status
+## Branch Status
 
 | Status | Enum Value | Description |
 |--------|-----------|-------------|
-| Active | `RunStatus::Active` | Currently in use |
-| Paused | `RunStatus::Paused` | Temporarily suspended |
-| Completed | `RunStatus::Completed` | Successfully finished |
-| Failed | `RunStatus::Failed` | Terminated with error |
-| Cancelled | `RunStatus::Cancelled` | User-cancelled |
-| Archived | `RunStatus::Archived` | Archived for storage |
+| Active | `BranchStatus::Active` | Currently in use |
+| Paused | `BranchStatus::Paused` | Temporarily suspended |
+| Completed | `BranchStatus::Completed` | Successfully finished |
+| Failed | `BranchStatus::Failed` | Terminated with error |
+| Cancelled | `BranchStatus::Cancelled` | User-cancelled |
+| Archived | `BranchStatus::Archived` | Archived for storage |
 
 ## Transaction Options
 

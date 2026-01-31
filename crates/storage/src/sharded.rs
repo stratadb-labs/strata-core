@@ -7,7 +7,7 @@
 //!
 //! - DashMap: 16-way sharded by default, lock-free reads
 //! - FxHashMap: O(1) lookups, fast non-crypto hash
-//! - Per-RunId: Natural agent partitioning, no cross-run contention
+//! - Per-BranchId: Natural agent partitioning, no cross-run contention
 //!
 //! # Performance Targets
 //!
@@ -31,7 +31,7 @@
 //! 4. Performance: Avoiding enum matching on every comparison
 
 use dashmap::DashMap;
-use strata_core::types::{Key, RunId};
+use strata_core::types::{Key, BranchId};
 use strata_core::{Timestamp, Version, VersionedValue};
 use rustc_hash::FxHashMap;
 use std::collections::VecDeque;
@@ -165,7 +165,7 @@ impl VersionChain {
     }
 }
 
-/// Each RunId gets its own shard with an FxHashMap for O(1) lookups.
+/// Each BranchId gets its own shard with an FxHashMap for O(1) lookups.
 /// This ensures different runs never contend with each other.
 ///
 /// Uses VersionChain for MVCC - multiple versions per key for snapshot isolation.
@@ -207,13 +207,13 @@ impl Default for Shard {
     }
 }
 
-/// Sharded storage - DashMap by RunId, HashMap within
+/// Sharded storage - DashMap by BranchId, HashMap within
 ///
 /// # Design
 ///
 /// - DashMap: 16-way sharded by default, lock-free reads
 /// - FxHashMap: O(1) lookups, fast non-crypto hash
-/// - Per-RunId: Natural agent partitioning, no cross-run contention
+/// - Per-BranchId: Natural agent partitioning, no cross-run contention
 ///
 /// # Thread Safety
 ///
@@ -233,7 +233,7 @@ impl Default for Shard {
 /// ```
 pub struct ShardedStore {
     /// Per-run shards using DashMap
-    shards: DashMap<RunId, Shard>,
+    shards: DashMap<BranchId, Shard>,
     /// Global version for snapshots
     version: AtomicU64,
 }
@@ -287,8 +287,8 @@ impl ShardedStore {
     }
 
     /// Check if a run exists
-    pub fn has_run(&self, run_id: &RunId) -> bool {
-        self.shards.contains_key(run_id)
+    pub fn has_branch(&self, branch_id: &BranchId) -> bool {
+        self.shards.contains_key(branch_id)
     }
 
     /// Get total number of entries across all shards
@@ -312,7 +312,7 @@ impl ShardedStore {
     ///
     /// # Arguments
     ///
-    /// * `key` - Key to store (contains RunId)
+    /// * `key` - Key to store (contains BranchId)
     /// * `value` - StoredValue to store (includes TTL)
     ///
     /// # Performance
@@ -321,8 +321,8 @@ impl ShardedStore {
     /// - Only locks the target run's shard
     #[inline]
     pub fn put(&self, key: Key, value: StoredValue) {
-        let run_id = key.namespace.run_id;
-        let mut shard = self.shards.entry(run_id).or_default();
+        let branch_id = key.namespace.branch_id;
+        let mut shard = self.shards.entry(branch_id).or_default();
 
         if let Some(chain) = shard.data.get_mut(&key) {
             // Add new version to existing chain
@@ -341,7 +341,7 @@ impl ShardedStore {
     ///
     /// # Arguments
     ///
-    /// * `key` - Key to delete (contains RunId)
+    /// * `key` - Key to delete (contains BranchId)
     ///
     /// # Returns
     /// The previous value if it existed and wasn't already deleted
@@ -361,12 +361,12 @@ impl ShardedStore {
         use strata_core::value::Value;
         use strata_core::Version;
 
-        let run_id = key.namespace.run_id;
+        let branch_id = key.namespace.branch_id;
 
         // Get the previous value before adding tombstone
         let previous = self
             .shards
-            .get(&run_id)
+            .get(&branch_id)
             .and_then(|shard| {
                 shard.data.get(key).and_then(|chain| {
                     chain.latest().and_then(|sv| {
@@ -392,9 +392,9 @@ impl ShardedStore {
     /// Lock-free check via DashMap read guard.
     #[inline]
     pub fn contains(&self, key: &Key) -> bool {
-        let run_id = key.namespace.run_id;
+        let branch_id = key.namespace.branch_id;
         self.shards
-            .get(&run_id)
+            .get(&branch_id)
             .map(|shard| shard.data.contains_key(key))
             .unwrap_or(false)
     }
@@ -452,9 +452,9 @@ impl ShardedStore {
     }
 
     /// Get count of entries for a specific run
-    pub fn run_entry_count(&self, run_id: &RunId) -> usize {
+    pub fn branch_entry_count(&self, branch_id: &BranchId) -> usize {
         self.shards
-            .get(run_id)
+            .get(branch_id)
             .map(|shard| shard.len())
             .unwrap_or(0)
     }
@@ -470,14 +470,14 @@ impl ShardedStore {
     ///
     /// # Arguments
     ///
-    /// * `run_id` - The run to list entries for
+    /// * `branch_id` - The run to list entries for
     ///
     /// # Returns
     ///
     /// Vector of (Key, VersionedValue) pairs, sorted by key
-    pub fn list_run(&self, run_id: &RunId) -> Vec<(Key, VersionedValue)> {
+    pub fn list_branch(&self, branch_id: &BranchId) -> Vec<(Key, VersionedValue)> {
         self.shards
-            .get(run_id)
+            .get(branch_id)
             .map(|shard| {
                 let mut results: Vec<_> = shard
                     .data
@@ -510,9 +510,9 @@ impl ShardedStore {
     ///
     /// Vector of (Key, VersionedValue) pairs matching prefix, sorted by key
     pub fn list_by_prefix(&self, prefix: &Key) -> Vec<(Key, VersionedValue)> {
-        let run_id = prefix.namespace.run_id;
+        let branch_id = prefix.namespace.branch_id;
         self.shards
-            .get(&run_id)
+            .get(&branch_id)
             .map(|shard| {
                 let mut results: Vec<_> = shard
                     .data
@@ -536,7 +536,7 @@ impl ShardedStore {
     ///
     /// # Arguments
     ///
-    /// * `run_id` - The run to query
+    /// * `branch_id` - The run to query
     /// * `type_tag` - The type to filter by (KV, Event, State, etc.)
     ///
     /// # Returns
@@ -544,11 +544,11 @@ impl ShardedStore {
     /// Vector of (Key, VersionedValue) pairs of the specified type, sorted
     pub fn list_by_type(
         &self,
-        run_id: &RunId,
+        branch_id: &BranchId,
         type_tag: strata_core::types::TypeTag,
     ) -> Vec<(Key, VersionedValue)> {
         self.shards
-            .get(run_id)
+            .get(branch_id)
             .map(|shard| {
                 let mut results: Vec<_> = shard
                     .data
@@ -567,9 +567,9 @@ impl ShardedStore {
     }
 
     /// Count entries of a specific type for a run
-    pub fn count_by_type(&self, run_id: &RunId, type_tag: strata_core::types::TypeTag) -> usize {
+    pub fn count_by_type(&self, branch_id: &BranchId, type_tag: strata_core::types::TypeTag) -> usize {
         self.shards
-            .get(run_id)
+            .get(branch_id)
             .map(|shard| {
                 shard
                     .data
@@ -583,7 +583,7 @@ impl ShardedStore {
     /// Iterate over all runs
     ///
     /// Returns an iterator over all RunIds that have data
-    pub fn run_ids(&self) -> Vec<RunId> {
+    pub fn branch_ids(&self) -> Vec<BranchId> {
         self.shards.iter().map(|entry| *entry.key()).collect()
     }
 
@@ -591,8 +591,8 @@ impl ShardedStore {
     ///
     /// Removes the entire shard for the given run.
     /// Returns true if the run existed and was removed.
-    pub fn clear_run(&self, run_id: &RunId) -> bool {
-        self.shards.remove(run_id).is_some()
+    pub fn clear_branch(&self, branch_id: &BranchId) -> bool {
+        self.shards.remove(branch_id).is_some()
     }
 
     // ========================================================================
@@ -738,10 +738,10 @@ impl ShardedSnapshot {
     ///
     /// Returns entries as they existed at the snapshot version,
     /// filtering out expired values and tombstones.
-    pub fn list_run(&self, run_id: &RunId) -> Vec<(Key, VersionedValue)> {
+    pub fn list_branch(&self, branch_id: &BranchId) -> Vec<(Key, VersionedValue)> {
         self.store
             .shards
-            .get(run_id)
+            .get(branch_id)
             .map(|shard| {
                 let mut results: Vec<_> = shard
                     .data
@@ -767,10 +767,10 @@ impl ShardedSnapshot {
     /// Returns entries as they existed at the snapshot version,
     /// filtering out expired values and tombstones.
     pub fn list_by_prefix(&self, prefix: &Key) -> Vec<(Key, VersionedValue)> {
-        let run_id = prefix.namespace.run_id;
+        let branch_id = prefix.namespace.branch_id;
         self.store
             .shards
-            .get(&run_id)
+            .get(&branch_id)
             .map(|shard| {
                 let mut results: Vec<_> = shard
                     .data
@@ -798,12 +798,12 @@ impl ShardedSnapshot {
     /// filtering out expired values and tombstones.
     pub fn list_by_type(
         &self,
-        run_id: &RunId,
+        branch_id: &BranchId,
         type_tag: strata_core::types::TypeTag,
     ) -> Vec<(Key, VersionedValue)> {
         self.store
             .shards
-            .get(run_id)
+            .get(branch_id)
             .map(|shard| {
                 let mut results: Vec<_> = shard
                     .data
@@ -829,10 +829,10 @@ impl ShardedSnapshot {
     ///
     /// Counts only entries that existed at the snapshot version
     /// (excludes tombstones and expired values).
-    pub fn run_entry_count(&self, run_id: &RunId) -> usize {
+    pub fn branch_entry_count(&self, branch_id: &BranchId) -> usize {
         self.store
             .shards
-            .get(run_id)
+            .get(branch_id)
             .map(|shard| {
                 shard
                     .data
@@ -900,8 +900,8 @@ impl Storage for ShardedStore {
     ///
     /// Returns None if key doesn't exist, is expired, or is a tombstone.
     fn get(&self, key: &Key) -> StrataResult<Option<VersionedValue>> {
-        let run_id = key.namespace.run_id;
-        Ok(self.shards.get(&run_id).and_then(|shard| {
+        let branch_id = key.namespace.branch_id;
+        Ok(self.shards.get(&branch_id).and_then(|shard| {
             shard.data.get(key).and_then(|chain| {
                 chain.latest().and_then(|sv| {
                     // Filter out expired values and tombstones
@@ -919,8 +919,8 @@ impl Storage for ShardedStore {
     ///
     /// Returns the value if version <= max_version, not expired, and not a tombstone.
     fn get_versioned(&self, key: &Key, max_version: u64) -> StrataResult<Option<VersionedValue>> {
-        let run_id = key.namespace.run_id;
-        Ok(self.shards.get(&run_id).and_then(|shard| {
+        let branch_id = key.namespace.branch_id;
+        Ok(self.shards.get(&branch_id).and_then(|shard| {
             shard.data.get(key).and_then(|chain| {
                 chain.get_at_version(max_version).and_then(|sv| {
                     // Filter out expired values and tombstones
@@ -943,10 +943,10 @@ impl Storage for ShardedStore {
         limit: Option<usize>,
         before_version: Option<u64>,
     ) -> StrataResult<Vec<VersionedValue>> {
-        let run_id = key.namespace.run_id;
+        let branch_id = key.namespace.branch_id;
 
         // Get the shard and extract history within the same scope to avoid lifetime issues
-        let result = match self.shards.get(&run_id) {
+        let result = match self.shards.get(&branch_id) {
             Some(shard) => match shard.data.get(key) {
                 Some(chain) => chain
                     .history(limit, before_version)
@@ -986,10 +986,10 @@ impl Storage for ShardedStore {
     ///
     /// Results are sorted by key order.
     fn scan_prefix(&self, prefix: &Key, max_version: u64) -> StrataResult<Vec<(Key, VersionedValue)>> {
-        let run_id = prefix.namespace.run_id;
+        let branch_id = prefix.namespace.branch_id;
         Ok(self
             .shards
-            .get(&run_id)
+            .get(&branch_id)
             .map(|shard| {
                 let mut results: Vec<_> = shard
                     .data
@@ -1015,13 +1015,13 @@ impl Storage for ShardedStore {
             .unwrap_or_default())
     }
 
-    /// Scan all keys for a given run_id at or before max_version
+    /// Scan all keys for a given branch_id at or before max_version
     ///
     /// Returns all entries for the run, filtered by version.
-    fn scan_by_run(&self, run_id: RunId, max_version: u64) -> StrataResult<Vec<(Key, VersionedValue)>> {
+    fn scan_by_branch(&self, branch_id: BranchId, max_version: u64) -> StrataResult<Vec<(Key, VersionedValue)>> {
         Ok(self
             .shards
-            .get(&run_id)
+            .get(&branch_id)
             .map(|shard| {
                 let mut results: Vec<_> = shard
                     .data
@@ -1103,11 +1103,11 @@ impl SnapshotView for ShardedSnapshot {
     ///
     /// Returns all matching keys at or before snapshot version.
     fn scan_prefix(&self, prefix: &Key) -> StrataResult<Vec<(Key, VersionedValue)>> {
-        let run_id = prefix.namespace.run_id;
+        let branch_id = prefix.namespace.branch_id;
         Ok(self
             .store
             .shards
-            .get(&run_id)
+            .get(&branch_id)
             .map(|shard| {
                 let mut results: Vec<_> = shard
                     .data
@@ -1220,13 +1220,13 @@ mod tests {
     // Get/Put Operations Tests
     // ========================================================================
 
-    fn create_test_key(run_id: RunId, name: &str) -> Key {
+    fn create_test_key(branch_id: BranchId, name: &str) -> Key {
         use strata_core::types::Namespace;
         let ns = Namespace::new(
             "tenant".to_string(),
             "app".to_string(),
             "agent".to_string(),
-            run_id,
+            branch_id,
         );
         Key::new_kv(ns, name)
     }
@@ -1240,8 +1240,8 @@ mod tests {
         use strata_core::value::Value;
 
         let store = ShardedStore::new();
-        let run_id = RunId::new();
-        let key = create_test_key(run_id, "test_key");
+        let branch_id = BranchId::new();
+        let key = create_test_key(branch_id, "test_key");
         let value = create_stored_value(Value::Int(42), 1);
 
         // Put
@@ -1256,8 +1256,8 @@ mod tests {
     #[test]
     fn test_get_nonexistent() {
         let store = ShardedStore::new();
-        let run_id = RunId::new();
-        let key = create_test_key(run_id, "nonexistent");
+        let branch_id = BranchId::new();
+        let key = create_test_key(branch_id, "nonexistent");
 
         assert!(store.get(&key).unwrap().is_none());
     }
@@ -1267,8 +1267,8 @@ mod tests {
         use strata_core::value::Value;
 
         let store = ShardedStore::new();
-        let run_id = RunId::new();
-        let key = create_test_key(run_id, "to_delete");
+        let branch_id = BranchId::new();
+        let key = create_test_key(branch_id, "to_delete");
         let value = create_stored_value(Value::Int(42), 1);
 
         store.put(key.clone(), value);
@@ -1283,8 +1283,8 @@ mod tests {
     #[test]
     fn test_delete_nonexistent() {
         let store = ShardedStore::new();
-        let run_id = RunId::new();
-        let key = create_test_key(run_id, "nonexistent");
+        let branch_id = BranchId::new();
+        let key = create_test_key(branch_id, "nonexistent");
 
         assert!(store.delete(&key).is_none());
     }
@@ -1294,8 +1294,8 @@ mod tests {
         use strata_core::value::Value;
 
         let store = ShardedStore::new();
-        let run_id = RunId::new();
-        let key = create_test_key(run_id, "exists");
+        let branch_id = BranchId::new();
+        let key = create_test_key(branch_id, "exists");
         let value = create_stored_value(Value::Int(42), 1);
 
         assert!(!store.contains(&key));
@@ -1308,8 +1308,8 @@ mod tests {
         use strata_core::value::Value;
 
         let store = ShardedStore::new();
-        let run_id = RunId::new();
-        let key = create_test_key(run_id, "overwrite");
+        let branch_id = BranchId::new();
+        let key = create_test_key(branch_id, "overwrite");
 
         store.put(key.clone(), create_stored_value(Value::Int(1), 1));
         store.put(key.clone(), create_stored_value(Value::Int(2), 2));
@@ -1324,8 +1324,8 @@ mod tests {
         use strata_core::value::Value;
 
         let store = ShardedStore::new();
-        let run1 = RunId::new();
-        let run2 = RunId::new();
+        let run1 = BranchId::new();
+        let run2 = BranchId::new();
 
         let key1 = create_test_key(run1, "key");
         let key2 = create_test_key(run2, "key");
@@ -1344,11 +1344,11 @@ mod tests {
         use strata_core::value::Value;
 
         let store = ShardedStore::new();
-        let run_id = RunId::new();
+        let branch_id = BranchId::new();
 
-        let key1 = create_test_key(run_id, "batch1");
-        let key2 = create_test_key(run_id, "batch2");
-        let key3 = create_test_key(run_id, "batch3");
+        let key1 = create_test_key(branch_id, "batch1");
+        let key2 = create_test_key(branch_id, "batch2");
+        let key3 = create_test_key(branch_id, "batch3");
 
         // First, put key3 so we can delete it
         store.put(key3.clone(), create_stored_value(Value::Int(999), 1));
@@ -1370,16 +1370,16 @@ mod tests {
         use strata_core::value::Value;
 
         let store = ShardedStore::new();
-        let run_id = RunId::new();
+        let branch_id = BranchId::new();
 
-        assert_eq!(store.run_entry_count(&run_id), 0);
+        assert_eq!(store.branch_entry_count(&branch_id), 0);
 
         for i in 0..5 {
-            let key = create_test_key(run_id, &format!("key{}", i));
+            let key = create_test_key(branch_id, &format!("key{}", i));
             store.put(key, create_stored_value(Value::Int(i), 1));
         }
 
-        assert_eq!(store.run_entry_count(&run_id), 5);
+        assert_eq!(store.branch_entry_count(&branch_id), 5);
         assert_eq!(store.total_entries(), 5);
     }
 
@@ -1395,21 +1395,21 @@ mod tests {
             .map(|_| {
                 let store = Arc::clone(&store);
                 thread::spawn(move || {
-                    let run_id = RunId::new();
+                    let branch_id = BranchId::new();
                     for i in 0..100 {
-                        let key = create_test_key(run_id, &format!("key{}", i));
+                        let key = create_test_key(branch_id, &format!("key{}", i));
                         store.put(key, create_stored_value(Value::Int(i), 1));
                     }
-                    run_id
+                    branch_id
                 })
             })
             .collect();
 
-        let run_ids: Vec<_> = handles.into_iter().map(|h| h.join().unwrap()).collect();
+        let branch_ids: Vec<_> = handles.into_iter().map(|h| h.join().unwrap()).collect();
 
         // Verify each run has 100 entries
-        for run_id in &run_ids {
-            assert_eq!(store.run_entry_count(run_id), 100);
+        for branch_id in &branch_ids {
+            assert_eq!(store.branch_entry_count(branch_id), 100);
         }
 
         assert_eq!(store.shard_count(), 10);
@@ -1423,9 +1423,9 @@ mod tests {
     #[test]
     fn test_list_run_empty() {
         let store = ShardedStore::new();
-        let run_id = RunId::new();
+        let branch_id = BranchId::new();
 
-        let results = store.list_run(&run_id);
+        let results = store.list_branch(&branch_id);
         assert!(results.is_empty());
     }
 
@@ -1434,15 +1434,15 @@ mod tests {
         use strata_core::value::Value;
 
         let store = ShardedStore::new();
-        let run_id = RunId::new();
+        let branch_id = BranchId::new();
 
         // Insert some keys
         for i in 0..5 {
-            let key = create_test_key(run_id, &format!("key{}", i));
+            let key = create_test_key(branch_id, &format!("key{}", i));
             store.put(key, create_stored_value(Value::Int(i), 1));
         }
 
-        let results = store.list_run(&run_id);
+        let results = store.list_branch(&branch_id);
         assert_eq!(results.len(), 5);
 
         // Verify sorted order
@@ -1457,12 +1457,12 @@ mod tests {
         use strata_core::value::Value;
 
         let store = ShardedStore::new();
-        let run_id = RunId::new();
+        let branch_id = BranchId::new();
         let ns = Namespace::new(
             "tenant".to_string(),
             "app".to_string(),
             "agent".to_string(),
-            run_id,
+            branch_id,
         );
 
         // Insert keys with different prefixes
@@ -1495,12 +1495,12 @@ mod tests {
         use strata_core::value::Value;
 
         let store = ShardedStore::new();
-        let run_id = RunId::new();
+        let branch_id = BranchId::new();
         let ns = Namespace::new(
             "tenant".to_string(),
             "app".to_string(),
             "agent".to_string(),
-            run_id,
+            branch_id,
         );
 
         store.put(
@@ -1521,12 +1521,12 @@ mod tests {
         use strata_core::value::Value;
 
         let store = ShardedStore::new();
-        let run_id = RunId::new();
+        let branch_id = BranchId::new();
         let ns = Namespace::new(
             "tenant".to_string(),
             "app".to_string(),
             "agent".to_string(),
-            run_id,
+            branch_id,
         );
 
         // Insert KV entries
@@ -1552,13 +1552,13 @@ mod tests {
         );
 
         // Query by type
-        let kv_results = store.list_by_type(&run_id, TypeTag::KV);
+        let kv_results = store.list_by_type(&branch_id, TypeTag::KV);
         assert_eq!(kv_results.len(), 2);
 
-        let event_results = store.list_by_type(&run_id, TypeTag::Event);
+        let event_results = store.list_by_type(&branch_id, TypeTag::Event);
         assert_eq!(event_results.len(), 1);
 
-        let state_results = store.list_by_type(&run_id, TypeTag::State);
+        let state_results = store.list_by_type(&branch_id, TypeTag::State);
         assert_eq!(state_results.len(), 1);
     }
 
@@ -1568,12 +1568,12 @@ mod tests {
         use strata_core::value::Value;
 
         let store = ShardedStore::new();
-        let run_id = RunId::new();
+        let branch_id = BranchId::new();
         let ns = Namespace::new(
             "tenant".to_string(),
             "app".to_string(),
             "agent".to_string(),
-            run_id,
+            branch_id,
         );
 
         // Insert mixed types
@@ -1590,9 +1590,9 @@ mod tests {
             );
         }
 
-        assert_eq!(store.count_by_type(&run_id, TypeTag::KV), 5);
-        assert_eq!(store.count_by_type(&run_id, TypeTag::Event), 3);
-        assert_eq!(store.count_by_type(&run_id, TypeTag::State), 0);
+        assert_eq!(store.count_by_type(&branch_id, TypeTag::KV), 5);
+        assert_eq!(store.count_by_type(&branch_id, TypeTag::Event), 3);
+        assert_eq!(store.count_by_type(&branch_id, TypeTag::State), 0);
     }
 
     #[test]
@@ -1600,9 +1600,9 @@ mod tests {
         use strata_core::value::Value;
 
         let store = ShardedStore::new();
-        let run1 = RunId::new();
-        let run2 = RunId::new();
-        let run3 = RunId::new();
+        let run1 = BranchId::new();
+        let run2 = BranchId::new();
+        let run3 = BranchId::new();
 
         // Insert data for 3 runs
         store.put(
@@ -1618,11 +1618,11 @@ mod tests {
             create_stored_value(Value::Int(3), 1),
         );
 
-        let run_ids = store.run_ids();
-        assert_eq!(run_ids.len(), 3);
-        assert!(run_ids.contains(&run1));
-        assert!(run_ids.contains(&run2));
-        assert!(run_ids.contains(&run3));
+        let branch_ids = store.branch_ids();
+        assert_eq!(branch_ids.len(), 3);
+        assert!(branch_ids.contains(&run1));
+        assert!(branch_ids.contains(&run2));
+        assert!(branch_ids.contains(&run3));
     }
 
     #[test]
@@ -1630,31 +1630,31 @@ mod tests {
         use strata_core::value::Value;
 
         let store = ShardedStore::new();
-        let run_id = RunId::new();
+        let branch_id = BranchId::new();
 
         // Insert some data
         for i in 0..5 {
-            let key = create_test_key(run_id, &format!("key{}", i));
+            let key = create_test_key(branch_id, &format!("key{}", i));
             store.put(key, create_stored_value(Value::Int(i), 1));
         }
 
-        assert_eq!(store.run_entry_count(&run_id), 5);
-        assert!(store.has_run(&run_id));
+        assert_eq!(store.branch_entry_count(&branch_id), 5);
+        assert!(store.has_branch(&branch_id));
 
         // Clear the run
-        assert!(store.clear_run(&run_id));
+        assert!(store.clear_branch(&branch_id));
 
-        assert_eq!(store.run_entry_count(&run_id), 0);
-        assert!(!store.has_run(&run_id));
+        assert_eq!(store.branch_entry_count(&branch_id), 0);
+        assert!(!store.has_branch(&branch_id));
     }
 
     #[test]
     fn test_clear_run_nonexistent() {
         let store = ShardedStore::new();
-        let run_id = RunId::new();
+        let branch_id = BranchId::new();
 
         // Clear non-existent run returns false
-        assert!(!store.clear_run(&run_id));
+        assert!(!store.clear_branch(&branch_id));
     }
 
     #[test]
@@ -1663,12 +1663,12 @@ mod tests {
         use strata_core::value::Value;
 
         let store = ShardedStore::new();
-        let run_id = RunId::new();
+        let branch_id = BranchId::new();
         let ns = Namespace::new(
             "tenant".to_string(),
             "app".to_string(),
             "agent".to_string(),
-            run_id,
+            branch_id,
         );
 
         // Insert in random order
@@ -1680,7 +1680,7 @@ mod tests {
             );
         }
 
-        let results = store.list_run(&run_id);
+        let results = store.list_branch(&branch_id);
         let result_keys: Vec<_> = results
             .iter()
             .map(|(k, _)| k.user_key_string().unwrap())
@@ -1726,10 +1726,10 @@ mod tests {
         use strata_core::value::Value;
 
         let store = Arc::new(ShardedStore::new());
-        let run_id = RunId::new();
+        let branch_id = BranchId::new();
 
         // Put some data (version=1)
-        let key = create_test_key(run_id, "test_key");
+        let key = create_test_key(branch_id, "test_key");
         store.put(key.clone(), create_stored_value(Value::Int(42), 1));
         // Update store version so snapshot can see data at version 1
         store.set_version(1);
@@ -1751,11 +1751,11 @@ mod tests {
         use strata_core::value::Value;
 
         let store = Arc::new(ShardedStore::new());
-        let run_id = RunId::new();
+        let branch_id = BranchId::new();
 
         // Put some data at version 1
         for i in 0..5 {
-            let key = create_test_key(run_id, &format!("key{}", i));
+            let key = create_test_key(branch_id, &format!("key{}", i));
             store.put(key, create_stored_value(Value::Int(i), 1));
         }
 
@@ -1764,12 +1764,12 @@ mod tests {
         let snapshot = store.snapshot();
         assert_eq!(snapshot.version(), 1);
 
-        // list_run works - sees data at version 1
-        let results = snapshot.list_run(&run_id);
+        // list_branch works - sees data at version 1
+        let results = snapshot.list_branch(&branch_id);
         assert_eq!(results.len(), 5);
 
-        // run_entry_count works
-        assert_eq!(snapshot.run_entry_count(&run_id), 5);
+        // branch_entry_count works
+        assert_eq!(snapshot.branch_entry_count(&branch_id), 5);
 
         // total_entries works
         assert_eq!(snapshot.total_entries(), 5);
@@ -1780,14 +1780,14 @@ mod tests {
         use strata_core::value::Value;
 
         let store = Arc::new(ShardedStore::new());
-        let run_id = RunId::new();
+        let branch_id = BranchId::new();
 
         // Create first snapshot at version 0
         let snap1 = store.snapshot();
         assert_eq!(snap1.version(), 0);
 
         // Add data and increment version
-        let key1 = create_test_key(run_id, "key1");
+        let key1 = create_test_key(branch_id, "key1");
         store.put(key1.clone(), create_stored_value(Value::Int(1), 1));
         store.next_version();
 
@@ -1796,7 +1796,7 @@ mod tests {
         assert_eq!(snap2.version(), 1);
 
         // Add more data
-        let key2 = create_test_key(run_id, "key2");
+        let key2 = create_test_key(branch_id, "key2");
         store.put(key2.clone(), create_stored_value(Value::Int(2), 2));
         store.next_version();
 
@@ -1879,9 +1879,9 @@ mod tests {
         let store = Arc::new(ShardedStore::new());
 
         // Add some data to make it more realistic
-        let run_id = RunId::new();
+        let branch_id = BranchId::new();
         for i in 0..1000 {
-            let key = create_test_key(run_id, &format!("key{}", i));
+            let key = create_test_key(branch_id, &format!("key{}", i));
             store.put(
                 key,
                 create_stored_value(strata_core::value::Value::Int(i), 1),
@@ -1918,8 +1918,8 @@ mod tests {
         use strata_core::value::Value;
 
         let store = ShardedStore::new();
-        let run_id = RunId::new();
-        let ns = Namespace::for_run(run_id);
+        let branch_id = BranchId::new();
+        let ns = Namespace::for_branch(branch_id);
         let key = Key::new_kv(ns, "test_key");
 
         // Put via Storage trait
@@ -1939,8 +1939,8 @@ mod tests {
         use strata_core::value::Value;
 
         let store = ShardedStore::new();
-        let run_id = RunId::new();
-        let ns = Namespace::for_run(run_id);
+        let branch_id = BranchId::new();
+        let ns = Namespace::for_branch(branch_id);
         let key = Key::new_kv(ns, "test_key");
 
         // Put with version 1
@@ -1962,8 +1962,8 @@ mod tests {
         use strata_core::value::Value;
 
         let store = ShardedStore::new();
-        let run_id = RunId::new();
-        let ns = Namespace::for_run(run_id);
+        let branch_id = BranchId::new();
+        let ns = Namespace::for_branch(branch_id);
         let key = Key::new_kv(ns, "test_key");
 
         Storage::put(&store, key.clone(), Value::Int(42), None).unwrap();
@@ -1982,8 +1982,8 @@ mod tests {
         use strata_core::value::Value;
 
         let store = ShardedStore::new();
-        let run_id = RunId::new();
-        let ns = Namespace::for_run(run_id);
+        let branch_id = BranchId::new();
+        let ns = Namespace::for_branch(branch_id);
 
         // Insert keys with different prefixes
         Storage::put(
@@ -2016,18 +2016,18 @@ mod tests {
     }
 
     #[test]
-    fn test_storage_trait_scan_by_run() {
+    fn test_storage_trait_scan_by_branch() {
         use strata_core::traits::Storage;
         use strata_core::types::Namespace;
         use strata_core::value::Value;
 
         let store = ShardedStore::new();
-        let run1 = RunId::new();
-        let run2 = RunId::new();
+        let run1 = BranchId::new();
+        let run2 = BranchId::new();
 
         // Insert data for two runs
-        let ns1 = Namespace::for_run(run1);
-        let ns2 = Namespace::for_run(run2);
+        let ns1 = Namespace::for_branch(run1);
+        let ns2 = Namespace::for_branch(run2);
 
         Storage::put(
             &store,
@@ -2052,11 +2052,11 @@ mod tests {
         .unwrap();
 
         // Scan run1
-        let results = Storage::scan_by_run(&store, run1, u64::MAX).unwrap();
+        let results = Storage::scan_by_branch(&store, run1, u64::MAX).unwrap();
         assert_eq!(results.len(), 2);
 
         // Scan run2
-        let results = Storage::scan_by_run(&store, run2, u64::MAX).unwrap();
+        let results = Storage::scan_by_branch(&store, run2, u64::MAX).unwrap();
         assert_eq!(results.len(), 1);
     }
 
@@ -2067,8 +2067,8 @@ mod tests {
         use strata_core::value::Value;
 
         let store = ShardedStore::new();
-        let run_id = RunId::new();
-        let ns = Namespace::for_run(run_id);
+        let branch_id = BranchId::new();
+        let ns = Namespace::for_branch(branch_id);
         let key = Key::new_kv(ns, "test_key");
 
         // Put with specific version 42
@@ -2089,8 +2089,8 @@ mod tests {
         use strata_core::value::Value;
 
         let store = Arc::new(ShardedStore::new());
-        let run_id = RunId::new();
-        let ns = Namespace::for_run(run_id);
+        let branch_id = BranchId::new();
+        let ns = Namespace::for_branch(branch_id);
 
         // Put at version 1
         let key1 = Key::new_kv(ns.clone(), "key1");
@@ -2126,8 +2126,8 @@ mod tests {
         use strata_core::value::Value;
 
         let store = Arc::new(ShardedStore::new());
-        let run_id = RunId::new();
-        let ns = Namespace::for_run(run_id);
+        let branch_id = BranchId::new();
+        let ns = Namespace::for_branch(branch_id);
 
         // Put two keys at version 1
         Storage::put(
@@ -2392,8 +2392,8 @@ mod tests {
         use strata_core::value::Value;
 
         let store = ShardedStore::new();
-        let run_id = RunId::new();
-        let ns = Namespace::for_run(run_id);
+        let branch_id = BranchId::new();
+        let ns = Namespace::for_branch(branch_id);
         let key = Key::new_kv(ns.clone(), "test-key");
 
         // Put multiple versions of the same key
@@ -2416,8 +2416,8 @@ mod tests {
         use strata_core::value::Value;
 
         let store = ShardedStore::new();
-        let run_id = RunId::new();
-        let ns = Namespace::for_run(run_id);
+        let branch_id = BranchId::new();
+        let ns = Namespace::for_branch(branch_id);
         let key = Key::new_kv(ns.clone(), "paginated-key");
 
         // Put 5 versions
@@ -2449,8 +2449,8 @@ mod tests {
         use strata_core::types::Namespace;
 
         let store = ShardedStore::new();
-        let run_id = RunId::new();
-        let ns = Namespace::for_run(run_id);
+        let branch_id = BranchId::new();
+        let ns = Namespace::for_branch(branch_id);
         let key = Key::new_kv(ns.clone(), "nonexistent");
 
         let history = Storage::get_history(&store, &key, None, None).unwrap();
@@ -2472,8 +2472,8 @@ mod tests {
         use strata_core::value::Value;
 
         let store = Arc::new(ShardedStore::new());
-        let run_id = RunId::new();
-        let key = create_test_key(run_id, "mvcc_uncached");
+        let branch_id = BranchId::new();
+        let key = create_test_key(branch_id, "mvcc_uncached");
 
         // Put a value at version 1
         Storage::put(&*store, key.clone(), Value::Int(100), None).unwrap();
@@ -2512,8 +2512,8 @@ mod tests {
         use strata_core::value::Value;
 
         let store = Arc::new(ShardedStore::new());
-        let run_id = RunId::new();
-        let key = create_test_key(run_id, "cached_test");
+        let branch_id = BranchId::new();
+        let key = create_test_key(branch_id, "cached_test");
 
         // Put a value at version 1
         Storage::put(&*store, key.clone(), Value::Int(100), None).unwrap();
@@ -2611,11 +2611,11 @@ mod tests {
         use std::thread;
 
         let store = Arc::new(ShardedStore::new());
-        let run_id = RunId::new();
+        let branch_id = BranchId::new();
 
         // Put initial values
         for i in 0..10 {
-            let key = create_test_key(run_id, &format!("key{}", i));
+            let key = create_test_key(branch_id, &format!("key{}", i));
             Storage::put(&*store, key, Value::Int(i), None).unwrap();
         }
 
@@ -2635,7 +2635,7 @@ mod tests {
                     let mut counter = 0;
                     while !stop.load(Ordering::Relaxed) {
                         for i in 0..10 {
-                            let key = create_test_key(run_id, &format!("key{}", i));
+                            let key = create_test_key(branch_id, &format!("key{}", i));
                             let _ = Storage::put(
                                 &*store,
                                 key,
@@ -2656,7 +2656,7 @@ mod tests {
         // Snapshot should see consistent values at snapshot_version
         for _ in 0..100 {
             for i in 0..10 {
-                let key = create_test_key(run_id, &format!("key{}", i));
+                let key = create_test_key(branch_id, &format!("key{}", i));
                 let result = SnapshotView::get(&snapshot, &key).unwrap();
 
                 // Snapshot should see SOME value (the one at or before snapshot version)
@@ -2698,8 +2698,8 @@ mod tests {
         use std::thread;
 
         let store = Arc::new(ShardedStore::new());
-        let run_id = RunId::new();
-        let key = create_test_key(run_id, "cached_key");
+        let branch_id = BranchId::new();
+        let key = create_test_key(branch_id, "cached_key");
 
         // Put a value
         Storage::put(&*store, key.clone(), Value::Int(42), None).unwrap();
@@ -2751,8 +2751,8 @@ mod tests {
         use std::thread;
 
         let store = Arc::new(ShardedStore::new());
-        let run_id = RunId::new();
-        let key = create_test_key(run_id, "gc_test");
+        let branch_id = BranchId::new();
+        let key = create_test_key(branch_id, "gc_test");
 
         // Build up a version chain with many versions
         for i in 1..=100 {
@@ -2841,11 +2841,11 @@ mod tests {
         use strata_core::value::Value;
 
         let store = ShardedStore::new();
-        let run_id = RunId::new();
+        let branch_id = BranchId::new();
 
         // Create batch with many keys
         let keys: Vec<_> = (0..10)
-            .map(|i| create_test_key(run_id, &format!("batch_key_{}", i)))
+            .map(|i| create_test_key(branch_id, &format!("batch_key_{}", i)))
             .collect();
 
         let writes: Vec<_> = keys
@@ -2875,8 +2875,8 @@ mod tests {
         use strata_core::value::Value;
 
         let store = ShardedStore::new();
-        let run_id = RunId::new();
-        let key = create_test_key(run_id, "out_of_order");
+        let branch_id = BranchId::new();
+        let key = create_test_key(branch_id, "out_of_order");
 
         // Apply batch at version 100 first
         store
@@ -2909,8 +2909,8 @@ mod tests {
         use strata_core::traits::Storage;
 
         let store = ShardedStore::new();
-        let run_id = RunId::new();
-        let key = create_test_key(run_id, "never_existed");
+        let branch_id = BranchId::new();
+        let key = create_test_key(branch_id, "never_existed");
 
         // Delete should not panic
         let result = Storage::delete(&store, &key).unwrap();
@@ -2930,10 +2930,10 @@ mod tests {
         use strata_core::value::Value;
 
         let store = ShardedStore::new();
-        let run_id = RunId::new();
+        let branch_id = BranchId::new();
 
         // Create a mix of expired and non-expired values
-        let ns = strata_core::types::Namespace::for_run(run_id);
+        let ns = strata_core::types::Namespace::for_branch(branch_id);
 
         // Non-expired key
         let key1 = Key::new_kv(ns.clone(), "fresh");

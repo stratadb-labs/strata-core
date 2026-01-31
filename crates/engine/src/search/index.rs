@@ -368,12 +368,12 @@ impl InvertedIndex {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use strata_core::types::RunId;
+    use strata_core::types::BranchId;
 
     fn test_doc_ref(name: &str) -> EntityRef {
-        let run_id = RunId::new();
+        let branch_id = BranchId::new();
         EntityRef::Kv {
-            run_id,
+            branch_id,
             key: name.to_string(),
         }
     }
