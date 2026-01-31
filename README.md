@@ -111,6 +111,7 @@ Choose your speed/safety trade-off:
 - [Cookbook](docs/cookbook/index.md) — real-world patterns
 - [API Reference](docs/reference/api-quick-reference.md) — every method at a glance
 - [Architecture](docs/architecture/index.md) — how StrataDB works internally
+- [Roadmap](roadmap/README.md) — feature roadmap from v0.2 to v1.0+
 - [Contributing](CONTRIBUTING.md) — development setup and PR process
 
 ## License
