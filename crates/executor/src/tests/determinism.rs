@@ -7,7 +7,6 @@ use crate::types::*;
 use crate::{Command, Executor, Output};
 use crate::Value;
 use strata_engine::Database;
-use std::sync::Arc;
 
 /// Create a test executor.
 fn create_test_executor() -> Executor {

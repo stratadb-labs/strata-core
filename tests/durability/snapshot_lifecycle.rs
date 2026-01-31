@@ -74,7 +74,6 @@ fn corrupted_snapshot_falls_back_to_wal() {
     // Recovery should still work (from WAL)
     test_db.reopen();
 
-    let kv = test_db.kv();
     // At minimum, recent WAL entries should be recoverable
     // (exact behavior depends on implementation)
     assert_db_healthy(&test_db.db, &run_id);

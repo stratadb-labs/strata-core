@@ -3,7 +3,6 @@
 //! Documents ClonedSnapshotView memory overhead
 //! and TransactionContext footprint.
 
-use strata_core::Storage;
 use strata_core::types::{Key, Namespace, RunId};
 use strata_core::value::Value;
 use strata_engine::Database;

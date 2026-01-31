@@ -4,7 +4,6 @@
 
 use super::Strata;
 use crate::{Command, Error, Output, Result, Value};
-use crate::types::*;
 
 impl Strata {
     // =========================================================================

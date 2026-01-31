@@ -78,12 +78,6 @@ impl DatabaseBuilder {
         self
     }
 
-    /// Set durability mode explicitly
-    pub(crate) fn durability(mut self, mode: DurabilityMode) -> Self {
-        self.durability = mode;
-        self
-    }
-
     /// Use no-durability mode (no WAL sync, files still created)
     ///
     /// This sets `DurabilityMode::None` which bypasses WAL fsync.
@@ -115,33 +109,9 @@ impl DatabaseBuilder {
     /// - Target latency: <30µs for kvstore/put
     /// - Throughput: 50K+ ops/sec
     ///
-    /// # Customization
-    ///
-    /// Use [`buffered_with`](Self::buffered_with) to customize these parameters:
-    ///
-    /// ```ignore
-    /// let db = Database::builder()
-    ///     .buffered_with(200, 500)  // 200ms or 500 writes
-    ///     .open()?;
-    /// ```
-    ///
     /// Recommended for production workloads.
     pub fn buffered(mut self) -> Self {
         self.durability = DurabilityMode::buffered_default();
-        self
-    }
-
-    /// Use Buffered mode with custom parameters
-    ///
-    /// # Arguments
-    ///
-    /// * `flush_interval_ms` - Maximum time between fsyncs
-    /// * `max_pending_writes` - Maximum writes before forced fsync
-    pub(crate) fn buffered_with(mut self, flush_interval_ms: u64, max_pending_writes: usize) -> Self {
-        self.durability = DurabilityMode::Batched {
-            interval_ms: flush_interval_ms,
-            batch_size: max_pending_writes,
-        };
         self
     }
 
@@ -152,11 +122,6 @@ impl DatabaseBuilder {
     pub fn strict(mut self) -> Self {
         self.durability = DurabilityMode::Strict;
         self
-    }
-
-    /// Get configured path (if any)
-    pub(crate) fn get_path(&self) -> Option<&PathBuf> {
-        self.path.as_ref()
     }
 
     /// Open the database

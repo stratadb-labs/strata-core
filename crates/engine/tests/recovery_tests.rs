@@ -10,7 +10,7 @@ use strata_core::contract::Version;
 use strata_core::types::RunId;
 use strata_core::value::Value;
 use strata_engine::Database;
-use strata_engine::{EventLog, KVStore, RunIndex, RunStatus, StateCell};
+use strata_engine::{EventLog, KVStore, RunIndex, StateCell};
 use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::Arc;

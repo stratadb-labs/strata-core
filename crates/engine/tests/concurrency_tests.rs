@@ -3,7 +3,6 @@
 //! Validates optimistic concurrency control behavior
 //! with 2-thread scenarios per transaction semantics documentation.
 
-use strata_core::Storage;
 use strata_core::types::{Key, Namespace, RunId};
 use strata_core::value::Value;
 use strata_engine::Database;
