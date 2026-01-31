@@ -62,11 +62,6 @@ impl std::fmt::Display for BranchId {
 #[serde(rename_all = "snake_case")]
 pub enum BranchStatus {
     Active,
-    Paused,
-    Completed,
-    Failed,
-    Cancelled,
-    Archived,
 }
 
 /// Branch information
@@ -74,11 +69,9 @@ pub enum BranchStatus {
 pub struct BranchInfo {
     pub id: BranchId,
     pub status: BranchStatus,
-    pub metadata: Option<Value>,
     pub created_at: u64,
     pub updated_at: u64,
     pub parent_id: Option<BranchId>,
-    pub tags: Vec<String>,
 }
 
 /// Versioned branch information

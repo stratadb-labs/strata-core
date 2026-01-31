@@ -108,11 +108,6 @@ pub fn export_run_with_options(
         created_at: format_micros(run_meta.created_at),
         closed_at: format_micros(run_meta.completed_at.unwrap_or(run_meta.updated_at)),
         parent_run_id: run_meta.parent_run.clone(),
-        tags: run_meta.tags.clone(),
-        metadata: match &run_meta.metadata {
-            strata_core::value::Value::Null => serde_json::Value::Null,
-            other => serde_json::to_value(other).unwrap_or(serde_json::Value::Null),
-        },
         error: run_meta.error.clone(),
     };
 

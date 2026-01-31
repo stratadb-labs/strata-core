@@ -331,12 +331,10 @@ mod tests {
         BundleRunInfo {
             branch_id: "550e8400-e29b-41d4-a716-446655440000".to_string(),
             name: "test-run".to_string(),
-            state: "completed".to_string(),
+            state: "active".to_string(),
             created_at: "2025-01-24T10:00:00Z".to_string(),
             closed_at: "2025-01-24T11:00:00Z".to_string(),
             parent_run_id: None,
-            tags: vec!["test".to_string()],
-            metadata: serde_json::json!({"key": "value"}),
             error: None,
         }
     }
@@ -556,7 +554,6 @@ mod tests {
         assert_eq!(contents.run_info.branch_id, original_run_info.branch_id);
         assert_eq!(contents.run_info.name, original_run_info.name);
         assert_eq!(contents.run_info.state, original_run_info.state);
-        assert_eq!(contents.run_info.tags, original_run_info.tags);
         assert_eq!(contents.payloads.len(), original_payloads.len());
 
         // Verify payloads match

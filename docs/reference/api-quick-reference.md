@@ -78,7 +78,7 @@ Every method on the `Strata` struct, grouped by category.
 
 | Method | Signature | Returns |
 |--------|-----------|---------|
-| `branch_create` | `(branch_id: Option<String>, metadata: Option<Value>) -> Result<(RunInfo, u64)>` | Info + version |
+| `branch_create` | `(branch_id: Option<String>, metadata: Option<Value>) -> Result<(BranchInfo, u64)>` | Info + version |
 | `branch_get` | `(branch: &str) -> Result<Option<VersionedBranchInfo>>` | Branch info or None |
 | `branch_list` | `(state: Option<BranchStatus>, limit: Option<u64>, offset: Option<u64>) -> Result<Vec<VersionedBranchInfo>>` | Branch info list |
 | `branch_exists` | `(branch: &str) -> Result<bool>` | Whether branch exists |

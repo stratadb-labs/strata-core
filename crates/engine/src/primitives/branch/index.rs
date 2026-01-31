@@ -1,10 +1,7 @@
-//! BranchIndex: Branch lifecycle management (MVP)
+//! BranchIndex: Branch lifecycle management
 //!
-//! ## MVP Scope
-//!
-//! BranchIndex tracks which branches exist. For MVP, branches are simply created or deleted.
-//! Advanced lifecycle management (status transitions, tags, metadata, export/import)
-//! is deferred to post-MVP.
+//! BranchIndex tracks which branches exist. Branches are created or deleted.
+//! Export/import is handled by the bundle module.
 //!
 //! ## MVP Methods
 //!
@@ -70,24 +67,14 @@ fn global_namespace() -> Namespace {
 
 // ========== BranchStatus Enum ==========
 
-/// Branch lifecycle status
+/// Branch lifecycle status.
 ///
-/// For MVP, all branches are Active. Status transitions are post-MVP.
-/// The enum is kept with all variants for serialization compatibility.
+/// All branches are Active. Additional statuses will be added when
+/// lifecycle transitions are implemented.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum BranchStatus {
     /// Branch is currently active
     Active,
-    /// Branch completed successfully (post-MVP)
-    Completed,
-    /// Branch failed with error (post-MVP)
-    Failed,
-    /// Branch was cancelled (post-MVP)
-    Cancelled,
-    /// Branch is paused (post-MVP)
-    Paused,
-    /// Branch is archived (post-MVP)
-    Archived,
 }
 
 impl BranchStatus {
@@ -95,11 +82,6 @@ impl BranchStatus {
     pub fn as_str(&self) -> &'static str {
         match self {
             BranchStatus::Active => "Active",
-            BranchStatus::Completed => "Completed",
-            BranchStatus::Failed => "Failed",
-            BranchStatus::Cancelled => "Cancelled",
-            BranchStatus::Paused => "Paused",
-            BranchStatus::Archived => "Archived",
         }
     }
 }
@@ -113,9 +95,6 @@ impl Default for BranchStatus {
 // ========== BranchMetadata Struct ==========
 
 /// Metadata about a branch
-///
-/// For MVP, only `name`, `branch_id`, `created_at`, and `version` are actively used.
-/// Other fields are kept for serialization compatibility and future use.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct BranchMetadata {
     /// User-provided name/key for the branch (used for lookups)
@@ -124,7 +103,7 @@ pub struct BranchMetadata {
     pub branch_id: String,
     /// Parent branch name if forked (post-MVP)
     pub parent_run: Option<String>,
-    /// Current status (always Active for MVP)
+    /// Current status
     pub status: BranchStatus,
     /// Creation timestamp (microseconds since epoch)
     pub created_at: u64,
@@ -132,10 +111,6 @@ pub struct BranchMetadata {
     pub updated_at: u64,
     /// Completion timestamp (post-MVP)
     pub completed_at: Option<u64>,
-    /// User-defined tags (post-MVP)
-    pub tags: Vec<String>,
-    /// Custom metadata (post-MVP)
-    pub metadata: Value,
     /// Error message if failed (post-MVP)
     pub error: Option<String>,
     /// Internal version counter
@@ -160,8 +135,6 @@ impl BranchMetadata {
             created_at: now,
             updated_at: now,
             completed_at: None,
-            tags: vec![],
-            metadata: Value::Null,
             error: None,
             version: 1,
         }
@@ -523,7 +496,5 @@ mod tests {
     #[test]
     fn test_run_status_as_str() {
         assert_eq!(BranchStatus::Active.as_str(), "Active");
-        assert_eq!(BranchStatus::Completed.as_str(), "Completed");
-        assert_eq!(BranchStatus::Failed.as_str(), "Failed");
     }
 }

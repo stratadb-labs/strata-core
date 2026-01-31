@@ -42,11 +42,6 @@ The `DatabaseInfo` struct returned by `db.info()`:
 | Status | Enum Value | Description |
 |--------|-----------|-------------|
 | Active | `BranchStatus::Active` | Currently in use |
-| Paused | `BranchStatus::Paused` | Temporarily suspended |
-| Completed | `BranchStatus::Completed` | Successfully finished |
-| Failed | `BranchStatus::Failed` | Terminated with error |
-| Cancelled | `BranchStatus::Cancelled` | User-cancelled |
-| Archived | `BranchStatus::Archived` | Archived for storage |
 
 ## Transaction Options
 

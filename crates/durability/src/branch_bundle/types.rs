@@ -118,7 +118,7 @@ pub struct BundleRunInfo {
     /// Human-readable run name
     pub name: String,
 
-    /// Run state: "completed", "failed", "cancelled", "archived"
+    /// Run state: "active"
     pub state: String,
 
     /// ISO 8601 timestamp when run was created
@@ -130,14 +130,6 @@ pub struct BundleRunInfo {
     /// Parent run ID if this is a child run
     #[serde(skip_serializing_if = "Option::is_none")]
     pub parent_run_id: Option<String>,
-
-    /// Tags associated with the run
-    #[serde(default)]
-    pub tags: Vec<String>,
-
-    /// Custom user metadata
-    #[serde(default)]
-    pub metadata: serde_json::Value,
 
     /// Error message if run failed
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -335,8 +327,6 @@ mod tests {
             created_at: "2025-01-24T00:00:00Z".to_string(),
             closed_at: "2025-01-24T01:00:00Z".to_string(),
             parent_run_id: None,
-            tags: vec![],
-            metadata: serde_json::Value::Null,
             error: None,
         };
 
@@ -346,7 +336,6 @@ mod tests {
         assert!(make_run("archived").is_terminal_state());
 
         assert!(!make_run("active").is_terminal_state());
-        assert!(!make_run("paused").is_terminal_state());
         assert!(!make_run("unknown").is_terminal_state());
     }
 
@@ -355,12 +344,10 @@ mod tests {
         let run_info = BundleRunInfo {
             branch_id: "550e8400-e29b-41d4-a716-446655440000".to_string(),
             name: "my-test-run".to_string(),
-            state: "completed".to_string(),
+            state: "active".to_string(),
             created_at: "2025-01-24T10:00:00Z".to_string(),
             closed_at: "2025-01-24T11:30:00Z".to_string(),
             parent_run_id: None,
-            tags: vec!["test".to_string(), "v2".to_string()],
-            metadata: serde_json::json!({"user_id": "user_123"}),
             error: None,
         };
 
@@ -379,8 +366,6 @@ mod tests {
             created_at: "2025-01-24T10:00:00Z".to_string(),
             closed_at: "2025-01-24T10:05:00Z".to_string(),
             parent_run_id: Some("parent-id".to_string()),
-            tags: vec![],
-            metadata: serde_json::Value::Null,
             error: Some("Connection timeout".to_string()),
         };
 

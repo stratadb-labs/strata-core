@@ -154,20 +154,6 @@ fn run_with_metadata() {
     assert_eq!(run.value.name, "with_metadata");
 }
 
-#[test]
-fn run_tags() {
-    let test_db = TestDb::new();
-    let run_index = test_db.run_index();
-
-    // add_tags is not available in the current API.
-    // Instead, verify that a newly created run has an empty tags field.
-    run_index.create_branch("tagged_run").unwrap();
-
-    let run = run_index.get_branch("tagged_run").unwrap().unwrap();
-    // Tags start empty (no add_tags API yet)
-    assert!(run.value.tags.is_empty());
-}
-
 // ============================================================================
 // Run Isolation with Data Operations
 // ============================================================================

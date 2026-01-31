@@ -9,7 +9,7 @@
 //! archive.runbundle.tar.zst
 //! └── runbundle/
 //!     ├── MANIFEST.json   — format version, checksums
-//!     ├── RUN.json        — run metadata (name, state, timestamps, tags)
+//!     ├── RUN.json        — run metadata (name, state, timestamps)
 //!     └── WAL.runlog      — binary log of RunlogPayload entries (msgpack v2)
 //! ```
 //!

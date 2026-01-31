@@ -353,11 +353,6 @@ fn value_to_json_scalar(value: &Value) -> strata_engine::JsonScalar {
 pub fn from_engine_branch_status(status: strata_engine::BranchStatus) -> crate::types::BranchStatus {
     match status {
         strata_engine::BranchStatus::Active => crate::types::BranchStatus::Active,
-        strata_engine::BranchStatus::Completed => crate::types::BranchStatus::Completed,
-        strata_engine::BranchStatus::Failed => crate::types::BranchStatus::Failed,
-        strata_engine::BranchStatus::Cancelled => crate::types::BranchStatus::Cancelled,
-        strata_engine::BranchStatus::Paused => crate::types::BranchStatus::Paused,
-        strata_engine::BranchStatus::Archived => crate::types::BranchStatus::Archived,
     }
 }
 

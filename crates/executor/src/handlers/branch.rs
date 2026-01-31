@@ -23,9 +23,7 @@ fn metadata_to_branch_info(m: &BranchMetadata) -> BranchInfo {
         status: from_engine_branch_status(m.status),
         created_at: m.created_at,
         updated_at: m.updated_at,
-        metadata: None, // MVP: metadata not exposed
-        parent_id: None, // MVP: parent-child not exposed
-        tags: vec![],   // MVP: tags not exposed
+        parent_id: None,
     }
 }
 
@@ -200,8 +198,6 @@ mod tests {
             created_at: 1000000,
             updated_at: 2000000,
             completed_at: None,
-            tags: vec![],
-            metadata: strata_core::Value::Null,
             error: None,
             version: 1,
         };

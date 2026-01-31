@@ -422,27 +422,16 @@ fn distance_metric_roundtrip() {
 
 #[test]
 fn run_status_roundtrip() {
-    let statuses = [
-        BranchStatus::Active,
-        BranchStatus::Completed,
-        BranchStatus::Failed,
-        BranchStatus::Cancelled,
-        BranchStatus::Paused,
-        BranchStatus::Archived,
-    ];
+    let cmd = Command::BranchList {
+        state: Some(BranchStatus::Active),
+        limit: None,
+        offset: None,
+    };
 
-    for status in statuses {
-        let cmd = Command::BranchList {
-            state: Some(status),
-            limit: None,
-            offset: None,
-        };
+    let json = serde_json::to_string(&cmd).unwrap();
+    let parsed: Command = serde_json::from_str(&json).unwrap();
 
-        let json = serde_json::to_string(&cmd).unwrap();
-        let parsed: Command = serde_json::from_str(&json).unwrap();
-
-        assert_eq!(cmd, parsed);
-    }
+    assert_eq!(cmd, parsed);
 }
 
 // ============================================================================

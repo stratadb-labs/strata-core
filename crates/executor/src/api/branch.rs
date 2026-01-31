@@ -1,8 +1,6 @@
-//! Branch lifecycle operations (MVP).
+//! Branch lifecycle operations.
 //!
-//! MVP branch operations: create, get, list, exists, delete.
-//! Advanced features (status transitions, tags, metadata, parent-child,
-//! retention) are deferred to post-MVP.
+//! Branch operations: create, get, list, exists, delete.
 
 use super::Strata;
 use crate::{Command, Error, Output, Result, Value};

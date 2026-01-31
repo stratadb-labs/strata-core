@@ -395,11 +395,9 @@ fn test_output_run_info() {
         info: BranchInfo {
             id: BranchId::from("test-run"),
             status: BranchStatus::Active,
-            metadata: Some(Value::Null),
             created_at: 1000000,
             updated_at: 1000000,
             parent_id: None,
-            tags: vec!["test".to_string()],
         },
         version: 1,
     });
