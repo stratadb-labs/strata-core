@@ -1,12 +1,12 @@
-# StrataDB Feature Roadmap
+# StrataDB Roadmap
 
 StrataDB is an embedded database designed for AI agents, providing six primitives (KV, Event, State, JSON, Vector, Branch) with ACID transactions, snapshot isolation, and crash-safe durability.
 
 **Current release**: v0.1.0 (embedded library)
 
-**Direction**: Embedded-first, with an optional server mode planned for multi-process access.
+**Direction**: Embedded-first, with intelligence features, server mode, and multi-language SDKs planned.
 
-## Milestones
+## Feature milestones
 
 | Version | Theme | Status |
 |---------|-------|--------|
@@ -18,6 +18,42 @@ StrataDB is an embedded database designed for AI agents, providing six primitive
 | [v0.7](v0.7-observability.md) | Observability | Planned |
 | [v1.0](v1.0-stable.md) | Stable release | Planned |
 | [Future](future.md) | Post-1.0 exploration | Planned |
+
+## Cross-cutting initiatives
+
+These are not versioned milestones — they cut across releases and have their own sequencing.
+
+| Initiative | Summary |
+|------------|---------|
+| [Performance characterization](performance-characterization.md) | Benchmark suite (all primitives x all durability modes) and hardware scaling study (RPi to Xeon) |
+| [Engine & storage optimization](engine-storage-optimization.md) | Data-driven rewrites based on benchmark results |
+| [strata-security](strata-security.md) | Access control crate — read-only/read-write now, per-connection auth for server mode later |
+| [Intelligence: Indexing](intelligence-indexing.md) | Reduce search latency through indexing (index type TBD, tracking SOTA) |
+| [Intelligence: Internal graph](intelligence-graph.md) | Internal graph structure for relationship-aware queries across primitives |
+| [Intelligence: Embedded inference](intelligence-inference.md) | Nano inference runtime — MiniLM for auto-embedding, Qwen3 for natural language search |
+| [SDKs and MCP server](sdks-and-mcp.md) | Python SDK (PyO3), Node SDK (NAPI-RS), MCP server — thin wrappers over Command/Output |
+| [Websites](websites.md) | stratadb.org (docs, benchmarks) and stratadb.ai (live WASM demos) |
+
+## Sequencing
+
+```
+Black-box tests
+    │
+    ▼
+Performance characterization ──→ Engine & storage optimization
+    │
+    ▼
+strata-security (phase 1)
+    │
+    ├──→ Intelligence: Indexing ──→ Intelligence: Graph
+    │                                    │
+    │                                    ▼
+    │                           Intelligence: Inference
+    │
+    ├──→ SDKs and MCP server
+    │
+    └──→ Websites: stratadb.org ──→ WASM build ──→ stratadb.ai
+```
 
 ## What shipped in v0.1.0
 
@@ -33,10 +69,10 @@ StrataDB is an embedded database designed for AI agents, providing six primitive
 
 ## How to read this roadmap
 
-Each milestone file describes:
-- **Theme**: The unifying goal for that release
-- **Features**: What will be built, with references to existing code where applicable
-- **Context**: Why this ordering makes sense
-- **Dependencies**: What must ship before this milestone
+Each document describes:
+- **Theme**: The unifying goal
+- **Features/Scope**: What will be built, with references to existing code where applicable
+- **Dependencies**: What must ship first
+- **Open questions**: What we don't know yet
 
 Milestones are ordered by priority but not committed to specific dates. Features may shift between milestones as development progresses.
