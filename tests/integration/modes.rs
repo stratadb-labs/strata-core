@@ -12,11 +12,11 @@ use tempfile::TempDir;
 // Mode Creation Helpers
 // ============================================================================
 
-fn create_ephemeral() -> Arc<Database> {
+fn create_cache() -> Arc<Database> {
     Database::cache().expect("cache db")
 }
 
-fn create_persistent_no_durability(dir: &TempDir) -> Arc<Database> {
+fn create_persistent_cache(dir: &TempDir) -> Arc<Database> {
     Database::builder()
         .path(dir.path())
         .cache()
@@ -41,12 +41,12 @@ fn create_persistent_always(dir: &TempDir) -> Arc<Database> {
 }
 
 // ============================================================================
-// Ephemeral Mode Tests
+// Cache Mode Tests
 // ============================================================================
 
 #[test]
-fn ephemeral_basic_operations() {
-    let db = create_ephemeral();
+fn cache_basic_operations() {
+    let db = create_cache();
     let branch_id = BranchId::new();
     let kv = KVStore::new(db);
 
@@ -57,8 +57,8 @@ fn ephemeral_basic_operations() {
 }
 
 #[test]
-fn ephemeral_all_primitives() {
-    let db = create_ephemeral();
+fn cache_all_primitives() {
+    let db = create_cache();
     let branch_id = BranchId::new();
 
     let kv = KVStore::new(db.clone());
@@ -109,21 +109,21 @@ fn ephemeral_all_primitives() {
 }
 
 #[test]
-fn ephemeral_data_is_lost_on_drop() {
+fn cache_data_is_lost_on_drop() {
     let branch_id = BranchId::new();
 
     // Write data
     {
-        let db = create_ephemeral();
+        let db = create_cache();
         let kv = KVStore::new(db);
-        kv.put(&branch_id, "ephemeral_key", Value::Int(42)).unwrap();
+        kv.put(&branch_id, "cache_key", Value::Int(42)).unwrap();
     }
 
-    // New ephemeral database should have no data
-    let db = create_ephemeral();
+    // New cache database should have no data
+    let db = create_cache();
     let kv = KVStore::new(db);
-    // Note: Different ephemeral instance, so this key won't exist
-    assert!(kv.get(&branch_id, "ephemeral_key").unwrap().is_none());
+    // Note: Different cache instance, so this key won't exist
+    assert!(kv.get(&branch_id, "cache_key").unwrap().is_none());
 }
 
 // ============================================================================
@@ -133,7 +133,7 @@ fn ephemeral_data_is_lost_on_drop() {
 #[test]
 fn persistent_cache_durability_basic() {
     let dir = TempDir::new().unwrap();
-    let db = create_persistent_no_durability(&dir);
+    let db = create_persistent_cache(&dir);
     let branch_id = BranchId::new();
     let kv = KVStore::new(db);
 
@@ -301,10 +301,10 @@ fn all_modes_produce_same_results() {
     }
 
     // Run workload on each mode
-    let ephemeral_result = workload(create_ephemeral(), branch_id);
+    let cache_result = workload(create_cache(), branch_id);
 
     let dir1 = TempDir::new().unwrap();
-    let no_dur_result = workload(create_persistent_no_durability(&dir1), branch_id);
+    let persistent_cache_result = workload(create_persistent_cache(&dir1), branch_id);
 
     let dir2 = TempDir::new().unwrap();
     let standard_result = workload(create_persistent_standard(&dir2), branch_id);
@@ -313,8 +313,8 @@ fn all_modes_produce_same_results() {
     let always_result = workload(create_persistent_always(&dir3), branch_id);
 
     // All should produce identical results
-    assert_eq!(ephemeral_result, no_dur_result, "Ephemeral != Cache");
-    assert_eq!(no_dur_result, standard_result, "Cache != Standard");
+    assert_eq!(cache_result, persistent_cache_result, "Cache != Persistent Cache");
+    assert_eq!(persistent_cache_result, standard_result, "Persistent Cache != Standard");
     assert_eq!(standard_result, always_result, "Standard != Always");
 }
 
@@ -323,8 +323,8 @@ fn all_modes_produce_same_results() {
 // ============================================================================
 
 #[test]
-fn ephemeral_mode_is_fast() {
-    let db = create_ephemeral();
+fn cache_mode_is_fast() {
+    let db = create_cache();
     let branch_id = BranchId::new();
     let kv = KVStore::new(db);
 
@@ -335,10 +335,10 @@ fn ephemeral_mode_is_fast() {
     }
     let elapsed = start.elapsed();
 
-    // Ephemeral should be very fast (no disk I/O)
+    // Cache mode should be very fast (no disk I/O)
     assert!(
         elapsed.as_millis() < 5000,
-        "Ephemeral 10k writes took {:?}, expected < 5s",
+        "Cache 10k writes took {:?}, expected < 5s",
         elapsed
     );
 }

@@ -31,21 +31,21 @@ impl Default for DatabaseConfig {
 }
 
 impl DatabaseConfig {
-    /// Create config with strict durability (default)
+    /// Create config with always durability (default)
     ///
     /// Every commit is fsynced before returning.
-    pub fn strict() -> Self {
+    pub fn always() -> Self {
         DatabaseConfig {
             durability: DurabilityMode::Always,
             ..Default::default()
         }
     }
 
-    /// Create config with batched durability
+    /// Create config with standard durability
     ///
     /// Commits are batched and fsynced periodically.
     /// Some committed transactions may be lost on crash.
-    pub fn batched() -> Self {
+    pub fn standard() -> Self {
         DatabaseConfig {
             durability: DurabilityMode::standard_default(),
             ..Default::default()
@@ -119,14 +119,14 @@ mod tests {
     }
 
     #[test]
-    fn test_strict_config() {
-        let config = DatabaseConfig::strict();
+    fn test_always_config() {
+        let config = DatabaseConfig::always();
         assert!(matches!(config.durability, DurabilityMode::Always));
     }
 
     #[test]
-    fn test_batched_config() {
-        let config = DatabaseConfig::batched();
+    fn test_standard_config() {
+        let config = DatabaseConfig::standard();
         assert!(matches!(config.durability, DurabilityMode::Standard { .. }));
     }
 
@@ -158,8 +158,8 @@ mod tests {
     }
 
     #[test]
-    fn test_validate_valid_config_batched() {
-        let config = DatabaseConfig::batched();
+    fn test_validate_valid_config_standard() {
+        let config = DatabaseConfig::standard();
         let result = config.validate();
         assert!(result.is_ok(), "Standard config should be valid");
         assert!(matches!(config.durability, DurabilityMode::Standard { .. }));
