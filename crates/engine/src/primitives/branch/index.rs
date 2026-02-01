@@ -310,64 +310,64 @@ impl BranchIndex {
     ///
     /// USE WITH CAUTION - this is irreversible!
     pub fn delete_branch(&self, branch_id: &str) -> StrataResult<()> {
-        // First get the branch metadata
+        // First get the branch metadata (read-only, no WAL after #970)
         let branch_meta = self
             .get_branch(branch_id)?
             .ok_or_else(|| StrataError::invalid_input(format!("Branch '{}' not found", branch_id)))?
             .value;
 
         // Resolve the executor's deterministic BranchId for this name.
-        // Data written through the executor uses this UUID for namespace scoping.
         let executor_branch_id = resolve_branch_name(branch_id);
 
         // Also get the metadata BranchId (random UUID from BranchMetadata::new).
-        // Data written directly through engine primitives (KVStore, EventLog, etc.)
-        // may use this UUID.
         let metadata_branch_id = BranchId::from_string(&branch_meta.branch_id);
 
-        // Delete data from the executor's namespace
-        self.delete_branch_data_internal(executor_branch_id)?;
+        let meta_key = self.key_for(branch_id);
 
-        // If the metadata BranchId differs, also delete from that namespace
-        if let Some(meta_id) = metadata_branch_id {
-            if meta_id != executor_branch_id {
-                self.delete_branch_data_internal(meta_id)?;
-            }
-        }
-
-        // Delete the branch metadata
+        // Single atomic transaction for all delete operations (#974).
+        // Deletes branch data from all namespaces + metadata entry.
         self.db.transaction(global_branch_id(), |txn| {
-            let meta_key = self.key_for(branch_id);
-            txn.delete(meta_key)?;
+            // Delete data from the executor's namespace
+            Self::delete_namespace_data(txn, executor_branch_id)?;
+
+            // If the metadata BranchId differs, also delete from that namespace
+            if let Some(meta_id) = metadata_branch_id {
+                if meta_id != executor_branch_id {
+                    Self::delete_namespace_data(txn, meta_id)?;
+                }
+            }
+
+            // Delete the branch metadata entry
+            txn.delete(meta_key.clone())?;
             Ok(())
         })
     }
 
-    /// Internal helper to delete all branch-scoped data
-    fn delete_branch_data_internal(&self, branch_id: BranchId) -> StrataResult<()> {
+    /// Delete all branch-scoped data within an existing transaction context.
+    fn delete_namespace_data(
+        txn: &mut strata_concurrency::TransactionContext,
+        branch_id: BranchId,
+    ) -> StrataResult<()> {
         let ns = Namespace::for_branch(branch_id);
 
-        // Single transaction for all type tags — atomic branch delete
-        self.db.transaction(branch_id, |txn| {
-            #[allow(deprecated)]
-            for type_tag in [
-                TypeTag::KV,
-                TypeTag::Event,
-                TypeTag::State,
-                TypeTag::Trace, // Deprecated but kept for backwards compatibility
-                TypeTag::Json,
-                TypeTag::Vector,
-            ] {
-                let prefix = Key::new(ns.clone(), type_tag, vec![]);
-                let entries = txn.scan_prefix(&prefix)?;
+        #[allow(deprecated)]
+        for type_tag in [
+            TypeTag::KV,
+            TypeTag::Event,
+            TypeTag::State,
+            TypeTag::Trace, // Deprecated but kept for backwards compatibility
+            TypeTag::Json,
+            TypeTag::Vector,
+        ] {
+            let prefix = Key::new(ns.clone(), type_tag, vec![]);
+            let entries = txn.scan_prefix(&prefix)?;
 
-                for (key, _) in entries {
-                    txn.delete(key)?;
-                }
+            for (key, _) in entries {
+                txn.delete(key)?;
             }
+        }
 
-            Ok(())
-        })
+        Ok(())
     }
 }
 
