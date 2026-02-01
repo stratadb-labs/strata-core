@@ -223,24 +223,10 @@ impl WalWriter {
                 }
                 self.reset_sync_counters();
             }
-            DurabilityMode::Batched {
-                interval_ms,
-                batch_size,
-            } => {
-                let should_sync = self.writes_since_sync >= batch_size
-                    || self.last_sync_time.elapsed().as_millis() as u64 >= interval_ms
-                    || self.bytes_since_sync >= self.config.buffered_sync_bytes;
-
-                if should_sync {
-                    if let Some(ref mut segment) = self.segment {
-                        let start = Instant::now();
-                        segment.sync()?;
-                        let elapsed = start.elapsed();
-                        self.total_sync_calls += 1;
-                        self.total_sync_nanos += elapsed.as_nanos() as u64;
-                    }
-                    self.reset_sync_counters();
-                }
+            DurabilityMode::Batched { .. } => {
+                // Batched mode: fsync is deferred to the background flush thread (#969).
+                // Data is already written to the BufWriter by append().
+                // The background thread periodically calls sync_if_overdue().
             }
             DurabilityMode::None => {
                 // No sync needed

@@ -162,6 +162,15 @@ pub struct Database {
     ///
     /// Extensions are lazily initialized on first access via `extension<T>()`.
     extensions: DashMap<TypeId, Arc<dyn Any + Send + Sync>>,
+
+    /// Shutdown signal for the background WAL flush thread (Batched mode only)
+    flush_shutdown: Arc<AtomicBool>,
+
+    /// Handle for the background WAL flush thread
+    ///
+    /// In Batched mode, a background thread periodically calls sync_if_overdue()
+    /// to flush WAL data to disk without blocking the write path (#969).
+    flush_handle: ParkingMutex<Option<std::thread::JoinHandle<()>>>,
 }
 
 impl Database {
@@ -311,15 +320,44 @@ impl Database {
         // Create coordinator from recovery result (preserves version continuity)
         let coordinator = TransactionCoordinator::from_recovery(&result);
 
+        let wal_arc = Arc::new(ParkingMutex::new(wal_writer));
+        let flush_shutdown = Arc::new(AtomicBool::new(false));
+
+        // Spawn background WAL flush thread for Batched mode (#969)
+        let flush_handle = if let DurabilityMode::Batched { interval_ms, .. } = durability_mode {
+            let wal = Arc::clone(&wal_arc);
+            let shutdown = Arc::clone(&flush_shutdown);
+            let interval = std::time::Duration::from_millis(interval_ms);
+
+            let handle = std::thread::Builder::new()
+                .name("strata-wal-flush".to_string())
+                .spawn(move || {
+                    while !shutdown.load(Ordering::Relaxed) {
+                        std::thread::sleep(interval);
+                        if shutdown.load(Ordering::Relaxed) {
+                            break;
+                        }
+                        let mut wal = wal.lock();
+                        let _ = wal.sync_if_overdue();
+                    }
+                })
+                .expect("Failed to spawn WAL flush thread");
+            Some(handle)
+        } else {
+            None
+        };
+
         let db = Arc::new(Self {
             data_dir: canonical_path.clone(),
             storage: Arc::new(result.storage),
-            wal_writer: Some(Arc::new(ParkingMutex::new(wal_writer))),
+            wal_writer: Some(wal_arc),
             persistence_mode: PersistenceMode::Disk,
             coordinator,
             durability_mode,
             accepting_transactions: AtomicBool::new(true),
             extensions: DashMap::new(),
+            flush_shutdown,
+            flush_handle: ParkingMutex::new(flush_handle),
         });
 
         // Register in global registry (lock already held)
@@ -392,6 +430,8 @@ impl Database {
             durability_mode: DurabilityMode::None, // Irrelevant but set for consistency
             accepting_transactions: AtomicBool::new(true),
             extensions: DashMap::new(),
+            flush_shutdown: Arc::new(AtomicBool::new(false)),
+            flush_handle: ParkingMutex::new(None),
         });
 
         // Note: Ephemeral databases are NOT registered in the global registry
@@ -871,6 +911,14 @@ impl Database {
         // Stop accepting new transactions
         self.accepting_transactions.store(false, Ordering::SeqCst);
 
+        // Signal the background flush thread to stop
+        self.flush_shutdown.store(true, Ordering::SeqCst);
+
+        // Join the flush thread so it releases the WAL lock
+        if let Some(handle) = self.flush_handle.lock().take() {
+            let _ = handle.join();
+        }
+
         // Wait for in-flight transactions to complete
         // This ensures all transactions that started before shutdown
         // have a chance to commit before we flush the WAL.
@@ -881,7 +929,7 @@ impl Database {
             std::thread::sleep(std::time::Duration::from_millis(10));
         }
 
-        // Flush WAL to ensure all data is persisted
+        // Final flush to ensure all data is persisted
         self.flush()?;
 
         Ok(())
@@ -890,6 +938,15 @@ impl Database {
 
 impl Drop for Database {
     fn drop(&mut self) {
+        // Stop the background flush thread
+        self.flush_shutdown.store(true, Ordering::SeqCst);
+        if let Some(handle) = self.flush_handle.lock().take() {
+            let _ = handle.join();
+        }
+
+        // Final flush to persist any remaining data
+        let _ = self.flush();
+
         // Remove from registry if we're disk-backed
         if self.persistence_mode == PersistenceMode::Disk && !self.data_dir.as_os_str().is_empty() {
             if let Ok(mut registry) = OPEN_DATABASES.lock() {
