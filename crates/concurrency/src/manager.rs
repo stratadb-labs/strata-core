@@ -215,26 +215,29 @@ impl TransactionManager {
         // Step 2: Allocate commit version
         let commit_version = self.allocate_version();
 
-        // Step 3: Write to WAL (durability) - only when WAL is provided
-        // Single WalRecord per committed transaction (no BeginTxn/CommitTxn framing)
-        if let Some(wal) = wal.as_mut() {
-            let payload = TransactionPayload::from_transaction(txn, commit_version);
-            let record = WalRecord::new(
-                txn.txn_id,
-                *txn.branch_id.as_bytes(),
-                now_micros(),
-                payload.to_bytes(),
-            );
+        // Step 3: Write to WAL (durability) - only for transactions with mutations
+        // Skip WAL for read-only transactions (no writes, deletes, CAS ops, or JSON patches)
+        let has_mutations = !txn.is_read_only() || !txn.json_writes().is_empty();
+        if has_mutations {
+            if let Some(wal) = wal.as_mut() {
+                let payload = TransactionPayload::from_transaction(txn, commit_version);
+                let record = WalRecord::new(
+                    txn.txn_id,
+                    *txn.branch_id.as_bytes(),
+                    now_micros(),
+                    payload.to_bytes(),
+                );
 
-            if let Err(e) = wal.append(&record) {
-                txn.status = TransactionStatus::Aborted {
-                    reason: format!("WAL write failed: {}", e),
-                };
-                return Err(CommitError::WALError(e.to_string()));
+                if let Err(e) = wal.append(&record) {
+                    txn.status = TransactionStatus::Aborted {
+                        reason: format!("WAL write failed: {}", e),
+                    };
+                    return Err(CommitError::WALError(e.to_string()));
+                }
+
+                // DURABILITY POINT: Transaction is now durable
+                // Even if we crash after this, recovery will replay from WAL
             }
-
-            // DURABILITY POINT: Transaction is now durable
-            // Even if we crash after this, recovery will replay from WAL
         }
 
         // Step 4: Apply to storage
