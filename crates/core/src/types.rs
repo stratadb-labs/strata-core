@@ -270,6 +270,34 @@ impl Key {
         Self::new(namespace, TypeTag::Event, b"__meta__".to_vec())
     }
 
+    /// Create an event type index key
+    ///
+    /// Stores a per-type sequence index entry for efficient `read_by_type` lookups.
+    /// Key format: `__tidx__{event_type}\0{sequence_be_bytes}`
+    ///
+    /// The null byte separator ensures correct prefix scanning: scanning
+    /// `__tidx__{event_type}\0` matches only that exact type. Big-endian
+    /// sequence bytes ensure results are returned in sequence order.
+    pub fn new_event_type_idx(namespace: Namespace, event_type: &str, sequence: u64) -> Self {
+        let mut user_key = Vec::with_capacity(8 + event_type.len() + 1 + 8);
+        user_key.extend_from_slice(b"__tidx__");
+        user_key.extend_from_slice(event_type.as_bytes());
+        user_key.push(0); // null separator
+        user_key.extend_from_slice(&sequence.to_be_bytes());
+        Self::new(namespace, TypeTag::Event, user_key)
+    }
+
+    /// Create a prefix key for scanning all type index entries of a given event type
+    ///
+    /// Used by `read_by_type` to find all sequence numbers for a specific event type.
+    pub fn new_event_type_idx_prefix(namespace: Namespace, event_type: &str) -> Self {
+        let mut user_key = Vec::with_capacity(8 + event_type.len() + 1);
+        user_key.extend_from_slice(b"__tidx__");
+        user_key.extend_from_slice(event_type.as_bytes());
+        user_key.push(0); // null separator
+        Self::new(namespace, TypeTag::Event, user_key)
+    }
+
     /// Create a state cell key
     ///
     /// Helper that automatically sets type_tag to TypeTag::State

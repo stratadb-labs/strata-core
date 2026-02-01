@@ -54,6 +54,10 @@ pub use strata_core::primitives::Event;
 pub(crate) const HASH_VERSION_SHA256: u8 = 1; // SHA-256
 
 /// Per-stream metadata for O(1) access to stream statistics
+///
+/// Note: The `sequences` field was removed in #972 to fix O(N) metadata growth.
+/// Per-type sequence lookups now use separate index keys (see `Key::new_event_type_idx`).
+/// Old metadata with `sequences` will deserialize correctly (serde ignores unknown fields).
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct StreamMeta {
     /// Number of events in this stream
@@ -66,9 +70,6 @@ pub struct StreamMeta {
     pub first_timestamp: u64,
     /// Timestamp of last event in stream (microseconds since epoch)
     pub last_timestamp: u64,
-    /// All sequence numbers for this type (for indexed lookups)
-    #[serde(default)]
-    pub sequences: Vec<u64>,
 }
 
 impl StreamMeta {
@@ -79,7 +80,6 @@ impl StreamMeta {
             last_sequence: sequence,
             first_timestamp: timestamp,
             last_timestamp: timestamp,
-            sequences: vec![sequence],
         }
     }
 
@@ -87,7 +87,6 @@ impl StreamMeta {
         self.count += 1;
         self.last_sequence = sequence;
         self.last_timestamp = timestamp;
-        self.sequences.push(sequence);
     }
 }
 
@@ -364,6 +363,11 @@ impl EventLog {
                 let event_key = Key::new_event(ns.clone(), sequence);
                 txn.put(event_key, to_stored_value(&event)?)?;
 
+                // Write per-type index key for efficient read_by_type lookups (#972)
+                let idx_key =
+                    Key::new_event_type_idx(ns.clone(), &event_type_owned, sequence);
+                txn.put(idx_key, Value::Null)?;
+
                 // Update stream metadata
                 match meta.streams.get_mut(&event_type_owned) {
                     Some(stream_meta) => stream_meta.update(sequence, timestamp),
@@ -452,6 +456,7 @@ impl EventLog {
     /// Read events filtered by type
     ///
     /// Returns Vec<Versioned<Event>> for events matching the type.
+    /// Uses per-type index keys for O(K) lookup where K = events of that type.
     pub fn read_by_type(
         &self,
         branch_id: &BranchId,
@@ -459,18 +464,20 @@ impl EventLog {
     ) -> StrataResult<Vec<Versioned<Event>>> {
         self.db.transaction(*branch_id, |txn| {
             let ns = self.namespace_for_branch(branch_id);
-            let meta_key = Key::new_event_meta(ns.clone());
 
-            let meta: EventLogMeta = match txn.get(&meta_key)? {
-                Some(v) => from_stored_value(&v).unwrap_or_else(|_| EventLogMeta::default()),
-                None => return Ok(Vec::new()),
-            };
+            // Use per-type index keys for efficient lookup (#972)
+            let idx_prefix = Key::new_event_type_idx_prefix(ns.clone(), event_type);
+            let idx_entries = txn.scan_prefix(&idx_prefix)?;
 
-            // Use per-type sequence index if available
-            if let Some(stream_meta) = meta.streams.get(event_type) {
-                if !stream_meta.sequences.is_empty() {
-                    let mut results = Vec::with_capacity(stream_meta.sequences.len());
-                    for &seq in &stream_meta.sequences {
+            if !idx_entries.is_empty() {
+                let mut results = Vec::with_capacity(idx_entries.len());
+                for (idx_key, _) in &idx_entries {
+                    // Extract sequence from the last 8 bytes of the user_key
+                    let user_key = &idx_key.user_key;
+                    if user_key.len() >= 8 {
+                        let seq_bytes: [u8; 8] =
+                            user_key[user_key.len() - 8..].try_into().unwrap();
+                        let seq = u64::from_be_bytes(seq_bytes);
                         let event_key = Key::new_event(ns.clone(), seq);
                         if let Some(v) = txn.get(&event_key)? {
                             let event: Event = from_stored_value(&v).map_err(|e| {
@@ -483,11 +490,17 @@ impl EventLog {
                             ));
                         }
                     }
-                    return Ok(results);
                 }
+                return Ok(results);
             }
 
-            // Fallback: O(N) scan for old metadata without sequences index
+            // Fallback: O(N) scan for old data without type index keys
+            let meta_key = Key::new_event_meta(ns.clone());
+            let meta: EventLogMeta = match txn.get(&meta_key)? {
+                Some(v) => from_stored_value(&v).unwrap_or_else(|_| EventLogMeta::default()),
+                None => return Ok(Vec::new()),
+            };
+
             let mut filtered = Vec::new();
             for seq in 0..meta.next_sequence {
                 let event_key = Key::new_event(ns.clone(), seq);
@@ -564,6 +577,10 @@ impl EventLogExt for TransactionContext {
         // Write event
         let event_key = Key::new_event(ns.clone(), sequence);
         self.put(event_key, to_stored_value(&event)?)?;
+
+        // Write per-type index key for efficient read_by_type lookups (#972)
+        let idx_key = Key::new_event_type_idx(ns.clone(), event_type, sequence);
+        self.put(idx_key, Value::Null)?;
 
         // Update stream metadata
         let event_type_owned = event_type.to_string();
