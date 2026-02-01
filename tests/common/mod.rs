@@ -48,26 +48,26 @@ pub struct TestDb {
 }
 
 impl TestDb {
-    /// Create a new test database with buffered durability (default for tests).
+    /// Create a new test database with standard durability (default for tests).
     pub fn new() -> Self {
         ensure_recovery_registered();
         let dir = tempfile::tempdir().expect("Failed to create temp dir");
         let db = Database::builder()
             .path(dir.path())
-            .buffered()
+            .standard()
             .open()
             .expect("Failed to create test database");
         let branch_id = BranchId::new();
         TestDb { db, dir, branch_id }
     }
 
-    /// Create a test database with strict durability.
+    /// Create a test database with always durability.
     pub fn new_strict() -> Self {
         ensure_recovery_registered();
         let dir = tempfile::tempdir().expect("Failed to create temp dir");
         let db = Database::builder()
             .path(dir.path())
-            .strict()
+            .always()
             .open()
             .expect("Failed to create test database");
         let branch_id = BranchId::new();
@@ -78,7 +78,7 @@ impl TestDb {
     pub fn new_in_memory() -> Self {
         ensure_recovery_registered();
         let dir = tempfile::tempdir().expect("Failed to create temp dir");
-        let db = Database::ephemeral().expect("Failed to create test database");
+        let db = Database::cache().expect("Failed to create test database");
         let branch_id = BranchId::new();
         TestDb { db, dir, branch_id }
     }
@@ -144,12 +144,12 @@ impl TestDb {
         let path = self.dir.path().to_path_buf();
         drop(std::mem::replace(
             &mut self.db,
-            Database::ephemeral().expect("temporary ephemeral for swap"),
+            Database::cache().expect("temporary cache for swap"),
         ));
         // Now open fresh from the same path
         self.db = Database::builder()
             .path(&path)
-            .strict()
+            .always()
             .open()
             .expect("Failed to reopen database");
     }
@@ -184,7 +184,7 @@ pub struct AllPrimitives {
 /// Create an in-memory test database (fastest, no persistence).
 pub fn create_test_db() -> Arc<Database> {
     ensure_recovery_registered();
-    Database::ephemeral().expect("Failed to create test database")
+    Database::cache().expect("Failed to create test database")
 }
 
 /// Create a persistent database at the given path.
@@ -192,29 +192,29 @@ pub fn create_persistent_db(path: &Path) -> Arc<Database> {
     ensure_recovery_registered();
     Database::builder()
         .path(path)
-        .buffered()
+        .standard()
         .open()
         .expect("Failed to create persistent database")
 }
 
-/// Create in-memory, buffered, and strict databases for cross-mode testing.
+/// Create in-memory, standard, and always databases for cross-mode testing.
 fn all_mode_databases() -> Vec<(&'static str, Arc<Database>, Option<TempDir>)> {
-    let buffered_dir = tempfile::tempdir().expect("Failed to create temp dir for buffered db");
-    let buffered_db = Database::builder()
-        .path(buffered_dir.path())
-        .buffered()
+    let standard_dir = tempfile::tempdir().expect("Failed to create temp dir for standard db");
+    let standard_db = Database::builder()
+        .path(standard_dir.path())
+        .standard()
         .open()
-        .expect("buffered db");
-    let strict_dir = tempfile::tempdir().expect("Failed to create temp dir for strict db");
-    let strict_db = Database::builder()
-        .path(strict_dir.path())
-        .strict()
+        .expect("standard db");
+    let always_dir = tempfile::tempdir().expect("Failed to create temp dir for always db");
+    let always_db = Database::builder()
+        .path(always_dir.path())
+        .always()
         .open()
-        .expect("strict db");
+        .expect("always db");
     vec![
         ("in_memory", create_test_db(), None),
-        ("buffered", buffered_db, Some(buffered_dir)),
-        ("strict", strict_db, Some(strict_dir)),
+        ("standard", standard_db, Some(standard_dir)),
+        ("always", always_db, Some(always_dir)),
     ]
 }
 

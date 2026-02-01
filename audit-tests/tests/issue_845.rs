@@ -19,7 +19,7 @@ fn payload(key: &str, value: Value) -> Value {
 /// This baseline test confirms the happy path works.
 #[test]
 fn issue_845_baseline_event_metadata_correct() {
-    let db = Database::ephemeral().unwrap();
+    let db = Database::cache().unwrap();
     let log = EventLog::new(db.clone());
     let branch_id = BranchId::new();
 
@@ -66,7 +66,7 @@ fn issue_845_baseline_event_metadata_correct() {
 ///   - Race conditions during concurrent writes
 #[test]
 fn issue_845_metadata_corruption_leads_to_sequence_reset() {
-    let db = Database::ephemeral().unwrap();
+    let db = Database::cache().unwrap();
     let log = EventLog::new(db.clone());
     let branch_id = BranchId::new();
 

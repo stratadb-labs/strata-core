@@ -28,7 +28,7 @@ use strata_executor::{BranchId, Command, Error, Executor, Output, Session, Value
 /// ALL errors, not just conflicts, produce this same error type.
 #[test]
 fn issue_931_commit_always_returns_transaction_conflict() {
-    let db = Database::ephemeral().unwrap();
+    let db = Database::cache().unwrap();
     let mut session = Session::new(db.clone());
     let executor = Executor::new(db.clone());
 

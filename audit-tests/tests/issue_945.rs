@@ -22,7 +22,7 @@ use strata_executor::{Command, Executor, Output};
 /// 3. The latest value is still accessible after GC
 #[test]
 fn issue_945_version_chain_gc_never_invoked() {
-    let db = Database::ephemeral().unwrap();
+    let db = Database::cache().unwrap();
     let executor = Executor::new(db);
     let branch = BranchId::from("default");
 

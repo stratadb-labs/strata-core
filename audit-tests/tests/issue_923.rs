@@ -14,7 +14,7 @@ use strata_executor::{Command, DistanceMetric, Output};
 /// instead of silently auto-creating with Cosine metric.
 #[test]
 fn issue_923_upsert_without_create_fails() {
-    let db = strata_engine::database::Database::ephemeral().unwrap();
+    let db = strata_engine::database::Database::cache().unwrap();
     let executor = strata_executor::Executor::new(db);
 
     let branch = strata_executor::BranchId::from("default");
@@ -40,7 +40,7 @@ fn issue_923_upsert_without_create_fails() {
 /// and that VectorUpsert respects the explicitly created collection.
 #[test]
 fn issue_923_explicit_create_preserves_metric() {
-    let db = strata_engine::database::Database::ephemeral().unwrap();
+    let db = strata_engine::database::Database::cache().unwrap();
     let executor = strata_executor::Executor::new(db);
 
     let branch = strata_executor::BranchId::from("default");
@@ -93,7 +93,7 @@ fn issue_923_explicit_create_preserves_metric() {
 /// Verify that VectorUpsert works correctly with an explicitly created DotProduct collection.
 #[test]
 fn issue_923_explicit_dotproduct_collection() {
-    let db = strata_engine::database::Database::ephemeral().unwrap();
+    let db = strata_engine::database::Database::cache().unwrap();
     let executor = strata_executor::Executor::new(db);
 
     let branch = strata_executor::BranchId::from("default");

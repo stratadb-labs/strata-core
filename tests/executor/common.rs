@@ -6,7 +6,7 @@ use strata_executor::{Executor, Output, Session, Strata};
 
 /// Create an executor with an in-memory database
 pub fn create_executor() -> Executor {
-    let db = Database::ephemeral().unwrap();
+    let db = Database::cache().unwrap();
     Executor::new(db)
 }
 
@@ -17,13 +17,13 @@ pub fn create_strata() -> Strata {
 
 /// Create a Session with an in-memory database
 pub fn create_session() -> Session {
-    let db = Database::ephemeral().unwrap();
+    let db = Database::cache().unwrap();
     Session::new(db)
 }
 
 /// Create a database for shared use
 pub fn create_db() -> Arc<Database> {
-    Database::ephemeral().unwrap()
+    Database::cache().unwrap()
 }
 
 /// Helper to create an event payload (must be an Object)

@@ -15,7 +15,7 @@ use strata_executor::{BranchId, Command, Executor, Output};
 /// Verify that KvGet now returns Output::MaybeVersioned as documented.
 #[test]
 fn issue_954_kvget_returns_maybe_versioned() {
-    let db = Database::ephemeral().unwrap();
+    let db = Database::cache().unwrap();
     let executor = Executor::new(db);
     let branch = BranchId::from("default");
 
@@ -47,7 +47,7 @@ fn issue_954_kvget_returns_maybe_versioned() {
 /// Verify that KvGet for a missing key returns MaybeVersioned(None).
 #[test]
 fn issue_954_kvget_missing_key_returns_maybe_versioned_none() {
-    let db = Database::ephemeral().unwrap();
+    let db = Database::cache().unwrap();
     let executor = Executor::new(db);
     let branch = BranchId::from("default");
 

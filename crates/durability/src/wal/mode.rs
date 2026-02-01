@@ -1,6 +1,6 @@
 //! Durability mode configuration
 //!
-//! Controls WAL sync behavior (None, Strict, Batched).
+//! Controls WAL sync behavior (Cache, Standard, Always).
 
 /// Durability mode for WAL operations
 ///
@@ -11,12 +11,12 @@
 ///
 /// | Mode | fsync | Data Loss Window |
 /// |------|-------|-----------------|
-/// | None | Never | All uncommitted |
-/// | Strict | Every commit | Zero |
-/// | Batched | Periodic | Up to interval/batch |
+/// | Cache | Never | All uncommitted |
+/// | Always | Every commit | Zero |
+/// | Standard | Periodic | Up to interval/batch |
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum DurabilityMode {
-    /// No durability - all data lost on crash (fastest mode)
+    /// In-memory cache — all data lost on crash (fastest mode)
     ///
     /// Bypasses WAL entirely. No fsync, no file I/O.
     /// Target latency: <3µs for engine/put_direct.
@@ -25,20 +25,20 @@ pub enum DurabilityMode {
     /// # Performance
     ///
     /// This mode enables 250K+ ops/sec by eliminating I/O entirely.
-    None,
+    Cache,
 
     /// fsync after every commit (slow, maximum durability)
     ///
     /// Use when data loss is unacceptable, even for a single write.
     /// Expect 10ms+ latency per write.
-    Strict,
+    Always,
 
-    /// fsync every N commits OR every T milliseconds
+    /// fsync every N commits OR every T milliseconds (the default)
     ///
     /// Good balance of speed and safety. May lose up to batch_size
     /// writes or interval_ms of data on crash.
     /// Target latency: <30µs.
-    Batched {
+    Standard {
         /// Maximum time between fsyncs in milliseconds
         interval_ms: u64,
         /// Maximum writes between fsyncs
@@ -49,30 +49,30 @@ pub enum DurabilityMode {
 impl DurabilityMode {
     /// Check if this mode requires WAL persistence
     ///
-    /// Returns false for None mode, true for all others.
+    /// Returns false for Cache mode, true for all others.
     pub fn requires_wal(&self) -> bool {
-        !matches!(self, DurabilityMode::None)
+        !matches!(self, DurabilityMode::Cache)
     }
 
     /// Check if this mode requires immediate fsync on every commit
     ///
-    /// Returns true only for Strict mode.
+    /// Returns true only for Always mode.
     pub fn requires_immediate_fsync(&self) -> bool {
-        matches!(self, DurabilityMode::Strict)
+        matches!(self, DurabilityMode::Always)
     }
 
     /// Human-readable description of the mode
     pub fn description(&self) -> &'static str {
         match self {
-            DurabilityMode::None => "No durability (fastest, all data lost on crash)",
-            DurabilityMode::Strict => "Sync fsync (safest, slowest)",
-            DurabilityMode::Batched { .. } => "Batched fsync (balanced speed/safety)",
+            DurabilityMode::Cache => "Cache (fastest, all data lost on crash)",
+            DurabilityMode::Always => "Always sync (safest, slowest)",
+            DurabilityMode::Standard { .. } => "Standard (balanced speed/safety)",
         }
     }
 
-    /// Create a buffered mode with recommended defaults
+    /// Create a standard mode with recommended defaults
     ///
-    /// Returns `Batched { interval_ms: 100, batch_size: 1000 }`.
+    /// Returns `Standard { interval_ms: 100, batch_size: 1000 }`.
     ///
     /// # Default Values
     ///
@@ -87,8 +87,8 @@ impl DurabilityMode {
     /// - Both thresholds work together - whichever is reached first triggers fsync
     ///
     /// This is the recommended mode for production workloads.
-    pub fn buffered_default() -> Self {
-        DurabilityMode::Batched {
+    pub fn standard_default() -> Self {
+        DurabilityMode::Standard {
             interval_ms: 100,
             batch_size: 1000,
         }
@@ -97,8 +97,8 @@ impl DurabilityMode {
 
 impl Default for DurabilityMode {
     fn default() -> Self {
-        // Default: batched with 100ms interval or 1000 commits
-        DurabilityMode::Batched {
+        // Default: standard with 100ms interval or 1000 commits
+        DurabilityMode::Standard {
             interval_ms: 100,
             batch_size: 1000,
         }

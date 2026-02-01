@@ -60,7 +60,7 @@ fn issue_944_commit_locks_never_removed_on_branch_delete() {
     use strata_executor::BranchId;
     use strata_executor::{Command, Executor, Output};
 
-    let db = Database::ephemeral().unwrap();
+    let db = Database::cache().unwrap();
     let executor = Executor::new(db);
 
     // Create and delete multiple branches

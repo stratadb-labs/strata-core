@@ -1,7 +1,7 @@
-//! Audit test for issue #887: Batched mode fsync may exceed configured interval_ms
+//! Audit test for issue #887: Standard mode fsync may exceed configured interval_ms
 //! Verdict: CONFIRMED BUG
 //!
-//! In Batched durability mode, the interval_ms check only runs when append() is called.
+//! In Standard durability mode, the interval_ms check only runs when append() is called.
 //! If no new writes arrive after a batch, unflushed data sits in the OS page cache
 //! indefinitely. There is no background timer to enforce the fsync interval.
 
@@ -15,14 +15,14 @@ fn make_record(txn_id: u64) -> WalRecord {
     WalRecord::new(txn_id, [1u8; 16], 12345, vec![1, 2, 3, 4, 5])
 }
 
-/// Demonstrates that Batched mode's interval_ms is not enforced by a timer.
+/// Demonstrates that Standard mode's interval_ms is not enforced by a timer.
 /// After writing records, the data remains unflushed until the next append().
 #[test]
 fn issue_887_interval_ms_not_enforced_without_writes() {
     let dir = tempfile::tempdir().unwrap();
     let wal_dir = dir.path().join("wal");
 
-    // Configure Batched mode with:
+    // Configure Standard mode with:
     // - interval_ms = 50 (50ms fsync interval)
     // - batch_size = 1000 (won't trigger batch-based sync)
     let config = WalConfig::new()
@@ -32,7 +32,7 @@ fn issue_887_interval_ms_not_enforced_without_writes() {
     let mut writer = WalWriter::new(
         wal_dir.clone(),
         [1u8; 16],
-        DurabilityMode::Batched {
+        DurabilityMode::Standard {
             interval_ms: 50,
             batch_size: 1000,
         },
@@ -83,7 +83,7 @@ fn issue_887_no_automatic_sync_without_subsequent_write() {
     let mut writer = WalWriter::new(
         wal_dir.clone(),
         [1u8; 16],
-        DurabilityMode::Batched {
+        DurabilityMode::Standard {
             interval_ms: 10, // 10ms interval
             batch_size: 1000,
         },
@@ -119,7 +119,7 @@ fn issue_887_batch_size_sync_works_on_write() {
     let mut writer = WalWriter::new(
         wal_dir.clone(),
         [1u8; 16],
-        DurabilityMode::Batched {
+        DurabilityMode::Standard {
             interval_ms: 999999, // Very high interval (won't trigger)
             batch_size: 5,       // Sync every 5 writes
         },
@@ -144,9 +144,9 @@ fn issue_887_batch_size_sync_works_on_write() {
     writer.flush().unwrap();
 }
 
-/// Demonstrates the contrast: Strict mode always syncs immediately.
+/// Demonstrates the contrast: Always mode always syncs immediately.
 #[test]
-fn issue_887_strict_mode_always_syncs() {
+fn issue_887_always_mode_always_syncs() {
     let dir = tempfile::tempdir().unwrap();
     let wal_dir = dir.path().join("wal");
 
@@ -157,13 +157,13 @@ fn issue_887_strict_mode_always_syncs() {
     let mut writer = WalWriter::new(
         wal_dir.clone(),
         [1u8; 16],
-        DurabilityMode::Strict,
+        DurabilityMode::Always,
         config,
         Box::new(IdentityCodec),
     )
     .unwrap();
 
-    // In strict mode, every append() is immediately synced
+    // In always mode, every append() is immediately synced
     writer.append(&make_record(1)).unwrap();
     // Data is durable immediately -- no window for data loss
 

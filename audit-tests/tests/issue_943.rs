@@ -40,7 +40,7 @@ use strata_executor::{Command, Executor, Output};
 /// Currently both work because events use Sequence versions, but the code paths differ.
 #[test]
 fn issue_943_event_read_by_type_version_extraction_inconsistency() {
-    let db = Database::ephemeral().unwrap();
+    let db = Database::cache().unwrap();
     let executor = Executor::new(db);
     let branch = BranchId::from("default");
 
@@ -142,7 +142,7 @@ fn issue_943_event_read_by_type_version_extraction_inconsistency() {
 /// but documents the inconsistency for future reference.
 #[test]
 fn issue_943_documents_fragile_version_pattern() {
-    let db = Database::ephemeral().unwrap();
+    let db = Database::cache().unwrap();
     let executor = Executor::new(db);
     let branch = BranchId::from("default");
 

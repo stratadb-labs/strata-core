@@ -20,7 +20,7 @@ use strata_executor::{Command, Output};
 /// despite using different internal serialization formats.
 #[test]
 fn issue_918_all_primitives_store_and_retrieve_successfully() {
-    let db = strata_engine::database::Database::ephemeral().unwrap();
+    let db = strata_engine::database::Database::cache().unwrap();
     let executor = strata_executor::Executor::new(db);
 
     let branch = strata_executor::BranchId::from("default");

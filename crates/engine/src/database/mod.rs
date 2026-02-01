@@ -59,16 +59,16 @@ use tracing::info;
 /// | PersistenceMode | DurabilityMode | Behavior |
 /// |-----------------|----------------|----------|
 /// | Ephemeral | (ignored) | No files, data lost on drop |
-/// | Disk | None | Files created, no fsync |
-/// | Disk | Buffered | Files created, periodic fsync |
-/// | Disk | Strict | Files created, immediate fsync |
+/// | Disk | Cache | Files created, no fsync |
+/// | Disk | Standard | Files created, periodic fsync |
+/// | Disk | Always | Files created, immediate fsync |
 ///
 /// # Use Cases
 ///
 /// - **Ephemeral**: Unit tests, caching, temporary computations
-/// - **Disk + None**: Integration tests (fast, isolated, but files exist)
-/// - **Disk + Buffered**: Production workloads
-/// - **Disk + Strict**: Audit logs, critical data
+/// - **Disk + Cache**: Integration tests (fast, isolated, but files exist)
+/// - **Disk + Standard**: Production workloads
+/// - **Disk + Always**: Audit logs, critical data
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum PersistenceMode {
     /// No disk files at all - data exists only in memory
@@ -163,12 +163,12 @@ pub struct Database {
     /// Extensions are lazily initialized on first access via `extension<T>()`.
     extensions: DashMap<TypeId, Arc<dyn Any + Send + Sync>>,
 
-    /// Shutdown signal for the background WAL flush thread (Batched mode only)
+    /// Shutdown signal for the background WAL flush thread (Standard mode only)
     flush_shutdown: Arc<AtomicBool>,
 
     /// Handle for the background WAL flush thread
     ///
-    /// In Batched mode, a background thread periodically calls sync_if_overdue()
+    /// In Standard mode, a background thread periodically calls sync_if_overdue()
     /// to flush WAL data to disk without blocking the write path (#969).
     flush_handle: ParkingMutex<Option<std::thread::JoinHandle<()>>>,
 }
@@ -184,7 +184,7 @@ impl Database {
     /// ```ignore
     /// let db = Database::builder()
     ///     .path("/data/mydb")
-    ///     .strict()
+    ///     .always()
     ///     .open()?;
     /// ```
     pub fn builder() -> DatabaseBuilder {
@@ -193,7 +193,7 @@ impl Database {
 
     /// Open database at given path with automatic recovery
     ///
-    /// This is the simplest way to open a database. Uses buffered durability
+    /// This is the simplest way to open a database. Uses standard durability
     /// by default, which provides a good balance between performance and safety.
     ///
     /// # Thread Safety
@@ -231,12 +231,12 @@ impl Database {
     /// let db = Database::open("/path/to/data")?;
     /// ```
     pub fn open<P: AsRef<Path>>(path: P) -> StrataResult<Arc<Self>> {
-        Self::open_with_mode(path, DurabilityMode::buffered_default())
+        Self::open_with_mode(path, DurabilityMode::standard_default())
     }
 
     /// Open database with specific durability mode
     ///
-    /// Allows selecting between None, Strict, or Batched durability modes.
+    /// Allows selecting between Cache, Always, or Standard durability modes.
     ///
     /// # Thread Safety
     ///
@@ -323,8 +323,8 @@ impl Database {
         let wal_arc = Arc::new(ParkingMutex::new(wal_writer));
         let flush_shutdown = Arc::new(AtomicBool::new(false));
 
-        // Spawn background WAL flush thread for Batched mode (#969)
-        let flush_handle = if let DurabilityMode::Batched { interval_ms, .. } = durability_mode {
+        // Spawn background WAL flush thread for Standard mode (#969)
+        let flush_handle = if let DurabilityMode::Standard { interval_ms, .. } = durability_mode {
             let wal = Arc::clone(&wal_arc);
             let shutdown = Arc::clone(&flush_shutdown);
             let interval = std::time::Duration::from_millis(interval_ms);
@@ -374,7 +374,7 @@ impl Database {
         Ok(db)
     }
 
-    /// Create an ephemeral database with no disk I/O
+    /// Create a cache database with no disk I/O
     ///
     /// This creates a truly in-memory database that:
     /// - Creates no files or directories
@@ -394,7 +394,7 @@ impl Database {
     /// use strata_engine::Database;
     /// use strata_core::types::BranchId;
     ///
-    /// let db = Database::ephemeral()?;
+    /// let db = Database::cache()?;
     /// let branch_id = BranchId::new();
     ///
     /// // All operations work normally
@@ -411,10 +411,10 @@ impl Database {
     ///
     /// | Method | Disk Files | WAL | Recovery |
     /// |--------|------------|-----|----------|
-    /// | `ephemeral()` | None | None | No |
-    /// | `open(path)` | Yes | Yes (buffered) | Yes |
-    /// | `builder().path(p).strict().open()` | Yes | Yes (strict) | Yes |
-    pub fn ephemeral() -> StrataResult<Arc<Self>> {
+    /// | `cache()` | None | None | No |
+    /// | `open(path)` | Yes | Yes (standard) | Yes |
+    /// | `builder().path(p).always().open()` | Yes | Yes (always) | Yes |
+    pub fn cache() -> StrataResult<Arc<Self>> {
         // Create fresh storage
         let storage = ShardedStore::new();
 
@@ -427,7 +427,7 @@ impl Database {
             wal_writer: None, // No WAL for ephemeral
             persistence_mode: PersistenceMode::Ephemeral,
             coordinator,
-            durability_mode: DurabilityMode::None, // Irrelevant but set for consistency
+            durability_mode: DurabilityMode::Cache, // Irrelevant but set for consistency
             accepting_transactions: AtomicBool::new(true),
             extensions: DashMap::new(),
             flush_shutdown: Arc::new(AtomicBool::new(false)),
@@ -983,7 +983,7 @@ mod tests {
         let mut wal = WalWriter::new(
             wal_dir.to_path_buf(),
             [0u8; 16],
-            DurabilityMode::Strict,
+            DurabilityMode::Always,
             WalConfig::for_testing(),
             Box::new(IdentityCodec),
         )
@@ -1016,7 +1016,7 @@ mod tests {
 
     #[test]
     fn test_ephemeral_no_files() {
-        let db = Database::ephemeral().unwrap();
+        let db = Database::cache().unwrap();
 
         // Should work for operations
         assert!(db.is_ephemeral());
@@ -1183,19 +1183,19 @@ mod tests {
     fn test_open_with_different_durability_modes() {
         let temp_dir = TempDir::new().unwrap();
 
-        // Strict mode
+        // Always mode
         {
             let db =
-                Database::open_with_mode(temp_dir.path().join("strict"), DurabilityMode::Strict)
+                Database::open_with_mode(temp_dir.path().join("strict"), DurabilityMode::Always)
                     .unwrap();
             assert!(!db.is_ephemeral());
         }
 
-        // Batched mode
+        // Standard mode
         {
             let db = Database::open_with_mode(
                 temp_dir.path().join("batched"),
-                DurabilityMode::Batched {
+                DurabilityMode::Standard {
                     interval_ms: 100,
                     batch_size: 1000,
                 },
@@ -1204,9 +1204,9 @@ mod tests {
             assert!(!db.is_ephemeral());
         }
 
-        // None mode
+        // Cache mode
         {
-            let db = Database::open_with_mode(temp_dir.path().join("none"), DurabilityMode::None)
+            let db = Database::open_with_mode(temp_dir.path().join("none"), DurabilityMode::Cache)
                 .unwrap();
             assert!(!db.is_ephemeral());
         }
@@ -1493,9 +1493,9 @@ mod tests {
 
     #[test]
     fn test_ephemeral_not_registered() {
-        // Create two ephemeral databases
-        let db1 = Database::ephemeral().unwrap();
-        let db2 = Database::ephemeral().unwrap();
+        // Create two cache databases
+        let db1 = Database::cache().unwrap();
+        let db2 = Database::cache().unwrap();
 
         // They should be different instances (not shared via registry)
         assert!(!Arc::ptr_eq(&db1, &db2));
@@ -1509,7 +1509,7 @@ mod tests {
         // Open via builder
         let db1 = Database::builder()
             .path(&db_path)
-            .no_durability()
+            .cache()
             .open()
             .unwrap();
 
@@ -1525,7 +1525,7 @@ mod tests {
         let temp_dir = TempDir::new().unwrap();
         let db_path = temp_dir.path().join("builder_test");
 
-        let db = Database::builder().path(&db_path).strict().open().unwrap();
+        let db = Database::builder().path(&db_path).always().open().unwrap();
 
         assert!(!db.is_ephemeral());
         assert!(db_path.exists());

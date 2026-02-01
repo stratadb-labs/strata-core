@@ -25,7 +25,7 @@ use strata_executor::{BranchId, Command, Output, Session, Value};
 /// not see events appended within the same transaction.
 #[test]
 fn issue_940_event_read_by_type_misses_uncommitted() {
-    let db = Database::ephemeral().unwrap();
+    let db = Database::cache().unwrap();
     let mut session = Session::new(db);
     let branch = BranchId::from("default");
 
@@ -84,7 +84,7 @@ fn issue_940_event_read_by_type_misses_uncommitted() {
 /// JsonList is in the "non-transactional commands" match arm.
 #[test]
 fn issue_940_json_list_routed_through_executor() {
-    let db = Database::ephemeral().unwrap();
+    let db = Database::cache().unwrap();
     let mut session = Session::new(db);
     let branch = BranchId::from("default");
 
@@ -169,7 +169,7 @@ fn issue_940_json_list_routed_through_executor() {
 /// version history changes made within the transaction.
 #[test]
 fn issue_940_kv_getv_bypasses_transaction() {
-    let db = Database::ephemeral().unwrap();
+    let db = Database::cache().unwrap();
     let mut session = Session::new(db);
     let branch = BranchId::from("default");
 

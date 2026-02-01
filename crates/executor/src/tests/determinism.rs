@@ -10,7 +10,7 @@ use strata_engine::Database;
 
 /// Create a test executor.
 fn create_test_executor() -> Executor {
-    let db = Database::ephemeral().unwrap();
+    let db = Database::cache().unwrap();
     Executor::new(db)
 }
 

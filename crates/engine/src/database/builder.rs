@@ -25,32 +25,32 @@ use super::Database;
 /// ```ignore
 /// use strata_engine::Database;
 ///
-/// // 1. Simple open with sensible defaults (buffered durability)
+/// // 1. Simple open with sensible defaults (standard durability)
 /// let db = Database::open("/data/mydb")?;
 ///
 /// // 2. Builder for custom durability
 /// let db = Database::builder()
 ///     .path("/data/mydb")
-///     .strict()  // or .buffered() or .no_durability()
+///     .always()  // or .standard() or .cache()
 ///     .open()?;
 ///
-/// // 3. Ephemeral (no files, testing)
-/// let db = Database::ephemeral()?;
+/// // 3. Cache (no files, testing)
+/// let db = Database::cache()?;
 /// ```
 ///
 /// # Key Principle
 ///
 /// Durability modes only make sense with persistent storage. If you need
-/// a database without disk files, use [`Database::ephemeral()`] instead
+/// a database without disk files, use [`Database::cache()`] instead
 /// of configuring durability options.
 ///
 /// # Performance Targets
 ///
 /// | Mode | Target Latency | Throughput |
 /// |------|----------------|------------|
-/// | NoDurability | <3µs put | 250K+ ops/sec |
-/// | Buffered | <30µs put | 50K+ ops/sec |
-/// | Strict | ~2ms put | ~500 ops/sec |
+/// | Cache | <3µs put | 250K+ ops/sec |
+/// | Standard | <30µs put | 50K+ ops/sec |
+/// | Always | ~2ms put | ~500 ops/sec |
 #[derive(Debug, Clone)]
 pub struct DatabaseBuilder {
     /// Database path (required for open())
@@ -62,38 +62,38 @@ pub struct DatabaseBuilder {
 impl DatabaseBuilder {
     /// Create new builder with defaults
     ///
-    /// Defaults to Strict durability mode for backwards compatibility.
+    /// Defaults to Always durability mode for backwards compatibility.
     pub fn new() -> Self {
         Self {
             path: None,
-            durability: DurabilityMode::Strict, // default for backwards compatibility
+            durability: DurabilityMode::Always, // default for backwards compatibility
         }
     }
 
     /// Set database path
     ///
-    /// Required for `open()`. Use `Database::ephemeral()` for no-file testing.
+    /// Required for `open()`. Use `Database::cache()` for no-file testing.
     pub fn path<P: Into<PathBuf>>(mut self, path: P) -> Self {
         self.path = Some(path.into());
         self
     }
 
-    /// Use no-durability mode (no WAL sync, files still created)
+    /// Use cache mode (no WAL sync, files still created)
     ///
-    /// This sets `DurabilityMode::None` which bypasses WAL fsync.
+    /// This sets `DurabilityMode::Cache` which bypasses WAL fsync.
     /// **Note**: Disk files are still created. For truly file-free operation,
-    /// use [`Database::ephemeral()`] instead.
+    /// use [`Database::cache()`] instead.
     ///
     /// Target latency: <3µs for engine/put_direct
     /// Throughput: 250K+ ops/sec
     ///
     /// All data lost on crash. Use for tests, caches, ephemeral data.
-    pub fn no_durability(mut self) -> Self {
-        self.durability = DurabilityMode::None;
+    pub fn cache(mut self) -> Self {
+        self.durability = DurabilityMode::Cache;
         self
     }
 
-    /// Use Buffered mode with defaults (balanced)
+    /// Use Standard mode with defaults (balanced)
     ///
     /// # Default Parameters
     ///
@@ -110,24 +110,24 @@ impl DatabaseBuilder {
     /// - Throughput: 50K+ ops/sec
     ///
     /// Recommended for production workloads.
-    pub fn buffered(mut self) -> Self {
-        self.durability = DurabilityMode::buffered_default();
+    pub fn standard(mut self) -> Self {
+        self.durability = DurabilityMode::standard_default();
         self
     }
 
-    /// Use Strict mode (default, safest)
+    /// Use Always mode (default, safest)
     ///
     /// fsync on every commit. Zero data loss on crash.
     /// Slowest mode - use for checkpoints, metadata, audit logs.
-    pub fn strict(mut self) -> Self {
-        self.durability = DurabilityMode::Strict;
+    pub fn always(mut self) -> Self {
+        self.durability = DurabilityMode::Always;
         self
     }
 
     /// Open the database
     ///
     /// Requires a path to be set via `.path()`. For testing without disk files,
-    /// use `Database::ephemeral()` instead.
+    /// use `Database::cache()` instead.
     ///
     /// # Thread Safety
     ///
@@ -136,12 +136,12 @@ impl DatabaseBuilder {
     /// # Errors
     ///
     /// Returns error if:
-    /// - No path was configured (use `.path()` or `Database::ephemeral()`)
+    /// - No path was configured (use `.path()` or `Database::cache()`)
     /// - Directory creation, WAL opening, or recovery fails
     pub fn open(self) -> StrataResult<Arc<Database>> {
         let path = self.path.ok_or_else(|| {
             StrataError::invalid_input(
-                "DatabaseBuilder::open() requires a path. Use Database::ephemeral() for testing.",
+                "DatabaseBuilder::open() requires a path. Use Database::cache() for testing.",
             )
         })?;
 

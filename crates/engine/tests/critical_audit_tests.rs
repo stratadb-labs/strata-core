@@ -15,7 +15,7 @@
 //! - #596: Lock poisoning cascade (RwLock)
 //! - #597: SystemTime panic on clock backwards
 //! - #598: WAL Mutex unwrap cascade
-//! - #599: Buffered durability silent failure
+//! - #599: Standard durability silent failure
 //! - #600: Wire encoding precision loss (u64 > 2^53)
 //! - #601: Recovery crashes on invariant violation
 //! - #602: Incomplete WAL entry detection
@@ -302,11 +302,11 @@ fn test_issue_598_mutex_poisoning_cascade() {
 // Issue #599: Buffered Durability Silent Failure
 // ============================================================================
 
-/// This test documents that the buffered durability mode silently ignores
+/// This test documents that the standard durability mode silently ignores
 /// flush errors.
 #[test]
-fn test_issue_599_buffered_durability_pattern() {
-    // The problematic pattern in buffered.rs is:
+fn test_issue_599_standard_durability_pattern() {
+    // The problematic pattern in standard.rs is:
     //
     // if let Err(e) = flush_result {
     //     eprintln!("Flush error: {}", e);  // Just prints!
@@ -321,7 +321,7 @@ fn test_issue_599_buffered_durability_pattern() {
     let _expected = "Flush errors should be propagated to callers";
     let _actual = "Flush errors are printed to stderr and ignored";
 
-    println!("Issue #599: Buffered durability silently ignores flush errors");
+    println!("Issue #599: Standard durability silently ignores flush errors");
 }
 
 // ============================================================================
@@ -446,7 +446,7 @@ fn test_all_critical_issues_documented() {
         ("596", "RwLock poisoning cascade"),
         ("597", "SystemTime panic"),
         ("598", "WAL mutex cascade"),
-        ("599", "Buffered durability failure"),
+        ("599", "Standard durability failure"),
         ("600", "Wire encoding precision loss"),
         ("601", "Recovery crash on invariant violation"),
         ("602", "Incomplete WAL entry detection"),

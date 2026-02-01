@@ -1,10 +1,10 @@
-//! Audit test for issue #969: Buffered mode shows same latency as Strict
+//! Audit test for issue #969: Standard mode shows same latency as Always
 //!
-//! In Buffered/Batched mode, writes should return quickly (~microseconds)
+//! In Standard mode, writes should return quickly (~microseconds)
 //! without waiting for fsync. A background thread handles periodic fsync.
-//! Previously, every write in Batched mode triggered an inline fsync check
+//! Previously, every write in Standard mode triggered an inline fsync check
 //! that often resulted in a synchronous ~6ms fsync, making it as slow as
-//! Strict mode.
+//! Always mode.
 //!
 //! The fix: defer fsync to a background flush thread. The inline write path
 //! only appends to the OS buffer (fast), and the background thread calls
@@ -17,24 +17,24 @@ use strata_core::Value;
 use strata_engine::Database;
 use tempfile::TempDir;
 
-/// Helper: create a buffered-mode database.
-fn buffered_db() -> (Arc<Database>, BranchId, TempDir) {
+/// Helper: create a standard-mode database.
+fn standard_db() -> (Arc<Database>, BranchId, TempDir) {
     let dir = TempDir::new().expect("tempdir");
     let db = Database::builder()
         .path(dir.path())
-        .buffered()
+        .standard()
         .open()
         .expect("open db");
     let branch = BranchId::new();
     (db, branch, dir)
 }
 
-/// Helper: create a strict-mode database.
-fn strict_db() -> (Arc<Database>, BranchId, TempDir) {
+/// Helper: create an always-mode database.
+fn always_db() -> (Arc<Database>, BranchId, TempDir) {
     let dir = TempDir::new().expect("tempdir");
     let db = Database::builder()
         .path(dir.path())
-        .strict()
+        .always()
         .open()
         .expect("open db");
     let branch = BranchId::new();
@@ -42,8 +42,8 @@ fn strict_db() -> (Arc<Database>, BranchId, TempDir) {
 }
 
 #[test]
-fn buffered_mode_writes_are_fast() {
-    let (db, branch, _dir) = buffered_db();
+fn standard_mode_writes_are_fast() {
+    let (db, branch, _dir) = standard_db();
     let ns = Namespace::for_branch(branch);
 
     // Warm up
@@ -53,7 +53,7 @@ fn buffered_mode_writes_are_fast() {
     })
     .unwrap();
 
-    // Time 100 sequential writes in buffered mode
+    // Time 100 sequential writes in standard mode
     let start = Instant::now();
     for i in 0..100 {
         db.transaction(branch, |txn| {
@@ -65,31 +65,31 @@ fn buffered_mode_writes_are_fast() {
         })
         .unwrap();
     }
-    let buffered_elapsed = start.elapsed();
+    let standard_elapsed = start.elapsed();
 
-    // 100 writes in buffered mode should take well under 100ms.
-    // In Strict mode this would take ~600ms (6ms per fsync).
-    // With the fix, buffered mode should be ~1ms total (no fsyncs).
+    // 100 writes in standard mode should take well under 100ms.
+    // In Always mode this would take ~600ms (6ms per fsync).
+    // With the fix, standard mode should be ~1ms total (no fsyncs).
     assert!(
-        buffered_elapsed < Duration::from_millis(100),
-        "100 buffered writes took {:?}, expected < 100ms (strict would be ~600ms)",
-        buffered_elapsed
+        standard_elapsed < Duration::from_millis(100),
+        "100 standard writes took {:?}, expected < 100ms (always would be ~600ms)",
+        standard_elapsed
     );
 }
 
 #[test]
-fn buffered_mode_much_faster_than_strict() {
-    let (buffered_db, b_branch, _b_dir) = buffered_db();
-    let (strict_db, s_branch, _s_dir) = strict_db();
+fn standard_mode_much_faster_than_always() {
+    let (standard_db, b_branch, _b_dir) = standard_db();
+    let (always_db, s_branch, _s_dir) = always_db();
     let b_ns = Namespace::for_branch(b_branch);
     let s_ns = Namespace::for_branch(s_branch);
 
     let n = 10;
 
-    // Time writes in strict mode
+    // Time writes in always mode
     let start = Instant::now();
     for i in 0..n {
-        strict_db
+        always_db
             .transaction(s_branch, |txn| {
                 txn.put(
                     Key::new_kv(s_ns.clone(), &format!("key_{}", i)),
@@ -99,12 +99,12 @@ fn buffered_mode_much_faster_than_strict() {
             })
             .unwrap();
     }
-    let strict_elapsed = start.elapsed();
+    let always_elapsed = start.elapsed();
 
-    // Time writes in buffered mode
+    // Time writes in standard mode
     let start = Instant::now();
     for i in 0..n {
-        buffered_db
+        standard_db
             .transaction(b_branch, |txn| {
                 txn.put(
                     Key::new_kv(b_ns.clone(), &format!("key_{}", i)),
@@ -114,23 +114,23 @@ fn buffered_mode_much_faster_than_strict() {
             })
             .unwrap();
     }
-    let buffered_elapsed = start.elapsed();
+    let standard_elapsed = start.elapsed();
 
-    // Buffered should be at least 10x faster than strict
-    let speedup = strict_elapsed.as_nanos() as f64 / buffered_elapsed.as_nanos() as f64;
+    // Standard should be at least 10x faster than always
+    let speedup = always_elapsed.as_nanos() as f64 / standard_elapsed.as_nanos() as f64;
     assert!(
         speedup > 10.0,
-        "Buffered mode should be >10x faster than strict, but was only {:.1}x faster \
-        (buffered: {:?}, strict: {:?})",
+        "Standard mode should be >10x faster than always, but was only {:.1}x faster \
+        (standard: {:?}, always: {:?})",
         speedup,
-        buffered_elapsed,
-        strict_elapsed
+        standard_elapsed,
+        always_elapsed
     );
 }
 
 #[test]
-fn buffered_mode_data_is_readable_immediately() {
-    let (db, branch, _dir) = buffered_db();
+fn standard_mode_data_is_readable_immediately() {
+    let (db, branch, _dir) = standard_db();
     let ns = Namespace::for_branch(branch);
 
     // Write data
@@ -156,8 +156,8 @@ fn buffered_mode_data_is_readable_immediately() {
 }
 
 #[test]
-fn buffered_mode_syncs_eventually() {
-    let (db, branch, _dir) = buffered_db();
+fn standard_mode_syncs_eventually() {
+    let (db, branch, _dir) = standard_db();
     let ns = Namespace::for_branch(branch);
 
     // Write data

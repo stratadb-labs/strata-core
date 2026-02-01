@@ -24,7 +24,7 @@ fn branch_delete_empty_branch_produces_one_wal_write() {
     let dir = TempDir::new().expect("tempdir");
     let db = Database::builder()
         .path(dir.path())
-        .strict()
+        .always()
         .open()
         .expect("open db");
     let strata = Strata::from_database(db).expect("strata");
@@ -56,7 +56,7 @@ fn branch_delete_with_data_produces_one_wal_write() {
     let dir = TempDir::new().expect("tempdir");
     let db = Database::builder()
         .path(dir.path())
-        .strict()
+        .always()
         .open()
         .expect("open db");
     let strata = Strata::from_database(db).expect("strata");
@@ -104,7 +104,7 @@ fn branch_delete_actually_removes_data() {
     let dir = TempDir::new().expect("tempdir");
     let db = Database::builder()
         .path(dir.path())
-        .strict()
+        .always()
         .open()
         .expect("open db");
     let strata = Strata::from_database(db).expect("strata");

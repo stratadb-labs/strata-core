@@ -4,9 +4,9 @@ use crate::Value;
 use crate::{Command, Error, Output, Session};
 use strata_engine::Database;
 
-/// Create a test session with an ephemeral in-memory database.
+/// Create a test session with a cache in-memory database.
 fn create_test_session() -> Session {
-    let db = Database::ephemeral().unwrap();
+    let db = Database::cache().unwrap();
     Session::new(db)
 }
 

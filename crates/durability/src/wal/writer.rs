@@ -34,16 +34,16 @@ pub struct WalCounters {
 ///
 /// # Durability Modes
 ///
-/// - `None`: No persistence - records are not written to disk
-/// - `Strict`: fsync after every record - maximum durability
-/// - `Batched`: fsync periodically based on time/count
+/// - `Cache`: No persistence - records are not written to disk
+/// - `Always`: fsync after every record - maximum durability
+/// - `Standard`: fsync periodically based on time/count
 ///
 /// # Segment Rotation
 ///
 /// When the current segment exceeds the configured size limit, the writer
 /// automatically rotates to a new segment. Closed segments are immutable.
 pub struct WalWriter {
-    /// Current active segment (None for DurabilityMode::None)
+    /// Current active segment (None when DurabilityMode::Cache)
     segment: Option<WalSegment>,
 
     /// Durability mode
@@ -61,13 +61,13 @@ pub struct WalWriter {
     /// Storage codec for encoding
     codec: Box<dyn StorageCodec>,
 
-    /// Bytes written since last fsync (for Batched mode)
+    /// Bytes written since last fsync (for Standard mode)
     bytes_since_sync: u64,
 
-    /// Writes since last fsync (for Batched mode)
+    /// Writes since last fsync (for Standard mode)
     writes_since_sync: usize,
 
-    /// Last fsync time (for Batched mode)
+    /// Last fsync time (for Standard mode)
     last_sync_time: Instant,
 
     /// Current segment number
@@ -98,7 +98,7 @@ impl WalWriter {
         config: WalConfig,
         codec: Box<dyn StorageCodec>,
     ) -> std::io::Result<Self> {
-        // For None mode, don't create any files
+        // For Cache mode, don't create any files
         if !durability.requires_wal() {
             return Ok(WalWriter {
                 segment: None,
@@ -167,11 +167,11 @@ impl WalWriter {
     /// Append a record to the WAL.
     ///
     /// Respects the configured durability mode:
-    /// - `None`: No-op, returns immediately
-    /// - `Strict`: Writes and fsyncs before returning
-    /// - `Batched`: Writes, fsyncs periodically
+    /// - `Cache`: No-op, returns immediately
+    /// - `Always`: Writes and fsyncs before returning
+    /// - `Standard`: Writes, fsyncs periodically
     pub fn append(&mut self, record: &WalRecord) -> std::io::Result<()> {
-        // None mode: no persistence
+        // Cache mode: no persistence
         if !self.durability.requires_wal() {
             return Ok(());
         }
@@ -179,7 +179,7 @@ impl WalWriter {
         let segment = self
             .segment
             .as_mut()
-            .expect("Segment should exist for non-None mode");
+            .expect("Segment should exist for non-Cache mode");
 
         // Serialize record
         let record_bytes = record.to_bytes();
@@ -212,7 +212,7 @@ impl WalWriter {
     /// Handle fsync based on durability mode.
     fn maybe_sync(&mut self) -> std::io::Result<()> {
         match self.durability {
-            DurabilityMode::Strict => {
+            DurabilityMode::Always => {
                 // Always sync immediately
                 if let Some(ref mut segment) = self.segment {
                     let start = Instant::now();
@@ -223,12 +223,12 @@ impl WalWriter {
                 }
                 self.reset_sync_counters();
             }
-            DurabilityMode::Batched { .. } => {
-                // Batched mode: fsync is deferred to the background flush thread (#969).
+            DurabilityMode::Standard { .. } => {
+                // Standard mode: fsync is deferred to the background flush thread (#969).
                 // Data is already written to the BufWriter by append().
                 // The background thread periodically calls sync_if_overdue().
             }
-            DurabilityMode::None => {
+            DurabilityMode::Cache => {
                 // No sync needed
             }
         }
@@ -286,14 +286,14 @@ impl WalWriter {
     /// Sync if the batched interval has elapsed and there is unsynced data.
     ///
     /// Call this periodically (e.g., from a maintenance timer) to ensure
-    /// Batched mode honors its `interval_ms` even when no new writes arrive.
+    /// Standard mode honors its `interval_ms` even when no new writes arrive.
     /// Returns `true` if a sync was performed.
     pub fn sync_if_overdue(&mut self) -> std::io::Result<bool> {
         if !self.has_unsynced_data {
             return Ok(false);
         }
 
-        if let DurabilityMode::Batched { interval_ms, .. } = self.durability {
+        if let DurabilityMode::Standard { interval_ms, .. } = self.durability {
             if self.last_sync_time.elapsed().as_millis() as u64 >= interval_ms {
                 if let Some(ref mut segment) = self.segment {
                     let start = Instant::now();
@@ -419,7 +419,7 @@ mod tests {
     fn test_inmemory_mode_no_files() {
         let dir = tempdir().unwrap();
 
-        let mut writer = make_writer(dir.path(), DurabilityMode::None);
+        let mut writer = make_writer(dir.path(), DurabilityMode::Cache);
         writer.append(&make_record(1)).unwrap();
         writer.append(&make_record(2)).unwrap();
 
@@ -432,7 +432,7 @@ mod tests {
         let dir = tempdir().unwrap();
         let wal_dir = dir.path().join("wal");
 
-        let mut writer = make_writer(&wal_dir, DurabilityMode::Strict);
+        let mut writer = make_writer(&wal_dir, DurabilityMode::Always);
         writer.append(&make_record(1)).unwrap();
 
         // Segment should exist
@@ -452,7 +452,7 @@ mod tests {
         let mut writer = WalWriter::new(
             wal_dir.clone(),
             [1u8; 16],
-            DurabilityMode::Strict,
+            DurabilityMode::Always,
             config,
             Box::new(IdentityCodec),
         )
@@ -480,7 +480,7 @@ mod tests {
 
         let mut writer = make_writer(
             &wal_dir,
-            DurabilityMode::Batched {
+            DurabilityMode::Standard {
                 interval_ms: 10000,
                 batch_size: 10000,
             },
@@ -498,12 +498,12 @@ mod tests {
         let dir = tempdir().unwrap();
         let wal_dir = dir.path().join("wal");
 
-        let mut writer = make_writer(&wal_dir, DurabilityMode::Strict);
+        let mut writer = make_writer(&wal_dir, DurabilityMode::Always);
         writer.append(&make_record(1)).unwrap();
         writer.close().unwrap();
 
         // Should be able to reopen
-        let writer2 = make_writer(&wal_dir, DurabilityMode::Strict);
+        let writer2 = make_writer(&wal_dir, DurabilityMode::Always);
         assert!(writer2.current_segment() >= 1);
     }
 
@@ -514,7 +514,7 @@ mod tests {
 
         // Write some data
         {
-            let mut writer = make_writer(&wal_dir, DurabilityMode::Strict);
+            let mut writer = make_writer(&wal_dir, DurabilityMode::Always);
             writer.append(&make_record(1)).unwrap();
             writer.flush().unwrap();
             // Don't close, just drop
@@ -522,13 +522,13 @@ mod tests {
 
         // Reopen and continue
         {
-            let mut writer = make_writer(&wal_dir, DurabilityMode::Strict);
+            let mut writer = make_writer(&wal_dir, DurabilityMode::Always);
             writer.append(&make_record(2)).unwrap();
             writer.flush().unwrap();
         }
 
         // Should have appended to existing or created new
-        let writer = make_writer(&wal_dir, DurabilityMode::Strict);
+        let writer = make_writer(&wal_dir, DurabilityMode::Always);
         assert!(writer.current_segment() >= 1);
     }
 
@@ -544,7 +544,7 @@ mod tests {
         let mut writer = WalWriter::new(
             wal_dir.clone(),
             [1u8; 16],
-            DurabilityMode::Batched {
+            DurabilityMode::Standard {
                 interval_ms: 10000,
                 batch_size: 100,
             },

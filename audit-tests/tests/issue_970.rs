@@ -4,7 +4,7 @@
 //! never write to the WAL. Previously, all operations wrapped in
 //! `db.transaction()` unconditionally committed to the WAL, even when the
 //! transaction had no writes. This produced a 47-49 byte metadata record per
-//! read, adding ~6ms of fsync latency in Strict mode.
+//! read, adding ~6ms of fsync latency in Always mode.
 //!
 //! The fix: skip WAL append in `TransactionManager::commit()` when the
 //! transaction is read-only (empty write_set, delete_set, cas_set, json_writes).
@@ -15,12 +15,12 @@ use strata_core::Value;
 use strata_engine::Database;
 use tempfile::TempDir;
 
-/// Helper: create a strict-mode database with WAL counters available.
-fn strict_db() -> (Arc<Database>, BranchId, TempDir) {
+/// Helper: create an always-mode database with WAL counters available.
+fn always_db() -> (Arc<Database>, BranchId, TempDir) {
     let dir = TempDir::new().expect("tempdir");
     let db = Database::builder()
         .path(dir.path())
-        .strict()
+        .always()
         .open()
         .expect("open db");
     let branch = BranchId::new();
@@ -36,7 +36,7 @@ fn wal_appends(db: &Database) -> u64 {
 
 #[test]
 fn read_only_kv_get_produces_no_wal_writes() {
-    let (db, branch, _dir) = strict_db();
+    let (db, branch, _dir) = always_db();
     let ns = Namespace::for_branch(branch);
 
     // Setup: write a key
@@ -65,7 +65,7 @@ fn read_only_kv_get_produces_no_wal_writes() {
 
 #[test]
 fn read_only_scan_produces_no_wal_writes() {
-    let (db, branch, _dir) = strict_db();
+    let (db, branch, _dir) = always_db();
     let ns = Namespace::for_branch(branch);
 
     // Setup: write some keys
@@ -101,7 +101,7 @@ fn read_only_scan_produces_no_wal_writes() {
 
 #[test]
 fn write_transaction_still_produces_wal_writes() {
-    let (db, branch, _dir) = strict_db();
+    let (db, branch, _dir) = always_db();
     let ns = Namespace::for_branch(branch);
 
     let before = wal_appends(&db);
@@ -126,7 +126,7 @@ fn write_transaction_still_produces_wal_writes() {
 
 #[test]
 fn mixed_reads_then_write_only_writes_wal_for_mutations() {
-    let (db, branch, _dir) = strict_db();
+    let (db, branch, _dir) = always_db();
     let ns = Namespace::for_branch(branch);
 
     // Setup: seed data

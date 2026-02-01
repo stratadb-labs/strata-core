@@ -9,7 +9,7 @@ use strata_engine::Database;
 
 #[test]
 fn issue_856_closure_api_blocked_after_shutdown() {
-    let db = Database::ephemeral().unwrap();
+    let db = Database::cache().unwrap();
 
     // Shutdown the database
     db.shutdown().unwrap();
@@ -25,7 +25,7 @@ fn issue_856_closure_api_blocked_after_shutdown() {
 
 #[test]
 fn issue_856_begin_transaction_allowed_after_shutdown() {
-    let db = Database::ephemeral().unwrap();
+    let db = Database::cache().unwrap();
 
     // Verify database is open
     assert!(db.is_open(), "Database should be open initially");

@@ -45,7 +45,7 @@ use strata_executor::{Command, Session};
 /// the command variant exists and routes through the session without panicking.
 #[test]
 fn issue_941_branch_export_routes_through_session() {
-    let db = Database::ephemeral().unwrap();
+    let db = Database::cache().unwrap();
     let mut session = Session::new(db);
 
     // BranchExport requires a valid branch_id and path.
@@ -69,7 +69,7 @@ fn issue_941_branch_export_routes_through_session() {
 /// Verify that BranchBundleValidate command routes through session.
 #[test]
 fn issue_941_branch_bundle_validate_routes_through_session() {
-    let db = Database::ephemeral().unwrap();
+    let db = Database::cache().unwrap();
     let mut session = Session::new(db);
 
     let result = session.execute(Command::BranchBundleValidate {
@@ -91,7 +91,7 @@ fn issue_941_branch_bundle_validate_routes_through_session() {
 /// through execute_in_txn -> catch-all -> executor.execute().
 #[test]
 fn issue_941_branch_export_during_active_transaction() {
-    let db = Database::ephemeral().unwrap();
+    let db = Database::cache().unwrap();
     let mut session = Session::new(db);
 
     // Begin a transaction

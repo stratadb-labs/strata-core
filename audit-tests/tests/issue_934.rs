@@ -30,7 +30,7 @@ use strata_executor::{Command, Executor, Output, Value};
 /// so passing None for branch works correctly through the public API.
 #[test]
 fn issue_934_executor_execute_resolves_none_branch() {
-    let db = Database::ephemeral().unwrap();
+    let db = Database::cache().unwrap();
     let executor = Executor::new(db);
 
     // Pass None branch — Executor::execute() calls resolve_default_branch
@@ -87,7 +87,7 @@ fn issue_934_expect_message_is_consistent() {
     // This test simply verifies that the public API works correctly
     // (None branches are resolved).
 
-    let db = Database::ephemeral().unwrap();
+    let db = Database::cache().unwrap();
     let executor = Executor::new(db);
 
     // Various commands with None branch all work through execute()

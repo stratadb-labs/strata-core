@@ -267,7 +267,7 @@ mod tests {
     use strata_core::value::Value;
 
     fn test_db() -> Arc<Database> {
-        Database::ephemeral().expect("Failed to create test database")
+        Database::cache().expect("Failed to create test database")
     }
 
     #[test]

@@ -15,7 +15,7 @@ use strata_executor::{Command, Output, Session};
 /// deserialized Value::Object (not raw bytes or internal struct fields).
 #[test]
 fn issue_917_json_get_root_path_in_transaction() {
-    let db = strata_engine::database::Database::ephemeral().unwrap();
+    let db = strata_engine::database::Database::cache().unwrap();
     let mut session = Session::new(db);
 
     let branch = strata_executor::BranchId::from("default");
@@ -94,7 +94,7 @@ fn issue_917_json_get_root_path_in_transaction() {
 /// Confirm that JSON root path works correctly OUTSIDE a transaction too.
 #[test]
 fn issue_917_json_get_root_path_outside_transaction_works() {
-    let db = strata_engine::database::Database::ephemeral().unwrap();
+    let db = strata_engine::database::Database::cache().unwrap();
     let mut session = Session::new(db);
 
     let branch = strata_executor::BranchId::from("default");

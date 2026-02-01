@@ -102,7 +102,7 @@ The recovery invariant tests catch bugs like "recovery invents phantom keys" or 
    - Update vector helper signatures to match current `VectorStore::insert()` API
    - Remove/update search helper imports (`strata_intelligence::SearchRequest` etc.)
    - Verify `TestDb` wrapper methods match current `Database`/`DatabaseBuilder` API
-   - Remove references to `DatabaseBuilder::open_temp()` (doesn't exist — use `Database::ephemeral()`)
+   - Remove references to `DatabaseBuilder::open_temp()` (doesn't exist — use `Database::cache()`)
 2. Fix `acid_properties.rs`:
    - `Database::shutdown()` is `pub(crate)` — either make public or use `drop()`
    - `KVStoreExt`, `EventLogExt`, `StateCellExt` all exist and match

@@ -3,7 +3,7 @@
 //! This crate handles everything that touches disk:
 //!
 //! - WAL: Segmented write-ahead log with one record per committed transaction
-//! - Durability modes: Strict, Batched (default), None
+//! - Durability modes: Always, Standard (default), Cache
 //! - Snapshot creation and loading
 //! - Recovery: Coordinator-based recovery (MANIFEST + snapshot + WAL)
 //! - Binary on-disk formats (segmented WAL, snapshots, manifest)

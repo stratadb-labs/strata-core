@@ -167,8 +167,8 @@ impl RecoveryCoordinator {
     ///
     /// This is safe because:
     /// - Partial records mean the transaction wasn't committed
-    /// - In Strict mode, committed transactions are fsynced
-    /// - In Buffered mode, some data loss is expected on crash
+    /// - In Always mode, committed transactions are fsynced
+    /// - In Standard mode, some data loss is expected on crash
     pub fn truncate_partial_records(&self, wal_dir: &Path) -> Result<u64, RecoveryError> {
         let reader = crate::wal::WalReader::new(clone_codec(self.codec.as_ref())?);
 
@@ -318,7 +318,7 @@ mod tests {
         let mut writer = WalWriter::new(
             wal_dir,
             test_uuid(),
-            DurabilityMode::Strict,
+            DurabilityMode::Always,
             WalConfig::for_testing(),
             make_codec(),
         )

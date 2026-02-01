@@ -249,7 +249,7 @@ mod tests {
         WalWriter::new(
             dir.to_path_buf(),
             [0u8; 16],
-            DurabilityMode::Strict,
+            DurabilityMode::Always,
             WalConfig::for_testing(),
             Box::new(IdentityCodec),
         )

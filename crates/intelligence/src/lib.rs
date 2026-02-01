@@ -55,7 +55,7 @@ pub use tokenizer::{tokenize, tokenize_unique};
 /// use strata_intelligence::DatabaseSearchExt;
 /// use std::sync::Arc;
 ///
-/// let db = Database::ephemeral()?;
+/// let db = Database::cache()?;
 /// let hybrid = db.hybrid();
 /// let response = hybrid.search(&request)?;
 /// ```
@@ -80,7 +80,7 @@ mod tests {
 
     #[test]
     fn test_database_search_ext() {
-        let db = Database::ephemeral().expect("Failed to create test database");
+        let db = Database::cache().expect("Failed to create test database");
 
         let hybrid = db.hybrid();
         let branch_id = BranchId::new();

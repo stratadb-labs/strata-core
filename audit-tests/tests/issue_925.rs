@@ -26,7 +26,7 @@ use strata_executor::{Command, Output};
 /// Verify that branch delete removes data from all primitive types.
 #[test]
 fn issue_925_branch_delete_removes_all_data() {
-    let db = strata_engine::database::Database::ephemeral().unwrap();
+    let db = strata_engine::database::Database::cache().unwrap();
     let executor = strata_executor::Executor::new(db);
 
     // Create a non-default branch

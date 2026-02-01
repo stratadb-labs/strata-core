@@ -32,7 +32,7 @@ use strata_executor::{BranchId, Command, Executor, Output};
 /// Demonstrates that writing to a deleted branch succeeds, creating orphaned data.
 #[test]
 fn issue_951_ops_on_deleted_branch() {
-    let db = Database::ephemeral().unwrap();
+    let db = Database::cache().unwrap();
     let executor = Executor::new(db);
 
     // Create a branch
@@ -116,7 +116,7 @@ fn issue_951_ops_on_deleted_branch() {
 /// Demonstrates that event append on a deleted branch may succeed.
 #[test]
 fn issue_951_event_append_on_deleted_branch() {
-    let db = Database::ephemeral().unwrap();
+    let db = Database::cache().unwrap();
     let executor = Executor::new(db);
 
     // Create and delete a branch
@@ -159,7 +159,7 @@ fn issue_951_event_append_on_deleted_branch() {
 /// Demonstrates that state operations on a deleted branch may succeed.
 #[test]
 fn issue_951_state_set_on_deleted_branch() {
-    let db = Database::ephemeral().unwrap();
+    let db = Database::cache().unwrap();
     let executor = Executor::new(db);
 
     // Create and delete a branch

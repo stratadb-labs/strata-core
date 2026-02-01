@@ -156,7 +156,7 @@ impl JsonDoc {
 /// use strata_core::types::BranchId;
 /// use strata_core::primitives::json::JsonValue;
 ///
-/// let db = Database::ephemeral()?;
+/// let db = Database::cache()?;
 /// let json = JsonStore::new(db);
 /// let branch_id = BranchId::new();
 ///
@@ -773,7 +773,7 @@ mod tests {
 
     #[test]
     fn test_jsonstore_is_clone() {
-        let db = Database::ephemeral().unwrap();
+        let db = Database::cache().unwrap();
         let store1 = JsonStore::new(db.clone());
         let store2 = store1.clone();
         assert!(Arc::ptr_eq(store1.database(), store2.database()));
@@ -787,7 +787,7 @@ mod tests {
 
     #[test]
     fn test_key_for_branch_isolation() {
-        let db = Database::ephemeral().unwrap();
+        let db = Database::cache().unwrap();
         let store = JsonStore::new(db);
 
         let branch1 = BranchId::new();
@@ -803,7 +803,7 @@ mod tests {
 
     #[test]
     fn test_key_for_same_branch() {
-        let db = Database::ephemeral().unwrap();
+        let db = Database::cache().unwrap();
         let store = JsonStore::new(db);
 
         let branch_id = BranchId::new();
@@ -871,7 +871,7 @@ mod tests {
 
     #[test]
     fn test_serialize_deserialize_roundtrip() {
-        let db = Database::ephemeral().unwrap();
+        let db = Database::cache().unwrap();
         let _store = JsonStore::new(db);
 
         let doc = JsonDoc::new("test-doc", JsonValue::from("test value"));
@@ -888,7 +888,7 @@ mod tests {
 
     #[test]
     fn test_serialize_complex_document() {
-        let db = Database::ephemeral().unwrap();
+        let db = Database::cache().unwrap();
         let _store = JsonStore::new(db);
 
         let value: JsonValue = serde_json::json!({
@@ -913,7 +913,7 @@ mod tests {
 
     #[test]
     fn test_deserialize_invalid_type() {
-        let db = Database::ephemeral().unwrap();
+        let db = Database::cache().unwrap();
         let _store = JsonStore::new(db);
 
         // Try to deserialize a non-bytes value
@@ -925,7 +925,7 @@ mod tests {
 
     #[test]
     fn test_deserialize_invalid_bytes() {
-        let db = Database::ephemeral().unwrap();
+        let db = Database::cache().unwrap();
         let _store = JsonStore::new(db);
 
         // Try to deserialize garbage bytes
@@ -937,7 +937,7 @@ mod tests {
 
     #[test]
     fn test_serialized_size_is_compact() {
-        let db = Database::ephemeral().unwrap();
+        let db = Database::cache().unwrap();
         let _store = JsonStore::new(db);
 
         let doc = JsonDoc::new("test-doc", JsonValue::from(42i64));
@@ -960,7 +960,7 @@ mod tests {
 
     #[test]
     fn test_create_document() {
-        let db = Database::ephemeral().unwrap();
+        let db = Database::cache().unwrap();
         let store = JsonStore::new(db);
         let branch_id = BranchId::new();
         let doc_id = "test-doc";
@@ -973,7 +973,7 @@ mod tests {
 
     #[test]
     fn test_create_object_document() {
-        let db = Database::ephemeral().unwrap();
+        let db = Database::cache().unwrap();
         let store = JsonStore::new(db);
         let branch_id = BranchId::new();
         let doc_id = "test-doc";
@@ -990,7 +990,7 @@ mod tests {
 
     #[test]
     fn test_create_duplicate_fails() {
-        let db = Database::ephemeral().unwrap();
+        let db = Database::cache().unwrap();
         let store = JsonStore::new(db);
         let branch_id = BranchId::new();
         let doc_id = "test-doc";
@@ -1007,7 +1007,7 @@ mod tests {
 
     #[test]
     fn test_create_different_docs() {
-        let db = Database::ephemeral().unwrap();
+        let db = Database::cache().unwrap();
         let store = JsonStore::new(db);
         let branch_id = BranchId::new();
 
@@ -1027,7 +1027,7 @@ mod tests {
 
     #[test]
     fn test_create_branch_isolation() {
-        let db = Database::ephemeral().unwrap();
+        let db = Database::cache().unwrap();
         let store = JsonStore::new(db);
 
         let branch1 = BranchId::new();
@@ -1048,7 +1048,7 @@ mod tests {
 
     #[test]
     fn test_create_null_value() {
-        let db = Database::ephemeral().unwrap();
+        let db = Database::cache().unwrap();
         let store = JsonStore::new(db);
         let branch_id = BranchId::new();
         let doc_id = "test-doc";
@@ -1061,7 +1061,7 @@ mod tests {
 
     #[test]
     fn test_create_empty_object() {
-        let db = Database::ephemeral().unwrap();
+        let db = Database::cache().unwrap();
         let store = JsonStore::new(db);
         let branch_id = BranchId::new();
         let doc_id = "test-doc";
@@ -1074,7 +1074,7 @@ mod tests {
 
     #[test]
     fn test_create_empty_array() {
-        let db = Database::ephemeral().unwrap();
+        let db = Database::cache().unwrap();
         let store = JsonStore::new(db);
         let branch_id = BranchId::new();
         let doc_id = "test-doc";
@@ -1091,7 +1091,7 @@ mod tests {
 
     #[test]
     fn test_get_root() {
-        let db = Database::ephemeral().unwrap();
+        let db = Database::cache().unwrap();
         let store = JsonStore::new(db);
         let branch_id = BranchId::new();
         let doc_id = "test-doc";
@@ -1106,7 +1106,7 @@ mod tests {
 
     #[test]
     fn test_get_at_path() {
-        let db = Database::ephemeral().unwrap();
+        let db = Database::cache().unwrap();
         let store = JsonStore::new(db);
         let branch_id = BranchId::new();
         let doc_id = "test-doc";
@@ -1135,7 +1135,7 @@ mod tests {
 
     #[test]
     fn test_get_nested_path() {
-        let db = Database::ephemeral().unwrap();
+        let db = Database::cache().unwrap();
         let store = JsonStore::new(db);
         let branch_id = BranchId::new();
         let doc_id = "test-doc";
@@ -1162,7 +1162,7 @@ mod tests {
 
     #[test]
     fn test_get_array_element() {
-        let db = Database::ephemeral().unwrap();
+        let db = Database::cache().unwrap();
         let store = JsonStore::new(db);
         let branch_id = BranchId::new();
         let doc_id = "test-doc";
@@ -1185,7 +1185,7 @@ mod tests {
 
     #[test]
     fn test_get_missing_document() {
-        let db = Database::ephemeral().unwrap();
+        let db = Database::cache().unwrap();
         let store = JsonStore::new(db);
         let branch_id = BranchId::new();
         let doc_id = "test-doc";
@@ -1196,7 +1196,7 @@ mod tests {
 
     #[test]
     fn test_get_missing_path() {
-        let db = Database::ephemeral().unwrap();
+        let db = Database::cache().unwrap();
         let store = JsonStore::new(db);
         let branch_id = BranchId::new();
         let doc_id = "test-doc";
@@ -1213,7 +1213,7 @@ mod tests {
 
     #[test]
     fn test_exists() {
-        let db = Database::ephemeral().unwrap();
+        let db = Database::cache().unwrap();
         let store = JsonStore::new(db);
         let branch_id = BranchId::new();
         let doc_id = "test-doc";
@@ -1229,7 +1229,7 @@ mod tests {
 
     #[test]
     fn test_exists_branch_isolation() {
-        let db = Database::ephemeral().unwrap();
+        let db = Database::cache().unwrap();
         let store = JsonStore::new(db);
 
         let branch1 = BranchId::new();
@@ -1251,7 +1251,7 @@ mod tests {
 
     #[test]
     fn test_set_at_root() {
-        let db = Database::ephemeral().unwrap();
+        let db = Database::cache().unwrap();
         let store = JsonStore::new(db);
         let branch_id = BranchId::new();
         let doc_id = "test-doc";
@@ -1276,7 +1276,7 @@ mod tests {
 
     #[test]
     fn test_set_at_path() {
-        let db = Database::ephemeral().unwrap();
+        let db = Database::cache().unwrap();
         let store = JsonStore::new(db);
         let branch_id = BranchId::new();
         let doc_id = "test-doc";
@@ -1306,7 +1306,7 @@ mod tests {
 
     #[test]
     fn test_set_nested_path() {
-        let db = Database::ephemeral().unwrap();
+        let db = Database::cache().unwrap();
         let store = JsonStore::new(db);
         let branch_id = BranchId::new();
         let doc_id = "test-doc";
@@ -1337,7 +1337,7 @@ mod tests {
 
     #[test]
     fn test_set_increments_version() {
-        let db = Database::ephemeral().unwrap();
+        let db = Database::cache().unwrap();
         let store = JsonStore::new(db);
         let branch_id = BranchId::new();
         let doc_id = "test-doc";
@@ -1370,7 +1370,7 @@ mod tests {
 
     #[test]
     fn test_set_missing_document() {
-        let db = Database::ephemeral().unwrap();
+        let db = Database::cache().unwrap();
         let store = JsonStore::new(db);
         let branch_id = BranchId::new();
         let doc_id = "test-doc";
@@ -1386,7 +1386,7 @@ mod tests {
 
     #[test]
     fn test_set_overwrites_value() {
-        let db = Database::ephemeral().unwrap();
+        let db = Database::cache().unwrap();
         let store = JsonStore::new(db);
         let branch_id = BranchId::new();
         let doc_id = "test-doc";
@@ -1414,7 +1414,7 @@ mod tests {
 
     #[test]
     fn test_set_array_element() {
-        let db = Database::ephemeral().unwrap();
+        let db = Database::cache().unwrap();
         let store = JsonStore::new(db);
         let branch_id = BranchId::new();
         let doc_id = "test-doc";
@@ -1443,7 +1443,7 @@ mod tests {
 
     #[test]
     fn test_delete_at_path() {
-        let db = Database::ephemeral().unwrap();
+        let db = Database::cache().unwrap();
         let store = JsonStore::new(db);
         let branch_id = BranchId::new();
         let doc_id = "test-doc";
@@ -1477,7 +1477,7 @@ mod tests {
 
     #[test]
     fn test_delete_at_nested_path() {
-        let db = Database::ephemeral().unwrap();
+        let db = Database::cache().unwrap();
         let store = JsonStore::new(db);
         let branch_id = BranchId::new();
         let doc_id = "test-doc";
@@ -1517,7 +1517,7 @@ mod tests {
 
     #[test]
     fn test_delete_at_path_array_element() {
-        let db = Database::ephemeral().unwrap();
+        let db = Database::cache().unwrap();
         let store = JsonStore::new(db);
         let branch_id = BranchId::new();
         let doc_id = "test-doc";
@@ -1547,7 +1547,7 @@ mod tests {
 
     #[test]
     fn test_delete_at_path_increments_version() {
-        let db = Database::ephemeral().unwrap();
+        let db = Database::cache().unwrap();
         let store = JsonStore::new(db);
         let branch_id = BranchId::new();
         let doc_id = "test-doc";
@@ -1574,7 +1574,7 @@ mod tests {
 
     #[test]
     fn test_delete_at_path_missing_document() {
-        let db = Database::ephemeral().unwrap();
+        let db = Database::cache().unwrap();
         let store = JsonStore::new(db);
         let branch_id = BranchId::new();
         let doc_id = "test-doc";
@@ -1585,7 +1585,7 @@ mod tests {
 
     #[test]
     fn test_delete_at_path_missing_path() {
-        let db = Database::ephemeral().unwrap();
+        let db = Database::cache().unwrap();
         let store = JsonStore::new(db);
         let branch_id = BranchId::new();
         let doc_id = "test-doc";
@@ -1607,7 +1607,7 @@ mod tests {
 
     #[test]
     fn test_destroy_existing_document() {
-        let db = Database::ephemeral().unwrap();
+        let db = Database::cache().unwrap();
         let store = JsonStore::new(db);
         let branch_id = BranchId::new();
         let doc_id = "test-doc";
@@ -1624,7 +1624,7 @@ mod tests {
 
     #[test]
     fn test_destroy_nonexistent_document() {
-        let db = Database::ephemeral().unwrap();
+        let db = Database::cache().unwrap();
         let store = JsonStore::new(db);
         let branch_id = BranchId::new();
         let doc_id = "test-doc";
@@ -1635,7 +1635,7 @@ mod tests {
 
     #[test]
     fn test_destroy_branch_isolation() {
-        let db = Database::ephemeral().unwrap();
+        let db = Database::cache().unwrap();
         let store = JsonStore::new(db);
 
         let branch1 = BranchId::new();
@@ -1660,7 +1660,7 @@ mod tests {
 
     #[test]
     fn test_destroy_then_recreate() {
-        let db = Database::ephemeral().unwrap();
+        let db = Database::cache().unwrap();
         let store = JsonStore::new(db);
         let branch_id = BranchId::new();
         let doc_id = "test-doc";
@@ -1683,7 +1683,7 @@ mod tests {
 
     #[test]
     fn test_destroy_complex_document() {
-        let db = Database::ephemeral().unwrap();
+        let db = Database::cache().unwrap();
         let store = JsonStore::new(db);
         let branch_id = BranchId::new();
         let doc_id = "test-doc";
@@ -1709,7 +1709,7 @@ mod tests {
 
     #[test]
     fn test_destroy_idempotent() {
-        let db = Database::ephemeral().unwrap();
+        let db = Database::cache().unwrap();
         let store = JsonStore::new(db);
         let branch_id = BranchId::new();
         let doc_id = "test-doc";

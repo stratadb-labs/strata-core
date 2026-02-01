@@ -1,6 +1,6 @@
 //! Audit test for issue #972: Event append 100x slower than KV put in Cache mode
 //!
-//! Event append in NoDurability (Cache) mode takes ~1ms p50 — orders of magnitude
+//! Event append in Cache mode takes ~1ms p50 — orders of magnitude
 //! slower than KV put (~1µs). The root cause is that EventLogMeta stores a
 //! `sequences: Vec<u64>` per stream type that grows linearly with every append.
 //! Each append must deserialize and re-serialize this growing metadata, making
@@ -18,7 +18,7 @@ use strata_engine::primitives::EventLog;
 use strata_engine::Database;
 use tempfile::TempDir;
 
-/// Helper: create an ephemeral (NoDurability/Cache) database.
+/// Helper: create a cache-mode database.
 fn cache_db() -> (std::sync::Arc<Database>, TempDir) {
     let dir = TempDir::new().expect("tempdir");
     let db = Database::open(dir.path()).expect("open db");

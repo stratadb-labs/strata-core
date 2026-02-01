@@ -20,7 +20,7 @@ use strata_engine::primitives::state::StateCell;
 /// or silently replaced with Null.
 #[test]
 fn issue_838_state_to_stored_value_nan_causes_silent_null() {
-    let db = Database::ephemeral().unwrap();
+    let db = Database::cache().unwrap();
     let sc = StateCell::new(db.clone());
     let branch_id = BranchId::new();
 
@@ -77,7 +77,7 @@ fn issue_838_state_to_stored_value_nan_causes_silent_null() {
 /// stored as Null, corrupting the hash chain.
 #[test]
 fn issue_838_event_to_stored_value_corruption() {
-    let db = Database::ephemeral().unwrap();
+    let db = Database::cache().unwrap();
     let log = EventLog::new(db.clone());
     let branch_id = BranchId::new();
 

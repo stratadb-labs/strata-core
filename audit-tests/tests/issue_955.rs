@@ -13,7 +13,7 @@ use strata_executor::{BranchId, Command, Executor, Output};
 /// KvGet now preserves version metadata.
 #[test]
 fn issue_955_kvget_preserves_version() {
-    let db = Database::ephemeral().unwrap();
+    let db = Database::cache().unwrap();
     let executor = Executor::new(db);
     let branch = BranchId::from("default");
 
@@ -54,7 +54,7 @@ fn issue_955_kvget_preserves_version() {
 /// StateRead now preserves version metadata.
 #[test]
 fn issue_955_state_read_preserves_version() {
-    let db = Database::ephemeral().unwrap();
+    let db = Database::cache().unwrap();
     let executor = Executor::new(db);
     let branch = BranchId::from("default");
 
@@ -90,7 +90,7 @@ fn issue_955_state_read_preserves_version() {
 /// JsonGet now preserves version metadata.
 #[test]
 fn issue_955_json_get_preserves_version() {
-    let db = Database::ephemeral().unwrap();
+    let db = Database::cache().unwrap();
     let executor = Executor::new(db);
     let branch = BranchId::from("default");
 
@@ -128,7 +128,7 @@ fn issue_955_json_get_preserves_version() {
 /// Contrast: the version-history commands (KvGetv, StateReadv) DO preserve versions.
 #[test]
 fn issue_955_version_history_commands_do_preserve_versions() {
-    let db = Database::ephemeral().unwrap();
+    let db = Database::cache().unwrap();
     let executor = Executor::new(db);
     let branch = BranchId::from("default");
 

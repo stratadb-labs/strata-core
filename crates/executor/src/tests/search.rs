@@ -10,7 +10,7 @@ use crate::{Command, Executor, Output};
 use strata_engine::Database;
 
 fn create_executor() -> Executor {
-    let db = Database::ephemeral().unwrap();
+    let db = Database::cache().unwrap();
     Executor::new(db)
 }
 

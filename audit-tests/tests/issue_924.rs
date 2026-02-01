@@ -14,7 +14,7 @@ use strata_executor::{Command, Output};
 /// Demonstrate that EventReadByType scans all events and returns only matching ones.
 #[test]
 fn issue_924_event_read_by_type_filters_correctly() {
-    let db = strata_engine::database::Database::ephemeral().unwrap();
+    let db = strata_engine::database::Database::cache().unwrap();
     let executor = strata_executor::Executor::new(db);
 
     let branch = strata_executor::BranchId::from("default");

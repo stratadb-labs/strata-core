@@ -14,7 +14,7 @@ use strata_executor::{BranchId, Command, Executor, Output};
 /// BranchGet returns MaybeBranchInfo(Some(...)) for explicitly created branches.
 #[test]
 fn issue_956_branch_get_existing_returns_maybe_branch_info_some() {
-    let db = Database::ephemeral().unwrap();
+    let db = Database::cache().unwrap();
     let executor = Executor::new(db);
 
     // Create a branch explicitly so it has metadata
@@ -46,7 +46,7 @@ fn issue_956_branch_get_existing_returns_maybe_branch_info_some() {
 /// BranchGet returns MaybeBranchInfo(None) for non-existent branches.
 #[test]
 fn issue_956_branch_get_missing_returns_maybe_branch_info_none() {
-    let db = Database::ephemeral().unwrap();
+    let db = Database::cache().unwrap();
     let executor = Executor::new(db);
 
     // Get non-existent branch
@@ -66,7 +66,7 @@ fn issue_956_branch_get_missing_returns_maybe_branch_info_none() {
 /// Both found and not-found now use the same Output variant.
 #[test]
 fn issue_956_branch_get_consistent_output_variants() {
-    let db = Database::ephemeral().unwrap();
+    let db = Database::cache().unwrap();
     let executor = Executor::new(db);
 
     // Create a branch explicitly
@@ -111,12 +111,12 @@ fn issue_956_branch_get_consistent_output_variants() {
 }
 
 /// Note: the "default" branch exists implicitly for data operations but does NOT
-/// have formal BranchMetadata in the engine's branch index for ephemeral databases.
-/// BranchGet for "default" on an ephemeral DB returns MaybeBranchInfo(None), the
+/// have formal BranchMetadata in the engine's branch index for cache databases.
+/// BranchGet for "default" on a cache DB returns MaybeBranchInfo(None), the
 /// same as for a truly non-existent branch.
 #[test]
-fn issue_956_default_branch_has_no_metadata_in_ephemeral_db() {
-    let db = Database::ephemeral().unwrap();
+fn issue_956_default_branch_has_no_metadata_in_cache_db() {
+    let db = Database::cache().unwrap();
     let executor = Executor::new(db);
 
     let result = executor
@@ -130,7 +130,7 @@ fn issue_956_default_branch_has_no_metadata_in_ephemeral_db() {
     // BranchMetadata record.
     assert!(
         matches!(result, Output::MaybeBranchInfo(None)),
-        "Default branch returns MaybeBranchInfo(None) from BranchGet in ephemeral DB. Got: {:?}",
+        "Default branch returns MaybeBranchInfo(None) from BranchGet in cache DB. Got: {:?}",
         result
     );
 }

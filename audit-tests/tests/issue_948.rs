@@ -11,7 +11,7 @@ use strata_executor::{BranchId, Command, DistanceMetric, Executor};
 /// Verify that NaN values in vector embeddings are rejected.
 #[test]
 fn issue_948_nan_vector_rejected() {
-    let db = Database::ephemeral().unwrap();
+    let db = Database::cache().unwrap();
     let executor = Executor::new(db);
     let branch = BranchId::from("default");
 
@@ -47,7 +47,7 @@ fn issue_948_nan_vector_rejected() {
 /// Verify that Infinity values in vector embeddings are rejected.
 #[test]
 fn issue_948_infinity_vector_rejected() {
-    let db = Database::ephemeral().unwrap();
+    let db = Database::cache().unwrap();
     let executor = Executor::new(db);
     let branch = BranchId::from("default");
 
@@ -77,7 +77,7 @@ fn issue_948_infinity_vector_rejected() {
 /// Verify that negative infinity is also rejected.
 #[test]
 fn issue_948_neg_infinity_vector_rejected() {
-    let db = Database::ephemeral().unwrap();
+    let db = Database::cache().unwrap();
     let executor = Executor::new(db);
     let branch = BranchId::from("default");
 
@@ -107,7 +107,7 @@ fn issue_948_neg_infinity_vector_rejected() {
 /// Verify that valid embeddings still work after the validation was added.
 #[test]
 fn issue_948_valid_vector_still_accepted() {
-    let db = Database::ephemeral().unwrap();
+    let db = Database::cache().unwrap();
     let executor = Executor::new(db);
     let branch = BranchId::from("default");
 

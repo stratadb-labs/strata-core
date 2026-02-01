@@ -1,8 +1,8 @@
 //! Storage and Durability Mode Tests
 //!
 //! Tests behavior across:
-//! - Ephemeral (no disk) vs Persistent (disk-backed)
-//! - Durability: None (no sync), Batched (periodic sync), Strict (immediate sync)
+//! - Cache (no disk) vs Persistent (disk-backed)
+//! - Durability: Cache (no sync), Standard (periodic sync), Always (immediate sync)
 
 use crate::common::*;
 use std::sync::Arc;
@@ -13,31 +13,31 @@ use tempfile::TempDir;
 // ============================================================================
 
 fn create_ephemeral() -> Arc<Database> {
-    Database::ephemeral().expect("ephemeral db")
+    Database::cache().expect("cache db")
 }
 
 fn create_persistent_no_durability(dir: &TempDir) -> Arc<Database> {
     Database::builder()
         .path(dir.path())
-        .no_durability()
+        .cache()
         .open()
-        .expect("no-durability db")
+        .expect("cache db")
 }
 
-fn create_persistent_batched(dir: &TempDir) -> Arc<Database> {
+fn create_persistent_standard(dir: &TempDir) -> Arc<Database> {
     Database::builder()
         .path(dir.path())
-        .buffered()
+        .standard()
         .open()
-        .expect("batched db")
+        .expect("standard db")
 }
 
-fn create_persistent_strict(dir: &TempDir) -> Arc<Database> {
+fn create_persistent_always(dir: &TempDir) -> Arc<Database> {
     Database::builder()
         .path(dir.path())
-        .strict()
+        .always()
         .open()
-        .expect("strict db")
+        .expect("always db")
 }
 
 // ============================================================================
@@ -131,7 +131,7 @@ fn ephemeral_data_is_lost_on_drop() {
 // ============================================================================
 
 #[test]
-fn persistent_no_durability_basic() {
+fn persistent_cache_durability_basic() {
     let dir = TempDir::new().unwrap();
     let db = create_persistent_no_durability(&dir);
     let branch_id = BranchId::new();
@@ -143,9 +143,9 @@ fn persistent_no_durability_basic() {
 }
 
 #[test]
-fn persistent_batched_basic() {
+fn persistent_standard_basic() {
     let dir = TempDir::new().unwrap();
-    let db = create_persistent_batched(&dir);
+    let db = create_persistent_standard(&dir);
     let branch_id = BranchId::new();
     let kv = KVStore::new(db);
 
@@ -155,9 +155,9 @@ fn persistent_batched_basic() {
 }
 
 #[test]
-fn persistent_strict_basic() {
+fn persistent_always_basic() {
     let dir = TempDir::new().unwrap();
-    let db = create_persistent_strict(&dir);
+    let db = create_persistent_always(&dir);
     let branch_id = BranchId::new();
     let kv = KVStore::new(db);
 
@@ -167,17 +167,17 @@ fn persistent_strict_basic() {
 }
 
 // ============================================================================
-// Recovery Tests (Strict Mode Only)
+// Recovery Tests (Always Mode Only)
 // ============================================================================
 
 #[test]
-fn strict_mode_survives_reopen() {
+fn always_mode_survives_reopen() {
     let dir = TempDir::new().unwrap();
     let branch_id = BranchId::new();
 
-    // Write with strict durability
+    // Write with always durability
     {
-        let db = create_persistent_strict(&dir);
+        let db = create_persistent_always(&dir);
         let kv = KVStore::new(db);
         for i in 0..100 {
             kv.put(&branch_id, &format!("key_{}", i), Value::Int(i))
@@ -187,7 +187,7 @@ fn strict_mode_survives_reopen() {
 
     // Reopen and verify
     {
-        let db = create_persistent_strict(&dir);
+        let db = create_persistent_always(&dir);
         let kv = KVStore::new(db);
         for i in 0..100 {
             let val = kv.get(&branch_id, &format!("key_{}", i)).unwrap();
@@ -198,13 +198,13 @@ fn strict_mode_survives_reopen() {
 }
 
 #[test]
-fn strict_mode_all_primitives_survive_reopen() {
+fn always_mode_all_primitives_survive_reopen() {
     let dir = TempDir::new().unwrap();
     let branch_id = BranchId::new();
 
     // Write to all primitives
     {
-        let db = create_persistent_strict(&dir);
+        let db = create_persistent_always(&dir);
 
         let kv = KVStore::new(db.clone());
         kv.put(&branch_id, "kv_key", Value::String("kv_val".into()))
@@ -233,7 +233,7 @@ fn strict_mode_all_primitives_survive_reopen() {
 
     // Reopen and verify all primitives
     {
-        let db = create_persistent_strict(&dir);
+        let db = create_persistent_always(&dir);
 
         let kv = KVStore::new(db.clone());
         assert_eq!(
@@ -307,15 +307,15 @@ fn all_modes_produce_same_results() {
     let no_dur_result = workload(create_persistent_no_durability(&dir1), branch_id);
 
     let dir2 = TempDir::new().unwrap();
-    let batched_result = workload(create_persistent_batched(&dir2), branch_id);
+    let standard_result = workload(create_persistent_standard(&dir2), branch_id);
 
     let dir3 = TempDir::new().unwrap();
-    let strict_result = workload(create_persistent_strict(&dir3), branch_id);
+    let always_result = workload(create_persistent_always(&dir3), branch_id);
 
     // All should produce identical results
-    assert_eq!(ephemeral_result, no_dur_result, "Ephemeral != NoDurability");
-    assert_eq!(no_dur_result, batched_result, "NoDurability != Batched");
-    assert_eq!(batched_result, strict_result, "Batched != Strict");
+    assert_eq!(ephemeral_result, no_dur_result, "Ephemeral != Cache");
+    assert_eq!(no_dur_result, standard_result, "Cache != Standard");
+    assert_eq!(standard_result, always_result, "Standard != Always");
 }
 
 // ============================================================================
@@ -344,13 +344,13 @@ fn ephemeral_mode_is_fast() {
 }
 
 #[test]
-fn strict_mode_is_durable() {
+fn always_mode_is_durable() {
     let dir = TempDir::new().unwrap();
     let branch_id = BranchId::new();
 
-    // Write single important value with strict mode
+    // Write single important value with always mode
     {
-        let db = create_persistent_strict(&dir);
+        let db = create_persistent_always(&dir);
         let kv = KVStore::new(db);
         kv.put(
             &branch_id,
@@ -358,17 +358,17 @@ fn strict_mode_is_durable() {
             Value::String("important_data".into()),
         )
         .unwrap();
-        // Strict mode syncs on every write - no explicit flush needed
+        // Always mode syncs on every write - no explicit flush needed
     }
 
     // Simulate crash by just dropping the database
     // Then reopen and verify
 
     {
-        let db = create_persistent_strict(&dir);
+        let db = create_persistent_always(&dir);
         let kv = KVStore::new(db);
         let val = kv.get(&branch_id, "critical").unwrap();
-        assert!(val.is_some(), "Critical data should survive in strict mode");
+        assert!(val.is_some(), "Critical data should survive in always mode");
         assert_eq!(val.unwrap(), Value::String("important_data".into()));
     }
 }

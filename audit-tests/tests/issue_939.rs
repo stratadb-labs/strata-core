@@ -16,7 +16,7 @@ use strata_executor::{BranchId, Command, Error, Session};
 /// Verifies that BranchCreate is now blocked inside a transaction.
 #[test]
 fn issue_939_branch_create_bypasses_transaction() {
-    let db = Database::ephemeral().unwrap();
+    let db = Database::cache().unwrap();
     let mut session = Session::new(db);
     let branch = BranchId::from("default");
 
@@ -57,7 +57,7 @@ fn issue_939_branch_create_bypasses_transaction() {
 /// Verifies that BranchDelete is now blocked inside a transaction.
 #[test]
 fn issue_939_branch_delete_bypasses_transaction() {
-    let db = Database::ephemeral().unwrap();
+    let db = Database::cache().unwrap();
     let mut session = Session::new(db);
     let branch = BranchId::from("default");
 

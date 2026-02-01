@@ -438,11 +438,11 @@ fn test_durability_modes() {
         branch_id,
     );
 
-    // Test with Strict mode
+    // Test with Always mode
     {
         let db_path = temp_dir.path().join("strict_db");
-        let db = Database::open_with_mode(&db_path, DurabilityMode::Strict)
-            .expect("Failed to open with Strict mode");
+        let db = Database::open_with_mode(&db_path, DurabilityMode::Always)
+            .expect("Failed to open with Always mode");
 
         let wal = db.wal().unwrap();
         let mut wal_guard = wal.lock();
@@ -480,17 +480,17 @@ fn test_durability_modes() {
             .is_some());
     }
 
-    // Test with Batched mode
+    // Test with Standard mode
     {
         let db_path = temp_dir.path().join("batched_db");
         let db = Database::open_with_mode(
             &db_path,
-            DurabilityMode::Batched {
+            DurabilityMode::Standard {
                 interval_ms: 100,
                 batch_size: 10,
             },
         )
-        .expect("Failed to open with Batched mode");
+        .expect("Failed to open with Standard mode");
 
         let wal = db.wal().unwrap();
         let mut wal_guard = wal.lock();
@@ -731,7 +731,7 @@ fn test_multiple_crash_cycles_with_high_level_api() {
     for cycle in 0..NUM_CYCLES {
         // Open database and write keys
         {
-            let db = Database::open_with_mode(&db_path, DurabilityMode::Strict)
+            let db = Database::open_with_mode(&db_path, DurabilityMode::Always)
                 .expect("Failed to open database");
 
             for i in 0..KEYS_PER_CYCLE {
@@ -744,7 +744,7 @@ fn test_multiple_crash_cycles_with_high_level_api() {
 
         // Reopen and verify ALL previous data survived
         {
-            let db = Database::open_with_mode(&db_path, DurabilityMode::Strict)
+            let db = Database::open_with_mode(&db_path, DurabilityMode::Always)
                 .expect("Failed to reopen database");
 
             // Verify all keys from all cycles up to and including current cycle
@@ -793,7 +793,7 @@ fn test_twenty_sequential_puts_recover() {
 
     // Write 20 keys using high-level API
     {
-        let db = Database::open_with_mode(&db_path, DurabilityMode::Strict)
+        let db = Database::open_with_mode(&db_path, DurabilityMode::Always)
             .expect("Failed to open database");
 
         for i in 0..NUM_PUTS {
@@ -802,12 +802,12 @@ fn test_twenty_sequential_puts_recover() {
                 .expect("Put should succeed");
         }
 
-        // No explicit flush - relies on Strict mode
+        // No explicit flush - relies on Always mode
     }
 
     // Reopen and verify
     {
-        let db = Database::open_with_mode(&db_path, DurabilityMode::Strict)
+        let db = Database::open_with_mode(&db_path, DurabilityMode::Always)
             .expect("Failed to reopen database");
 
         let mut recovered_count = 0;

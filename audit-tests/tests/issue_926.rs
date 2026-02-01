@@ -22,7 +22,7 @@ use strata_executor::{Command, Executor, Output};
 /// Demonstrate that CAS with correct expected counter succeeds.
 #[test]
 fn issue_926_state_cas_correct_counter_succeeds() {
-    let db = strata_engine::database::Database::ephemeral().unwrap();
+    let db = strata_engine::database::Database::cache().unwrap();
     let executor = Executor::new(db);
 
     let branch = strata_executor::BranchId::from("default");
@@ -60,7 +60,7 @@ fn issue_926_state_cas_correct_counter_succeeds() {
 /// Demonstrate that CAS with wrong expected counter returns None.
 #[test]
 fn issue_926_state_cas_wrong_counter_returns_none() {
-    let db = strata_engine::database::Database::ephemeral().unwrap();
+    let db = strata_engine::database::Database::cache().unwrap();
     let executor = Executor::new(db);
 
     let branch = strata_executor::BranchId::from("default");
@@ -111,7 +111,7 @@ fn issue_926_state_cas_wrong_counter_returns_none() {
 /// ```
 #[test]
 fn issue_926_state_cas_swallows_errors_as_cas_failure() {
-    let db = strata_engine::database::Database::ephemeral().unwrap();
+    let db = strata_engine::database::Database::cache().unwrap();
     let executor = Executor::new(db);
 
     let branch = strata_executor::BranchId::from("default");
@@ -172,7 +172,7 @@ fn issue_926_state_cas_swallows_errors_as_cas_failure() {
 /// Demonstrate the init path also swallows errors.
 #[test]
 fn issue_926_state_cas_init_path_swallows_errors() {
-    let db = strata_engine::database::Database::ephemeral().unwrap();
+    let db = strata_engine::database::Database::cache().unwrap();
     let executor = Executor::new(db);
 
     let branch = strata_executor::BranchId::from("default");

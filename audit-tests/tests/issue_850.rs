@@ -9,7 +9,7 @@ use strata_engine::Database;
 use strata_executor::{Command, Executor, Value};
 
 fn setup() -> Executor {
-    let db = Database::ephemeral().unwrap();
+    let db = Database::cache().unwrap();
     Executor::new(db)
 }
 

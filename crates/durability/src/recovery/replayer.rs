@@ -230,7 +230,7 @@ mod tests {
         let mut writer = WalWriter::new(
             wal_dir.to_path_buf(),
             [1u8; 16],
-            DurabilityMode::Strict,
+            DurabilityMode::Always,
             WalConfig::for_testing(),
             make_codec(),
         )

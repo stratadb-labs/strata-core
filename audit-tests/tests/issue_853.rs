@@ -8,7 +8,7 @@ use strata_engine::Database;
 use strata_executor::{BranchId, Command, Output, Session};
 
 fn setup() -> Session {
-    let db = Database::ephemeral().unwrap();
+    let db = Database::cache().unwrap();
     Session::new(db)
 }
 

@@ -19,7 +19,7 @@ use strata_executor::{Command, Output};
 /// Demonstrate that JsonList supports cursor-based pagination.
 #[test]
 fn issue_921_json_list_has_cursor_pagination() {
-    let db = strata_engine::database::Database::ephemeral().unwrap();
+    let db = strata_engine::database::Database::cache().unwrap();
     let executor = strata_executor::Executor::new(db);
 
     let branch = strata_executor::BranchId::from("default");
@@ -97,7 +97,7 @@ fn issue_921_json_list_has_cursor_pagination() {
 /// Demonstrate that EventReadByType returns ALL matching events with no pagination.
 #[test]
 fn issue_921_event_read_by_type_no_pagination() {
-    let db = strata_engine::database::Database::ephemeral().unwrap();
+    let db = strata_engine::database::Database::cache().unwrap();
     let executor = strata_executor::Executor::new(db);
 
     let branch = strata_executor::BranchId::from("default");
@@ -149,7 +149,7 @@ fn issue_921_event_read_by_type_no_pagination() {
 /// Demonstrate that KvList returns ALL keys with no pagination mechanism.
 #[test]
 fn issue_921_kv_list_no_pagination() {
-    let db = strata_engine::database::Database::ephemeral().unwrap();
+    let db = strata_engine::database::Database::cache().unwrap();
     let executor = strata_executor::Executor::new(db);
 
     let branch = strata_executor::BranchId::from("default");

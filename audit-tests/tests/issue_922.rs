@@ -22,7 +22,7 @@ use strata_executor::{Command, Output};
 /// observable through the executor API, but we can verify the append succeeds.
 #[test]
 fn issue_922_event_append_succeeds() {
-    let db = strata_engine::database::Database::ephemeral().unwrap();
+    let db = strata_engine::database::Database::cache().unwrap();
     let executor = strata_executor::Executor::new(db);
 
     let branch = strata_executor::BranchId::from("default");
@@ -66,7 +66,7 @@ fn issue_922_event_append_succeeds() {
 /// State does not have 200 retries -- it uses the default retry count.
 #[test]
 fn issue_922_state_cas_works_without_retries() {
-    let db = strata_engine::database::Database::ephemeral().unwrap();
+    let db = strata_engine::database::Database::cache().unwrap();
     let executor = strata_executor::Executor::new(db);
 
     let branch = strata_executor::BranchId::from("default");

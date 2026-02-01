@@ -23,7 +23,7 @@ fn json_set_root_new_doc_produces_one_wal_write() {
     let dir = TempDir::new().expect("tempdir");
     let db = Database::builder()
         .path(dir.path())
-        .strict()
+        .always()
         .open()
         .expect("open db");
     let strata = Strata::from_database(db).expect("strata");
@@ -55,7 +55,7 @@ fn json_set_path_new_doc_produces_one_wal_write() {
     let dir = TempDir::new().expect("tempdir");
     let db = Database::builder()
         .path(dir.path())
-        .strict()
+        .always()
         .open()
         .expect("open db");
     let strata = Strata::from_database(db).expect("strata");
@@ -88,7 +88,7 @@ fn json_set_path_existing_doc_produces_one_wal_write() {
     let dir = TempDir::new().expect("tempdir");
     let db = Database::builder()
         .path(dir.path())
-        .strict()
+        .always()
         .open()
         .expect("open db");
     let strata = Strata::from_database(db).expect("strata");
@@ -131,7 +131,7 @@ fn json_set_data_integrity_after_fix() {
     let dir = TempDir::new().expect("tempdir");
     let db = Database::builder()
         .path(dir.path())
-        .strict()
+        .always()
         .open()
         .expect("open db");
     let strata = Strata::from_database(db).expect("strata");

@@ -24,7 +24,7 @@ fn kv_delete_existing_key_produces_one_wal_write() {
     let dir = TempDir::new().expect("tempdir");
     let db = Database::builder()
         .path(dir.path())
-        .strict()
+        .always()
         .open()
         .expect("open db");
     let strata = Strata::from_database(db).expect("strata");
@@ -65,7 +65,7 @@ fn kv_delete_nonexistent_key_produces_no_wal_writes() {
     let dir = TempDir::new().expect("tempdir");
     let db = Database::builder()
         .path(dir.path())
-        .strict()
+        .always()
         .open()
         .expect("open db");
     let strata = Strata::from_database(db).expect("strata");
@@ -99,7 +99,7 @@ fn kv_delete_default_branch_produces_one_wal_write() {
     let dir = TempDir::new().expect("tempdir");
     let db = Database::builder()
         .path(dir.path())
-        .strict()
+        .always()
         .open()
         .expect("open db");
     let strata = Strata::from_database(db).expect("strata");

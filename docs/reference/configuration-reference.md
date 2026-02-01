@@ -4,18 +4,18 @@
 
 | Mode | Enum Value | Description | Data Loss on Crash |
 |------|-----------|-------------|-------------------|
-| **None** | `DurabilityMode::None` | No persistence | All data |
-| **Batched** | `DurabilityMode::Batched` | Periodic fsync (~100ms / ~1000 writes) | Last ~100ms |
-| **Strict** | `DurabilityMode::Strict` | Immediate fsync per commit | None |
+| **Cache** | `DurabilityMode::Cache` | No persistence | All data |
+| **Standard** | `DurabilityMode::Standard` | Periodic fsync (~100ms / ~1000 writes) | Last ~100ms |
+| **Always** | `DurabilityMode::Always` | Immediate fsync per commit | None |
 
-Default: `Batched`
+Default: `Standard`
 
 ## Opening Methods
 
 | Method | Durability | Disk Files | Use Case |
 |--------|-----------|------------|----------|
 | `Strata::open(path)` | Configurable | Yes | Production |
-| `Strata::open_temp()` | None (in-memory) | No | Testing |
+| `Strata::open_temp()` | Cache (in-memory) | No | Testing |
 | `Strata::from_database(db)` | Inherited | Depends | Shared DB |
 
 ## Database Info

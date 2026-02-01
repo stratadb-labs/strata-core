@@ -12,7 +12,7 @@ use strata_executor::{BranchId, Command, DistanceMetric, Executor};
 /// Without VectorCreateCollection, upsert returns CollectionNotFound.
 #[test]
 fn issue_932_vector_upsert_requires_explicit_collection() {
-    let db = Database::ephemeral().unwrap();
+    let db = Database::cache().unwrap();
     let executor = Executor::new(db);
 
     let branch = BranchId::from("default");
@@ -36,7 +36,7 @@ fn issue_932_vector_upsert_requires_explicit_collection() {
 /// when the collection is explicitly created first.
 #[test]
 fn issue_932_repeated_upsert_with_explicit_collection() {
-    let db = Database::ephemeral().unwrap();
+    let db = Database::cache().unwrap();
     let executor = Executor::new(db);
 
     let branch = BranchId::from("default");
@@ -81,7 +81,7 @@ fn issue_932_repeated_upsert_with_explicit_collection() {
 /// collection fails with a dimension mismatch at the insert step.
 #[test]
 fn issue_932_dimension_mismatch_error() {
-    let db = Database::ephemeral().unwrap();
+    let db = Database::cache().unwrap();
     let executor = Executor::new(db);
 
     let branch = BranchId::from("default");

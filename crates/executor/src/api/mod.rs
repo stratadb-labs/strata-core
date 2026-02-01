@@ -126,8 +126,8 @@ impl Strata {
     /// ```
     pub fn open_temp() -> Result<Self> {
         ensure_vector_recovery();
-        let db = Database::ephemeral().map_err(|e| Error::Internal {
-            reason: format!("Failed to open ephemeral database: {}", e),
+        let db = Database::cache().map_err(|e| Error::Internal {
+            reason: format!("Failed to open cache database: {}", e),
         })?;
         let executor = Executor::new(db);
 

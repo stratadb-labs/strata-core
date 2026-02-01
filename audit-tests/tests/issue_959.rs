@@ -25,7 +25,7 @@ use strata_executor::{BranchId, Command, Executor, Output};
 /// Deleting a non-existent document at root returns Uint(0) — correct.
 #[test]
 fn issue_959_json_delete_root_nonexistent_returns_zero() {
-    let db = Database::ephemeral().unwrap();
+    let db = Database::cache().unwrap();
     let executor = Executor::new(db);
     let branch = BranchId::from("default");
 
@@ -47,7 +47,7 @@ fn issue_959_json_delete_root_nonexistent_returns_zero() {
 /// Deleting an existing document at root returns Uint(1) — correct.
 #[test]
 fn issue_959_json_delete_root_existing_returns_one() {
-    let db = Database::ephemeral().unwrap();
+    let db = Database::cache().unwrap();
     let executor = Executor::new(db);
     let branch = BranchId::from("default");
 
@@ -82,7 +82,7 @@ fn issue_959_json_delete_root_existing_returns_one() {
 /// Deleting a non-existent path within an existing doc always returns Uint(1) — BUG.
 #[test]
 fn issue_959_json_delete_nonroot_nonexistent_path_returns_one() {
-    let db = Database::ephemeral().unwrap();
+    let db = Database::cache().unwrap();
     let executor = Executor::new(db);
     let branch = BranchId::from("default");
 
@@ -130,7 +130,7 @@ fn issue_959_json_delete_nonroot_nonexistent_path_returns_one() {
 /// from the non-existent path case due to the bug).
 #[test]
 fn issue_959_json_delete_nonroot_existing_path_returns_one() {
-    let db = Database::ephemeral().unwrap();
+    let db = Database::cache().unwrap();
     let executor = Executor::new(db);
     let branch = BranchId::from("default");
 

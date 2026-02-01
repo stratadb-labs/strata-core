@@ -42,17 +42,17 @@ fn issue_864_all_databases_share_same_uuid_in_wal() {
 }
 
 #[test]
-fn issue_864_ephemeral_databases_also_have_no_unique_id() {
-    // Even if ephemeral databases don't write WAL, the Database struct
+fn issue_864_cache_databases_also_have_no_unique_id() {
+    // Even if cache databases don't write WAL, the Database struct
     // has no database_id field at all -- there's no unique identifier.
-    let db1 = Database::ephemeral().unwrap();
-    let db2 = Database::ephemeral().unwrap();
+    let db1 = Database::cache().unwrap();
+    let db2 = Database::cache().unwrap();
 
     // Both are different instances (not registered in registry)
     assert!(!std::sync::Arc::ptr_eq(&db1, &db2));
 
     // BUG: Neither database has a unique identifier.
-    // For ephemeral databases this is less critical since there's no WAL,
+    // For cache databases this is less critical since there's no WAL,
     // but for disk-backed databases the hardcoded UUID is a real concern
     // for cross-contamination detection.
 }

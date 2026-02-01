@@ -10,9 +10,9 @@ pub struct WalConfig {
     /// When a segment exceeds this size, a new segment is created.
     pub segment_size: u64,
 
-    /// Bytes between fsyncs in Buffered/Batched mode (default: 4MB).
+    /// Bytes between fsyncs in Standard mode (default: 4MB).
     ///
-    /// For Batched durability mode, fsync is triggered when this many
+    /// For Standard durability mode, fsync is triggered when this many
     /// bytes have been written since the last fsync.
     pub buffered_sync_bytes: u64,
 }

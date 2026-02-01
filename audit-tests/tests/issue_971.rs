@@ -22,7 +22,7 @@ fn branch_switch_produces_no_wal_writes() {
     let dir = TempDir::new().expect("tempdir");
     let db = Database::builder()
         .path(dir.path())
-        .strict()
+        .always()
         .open()
         .expect("open db");
 
@@ -49,7 +49,7 @@ fn repeated_branch_switches_produce_no_wal_writes() {
     let dir = TempDir::new().expect("tempdir");
     let db = Database::builder()
         .path(dir.path())
-        .strict()
+        .always()
         .open()
         .expect("open db");
 
@@ -80,7 +80,7 @@ fn branch_exists_check_produces_no_wal_writes() {
     let dir = TempDir::new().expect("tempdir");
     let db = Database::builder()
         .path(dir.path())
-        .strict()
+        .always()
         .open()
         .expect("open db");
 

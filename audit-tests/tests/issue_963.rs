@@ -22,7 +22,7 @@
 //!    is minimized even if the application crashes
 //! 2. The performance difference between flush-on-commit and periodic-flush
 //!    depends heavily on the workload and storage hardware
-//! 3. Users who chose `DurabilityMode::None` may be surprised that their
+//! 3. Users who chose `DurabilityMode::Cache` may be surprised that their
 //!    writes are still being flushed, but this errs on the side of safety
 //! 4. Separating flush from fsync is a valid design: flush pushes data to
 //!    the OS page cache, fsync pushes it to stable storage. Skipping flush

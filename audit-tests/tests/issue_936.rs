@@ -25,7 +25,7 @@ use strata_executor::{BranchId, Command, DistanceMetric, Executor, Output, Value
 /// if not exists", the TOCTOU check would be unreliable.
 #[test]
 fn issue_936_sequential_duplicate_upsert_succeeds() {
-    let db = Database::ephemeral().unwrap();
+    let db = Database::cache().unwrap();
     let executor = Executor::new(db);
 
     let branch = BranchId::from("default");

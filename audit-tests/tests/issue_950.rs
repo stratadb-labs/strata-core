@@ -34,7 +34,7 @@ use strata_executor::{Command, Executor, Output};
 /// Demonstrates that an empty branch name is accepted without validation.
 #[test]
 fn issue_950_empty_branch_name_accepted() {
-    let db = Database::ephemeral().unwrap();
+    let db = Database::cache().unwrap();
     let executor = Executor::new(db);
 
     let result = executor.execute(Command::BranchCreate {
@@ -66,7 +66,7 @@ fn issue_950_empty_branch_name_accepted() {
 /// Demonstrates that whitespace-only branch names are accepted.
 #[test]
 fn issue_950_whitespace_branch_name_accepted() {
-    let db = Database::ephemeral().unwrap();
+    let db = Database::cache().unwrap();
     let executor = Executor::new(db);
 
     let result = executor.execute(Command::BranchCreate {
@@ -87,7 +87,7 @@ fn issue_950_whitespace_branch_name_accepted() {
 /// Demonstrates that branch names with special characters are accepted.
 #[test]
 fn issue_950_special_chars_branch_name_accepted() {
-    let db = Database::ephemeral().unwrap();
+    let db = Database::cache().unwrap();
     let executor = Executor::new(db);
 
     // Try various problematic names

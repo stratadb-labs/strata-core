@@ -1,6 +1,6 @@
 //! WAL (Write-Ahead Log) module
 //!
-//! - `mode`: DurabilityMode (None, Strict, Batched)
+//! - `mode`: DurabilityMode (Cache, Always, Standard)
 //! - `config`: WAL configuration (WalConfig, WalConfigError)
 //! - `writer`: Segmented WAL writer (WalWriter)
 //! - `reader`: Segmented WAL reader (WalReader)

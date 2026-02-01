@@ -26,7 +26,7 @@ use strata_executor::{BranchId, Command, Executor, Output, Session, Value};
 /// handled inside the transaction, but StateSet is not.
 #[test]
 fn issue_927_state_set_bypasses_transaction_but_kv_put_does_not() {
-    let db = Database::ephemeral().unwrap();
+    let db = Database::cache().unwrap();
     let mut session = Session::new(db.clone());
 
     let branch = BranchId::from("default");
@@ -102,7 +102,7 @@ fn issue_927_state_set_bypasses_transaction_but_kv_put_does_not() {
 /// different conversion paths depending on whether a transaction is active.
 #[test]
 fn issue_927_error_paths_differ_for_session_vs_executor() {
-    let db = Database::ephemeral().unwrap();
+    let db = Database::cache().unwrap();
     let executor = Executor::new(db.clone());
     let mut session = Session::new(db);
 

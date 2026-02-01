@@ -7,11 +7,11 @@ use crate::types::*;
 use crate::Value;
 use crate::{Command, Executor, Output};
 
-/// Create a test executor with an ephemeral in-memory database.
+/// Create a test executor with a cache in-memory database.
 fn create_test_executor() -> Executor {
     use strata_engine::Database;
 
-    let db = Database::ephemeral().unwrap();
+    let db = Database::cache().unwrap();
     Executor::new(db)
 }
 

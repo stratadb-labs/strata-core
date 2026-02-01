@@ -23,7 +23,7 @@ pub struct DatabaseConfig {
 impl Default for DatabaseConfig {
     fn default() -> Self {
         DatabaseConfig {
-            durability: DurabilityMode::Strict,
+            durability: DurabilityMode::Always,
             wal_config: WalConfig::default(),
             codec_id: "identity".to_string(),
         }
@@ -36,7 +36,7 @@ impl DatabaseConfig {
     /// Every commit is fsynced before returning.
     pub fn strict() -> Self {
         DatabaseConfig {
-            durability: DurabilityMode::Strict,
+            durability: DurabilityMode::Always,
             ..Default::default()
         }
     }
@@ -47,7 +47,7 @@ impl DatabaseConfig {
     /// Some committed transactions may be lost on crash.
     pub fn batched() -> Self {
         DatabaseConfig {
-            durability: DurabilityMode::buffered_default(),
+            durability: DurabilityMode::standard_default(),
             ..Default::default()
         }
     }
@@ -57,7 +57,7 @@ impl DatabaseConfig {
     /// Uses small segment sizes for faster tests.
     pub fn for_testing() -> Self {
         DatabaseConfig {
-            durability: DurabilityMode::Strict,
+            durability: DurabilityMode::Always,
             wal_config: WalConfig::for_testing(),
             codec_id: "identity".to_string(),
         }
@@ -114,30 +114,30 @@ mod tests {
     #[test]
     fn test_default_config() {
         let config = DatabaseConfig::default();
-        assert!(matches!(config.durability, DurabilityMode::Strict));
+        assert!(matches!(config.durability, DurabilityMode::Always));
         assert_eq!(config.codec_id, "identity");
     }
 
     #[test]
     fn test_strict_config() {
         let config = DatabaseConfig::strict();
-        assert!(matches!(config.durability, DurabilityMode::Strict));
+        assert!(matches!(config.durability, DurabilityMode::Always));
     }
 
     #[test]
     fn test_batched_config() {
         let config = DatabaseConfig::batched();
-        assert!(matches!(config.durability, DurabilityMode::Batched { .. }));
+        assert!(matches!(config.durability, DurabilityMode::Standard { .. }));
     }
 
     #[test]
     fn test_builder_pattern() {
         let config = DatabaseConfig::default()
-            .with_durability(DurabilityMode::Strict)
+            .with_durability(DurabilityMode::Always)
             .with_codec("identity")
             .with_wal_segment_size(1024 * 1024);
 
-        assert!(matches!(config.durability, DurabilityMode::Strict));
+        assert!(matches!(config.durability, DurabilityMode::Always));
         assert_eq!(config.codec_id, "identity");
         assert_eq!(config.wal_config.segment_size, 1024 * 1024);
     }
@@ -150,7 +150,7 @@ mod tests {
 
         // Verify the config has expected values after validation
         assert_eq!(config.codec_id, "identity");
-        assert!(matches!(config.durability, DurabilityMode::Strict));
+        assert!(matches!(config.durability, DurabilityMode::Always));
 
         // Verify WAL config is also valid
         assert!(config.wal_config.segment_size > 0);
@@ -161,8 +161,8 @@ mod tests {
     fn test_validate_valid_config_batched() {
         let config = DatabaseConfig::batched();
         let result = config.validate();
-        assert!(result.is_ok(), "Batched config should be valid");
-        assert!(matches!(config.durability, DurabilityMode::Batched { .. }));
+        assert!(result.is_ok(), "Standard config should be valid");
+        assert!(matches!(config.durability, DurabilityMode::Standard { .. }));
     }
 
     #[test]
@@ -203,7 +203,7 @@ mod tests {
     #[test]
     fn test_for_testing() {
         let config = DatabaseConfig::for_testing();
-        assert!(matches!(config.durability, DurabilityMode::Strict));
+        assert!(matches!(config.durability, DurabilityMode::Always));
         // Testing config should have small segment size
         assert!(config.wal_config.segment_size < 1024 * 1024);
     }

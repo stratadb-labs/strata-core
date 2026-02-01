@@ -21,7 +21,7 @@ use strata_executor::{BranchId, Command, Executor};
 /// KV rejects empty keys but vector accepts them.
 #[test]
 fn issue_953_vector_accepts_empty_key_while_kv_rejects() {
-    let db = Database::ephemeral().unwrap();
+    let db = Database::cache().unwrap();
     let executor = Executor::new(db);
     let branch = BranchId::from("default");
 
@@ -55,7 +55,7 @@ fn issue_953_vector_accepts_empty_key_while_kv_rejects() {
 /// KV rejects keys with NUL bytes but vector accepts them.
 #[test]
 fn issue_953_vector_accepts_nul_byte_key_while_kv_rejects() {
-    let db = Database::ephemeral().unwrap();
+    let db = Database::cache().unwrap();
     let executor = Executor::new(db);
     let branch = BranchId::from("default");
 
@@ -90,7 +90,7 @@ fn issue_953_vector_accepts_nul_byte_key_while_kv_rejects() {
 /// KV rejects keys with _strata/ prefix but vector accepts them.
 #[test]
 fn issue_953_vector_accepts_reserved_prefix_key_while_kv_rejects() {
-    let db = Database::ephemeral().unwrap();
+    let db = Database::cache().unwrap();
     let executor = Executor::new(db);
     let branch = BranchId::from("default");
 
@@ -128,7 +128,7 @@ fn issue_953_vector_accepts_reserved_prefix_key_while_kv_rejects() {
 /// KV rejects oversized keys but vector accepts them.
 #[test]
 fn issue_953_vector_accepts_oversized_key_while_kv_rejects() {
-    let db = Database::ephemeral().unwrap();
+    let db = Database::cache().unwrap();
     let executor = Executor::new(db);
     let branch = BranchId::from("default");
 
@@ -166,7 +166,7 @@ fn issue_953_vector_accepts_oversized_key_while_kv_rejects() {
 /// VectorGet and VectorDelete also lack key validation.
 #[test]
 fn issue_953_vector_get_and_delete_also_skip_key_validation() {
-    let db = Database::ephemeral().unwrap();
+    let db = Database::cache().unwrap();
     let executor = Executor::new(db);
     let branch = BranchId::from("default");
 

@@ -5,12 +5,12 @@
 use crate::common::*;
 
 // ============================================================================
-// Ephemeral Database
+// Cache Database
 // ============================================================================
 
 #[test]
-fn ephemeral_database_is_functional() {
-    let db = Database::ephemeral().expect("ephemeral database");
+fn cache_database_is_functional() {
+    let db = Database::cache().expect("cache database");
 
     let branch_id = BranchId::new();
     let kv = KVStore::new(db);
@@ -23,19 +23,19 @@ fn ephemeral_database_is_functional() {
 }
 
 #[test]
-fn ephemeral_database_data_is_lost_on_drop() {
+fn cache_database_data_is_lost_on_drop() {
     let branch_id = BranchId::new();
     let key = unique_key();
 
     // Write data
     {
-        let db = Database::ephemeral().expect("ephemeral database");
+        let db = Database::cache().expect("cache database");
         let kv = KVStore::new(db);
         kv.put(&branch_id, &key, Value::Int(42)).unwrap();
     }
 
-    // New ephemeral database has no data
-    let db = Database::ephemeral().expect("ephemeral database");
+    // New cache database has no data
+    let db = Database::cache().expect("cache database");
     let kv = KVStore::new(db);
     let result = kv.get(&branch_id, &key).unwrap();
 
@@ -55,7 +55,7 @@ fn persistent_database_creates_directory() {
 
     let _db = Database::builder()
         .path(&db_path)
-        .buffered()
+        .standard()
         .open()
         .expect("create database");
 
@@ -116,13 +116,13 @@ fn persistent_database_multiple_reopens() {
 // ============================================================================
 
 #[test]
-fn builder_no_durability_with_temp_path_uses_temp_files() {
-    // builder with a temp path and no_durability still creates files on disk
-    // It's NOT truly ephemeral
+fn builder_cache_durability_with_temp_path_uses_temp_files() {
+    // builder with a temp path and cache durability still creates files on disk
+    // It's NOT truly cache
     let temp_dir = tempfile::tempdir().unwrap();
     let db = Database::builder()
         .path(temp_dir.path())
-        .no_durability()
+        .cache()
         .open()
         .unwrap();
 
@@ -130,9 +130,9 @@ fn builder_no_durability_with_temp_path_uses_temp_files() {
 }
 
 #[test]
-fn database_ephemeral_is_truly_ephemeral() {
-    // Database::ephemeral() creates a purely in-memory database
-    let db = Database::ephemeral().expect("ephemeral database");
+fn database_cache_is_truly_cache() {
+    // Database::cache() creates a purely in-memory database
+    let db = Database::cache().expect("cache database");
     assert!(db.is_ephemeral());
 }
 
@@ -142,7 +142,7 @@ fn builder_creates_persistent_with_path() {
 
     let db = Database::builder()
         .path(temp_dir.path())
-        .buffered()
+        .standard()
         .open()
         .unwrap();
 
@@ -150,12 +150,12 @@ fn builder_creates_persistent_with_path() {
 }
 
 #[test]
-fn builder_strict_mode() {
+fn builder_always_mode() {
     let temp_dir = tempfile::tempdir().unwrap();
 
     let db = Database::builder()
         .path(temp_dir.path())
-        .strict()
+        .always()
         .open()
         .unwrap();
 
@@ -167,12 +167,12 @@ fn builder_strict_mode() {
 }
 
 #[test]
-fn builder_buffered_mode() {
+fn builder_standard_mode() {
     let temp_dir = tempfile::tempdir().unwrap();
 
     let db = Database::builder()
         .path(temp_dir.path())
-        .buffered()
+        .standard()
         .open()
         .unwrap();
 
@@ -203,7 +203,7 @@ fn is_open_reflects_state() {
 
     let db = Database::builder()
         .path(temp_dir.path())
-        .buffered()
+        .standard()
         .open()
         .unwrap();
 

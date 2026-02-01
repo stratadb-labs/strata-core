@@ -16,8 +16,8 @@
 //!
 //! Key scenarios tested:
 //! - Crash after BeginTxn (incomplete transaction discarded)
-//! - Crash after CommitTxn with strict mode (data recovered)
-//! - Crash with batched mode (recent writes may be lost)
+//! - Crash after CommitTxn with always mode (data recovered)
+//! - Crash with standard mode (recent writes may be lost)
 //! - Multiple incomplete transactions (all discarded)
 //! - Mix of committed and incomplete (only committed recovered)
 
@@ -44,7 +44,7 @@ fn test_crash_after_begin_txn_only() {
 
     // Simulate crash: write only BeginTxn, then "crash"
     {
-        let db = Database::open_with_mode(&db_path, DurabilityMode::Strict).unwrap();
+        let db = Database::open_with_mode(&db_path, DurabilityMode::Always).unwrap();
 
         let wal = db.wal().unwrap();
         let mut wal_guard = wal.lock();
@@ -88,7 +88,7 @@ fn test_crash_after_begin_and_write() {
 
     // Simulate crash: write BeginTxn + Write, then "crash"
     {
-        let db = Database::open_with_mode(&db_path, DurabilityMode::Strict).unwrap();
+        let db = Database::open_with_mode(&db_path, DurabilityMode::Always).unwrap();
 
         let wal = db.wal().unwrap();
         let mut wal_guard = wal.lock();
@@ -123,10 +123,10 @@ fn test_crash_after_begin_and_write() {
     }
 }
 
-/// Test: Crash after CommitTxn with Strict mode
+/// Test: Crash after CommitTxn with Always mode
 /// Expected: Data is durable and recovered
 #[test]
-fn test_crash_after_commit_strict_mode() {
+fn test_crash_after_commit_always_mode() {
     let temp_dir = TempDir::new().unwrap();
     let db_path = temp_dir.path().join("crash_committed");
 
@@ -138,9 +138,9 @@ fn test_crash_after_commit_strict_mode() {
         branch_id,
     );
 
-    // Write committed transaction with strict mode (should be durable)
+    // Write committed transaction with always mode (should be durable)
     {
-        let db = Database::open_with_mode(&db_path, DurabilityMode::Strict).unwrap();
+        let db = Database::open_with_mode(&db_path, DurabilityMode::Always).unwrap();
 
         let wal = db.wal().unwrap();
         let mut wal_guard = wal.lock();
@@ -166,7 +166,7 @@ fn test_crash_after_commit_strict_mode() {
             .append(&WALEntry::CommitTxn { txn_id: 1, branch_id })
             .unwrap();
 
-        // Strict mode: fsync happened after CommitTxn
+        // Always mode: fsync happened after CommitTxn
         // Data is durable even if we "crash" now
     }
 
@@ -186,10 +186,10 @@ fn test_crash_after_commit_strict_mode() {
     }
 }
 
-/// Test: Crash with Batched mode (may lose recent writes)
+/// Test: Crash with Standard mode (may lose recent writes)
 /// Expected: Recent writes may or may not be present (both valid)
 #[test]
-fn test_crash_batched_mode_may_lose_recent() {
+fn test_crash_standard_mode_may_lose_recent() {
     let temp_dir = TempDir::new().unwrap();
     let db_path = temp_dir.path().join("crash_batched");
 
@@ -201,11 +201,11 @@ fn test_crash_batched_mode_may_lose_recent() {
         branch_id,
     );
 
-    // Write with batched mode (recent writes may not be fsynced)
+    // Write with standard mode (recent writes may not be fsynced)
     {
         let db = Database::open_with_mode(
             &db_path,
-            DurabilityMode::Batched {
+            DurabilityMode::Standard {
                 interval_ms: 10000, // Long interval (won't fsync during test)
                 batch_size: 1000,   // High batch size (won't trigger)
             },
@@ -237,7 +237,7 @@ fn test_crash_batched_mode_may_lose_recent() {
             .unwrap();
 
         // Drop without waiting for batch fsync
-        // This write MAY be lost (acceptable for batched mode)
+        // This write MAY be lost (acceptable for standard mode)
     }
 
     // Recover
@@ -248,7 +248,7 @@ fn test_crash_batched_mode_may_lose_recent() {
         let _result = db.storage().get(&key).unwrap();
 
         // May be None (lost) or Some (drop handler fsynced)
-        // Both outcomes are valid for batched mode
+        // Both outcomes are valid for standard mode
         // This test just verifies recovery doesn't crash
     }
 }
@@ -270,7 +270,7 @@ fn test_multiple_incomplete_transactions() {
 
     // Write 5 incomplete transactions
     {
-        let db = Database::open_with_mode(&db_path, DurabilityMode::Strict).unwrap();
+        let db = Database::open_with_mode(&db_path, DurabilityMode::Always).unwrap();
 
         let wal = db.wal().unwrap();
         let mut wal_guard = wal.lock();
@@ -333,7 +333,7 @@ fn test_mixed_committed_and_incomplete() {
 
     // Write: committed, incomplete, committed, incomplete
     {
-        let db = Database::open_with_mode(&db_path, DurabilityMode::Strict).unwrap();
+        let db = Database::open_with_mode(&db_path, DurabilityMode::Always).unwrap();
 
         let wal = db.wal().unwrap();
         let mut wal_guard = wal.lock();
@@ -470,7 +470,7 @@ fn test_recovery_after_clean_shutdown() {
 
     // Normal operation: write and close cleanly
     {
-        let db = Database::open_with_mode(&db_path, DurabilityMode::Strict).unwrap();
+        let db = Database::open_with_mode(&db_path, DurabilityMode::Always).unwrap();
 
         let wal = db.wal().unwrap();
         let mut wal_guard = wal.lock();
@@ -542,7 +542,7 @@ fn test_recovery_with_large_wal() {
 
     // Write transactions
     {
-        let db = Database::open_with_mode(&db_path, DurabilityMode::Strict).unwrap();
+        let db = Database::open_with_mode(&db_path, DurabilityMode::Always).unwrap();
 
         let wal = db.wal().unwrap();
         let mut wal_guard = wal.lock();
@@ -613,7 +613,7 @@ fn test_crash_with_aborted_transaction() {
 
     // Write an aborted transaction
     {
-        let db = Database::open_with_mode(&db_path, DurabilityMode::Strict).unwrap();
+        let db = Database::open_with_mode(&db_path, DurabilityMode::Always).unwrap();
 
         let wal = db.wal().unwrap();
         let mut wal_guard = wal.lock();
@@ -667,7 +667,7 @@ fn test_crash_multi_write_transaction() {
 
     // Write multiple keys in one incomplete transaction
     {
-        let db = Database::open_with_mode(&db_path, DurabilityMode::Strict).unwrap();
+        let db = Database::open_with_mode(&db_path, DurabilityMode::Always).unwrap();
 
         let wal = db.wal().unwrap();
         let mut wal_guard = wal.lock();
@@ -727,7 +727,7 @@ fn test_crash_with_delete_operation() {
 
     // First: write and commit a key
     {
-        let db = Database::open_with_mode(&db_path, DurabilityMode::Strict).unwrap();
+        let db = Database::open_with_mode(&db_path, DurabilityMode::Always).unwrap();
 
         let wal = db.wal().unwrap();
         let mut wal_guard = wal.lock();
@@ -822,7 +822,7 @@ fn test_crash_interleaved_branch_ids() {
 
     // Write interleaved transactions
     {
-        let db = Database::open_with_mode(&db_path, DurabilityMode::Strict).unwrap();
+        let db = Database::open_with_mode(&db_path, DurabilityMode::Always).unwrap();
 
         let wal = db.wal().unwrap();
         let mut wal_guard = wal.lock();

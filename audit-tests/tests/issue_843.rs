@@ -21,7 +21,7 @@ fn payload(key: &str, value: Value) -> Value {
 /// This serves as the baseline -- the EventLog's own hash computation is self-consistent.
 #[test]
 fn issue_843_eventlog_hash_chain_baseline() {
-    let db = Database::ephemeral().unwrap();
+    let db = Database::cache().unwrap();
     let log = EventLog::new(db.clone());
     let branch_id = BranchId::new();
 

@@ -42,7 +42,7 @@ fn int_payload(v: i64) -> Value {
 }
 
 fn setup() -> (Arc<Database>, BranchId) {
-    let db = Database::ephemeral().unwrap();
+    let db = Database::cache().unwrap();
     let branch_id = BranchId::new();
     (db, branch_id)
 }

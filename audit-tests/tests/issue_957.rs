@@ -28,7 +28,7 @@ use strata_executor::{BranchId, Command, Executor, Output};
 /// In normal operation (no corrupt data), all versions should be present.
 #[test]
 fn issue_957_json_getv_returns_version_history() {
-    let db = Database::ephemeral().unwrap();
+    let db = Database::cache().unwrap();
     let executor = Executor::new(db);
     let branch = BranchId::from("default");
 
@@ -88,7 +88,7 @@ fn issue_957_json_getv_returns_version_history() {
 /// Verify that JsonGetv for a non-existent key returns None.
 #[test]
 fn issue_957_json_getv_nonexistent_returns_none() {
-    let db = Database::ephemeral().unwrap();
+    let db = Database::cache().unwrap();
     let executor = Executor::new(db);
     let branch = BranchId::from("default");
 
@@ -111,7 +111,7 @@ fn issue_957_json_getv_nonexistent_returns_none() {
 /// so deserialization errors in KV history would propagate rather than be silently dropped.
 #[test]
 fn issue_957_kvgetv_does_not_use_filter_map() {
-    let db = Database::ephemeral().unwrap();
+    let db = Database::cache().unwrap();
     let executor = Executor::new(db);
     let branch = BranchId::from("default");
 

@@ -2,6 +2,7 @@
 //!
 //! Tests that operations produce the same results across all durability modes.
 //! Only persistence behavior should differ.
+//! Modes: Cache (no sync), Standard (periodic sync), Always (immediate sync).
 
 use crate::common::*;
 use std::collections::HashMap;
@@ -104,40 +105,40 @@ fn json_create_get_same_across_modes() {
 // ============================================================================
 
 #[test]
-fn ephemeral_mode_is_ephemeral() {
-    // Database::ephemeral() creates a truly in-memory database with no files
-    let db = Database::ephemeral().expect("ephemeral database");
+fn cache_mode_is_cache() {
+    // Database::cache() creates a truly in-memory database with no files
+    let db = Database::cache().expect("cache database");
     assert!(db.is_ephemeral());
 }
 
 #[test]
-fn ephemeral_create_test_db_is_ephemeral() {
-    // create_test_db() uses Database::ephemeral() which is truly in-memory
+fn cache_create_test_db_is_cache() {
+    // create_test_db() uses Database::cache() which is truly in-memory
     let db = create_test_db();
     assert!(db.is_ephemeral());
 }
 
 #[test]
-fn buffered_mode_is_persistent() {
+fn standard_mode_is_persistent() {
     let temp_dir = tempfile::tempdir().unwrap();
     let db = Database::builder()
         .path(temp_dir.path())
-        .buffered()
+        .standard()
         .open()
-        .expect("buffered database");
+        .expect("standard database");
 
-    // Buffered mode is NOT ephemeral (has durability)
+    // Standard mode is NOT ephemeral (has durability)
     assert!(!db.is_ephemeral());
 }
 
 #[test]
-fn strict_mode_is_persistent() {
+fn always_mode_is_persistent() {
     let temp_dir = tempfile::tempdir().unwrap();
     let db = Database::builder()
         .path(temp_dir.path())
-        .strict()
+        .always()
         .open()
-        .expect("strict database");
+        .expect("always database");
 
     assert!(!db.is_ephemeral());
 }
@@ -167,7 +168,7 @@ fn transaction_atomicity_in_memory() {
 }
 
 #[test]
-fn transaction_atomicity_buffered() {
+fn transaction_atomicity_standard() {
     let test_db = TestDb::new(); // TestDb::new() uses temp dir with durability
     let branch_id = test_db.branch_id;
 
@@ -186,13 +187,13 @@ fn transaction_atomicity_buffered() {
 }
 
 #[test]
-fn transaction_atomicity_strict() {
+fn transaction_atomicity_always() {
     let temp_dir = tempfile::tempdir().unwrap();
     let db = Database::builder()
         .path(temp_dir.path())
-        .strict()
+        .always()
         .open()
-        .expect("strict database");
+        .expect("always database");
     let branch_id = BranchId::new();
 
     db.transaction(branch_id, |txn| {

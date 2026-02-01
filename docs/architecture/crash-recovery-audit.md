@@ -159,7 +159,7 @@ let should_sync = self.writes_since_sync >= batch_size
 ```
 WalWriter::append(record)
 │
-├─ [1] Skip if DurabilityMode::None                      (writer.rs:141-143)
+├─ [1] Skip if DurabilityMode::Cache                     (writer.rs:141-143)
 │
 ├─ [2] record.to_bytes()                                 (writer.rs:151)
 │      [Length(4)] + [FormatVer(1) + TxnId(8) + BranchId(16)
@@ -461,7 +461,7 @@ pub fn sync_if_overdue(&mut self) -> std::io::Result<bool> {
     if !self.has_unsynced_data {
         return Ok(false);
     }
-    if let DurabilityMode::Batched { interval_ms, .. } = self.durability {
+    if let DurabilityMode::Standard { interval_ms, .. } = self.durability {
         if self.last_sync_time.elapsed().as_millis() as u64 >= interval_ms {
             // ... sync ...
         }

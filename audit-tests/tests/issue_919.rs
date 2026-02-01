@@ -17,7 +17,7 @@ use strata_executor::{Command, Output};
 /// After initializing a state cell, the only option is to overwrite its value.
 #[test]
 fn issue_919_no_state_delete_command() {
-    let db = strata_engine::database::Database::ephemeral().unwrap();
+    let db = strata_engine::database::Database::cache().unwrap();
     let executor = strata_executor::Executor::new(db);
 
     let branch = strata_executor::BranchId::from("default");
@@ -93,7 +93,7 @@ fn issue_919_no_state_delete_command() {
 /// You cannot enumerate state cells for a branch.
 #[test]
 fn issue_919_no_state_list_command() {
-    let db = strata_engine::database::Database::ephemeral().unwrap();
+    let db = strata_engine::database::Database::cache().unwrap();
     let executor = strata_executor::Executor::new(db);
 
     let branch = strata_executor::BranchId::from("default");

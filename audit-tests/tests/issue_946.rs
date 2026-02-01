@@ -34,7 +34,7 @@ use strata_executor::{BranchId, Command, DistanceMetric, Executor, Output};
 /// the branch is gone but vector backend state may linger.
 #[test]
 fn issue_946_branch_delete_leaves_vector_data() {
-    let db = Database::ephemeral().unwrap();
+    let db = Database::cache().unwrap();
     let executor = Executor::new(db);
 
     // Create a branch

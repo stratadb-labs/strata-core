@@ -1,6 +1,6 @@
 //! Durability Mode Equivalence Tests
 //!
-//! Verifies that in-memory, buffered, and strict modes produce
+//! Verifies that in-memory, standard, and always modes produce
 //! semantically identical results for the same workload.
 
 use crate::common::*;
@@ -96,8 +96,8 @@ fn delete_semantics_equivalent_across_modes() {
 }
 
 #[test]
-fn buffered_mode_recovers_after_restart() {
-    let mut test_db = TestDb::new(); // buffered mode
+fn standard_mode_recovers_after_restart() {
+    let mut test_db = TestDb::new(); // standard mode
     let branch_id = test_db.branch_id;
 
     let kv = test_db.kv();
@@ -115,12 +115,12 @@ fn buffered_mode_recovers_after_restart() {
     assert_states_equal(
         &state_before,
         &state_after,
-        "Buffered mode should recover all data",
+        "Standard mode should recover all data",
     );
 }
 
 #[test]
-fn strict_mode_recovers_after_restart() {
+fn always_mode_recovers_after_restart() {
     let mut test_db = TestDb::new_strict();
     let branch_id = test_db.branch_id;
 
@@ -138,6 +138,6 @@ fn strict_mode_recovers_after_restart() {
     assert_states_equal(
         &state_before,
         &state_after,
-        "Strict mode should recover all data",
+        "Always mode should recover all data",
     );
 }
