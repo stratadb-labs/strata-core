@@ -38,6 +38,12 @@ pub enum CommitError {
     /// Per spec Section 5: WAL must be written before storage for durability.
     /// If WAL write fails, the transaction cannot be durably committed.
     WALError(String),
+
+    /// Storage error during validation
+    ///
+    /// A storage I/O error occurred while reading current versions for
+    /// conflict detection. The transaction is aborted to prevent incorrect commits.
+    StorageError(String),
 }
 
 impl std::fmt::Display for CommitError {
@@ -48,6 +54,7 @@ impl std::fmt::Display for CommitError {
             }
             CommitError::InvalidState(msg) => write!(f, "Invalid state: {}", msg),
             CommitError::WALError(msg) => write!(f, "WAL error: {}", msg),
+            CommitError::StorageError(msg) => write!(f, "Storage error during validation: {}", msg),
         }
     }
 }
@@ -64,6 +71,10 @@ impl From<CommitError> for StrataError {
             CommitError::InvalidState(msg) => StrataError::TransactionNotActive { state: msg },
             CommitError::WALError(msg) => StrataError::Storage {
                 message: format!("WAL error: {}", msg),
+                source: None,
+            },
+            CommitError::StorageError(msg) => StrataError::Storage {
+                message: format!("Storage error during validation: {}", msg),
                 source: None,
             },
         }
@@ -1102,7 +1113,8 @@ impl TransactionContext {
         self.status = TransactionStatus::Validating;
 
         // Step 2: Validate against current storage state
-        let validation_result = validate_transaction(self, store);
+        let validation_result = validate_transaction(self, store)
+            .map_err(|e| CommitError::StorageError(e.to_string()))?;
 
         if !validation_result.is_valid() {
             // Step 3a: Validation failed - abort

@@ -93,7 +93,7 @@ impl WalReplayer {
         stats.segments_read = segments.len();
 
         for segment_number in segments {
-            let (records, _valid_end) = self
+            let (records, _valid_end, _stop_reason) = self
                 .reader
                 .read_segment(&self.wal_dir, segment_number)
                 .map_err(WalReplayError::from)?;

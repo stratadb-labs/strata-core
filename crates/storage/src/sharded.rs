@@ -386,15 +386,20 @@ impl ShardedStore {
         Ok(previous)
     }
 
-    /// Check if a key exists
+    /// Check if a key exists (excluding tombstones)
     ///
     /// Lock-free check via DashMap read guard.
+    /// Returns false for deleted keys (tombstones).
     #[inline]
     pub fn contains(&self, key: &Key) -> bool {
         let branch_id = key.namespace.branch_id;
         self.shards
             .get(&branch_id)
-            .map(|shard| shard.data.contains_key(key))
+            .map(|shard| {
+                shard.data.get(key).map_or(false, |chain| {
+                    chain.latest().map_or(false, |sv| !sv.is_tombstone())
+                })
+            })
             .unwrap_or(false)
     }
 
@@ -427,7 +432,11 @@ impl ShardedStore {
         // Capture timestamp once for entire batch
         let timestamp = Timestamp::now();
 
-        // Apply writes
+        // Group writes and deletes by branch_id to apply atomically per branch.
+        // This ensures concurrent readers never see partial transaction state
+        // within a branch, since we hold the shard lock for the entire branch batch.
+        let mut branch_ops: FxHashMap<BranchId, (Vec<(Key, StoredValue)>, Vec<Key>)> = FxHashMap::default();
+
         for (key, value) in writes {
             let stored = StoredValue::with_timestamp(
                 value.clone(),
@@ -435,12 +444,39 @@ impl ShardedStore {
                 timestamp,
                 None,
             );
-            self.put(key.clone(), stored);
+            branch_ops.entry(key.namespace.branch_id)
+                .or_insert_with(|| (Vec::new(), Vec::new()))
+                .0
+                .push((key.clone(), stored));
         }
 
-        // Apply deletes with the specified version
         for key in deletes {
-            let _ = self.delete_with_version(key, version);
+            branch_ops.entry(key.namespace.branch_id)
+                .or_insert_with(|| (Vec::new(), Vec::new()))
+                .1
+                .push(key.clone());
+        }
+
+        // Apply atomically per branch (hold shard lock for entire branch batch)
+        for (branch_id, (branch_writes, branch_deletes)) in branch_ops {
+            let mut shard = self.shards.entry(branch_id).or_default();
+
+            for (key, stored) in branch_writes {
+                if let Some(chain) = shard.data.get_mut(&key) {
+                    chain.push(stored);
+                } else {
+                    shard.data.insert(key, VersionChain::new(stored));
+                }
+            }
+
+            for key in branch_deletes {
+                let tombstone = StoredValue::tombstone(Version::txn(version));
+                if let Some(chain) = shard.data.get_mut(&key) {
+                    chain.push(tombstone);
+                } else {
+                    shard.data.insert(key, VersionChain::new(tombstone));
+                }
+            }
         }
 
         // Update global version to be at least this version
@@ -464,8 +500,9 @@ impl ShardedStore {
 
     /// List all entries for a branch
     ///
-    /// NOTE: Slower than BTreeMap range scan. Requires collect + sort.
-    /// This is acceptable because list operations are NOT on the hot path.
+    /// Uses a two-phase approach to minimize shard lock hold time:
+    /// 1. Collect matching keys under a brief shard read lock
+    /// 2. Read values individually, allowing writers to interleave
     ///
     /// # Arguments
     ///
@@ -475,22 +512,41 @@ impl ShardedStore {
     ///
     /// Vector of (Key, VersionedValue) pairs, sorted by key
     pub fn list_branch(&self, branch_id: &BranchId) -> Vec<(Key, VersionedValue)> {
-        self.shards
+        // Phase 1: Collect matching keys under shard lock (no value clones)
+        let keys: Vec<Key> = self
+            .shards
             .get(branch_id)
             .map(|shard| {
-                let mut results: Vec<_> = shard
+                shard
                     .data
                     .iter()
-                    .filter_map(|(k, chain)| {
-                        chain.latest().map(|sv| (k.clone(), sv.versioned().clone()))
-                    })
-                    .collect();
-
-                // Sort for consistent ordering (Key implements Ord)
-                results.sort_by(|(a, _), (b, _)| a.cmp(b));
-                results
+                    .filter(|(_, chain)| chain.latest().map_or(false, |sv| !sv.is_tombstone()))
+                    .map(|(k, _)| k.clone())
+                    .collect()
             })
-            .unwrap_or_default()
+            .unwrap_or_default();
+        // Shard lock released here
+
+        // Phase 2: Read values individually (brief lock per read)
+        let mut results: Vec<_> = keys
+            .into_iter()
+            .filter_map(|key| {
+                self.shards.get(branch_id).and_then(|shard| {
+                    shard.data.get(&key).and_then(|chain| {
+                        chain.latest().and_then(|sv| {
+                            if !sv.is_tombstone() {
+                                Some((key, sv.versioned().clone()))
+                            } else {
+                                None
+                            }
+                        })
+                    })
+                })
+            })
+            .collect();
+
+        results.sort_by(|(a, _), (b, _)| a.cmp(b));
+        results
     }
 
     /// List entries matching a key prefix
@@ -510,23 +566,43 @@ impl ShardedStore {
     /// Vector of (Key, VersionedValue) pairs matching prefix, sorted by key
     pub fn list_by_prefix(&self, prefix: &Key) -> Vec<(Key, VersionedValue)> {
         let branch_id = prefix.namespace.branch_id;
-        self.shards
+
+        // Phase 1: Collect matching keys under shard lock (no value clones)
+        let keys: Vec<Key> = self
+            .shards
             .get(&branch_id)
             .map(|shard| {
-                let mut results: Vec<_> = shard
+                shard
                     .data
                     .iter()
                     .filter(|(k, _)| k.starts_with(prefix))
-                    .filter_map(|(k, chain)| {
-                        chain.latest().map(|sv| (k.clone(), sv.versioned().clone()))
-                    })
-                    .collect();
-
-                // Sort for consistent ordering
-                results.sort_by(|(a, _), (b, _)| a.cmp(b));
-                results
+                    .filter(|(_, chain)| chain.latest().map_or(false, |sv| !sv.is_tombstone()))
+                    .map(|(k, _)| k.clone())
+                    .collect()
             })
-            .unwrap_or_default()
+            .unwrap_or_default();
+        // Shard lock released here
+
+        // Phase 2: Read values individually (brief lock per read)
+        let mut results: Vec<_> = keys
+            .into_iter()
+            .filter_map(|key| {
+                self.shards.get(&branch_id).and_then(|shard| {
+                    shard.data.get(&key).and_then(|chain| {
+                        chain.latest().and_then(|sv| {
+                            if !sv.is_tombstone() {
+                                Some((key, sv.versioned().clone()))
+                            } else {
+                                None
+                            }
+                        })
+                    })
+                })
+            })
+            .collect();
+
+        results.sort_by(|(a, _), (b, _)| a.cmp(b));
+        results
     }
 
     /// List entries of a specific type for a branch
@@ -546,26 +622,45 @@ impl ShardedStore {
         branch_id: &BranchId,
         type_tag: strata_core::types::TypeTag,
     ) -> Vec<(Key, VersionedValue)> {
-        self.shards
+        // Phase 1: Collect matching keys under shard lock (no value clones)
+        let keys: Vec<Key> = self
+            .shards
             .get(branch_id)
             .map(|shard| {
-                let mut results: Vec<_> = shard
+                shard
                     .data
                     .iter()
                     .filter(|(k, _)| k.type_tag == type_tag)
-                    .filter_map(|(k, chain)| {
-                        chain.latest().map(|sv| (k.clone(), sv.versioned().clone()))
-                    })
-                    .collect();
-
-                // Sort for consistent ordering
-                results.sort_by(|(a, _), (b, _)| a.cmp(b));
-                results
+                    .filter(|(_, chain)| chain.latest().map_or(false, |sv| !sv.is_tombstone()))
+                    .map(|(k, _)| k.clone())
+                    .collect()
             })
-            .unwrap_or_default()
+            .unwrap_or_default();
+        // Shard lock released here
+
+        // Phase 2: Read values individually (brief lock per read)
+        let mut results: Vec<_> = keys
+            .into_iter()
+            .filter_map(|key| {
+                self.shards.get(branch_id).and_then(|shard| {
+                    shard.data.get(&key).and_then(|chain| {
+                        chain.latest().and_then(|sv| {
+                            if !sv.is_tombstone() {
+                                Some((key, sv.versioned().clone()))
+                            } else {
+                                None
+                            }
+                        })
+                    })
+                })
+            })
+            .collect();
+
+        results.sort_by(|(a, _), (b, _)| a.cmp(b));
+        results
     }
 
-    /// Count entries of a specific type for a branch
+    /// Count entries of a specific type for a branch (excludes tombstones)
     pub fn count_by_type(&self, branch_id: &BranchId, type_tag: strata_core::types::TypeTag) -> usize {
         self.shards
             .get(branch_id)
@@ -573,7 +668,10 @@ impl ShardedStore {
                 shard
                     .data
                     .iter()
-                    .filter(|(k, _)| k.type_tag == type_tag)
+                    .filter(|(k, chain)| {
+                        k.type_tag == type_tag
+                            && chain.latest().map_or(false, |sv| !sv.is_tombstone())
+                    })
                     .count()
             })
             .unwrap_or(0)

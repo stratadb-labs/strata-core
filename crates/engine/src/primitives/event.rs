@@ -116,7 +116,10 @@ impl Default for EventLogMeta {
 ///
 /// Deterministic across platforms and Rust versions.
 /// Format: SHA256(sequence || event_type_len || event_type || timestamp || payload_len || payload || prev_hash)
-fn compute_event_hash(
+///
+/// This is the canonical hash function for event chain integrity.
+/// All code paths that compute event hashes MUST use this function.
+pub fn compute_event_hash(
     sequence: u64,
     event_type: &str,
     payload: &Value,
@@ -210,11 +213,10 @@ fn contains_non_finite_float(value: &Value) -> bool {
 }
 
 /// Serialize a struct to Value::String for storage
-fn to_stored_value<T: Serialize>(v: &T) -> Value {
-    match serde_json::to_string(v) {
-        Ok(s) => Value::String(s),
-        Err(_) => Value::Null,
-    }
+fn to_stored_value<T: Serialize>(v: &T) -> StrataResult<Value> {
+    serde_json::to_string(v)
+        .map(Value::String)
+        .map_err(|e| StrataError::serialization(e.to_string()))
 }
 
 /// Deserialize from Value::String storage
@@ -356,7 +358,7 @@ impl EventLog {
 
                 // Write event
                 let event_key = Key::new_event(ns.clone(), sequence);
-                txn.put(event_key, to_stored_value(&event))?;
+                txn.put(event_key, to_stored_value(&event)?)?;
 
                 // Update stream metadata
                 match meta.streams.get_mut(&event_type_owned) {
@@ -372,7 +374,7 @@ impl EventLog {
                 // Update metadata (CAS semantics through transaction)
                 meta.next_sequence = sequence + 1;
                 meta.head_hash = hash;
-                txn.put(meta_key, to_stored_value(&meta))?;
+                txn.put(meta_key, to_stored_value(&meta)?)?;
 
                 Ok(Version::Sequence(sequence))
             })?;
@@ -533,7 +535,7 @@ impl EventLogExt for TransactionContext {
 
         // Write event
         let event_key = Key::new_event(ns.clone(), sequence);
-        self.put(event_key, to_stored_value(&event))?;
+        self.put(event_key, to_stored_value(&event)?)?;
 
         // Update stream metadata
         let event_type_owned = event_type.to_string();
@@ -550,7 +552,7 @@ impl EventLogExt for TransactionContext {
         // Update metadata
         meta.next_sequence = sequence + 1;
         meta.head_hash = hash;
-        self.put(meta_key, to_stored_value(&meta))?;
+        self.put(meta_key, to_stored_value(&meta)?)?;
 
         Ok(sequence)
     }

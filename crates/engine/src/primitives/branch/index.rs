@@ -164,11 +164,10 @@ impl BranchMetadata {
 // ========== Serialization Helpers ==========
 
 /// Serialize a struct to Value::String for storage
-fn to_stored_value<T: Serialize>(v: &T) -> Value {
-    match serde_json::to_string(v) {
-        Ok(s) => Value::String(s),
-        Err(_) => Value::Null,
-    }
+fn to_stored_value<T: Serialize>(v: &T) -> StrataResult<Value> {
+    serde_json::to_string(v)
+        .map(Value::String)
+        .map_err(|e| StrataError::serialization(e.to_string()))
 }
 
 /// Deserialize from Value::String storage
@@ -250,7 +249,7 @@ impl BranchIndex {
             }
 
             let branch_meta = BranchMetadata::new(branch_id);
-            txn.put(key, to_stored_value(&branch_meta))?;
+            txn.put(key, to_stored_value(&branch_meta)?)?;
 
             Ok(branch_meta.into_versioned())
         })

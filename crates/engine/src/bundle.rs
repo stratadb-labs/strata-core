@@ -19,7 +19,9 @@ use crate::BranchIndex;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
-use strata_core::types::{Key, Namespace, BranchId, TypeTag};
+use std::collections::BTreeMap;
+
+use strata_core::types::{BranchId, Key, TypeTag};
 use strata_core::StrataError;
 use strata_core::StrataResult;
 use strata_durability::branch_bundle::{
@@ -130,16 +132,18 @@ pub fn export_branch_with_options(
     })
 }
 
-/// Scan all data in a branch's namespace and group into BranchlogPayload records
+/// Scan all data in a branch's namespace and group into BranchlogPayload records.
+///
+/// Uses the storage layer's version history to produce one payload per commit
+/// version, preserving the full version chain for import.
 fn scan_branch_data(
     db: &Arc<Database>,
     core_branch_id: BranchId,
     branch_id_str: &str,
 ) -> StrataResult<Vec<BranchlogPayload>> {
-    let ns = Namespace::for_branch(core_branch_id);
-    let mut all_entries: Vec<(Key, strata_core::value::Value)> = Vec::new();
+    let storage = db.storage();
 
-    // Scan all type tags
+    // Discover all current keys across all type tags
     let type_tags = [
         TypeTag::KV,
         TypeTag::Event,
@@ -148,28 +152,48 @@ fn scan_branch_data(
         TypeTag::Vector,
     ];
 
+    let mut all_keys: Vec<Key> = Vec::new();
     for type_tag in type_tags {
-        let entries = db.transaction(core_branch_id, |txn| {
-            let prefix = Key::new(ns.clone(), type_tag, vec![]);
-            txn.scan_prefix(&prefix)
-        })?;
-        all_entries.extend(entries);
+        let entries = storage.list_by_type(&core_branch_id, type_tag);
+        all_keys.extend(entries.into_iter().map(|(k, _)| k));
     }
 
-    // Group all entries into a single BranchlogPayload
-    // Since we're scanning the current state (not WAL), all entries are at the
-    // same logical version. We create one payload per batch.
-    if all_entries.is_empty() {
+    if all_keys.is_empty() {
         return Ok(vec![]);
     }
 
-    // Create a single payload with all current state
-    Ok(vec![BranchlogPayload {
-        branch_id: branch_id_str.to_string(),
-        version: 1,
-        puts: all_entries,
-        deletes: vec![],
-    }])
+    // For each key, get the full version history and group entries by version.
+    // BTreeMap keeps versions sorted ascending for deterministic replay order.
+    let mut version_groups: BTreeMap<u64, Vec<(Key, strata_core::value::Value)>> =
+        BTreeMap::new();
+
+    for key in &all_keys {
+        let history = db.get_history(key, None, None)?;
+        for vv in history {
+            let ver = match vv.version {
+                strata_core::Version::Counter(v)
+                | strata_core::Version::Txn(v)
+                | strata_core::Version::Sequence(v) => v,
+            };
+            version_groups
+                .entry(ver)
+                .or_default()
+                .push((key.clone(), vv.value));
+        }
+    }
+
+    // Convert grouped entries into payloads sorted by version
+    let payloads: Vec<BranchlogPayload> = version_groups
+        .into_iter()
+        .map(|(version, puts)| BranchlogPayload {
+            branch_id: branch_id_str.to_string(),
+            version,
+            puts,
+            deletes: vec![],
+        })
+        .collect();
+
+    Ok(payloads)
 }
 
 // =============================================================================
@@ -295,6 +319,7 @@ fn format_micros(micros: u64) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use strata_core::types::Namespace;
     use tempfile::TempDir;
 
     fn setup() -> (TempDir, Arc<Database>) {

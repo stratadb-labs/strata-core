@@ -39,8 +39,18 @@ pub trait StorageCodec: Send + Sync {
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
 pub enum CodecError {
     /// Decoding failed (e.g., decryption failure, invalid format).
-    #[error("Decode error: {0}")]
-    DecodeError(String),
+    ///
+    /// Carries the codec identity and data length so callers can
+    /// distinguish a wrong-codec error from data corruption.
+    #[error("Decode error (codec={codec_id}, data_len={data_len}): {detail}")]
+    DecodeError {
+        /// Human-readable error description
+        detail: String,
+        /// Codec ID that attempted the decode
+        codec_id: String,
+        /// Length of the data that failed to decode
+        data_len: usize,
+    },
 
     /// Unknown codec identifier.
     #[error("Unknown codec: {0}")]
@@ -54,6 +64,17 @@ pub enum CodecError {
         /// Actual codec ID being used
         actual: String,
     },
+}
+
+impl CodecError {
+    /// Create a decode error with full diagnostic context.
+    pub fn decode(detail: impl Into<String>, codec_id: impl Into<String>, data_len: usize) -> Self {
+        CodecError::DecodeError {
+            detail: detail.into(),
+            codec_id: codec_id.into(),
+            data_len,
+        }
+    }
 }
 
 #[cfg(test)]
@@ -85,8 +106,11 @@ mod tests {
 
     #[test]
     fn test_codec_error_display() {
-        let err = CodecError::DecodeError("test error".to_string());
-        assert!(err.to_string().contains("test error"));
+        let err = CodecError::decode("test error", "identity", 42);
+        let msg = err.to_string();
+        assert!(msg.contains("test error"));
+        assert!(msg.contains("identity"));
+        assert!(msg.contains("42"));
 
         let err = CodecError::UnknownCodec("mystery".to_string());
         assert!(err.to_string().contains("mystery"));
@@ -102,9 +126,9 @@ mod tests {
 
     #[test]
     fn test_codec_error_equality() {
-        let err1 = CodecError::DecodeError("error".to_string());
-        let err2 = CodecError::DecodeError("error".to_string());
-        let err3 = CodecError::DecodeError("different".to_string());
+        let err1 = CodecError::decode("error", "identity", 10);
+        let err2 = CodecError::decode("error", "identity", 10);
+        let err3 = CodecError::decode("different", "identity", 10);
 
         assert_eq!(err1, err2);
         assert_ne!(err1, err3);

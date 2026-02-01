@@ -33,7 +33,7 @@ impl WalReader {
         &self,
         wal_dir: &Path,
         segment_number: u64,
-    ) -> Result<(Vec<WalRecord>, u64), WalReaderError> {
+    ) -> Result<(Vec<WalRecord>, u64, ReadStopReason), WalReaderError> {
         let mut segment = WalSegment::open_read(wal_dir, segment_number)
             .map_err(|e: std::io::Error| WalReaderError::IoError(e.to_string()))?;
 
@@ -44,7 +44,7 @@ impl WalReader {
     pub fn read_segment_from(
         &self,
         segment: &mut WalSegment,
-    ) -> Result<(Vec<WalRecord>, u64), WalReaderError> {
+    ) -> Result<(Vec<WalRecord>, u64, ReadStopReason), WalReaderError> {
         let mut records = Vec::new();
         let mut buffer = Vec::new();
         let mut valid_end = SEGMENT_HEADER_SIZE as u64;
@@ -61,6 +61,7 @@ impl WalReader {
             .map_err(|e: std::io::Error| WalReaderError::IoError(e.to_string()))?;
 
         let mut offset = 0;
+        let mut stop_reason = ReadStopReason::EndOfData;
 
         while offset < buffer.len() {
             // Try to decode through codec first
@@ -76,20 +77,28 @@ impl WalReader {
                 }
                 Err(WalRecordError::InsufficientData) => {
                     // Partial record at end - this is expected for crash recovery
+                    stop_reason = ReadStopReason::PartialRecord;
                     break;
                 }
                 Err(WalRecordError::ChecksumMismatch { .. }) => {
-                    // Corrupt record - stop reading
+                    // Corrupt data - CRC doesn't match
+                    stop_reason = ReadStopReason::ChecksumMismatch { offset };
                     break;
                 }
-                Err(_) => {
-                    // Other error - stop reading
+                Err(e) => {
+                    // CRC was valid but payload couldn't be parsed.
+                    // This indicates codec mismatch or format version incompatibility,
+                    // NOT data corruption.
+                    stop_reason = ReadStopReason::ParseError {
+                        offset,
+                        detail: e.to_string(),
+                    };
                     break;
                 }
             }
         }
 
-        Ok((records, valid_end))
+        Ok((records, valid_end, stop_reason))
     }
 
     /// Read all records from all segments in a WAL directory.
@@ -102,10 +111,12 @@ impl WalReader {
 
         let mut all_records = Vec::new();
         let mut truncate_info = None;
+        let mut last_stop_reason = ReadStopReason::EndOfData;
 
         for (idx, segment_num) in segments.iter().enumerate() {
-            let (records, valid_end) = self.read_segment(wal_dir, *segment_num)?;
+            let (records, valid_end, stop_reason) = self.read_segment(wal_dir, *segment_num)?;
             all_records.extend(records);
+            last_stop_reason = stop_reason;
 
             // Check if this segment needs truncation (only the last one can)
             if idx == segments.len() - 1 {
@@ -125,6 +136,7 @@ impl WalReader {
         Ok(WalReadResult {
             records: all_records,
             truncate_info,
+            stop_reason: last_stop_reason,
         })
     }
 
@@ -137,7 +149,7 @@ impl WalReader {
         segment_number: u64,
         watermark: u64,
     ) -> Result<Vec<WalRecord>, WalReaderError> {
-        let (records, _) = self.read_segment(wal_dir, segment_number)?;
+        let (records, _, _) = self.read_segment(wal_dir, segment_number)?;
 
         Ok(records
             .into_iter()
@@ -191,7 +203,7 @@ impl WalReader {
         wal_dir: &Path,
         segment_number: u64,
     ) -> Result<Option<u64>, WalReaderError> {
-        let (records, _) = self.read_segment(wal_dir, segment_number)?;
+        let (records, _, _) = self.read_segment(wal_dir, segment_number)?;
         Ok(records.iter().map(|r| r.txn_id).max())
     }
 
@@ -202,6 +214,29 @@ impl WalReader {
     }
 }
 
+/// Reason why record reading stopped before reaching end of segment.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ReadStopReason {
+    /// Successfully read all records to end of data
+    EndOfData,
+    /// Partial record at end of segment (expected after crash)
+    PartialRecord,
+    /// CRC checksum mismatch - data is corrupted
+    ChecksumMismatch {
+        /// Byte offset within the segment where the mismatch was detected
+        offset: usize,
+    },
+    /// CRC was valid but payload could not be parsed.
+    /// This indicates a codec mismatch, unsupported format version,
+    /// or a bug in the record format (not data corruption).
+    ParseError {
+        /// Byte offset within the segment where parsing failed
+        offset: usize,
+        /// Human-readable error description
+        detail: String,
+    },
+}
+
 /// Result of reading all WAL segments.
 #[derive(Debug)]
 pub struct WalReadResult {
@@ -210,6 +245,9 @@ pub struct WalReadResult {
 
     /// Information about truncation needed (if any)
     pub truncate_info: Option<TruncateInfo>,
+
+    /// Why reading stopped (for diagnostics)
+    pub stop_reason: ReadStopReason,
 }
 
 /// Information about a segment that needs truncation.
@@ -288,7 +326,7 @@ mod tests {
         WalSegment::create(&wal_dir, 1, [1u8; 16]).unwrap();
 
         let reader = WalReader::new(make_codec());
-        let (records, _) = reader.read_segment(&wal_dir, 1).unwrap();
+        let (records, _, _) = reader.read_segment(&wal_dir, 1).unwrap();
 
         assert!(records.is_empty());
     }
@@ -302,7 +340,7 @@ mod tests {
         write_records(&wal_dir, &[record.clone()]);
 
         let reader = WalReader::new(make_codec());
-        let (records, _) = reader.read_segment(&wal_dir, 1).unwrap();
+        let (records, _, _) = reader.read_segment(&wal_dir, 1).unwrap();
 
         assert_eq!(records.len(), 1);
         assert_eq!(records[0].txn_id, 1);

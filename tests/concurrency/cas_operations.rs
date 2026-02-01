@@ -41,7 +41,7 @@ fn cas_succeeds_when_version_matches() {
         new_value: Value::Int(200),
     }];
 
-    let result = validate_cas_set(&cas_set, &*store);
+    let result = validate_cas_set(&cas_set, &*store).unwrap();
     assert!(result.is_valid(), "CAS should succeed when version matches");
 }
 
@@ -60,7 +60,7 @@ fn cas_create_succeeds_when_key_absent() {
         new_value: Value::Int(42),
     }];
 
-    let result = validate_cas_set(&cas_set, &*store);
+    let result = validate_cas_set(&cas_set, &*store).unwrap();
     assert!(result.is_valid(), "CAS create should succeed when key absent");
 }
 
@@ -88,7 +88,7 @@ fn cas_fails_when_version_stale() {
         new_value: Value::Int(3),
     }];
 
-    let result = validate_cas_set(&cas_set, &*store);
+    let result = validate_cas_set(&cas_set, &*store).unwrap();
     assert!(!result.is_valid(), "CAS should fail when version is stale");
 
     match &result.conflicts[0] {
@@ -120,7 +120,7 @@ fn cas_create_fails_when_key_exists() {
         new_value: Value::Int(200),
     }];
 
-    let result = validate_cas_set(&cas_set, &*store);
+    let result = validate_cas_set(&cas_set, &*store).unwrap();
     assert!(!result.is_valid(), "CAS create should fail when key exists");
 }
 
@@ -142,7 +142,7 @@ fn cas_fails_when_key_deleted() {
         new_value: Value::Int(200),
     }];
 
-    let result = validate_cas_set(&cas_set, &*store);
+    let result = validate_cas_set(&cas_set, &*store).unwrap();
     assert!(!result.is_valid(), "CAS should fail when key was deleted");
 }
 
@@ -195,7 +195,7 @@ fn cas_validated_separately_from_reads() {
     Storage::put(&*store, read_key.clone(), Value::Int(10), None).unwrap();
 
     // Validation should fail on read_key (ReadWriteConflict), not on CAS
-    let result = validate_transaction(&txn, &*store);
+    let result = validate_transaction(&txn, &*store).unwrap();
     assert!(!result.is_valid());
 
     // Should have ReadWriteConflict, not CASConflict
@@ -233,7 +233,7 @@ fn multiple_cas_all_succeed() {
         })
         .collect();
 
-    let result = validate_cas_set(&cas_set, &*store);
+    let result = validate_cas_set(&cas_set, &*store).unwrap();
     assert!(result.is_valid(), "All CAS should succeed");
 }
 
@@ -276,7 +276,7 @@ fn multiple_cas_one_fails() {
         },
     ];
 
-    let result = validate_cas_set(&cas_set, &*store);
+    let result = validate_cas_set(&cas_set, &*store).unwrap();
     assert!(!result.is_valid(), "Should fail due to key2");
     assert_eq!(result.conflict_count(), 1, "Only key2 should conflict");
 }
@@ -305,7 +305,7 @@ fn cas_in_full_transaction() {
 
     // Validate
     let result = validate_transaction(&txn, &*store);
-    assert!(result.is_valid());
+    assert!(result.unwrap().is_valid());
 }
 
 #[test]
@@ -329,7 +329,7 @@ fn cas_with_read_of_same_key() {
 
     // Both should pass (version matches)
     let result = validate_transaction(&txn, &*store);
-    assert!(result.is_valid());
+    assert!(result.unwrap().is_valid());
 }
 
 // ============================================================================
@@ -341,7 +341,7 @@ fn cas_empty_set_validates() {
     let store = Arc::new(ShardedStore::new());
     let cas_set: Vec<CASOperation> = Vec::new();
 
-    let result = validate_cas_set(&cas_set, &*store);
+    let result = validate_cas_set(&cas_set, &*store).unwrap();
     assert!(result.is_valid());
 }
 
@@ -376,7 +376,7 @@ fn cas_conflict_reports_correct_key() {
         new_value: Value::Int(100),
     }];
 
-    let result = validate_cas_set(&cas_set, &*store);
+    let result = validate_cas_set(&cas_set, &*store).unwrap();
 
     match &result.conflicts[0] {
         ConflictType::CASConflict { key: k, .. } => {

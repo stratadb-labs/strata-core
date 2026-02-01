@@ -45,7 +45,7 @@ fn read_write_conflict_version_increased() {
     Storage::put(&*store, key.clone(), Value::Int(2), None).unwrap();
 
     // Validate
-    let result = validate_read_set(&read_set, &*store);
+    let result = validate_read_set(&read_set, &*store).unwrap();
     assert!(!result.is_valid());
     assert!(matches!(
         &result.conflicts[0],
@@ -71,7 +71,7 @@ fn read_write_conflict_key_deleted() {
     Storage::delete(&*store, &key).unwrap();
 
     // Validate - should conflict (version changed to 0)
-    let result = validate_read_set(&read_set, &*store);
+    let result = validate_read_set(&read_set, &*store).unwrap();
     assert!(!result.is_valid());
 }
 
@@ -89,7 +89,7 @@ fn read_write_conflict_key_created() {
     Storage::put(&*store, key.clone(), Value::Int(1), None).unwrap();
 
     // Validate - should conflict (version changed from 0)
-    let result = validate_read_set(&read_set, &*store);
+    let result = validate_read_set(&read_set, &*store).unwrap();
     assert!(!result.is_valid());
 }
 
@@ -110,7 +110,7 @@ fn no_read_write_conflict_version_same() {
     // No changes
 
     // Validate - should pass
-    let result = validate_read_set(&read_set, &*store);
+    let result = validate_read_set(&read_set, &*store).unwrap();
     assert!(result.is_valid());
 }
 
@@ -138,7 +138,7 @@ fn cas_conflict_version_mismatch() {
         new_value: Value::Int(300),
     }];
 
-    let result = validate_cas_set(&cas_set, &*store);
+    let result = validate_cas_set(&cas_set, &*store).unwrap();
     assert!(!result.is_valid());
     match &result.conflicts[0] {
         ConflictType::CASConflict {
@@ -169,7 +169,7 @@ fn cas_create_conflict_key_exists() {
         new_value: Value::Int(200),
     }];
 
-    let result = validate_cas_set(&cas_set, &*store);
+    let result = validate_cas_set(&cas_set, &*store).unwrap();
     assert!(!result.is_valid());
     match &result.conflicts[0] {
         ConflictType::CASConflict {
@@ -198,7 +198,7 @@ fn cas_success_version_matches() {
         new_value: Value::Int(200),
     }];
 
-    let result = validate_cas_set(&cas_set, &*store);
+    let result = validate_cas_set(&cas_set, &*store).unwrap();
     assert!(result.is_valid());
 }
 
@@ -217,7 +217,7 @@ fn cas_create_success_key_not_exists() {
         new_value: Value::Int(100),
     }];
 
-    let result = validate_cas_set(&cas_set, &*store);
+    let result = validate_cas_set(&cas_set, &*store).unwrap();
     assert!(result.is_valid());
 }
 
@@ -250,7 +250,7 @@ fn multiple_cas_operations() {
         },
     ];
 
-    let result = validate_cas_set(&cas_set, &*store);
+    let result = validate_cas_set(&cas_set, &*store).unwrap();
     assert!(!result.is_valid());
     assert_eq!(result.conflict_count(), 1); // Only key2 conflicts
 }
@@ -285,7 +285,7 @@ fn transaction_validation_combines_all_checks() {
     Storage::put(&*store, key2.clone(), Value::Int(20), None).unwrap();
 
     // Validate - should have both conflicts
-    let result = validate_transaction(&txn, &*store);
+    let result = validate_transaction(&txn, &*store).unwrap();
     assert!(!result.is_valid());
     // Read-write conflict on key1, CAS conflict on key2
     assert!(result.conflict_count() >= 1);
@@ -300,7 +300,7 @@ fn empty_read_set_validates() {
     let store = Arc::new(ShardedStore::new());
     let read_set = HashMap::new();
 
-    let result = validate_read_set(&read_set, &*store);
+    let result = validate_read_set(&read_set, &*store).unwrap();
     assert!(result.is_valid());
 }
 
@@ -309,7 +309,7 @@ fn empty_cas_set_validates() {
     let store = Arc::new(ShardedStore::new());
     let cas_set: Vec<CASOperation> = Vec::new();
 
-    let result = validate_cas_set(&cas_set, &*store);
+    let result = validate_cas_set(&cas_set, &*store).unwrap();
     assert!(result.is_valid());
 }
 
@@ -344,7 +344,7 @@ fn large_read_set_validation() {
     }
 
     // All versions match - should validate
-    let result = validate_read_set(&read_set, &*store);
+    let result = validate_read_set(&read_set, &*store).unwrap();
     assert!(result.is_valid());
 }
 
@@ -367,7 +367,7 @@ fn large_read_set_with_one_conflict() {
     Storage::put(&*store, modified_key, Value::Int(500), None).unwrap();
 
     // Should have exactly one conflict
-    let result = validate_read_set(&read_set, &*store);
+    let result = validate_read_set(&read_set, &*store).unwrap();
     assert!(!result.is_valid());
     assert_eq!(result.conflict_count(), 1);
 }

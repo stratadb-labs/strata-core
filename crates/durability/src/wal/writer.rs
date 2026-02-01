@@ -55,6 +55,9 @@ pub struct WalWriter {
 
     /// Current segment number
     current_segment_number: u64,
+
+    /// Whether there is data written but not yet fsynced
+    has_unsynced_data: bool,
 }
 
 impl WalWriter {
@@ -82,6 +85,7 @@ impl WalWriter {
                 writes_since_sync: 0,
                 last_sync_time: Instant::now(),
                 current_segment_number: 0,
+                has_unsynced_data: false,
             });
         }
 
@@ -122,6 +126,7 @@ impl WalWriter {
             writes_since_sync: 0,
             last_sync_time: Instant::now(),
             current_segment_number: segment_number,
+            has_unsynced_data: false,
         })
     }
 
@@ -159,6 +164,7 @@ impl WalWriter {
 
         self.bytes_since_sync += encoded.len() as u64;
         self.writes_since_sync += 1;
+        self.has_unsynced_data = true;
 
         // Handle sync based on durability mode
         self.maybe_sync()?;
@@ -204,6 +210,7 @@ impl WalWriter {
         self.bytes_since_sync = 0;
         self.writes_since_sync = 0;
         self.last_sync_time = Instant::now();
+        self.has_unsynced_data = false;
     }
 
     /// Rotate to a new segment.
@@ -239,6 +246,29 @@ impl WalWriter {
         }
         self.reset_sync_counters();
         Ok(())
+    }
+
+    /// Sync if the batched interval has elapsed and there is unsynced data.
+    ///
+    /// Call this periodically (e.g., from a maintenance timer) to ensure
+    /// Batched mode honors its `interval_ms` even when no new writes arrive.
+    /// Returns `true` if a sync was performed.
+    pub fn sync_if_overdue(&mut self) -> std::io::Result<bool> {
+        if !self.has_unsynced_data {
+            return Ok(false);
+        }
+
+        if let DurabilityMode::Batched { interval_ms, .. } = self.durability {
+            if self.last_sync_time.elapsed().as_millis() as u64 >= interval_ms {
+                if let Some(ref mut segment) = self.segment {
+                    segment.sync()?;
+                }
+                self.reset_sync_counters();
+                return Ok(true);
+            }
+        }
+
+        Ok(false)
     }
 
     /// Get the current segment number.
@@ -302,6 +332,16 @@ impl WalWriter {
             segment.close()?;
         }
         Ok(())
+    }
+}
+
+impl Drop for WalWriter {
+    fn drop(&mut self) {
+        if self.has_unsynced_data {
+            if let Some(ref mut segment) = self.segment {
+                let _ = segment.sync();
+            }
+        }
     }
 }
 

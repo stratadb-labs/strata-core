@@ -145,7 +145,7 @@ impl ValidationResult {
 ///
 /// # Returns
 /// ValidationResult with any ReadWriteConflicts found
-pub fn validate_read_set<S: Storage>(read_set: &HashMap<Key, u64>, store: &S) -> ValidationResult {
+pub fn validate_read_set<S: Storage>(read_set: &HashMap<Key, u64>, store: &S) -> strata_core::StrataResult<ValidationResult> {
     let mut result = ValidationResult::ok();
 
     for (key, read_version) in read_set {
@@ -153,9 +153,11 @@ pub fn validate_read_set<S: Storage>(read_set: &HashMap<Key, u64>, store: &S) ->
         let current_version = match store.get(key) {
             Ok(Some(vv)) => vv.version.as_u64(),
             Ok(None) => 0, // Key doesn't exist = version 0
-            Err(_) => {
-                // Storage error - treat as version 0 (conservative)
-                0
+            Err(e) => {
+                // Storage error - abort validation to prevent incorrect commit
+                return Err(strata_core::StrataError::internal(
+                    format!("Storage error during read-set validation for key {:?}: {}", key, e)
+                ));
             }
         };
 
@@ -169,7 +171,7 @@ pub fn validate_read_set<S: Storage>(read_set: &HashMap<Key, u64>, store: &S) ->
         }
     }
 
-    result
+    Ok(result)
 }
 
 /// Validate CAS operations against current storage state
@@ -188,7 +190,7 @@ pub fn validate_read_set<S: Storage>(read_set: &HashMap<Key, u64>, store: &S) ->
 ///
 /// # Returns
 /// ValidationResult with any CASConflicts found
-pub fn validate_cas_set<S: Storage>(cas_set: &[CASOperation], store: &S) -> ValidationResult {
+pub fn validate_cas_set<S: Storage>(cas_set: &[CASOperation], store: &S) -> strata_core::StrataResult<ValidationResult> {
     let mut result = ValidationResult::ok();
 
     for cas_op in cas_set {
@@ -196,7 +198,11 @@ pub fn validate_cas_set<S: Storage>(cas_set: &[CASOperation], store: &S) -> Vali
         let current_version = match store.get(&cas_op.key) {
             Ok(Some(vv)) => vv.version.as_u64(),
             Ok(None) => 0, // Key doesn't exist = version 0
-            Err(_) => 0,   // Storage error = treat as non-existent
+            Err(e) => {
+                return Err(strata_core::StrataError::internal(
+                    format!("Storage error during CAS validation for key {:?}: {}", cas_op.key, e)
+                ));
+            }
         };
 
         // Check if expected version matches
@@ -209,7 +215,7 @@ pub fn validate_cas_set<S: Storage>(cas_set: &[CASOperation], store: &S) -> Vali
         }
     }
 
-    result
+    Ok(result)
 }
 
 /// Validate JSON document versions against current storage state
@@ -227,11 +233,11 @@ pub fn validate_cas_set<S: Storage>(cas_set: &[CASOperation], store: &S) -> Vali
 pub fn validate_json_set<S: Storage>(
     json_snapshot_versions: Option<&HashMap<Key, u64>>,
     store: &S,
-) -> ValidationResult {
+) -> strata_core::StrataResult<ValidationResult> {
     let mut result = ValidationResult::ok();
 
     let Some(versions) = json_snapshot_versions else {
-        return result; // No JSON operations = no JSON conflicts
+        return Ok(result); // No JSON operations = no JSON conflicts
     };
 
     for (key, snapshot_version) in versions {
@@ -239,7 +245,11 @@ pub fn validate_json_set<S: Storage>(
         let current_version = match store.get(key) {
             Ok(Some(vv)) => vv.version.as_u64(),
             Ok(None) => 0, // Document deleted = version 0
-            Err(_) => 0,   // Storage error = treat as deleted
+            Err(e) => {
+                return Err(strata_core::StrataError::internal(
+                    format!("Storage error during JSON validation for key {:?}: {}", key, e)
+                ));
+            }
         };
 
         // Check if version changed since transaction read it
@@ -252,7 +262,7 @@ pub fn validate_json_set<S: Storage>(
         }
     }
 
-    result
+    Ok(result)
 }
 
 /// Validate JSON path-level conflicts (M5 Epic 31)
@@ -328,29 +338,29 @@ pub fn validate_json_paths(
 /// - Section 3.2: Conflict scenarios (including read-only transaction rule)
 /// - Section 3.3: First-committer-wins rule
 /// - JSON document-level conflict detection
-pub fn validate_transaction<S: Storage>(txn: &TransactionContext, store: &S) -> ValidationResult {
+pub fn validate_transaction<S: Storage>(txn: &TransactionContext, store: &S) -> strata_core::StrataResult<ValidationResult> {
     // Per spec Section 3.2 Scenario 3: Read-only transactions ALWAYS commit.
     // "Read-Only Transaction: T1 only reads keys, never writes any → ALWAYS COMMITS"
     // "Why: Read-only transactions have no writes to validate. They simply return their snapshot view."
     // Note: We also need to check for JSON writes
     if txn.is_read_only() && txn.json_writes().is_empty() {
-        return ValidationResult::ok();
+        return Ok(ValidationResult::ok());
     }
 
     let mut result = ValidationResult::ok();
 
     // 1. Validate read-set (detects read-write conflicts)
-    result.merge(validate_read_set(&txn.read_set, store));
+    result.merge(validate_read_set(&txn.read_set, store)?);
 
     // 2. Validate CAS-set (detects version mismatches)
-    result.merge(validate_cas_set(&txn.cas_set, store));
+    result.merge(validate_cas_set(&txn.cas_set, store)?);
 
     // 3. Validate JSON-set (detects JSON document version changes)
-    result.merge(validate_json_set(txn.json_snapshot_versions(), store));
+    result.merge(validate_json_set(txn.json_snapshot_versions(), store)?);
 
     // 4. Validate JSON paths (detects overlapping writes within transaction)
     result.merge(validate_json_paths(txn.json_reads(), txn.json_writes()));
 
-    result
+    Ok(result)
 }
 

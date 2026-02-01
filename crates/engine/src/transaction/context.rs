@@ -25,7 +25,6 @@ use strata_core::{
     State, StrataError, Timestamp, Value, VectorEntry, VectorMatch, Version, Versioned,
 };
 use strata_core::types::{Key, Namespace, BranchId, TypeTag};
-use sha2::{Sha256, Digest};
 
 /// Transaction wrapper that implements TransactionOps
 ///
@@ -119,21 +118,15 @@ impl<'a> Transaction<'a> {
         key.user_key_string().unwrap_or_default()
     }
 
-    /// Compute hash for an event
+    /// Compute hash for an event using the canonical hash function.
     fn compute_event_hash(event: &Event) -> [u8; 32] {
-        let mut hasher = Sha256::new();
-        hasher.update(event.sequence.to_be_bytes());
-        hasher.update(event.event_type.as_bytes());
-        // Hash the payload by serializing to JSON
-        if let Ok(payload_json) = serde_json::to_vec(&event.payload) {
-            hasher.update(&payload_json);
-        }
-        hasher.update(event.timestamp.to_be_bytes());
-        hasher.update(event.prev_hash);
-        let result = hasher.finalize();
-        let mut hash = [0u8; 32];
-        hash.copy_from_slice(&result);
-        hash
+        crate::primitives::event::compute_event_hash(
+            event.sequence,
+            &event.event_type,
+            &event.payload,
+            event.timestamp,
+            &event.prev_hash,
+        )
     }
 
     /// Get pending events (for commit)

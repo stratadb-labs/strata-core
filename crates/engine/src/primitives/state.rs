@@ -30,11 +30,10 @@ use std::sync::Arc;
 pub use strata_core::primitives::State;
 
 /// Serialize a struct to Value::String for storage
-fn to_stored_value<T: Serialize>(v: &T) -> Value {
-    match serde_json::to_string(v) {
-        Ok(s) => Value::String(s),
-        Err(_) => Value::Null,
-    }
+fn to_stored_value<T: Serialize>(v: &T) -> StrataResult<Value> {
+    serde_json::to_string(v)
+        .map(Value::String)
+        .map_err(|e| strata_core::StrataError::serialization(e.to_string()))
 }
 
 /// Deserialize from Value::String storage
@@ -117,7 +116,7 @@ impl StateCell {
 
             // Create new state
             let state = State::new(value);
-            txn.put(key, to_stored_value(&state))?;
+            txn.put(key, to_stored_value(&state)?)?;
             Ok(Versioned::new(state.version, state.version))
         })
     }
@@ -208,7 +207,7 @@ impl StateCell {
                 updated_at: State::now(),
             };
 
-            txn.put(key, to_stored_value(&new_state))?;
+            txn.put(key, to_stored_value(&new_state)?)?;
             Ok(Versioned::new(new_state.version, new_state.version))
         })
     }
@@ -240,7 +239,7 @@ impl StateCell {
                 updated_at: State::now(),
             };
 
-            txn.put(key, to_stored_value(&new_state))?;
+            txn.put(key, to_stored_value(&new_state)?)?;
             Ok(Versioned::new(new_state.version, new_state.version))
         })?;
 
@@ -322,7 +321,7 @@ impl StateCellExt for TransactionContext {
             updated_at: State::now(),
         };
 
-        self.put(key, to_stored_value(&new_state))?;
+        self.put(key, to_stored_value(&new_state)?)?;
         Ok(new_version)
     }
 
@@ -345,7 +344,7 @@ impl StateCellExt for TransactionContext {
             updated_at: State::now(),
         };
 
-        self.put(key, to_stored_value(&new_state))?;
+        self.put(key, to_stored_value(&new_state)?)?;
         Ok(new_version)
     }
 }

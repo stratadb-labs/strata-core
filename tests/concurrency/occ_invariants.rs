@@ -46,14 +46,14 @@ fn first_committer_wins_read_write_conflict() {
 
     // T2 commits - should succeed
     let result = validate_transaction(&t2, &*store);
-    assert!(result.is_valid(), "T2 should commit successfully");
+    assert!(result.unwrap().is_valid(), "T2 should commit successfully");
 
     // Apply T2's write
     Storage::put(&*store, key.clone(), Value::Int(200), None).unwrap();
 
     // T1 tries to commit - should fail with read-write conflict
     t1.write_set.insert(key.clone(), Value::Int(300));
-    let result = validate_transaction(&t1, &*store);
+    let result = validate_transaction(&t1, &*store).unwrap();
 
     assert!(!result.is_valid(), "T1 should fail validation");
     assert_eq!(result.conflict_count(), 1);
@@ -86,7 +86,7 @@ fn blind_writes_dont_conflict() {
 
     // T1 should still commit - blind writes don't conflict
     let result = validate_transaction(&t1, &*store);
-    assert!(result.is_valid(), "Blind write should not conflict");
+    assert!(result.unwrap().is_valid(), "Blind write should not conflict");
 }
 
 #[test]
@@ -110,7 +110,7 @@ fn read_only_transaction_always_commits() {
     // (per spec Section 3.2 Scenario 3)
     assert!(t1.is_read_only());
     let result = validate_transaction(&t1, &*store);
-    assert!(result.is_valid(), "Read-only transaction should always commit");
+    assert!(result.unwrap().is_valid(), "Read-only transaction should always commit");
 }
 
 #[test]
@@ -148,8 +148,8 @@ fn write_skew_is_allowed() {
     let result1 = validate_transaction(&t1, &*store);
     let result2 = validate_transaction(&t2, &*store);
 
-    assert!(result1.is_valid(), "T1 should commit (write skew allowed)");
-    assert!(result2.is_valid(), "T2 should commit (write skew allowed)");
+    assert!(result1.unwrap().is_valid(), "T1 should commit (write skew allowed)");
+    assert!(result2.unwrap().is_valid(), "T2 should commit (write skew allowed)");
 }
 
 // ============================================================================
@@ -177,7 +177,7 @@ fn conflict_reports_correct_versions() {
     // T1 writes
     t1.write_set.insert(key.clone(), Value::Int(300));
 
-    let result = validate_transaction(&t1, &*store);
+    let result = validate_transaction(&t1, &*store).unwrap();
     assert!(!result.is_valid());
 
     match &result.conflicts[0] {
@@ -215,7 +215,7 @@ fn multiple_conflicts_all_reported() {
     // T1 writes
     t1.write_set.insert(key1.clone(), Value::Int(100));
 
-    let result = validate_transaction(&t1, &*store);
+    let result = validate_transaction(&t1, &*store).unwrap();
     assert!(!result.is_valid());
     assert_eq!(result.conflict_count(), 2, "Should report both conflicts");
 }
@@ -237,7 +237,7 @@ fn no_conflict_when_versions_match() {
 
     // No concurrent modification - version still matches
     let result = validate_transaction(&t1, &*store);
-    assert!(result.is_valid(), "Should commit when version unchanged");
+    assert!(result.unwrap().is_valid(), "Should commit when version unchanged");
 }
 
 // ============================================================================
@@ -253,7 +253,7 @@ fn empty_transaction_validates() {
     assert!(t1.is_read_only());
 
     let result = validate_transaction(&t1, &*store);
-    assert!(result.is_valid(), "Empty transaction should validate");
+    assert!(result.unwrap().is_valid(), "Empty transaction should validate");
 }
 
 #[test]
@@ -275,7 +275,7 @@ fn read_nonexistent_key_tracks_version_zero() {
     t1.write_set.insert(key.clone(), Value::Int(100));
 
     let result = validate_transaction(&t1, &*store);
-    assert!(!result.is_valid(), "Should conflict when key created after read");
+    assert!(!result.unwrap().is_valid(), "Should conflict when key created after read");
 }
 
 #[test]
@@ -299,7 +299,7 @@ fn delete_after_read_causes_conflict() {
     t1.write_set.insert(key.clone(), Value::Int(200));
 
     let result = validate_transaction(&t1, &*store);
-    assert!(!result.is_valid(), "Should conflict when key deleted after read");
+    assert!(!result.unwrap().is_valid(), "Should conflict when key deleted after read");
 }
 
 #[test]

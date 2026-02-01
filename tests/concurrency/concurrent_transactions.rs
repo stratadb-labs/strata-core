@@ -61,7 +61,7 @@ fn parallel_commits_different_runs_no_contention() {
 
                     // Validate
                     let result = validate_transaction(&txn, &*store);
-                    if result.is_valid() {
+                    if result.unwrap().is_valid() {
                         Storage::put(&*store, key.clone(), Value::Int(i), None).unwrap();
                         commits.fetch_add(1, Ordering::Relaxed);
                     }
@@ -144,7 +144,7 @@ fn high_contention_single_key() {
 
                         // Validate
                         let result = validate_transaction(&txn, &*store);
-                        if result.is_valid() {
+                        if result.unwrap().is_valid() {
                             Storage::put(
                                 &*store,
                                 key.clone(),
@@ -206,8 +206,8 @@ fn interleaved_disjoint_operations_both_commit() {
     let result1 = validate_transaction(&t1, &*store);
     let result2 = validate_transaction(&t2, &*store);
 
-    assert!(result1.is_valid(), "T1 should commit (reads A, writes B)");
-    assert!(result2.is_valid(), "T2 should commit (reads B, writes A)");
+    assert!(result1.unwrap().is_valid(), "T1 should commit (reads A, writes B)");
+    assert!(result2.unwrap().is_valid(), "T2 should commit (reads B, writes A)");
 }
 
 // ============================================================================
@@ -338,7 +338,7 @@ fn concurrent_empty_transactions() {
                 // Empty transaction (read-only)
                 let txn = TransactionContext::new(i as u64, branch_id, 1);
                 let result = validate_transaction(&txn, &*store);
-                result.is_valid()
+                result.unwrap().is_valid()
             })
         })
         .collect();

@@ -39,7 +39,7 @@ fn begin_commit_makes_writes_permanent() {
     // Validate
     txn.mark_validating().unwrap();
     let result = validate_transaction(&txn, &*store);
-    assert!(result.is_valid());
+    assert!(result.unwrap().is_valid());
 
     // Commit
     txn.mark_committed().unwrap();
@@ -129,7 +129,7 @@ fn validation_failure_leads_to_abort() {
 
     // Validate - should fail
     txn.mark_validating().unwrap();
-    let result = validate_transaction(&txn, &*store);
+    let result = validate_transaction(&txn, &*store).unwrap();
     assert!(!result.is_valid());
 
     // Abort
@@ -257,7 +257,7 @@ fn read_modify_write_workflow() {
     // Validate and commit
     txn.mark_validating().unwrap();
     let result = validate_transaction(&txn, &*store);
-    assert!(result.is_valid());
+    assert!(result.unwrap().is_valid());
 
     txn.mark_committed().unwrap();
 
@@ -296,7 +296,7 @@ fn multi_key_transaction_workflow() {
     // Validate
     txn.mark_validating().unwrap();
     let result = validate_transaction(&txn, &*store);
-    assert!(result.is_valid());
+    assert!(result.unwrap().is_valid());
 
     txn.mark_committed().unwrap();
 
@@ -327,7 +327,7 @@ fn delete_workflow() {
     // Validate
     txn.mark_validating().unwrap();
     let result = validate_transaction(&txn, &*store);
-    assert!(result.is_valid());
+    assert!(result.unwrap().is_valid());
 
     txn.mark_committed().unwrap();
 
@@ -351,7 +351,7 @@ fn empty_transaction_commits() {
 
     txn.mark_validating().unwrap();
     let result = validate_transaction(&txn, &*store);
-    assert!(result.is_valid());
+    assert!(result.unwrap().is_valid());
 
     txn.mark_committed().unwrap();
     assert!(txn.is_committed());
@@ -374,7 +374,7 @@ fn many_sequential_transactions() {
 
         txn.mark_validating().unwrap();
         let result = validate_transaction(&txn, &*store);
-        assert!(result.is_valid(), "Transaction {} should validate", i);
+        assert!(result.unwrap().is_valid(), "Transaction {} should validate", i);
 
         txn.mark_committed().unwrap();
         Storage::put(&*store, key.clone(), Value::Int(i), None).unwrap();

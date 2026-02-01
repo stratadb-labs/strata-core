@@ -24,7 +24,7 @@
 
 use std::sync::Arc;
 
-use strata_core::types::Namespace;
+use strata_core::types::{Key, Namespace, TypeTag};
 use strata_engine::{Database, Transaction, TransactionContext, TransactionOps};
 
 use crate::bridge::{extract_version, json_to_value, parse_path, to_core_branch_id, to_versioned_value, value_to_json};
@@ -94,7 +94,15 @@ impl Session {
             | Command::Compact
             | Command::RetentionApply { .. }
             | Command::RetentionStats { .. }
-            | Command::RetentionPreview { .. } => self.executor.execute(cmd),
+            | Command::RetentionPreview { .. }
+            // Version history commands require storage-layer version chains
+            // which are not available through the transaction context.
+            // These read directly from the committed store.
+            | Command::KvGetv { .. }
+            | Command::StateReadv { .. }
+            | Command::JsonGetv { .. }
+            | Command::JsonList { .. }
+            | Command::EventReadByType { .. } => self.executor.execute(cmd),
 
             // Data commands: route through txn if active, else delegate
             _ => {
@@ -194,93 +202,63 @@ impl Session {
         ns: Namespace,
         cmd: Command,
     ) -> Result<Output> {
-        let mut txn = Transaction::new(ctx, ns);
-
+        // Read commands use ctx.get() / ctx.scan_prefix() directly so they
+        // fall through to the snapshot when the key isn't in the write-set.
+        // Write commands create a Transaction which handles event sequencing
+        // and other write-specific logic.
         match cmd {
-            // === KV ===
+            // === KV reads — via ctx for snapshot fallback ===
             Command::KvGet { key, .. } => {
-                let result = txn.kv_get(&key).map_err(Error::from)?;
-                Ok(Output::Maybe(result.map(|v| v.value)))
-            }
-            Command::KvPut { key, value, .. } => {
-                let version = txn.kv_put(&key, value).map_err(Error::from)?;
-                Ok(Output::Version(extract_version(&version)))
-            }
-            Command::KvDelete { key, .. } => {
-                let existed = txn.kv_delete(&key).map_err(Error::from)?;
-                Ok(Output::Bool(existed))
+                let full_key = Key::new_kv(ns, &key);
+                let result = ctx.get(&full_key).map_err(Error::from)?;
+                Ok(Output::Maybe(result))
             }
             Command::KvList { prefix, .. } => {
-                let keys = txn.kv_list(prefix.as_deref()).map_err(Error::from)?;
+                let prefix_key = match prefix {
+                    Some(ref p) => Key::new_kv(ns.clone(), p),
+                    None => Key::new(ns.clone(), TypeTag::KV, vec![]),
+                };
+                let entries = ctx.scan_prefix(&prefix_key).map_err(Error::from)?;
+                let keys: Vec<String> = entries
+                    .into_iter()
+                    .filter_map(|(k, _)| k.user_key_string())
+                    .collect();
                 Ok(Output::Keys(keys))
             }
 
-            // === Event (4 MVP) ===
-            Command::EventAppend {
-                event_type, payload, ..
-            } => {
-                let version = txn.event_append(&event_type, payload).map_err(Error::from)?;
-                Ok(Output::Version(extract_version(&version)))
-            }
-            Command::EventRead { sequence, .. } => {
-                let result = txn.event_read(sequence).map_err(Error::from)?;
-                Ok(Output::MaybeVersioned(result.map(|v| {
-                    to_versioned_value(strata_core::Versioned::new(
-                        v.value.payload.clone(),
-                        v.version,
-                    ))
-                })))
-            }
-            Command::EventLen { .. } => {
-                let len = txn.event_len().map_err(Error::from)?;
-                Ok(Output::Uint(len))
-            }
-            // EventReadByType delegates to executor (read-only operation)
-
-            // === State ===
+            // === State reads — via ctx for snapshot fallback ===
             Command::StateRead { cell, .. } => {
-                let result = txn.state_read(&cell).map_err(Error::from)?;
-                Ok(Output::Maybe(result.map(|v| v.value.value)))
-            }
-            Command::StateInit { cell, value, .. } => {
-                let version = txn.state_init(&cell, value).map_err(Error::from)?;
-                Ok(Output::Version(extract_version(&version)))
-            }
-            Command::StateCas {
-                cell,
-                expected_counter,
-                value,
-                ..
-            } => {
-                let expected = match expected_counter {
-                    Some(v) => strata_core::Version::Counter(v),
-                    None => strata_core::Version::Counter(0),
-                };
-                let version = txn.state_cas(&cell, expected, value).map_err(Error::from)?;
-                Ok(Output::MaybeVersion(Some(extract_version(&version))))
+                let full_key = Key::new_state(ns, &cell);
+                let result = ctx.get(&full_key).map_err(Error::from)?;
+                match result {
+                    Some(strata_core::value::Value::String(s)) => {
+                        let state: strata_core::State =
+                            serde_json::from_str(&s).map_err(|e| Error::Internal { reason: e.to_string() })?;
+                        Ok(Output::Maybe(Some(state.value)))
+                    }
+                    Some(other) => Ok(Output::Maybe(Some(other))),
+                    None => Ok(Output::Maybe(None)),
+                }
             }
 
-            // === JSON ===
-            Command::JsonSet {
-                key, path, value, ..
-            } => {
-                let json_path = convert_result(parse_path(&path))?;
-                let json_value = convert_result(value_to_json(value))?;
-                let version =
-                    txn.json_set(&key, &json_path, json_value).map_err(Error::from)?;
-                Ok(Output::Version(extract_version(&version)))
-            }
+            // === JSON reads — via ctx for snapshot fallback ===
             Command::JsonGet { key, path, .. } => {
+                let full_key = Key::new_json(ns.clone(), &key);
                 if path == "$" || path.is_empty() {
-                    let result = txn.json_get(&key).map_err(Error::from)?;
+                    let result = ctx.get(&full_key).map_err(Error::from)?;
                     match result {
-                        Some(v) => {
-                            let val = convert_result(json_to_value(v.value))?;
+                        Some(strata_core::value::Value::String(s)) => {
+                            let jv: strata_core::JsonValue =
+                                serde_json::from_str(&s).map_err(|e| Error::Internal { reason: e.to_string() })?;
+                            let val = convert_result(json_to_value(jv))?;
                             Ok(Output::Maybe(Some(val)))
                         }
+                        Some(other) => Ok(Output::Maybe(Some(other))),
                         None => Ok(Output::Maybe(None)),
                     }
                 } else {
+                    // Path-based get still needs Transaction for JSON patch logic
+                    let txn = Transaction::new(ctx, ns);
                     let json_path = convert_result(parse_path(&path))?;
                     let result =
                         txn.json_get_path(&key, &json_path).map_err(Error::from)?;
@@ -293,7 +271,78 @@ impl Session {
                     }
                 }
             }
+
+            // === Write commands — use Transaction ===
+            Command::KvPut { key, value, .. } => {
+                let mut txn = Transaction::new(ctx, ns);
+                let version = txn.kv_put(&key, value).map_err(Error::from)?;
+                Ok(Output::Version(extract_version(&version)))
+            }
+            Command::KvDelete { key, .. } => {
+                let full_key = Key::new_kv(ns, &key);
+                let existed = ctx.exists(&full_key).map_err(Error::from)?;
+                ctx.delete(full_key).map_err(Error::from)?;
+                Ok(Output::Bool(existed))
+            }
+
+            // === Event operations — use Transaction for hash chaining ===
+            Command::EventAppend {
+                event_type, payload, ..
+            } => {
+                let mut txn = Transaction::new(ctx, ns);
+                let version = txn.event_append(&event_type, payload).map_err(Error::from)?;
+                Ok(Output::Version(extract_version(&version)))
+            }
+            Command::EventRead { sequence, .. } => {
+                let txn = Transaction::new(ctx, ns);
+                let result = txn.event_read(sequence).map_err(Error::from)?;
+                Ok(Output::MaybeVersioned(result.map(|v| {
+                    to_versioned_value(strata_core::Versioned::new(
+                        v.value.payload.clone(),
+                        v.version,
+                    ))
+                })))
+            }
+            Command::EventLen { .. } => {
+                let txn = Transaction::new(ctx, ns);
+                let len = txn.event_len().map_err(Error::from)?;
+                Ok(Output::Uint(len))
+            }
+
+            // === State writes — use Transaction ===
+            Command::StateInit { cell, value, .. } => {
+                let mut txn = Transaction::new(ctx, ns);
+                let version = txn.state_init(&cell, value).map_err(Error::from)?;
+                Ok(Output::Version(extract_version(&version)))
+            }
+            Command::StateCas {
+                cell,
+                expected_counter,
+                value,
+                ..
+            } => {
+                let mut txn = Transaction::new(ctx, ns);
+                let expected = match expected_counter {
+                    Some(v) => strata_core::Version::Counter(v),
+                    None => strata_core::Version::Counter(0),
+                };
+                let version = txn.state_cas(&cell, expected, value).map_err(Error::from)?;
+                Ok(Output::MaybeVersion(Some(extract_version(&version))))
+            }
+
+            // === JSON writes — use Transaction ===
+            Command::JsonSet {
+                key, path, value, ..
+            } => {
+                let mut txn = Transaction::new(ctx, ns);
+                let json_path = convert_result(parse_path(&path))?;
+                let json_value = convert_result(value_to_json(value))?;
+                let version =
+                    txn.json_set(&key, &json_path, json_value).map_err(Error::from)?;
+                Ok(Output::Version(extract_version(&version)))
+            }
             Command::JsonDelete { key, .. } => {
+                let mut txn = Transaction::new(ctx, ns);
                 let deleted = txn.json_delete(&key).map_err(Error::from)?;
                 Ok(Output::Uint(if deleted { 1 } else { 0 }))
             }

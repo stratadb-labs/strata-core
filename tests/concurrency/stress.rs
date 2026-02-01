@@ -66,7 +66,7 @@ fn stress_concurrent_read_write() {
                             .insert(key.clone(), Value::Int((thread_id * 1000 + iter) as i64));
 
                         let result = validate_transaction(&txn, &*store);
-                        if result.is_valid() {
+                        if result.unwrap().is_valid() {
                             Storage::put(
                                 &*store,
                                 key.clone(),
@@ -130,7 +130,7 @@ fn stress_transaction_throughput() {
         }
 
         let result = validate_transaction(&txn, &*store);
-        if result.is_valid() {
+        if result.unwrap().is_valid() {
             if let Value::Int(v) = current.value {
                 Storage::put(&*store, key.clone(), Value::Int(v + 1), None).unwrap();
             }
@@ -184,7 +184,7 @@ fn stress_large_transaction() {
         txn.pending_operations().puts
     );
 
-    assert!(result.is_valid());
+    assert!(result.unwrap().is_valid());
     assert_eq!(txn.pending_operations().puts, 10_000);
 }
 
@@ -216,7 +216,7 @@ fn stress_many_branches() {
                     txn.write_set.insert(key.clone(), Value::Int(i));
 
                     let result = validate_transaction(&txn, &*store);
-                    if result.is_valid() {
+                    if result.unwrap().is_valid() {
                         Storage::put(&*store, key.clone(), Value::Int(i), None).unwrap();
                         commits.fetch_add(1, Ordering::Relaxed);
                     }
@@ -272,7 +272,7 @@ fn stress_long_running_transaction() {
     writer.join().unwrap();
 
     // Should conflict due to concurrent modifications
-    assert!(!result.is_valid(), "Long-running transaction should conflict");
+    assert!(!result.unwrap().is_valid(), "Long-running transaction should conflict");
 }
 
 /// Sustained mixed workload
@@ -321,7 +321,7 @@ fn stress_sustained_workload() {
                         txn.write_set.insert(key.clone(), Value::Int(thread_id as i64));
 
                         let result = validate_transaction(&txn, &*store);
-                        if result.is_valid() {
+                        if result.unwrap().is_valid() {
                             Storage::put(&*store, key, Value::Int(thread_id as i64), None).unwrap();
                         }
                     } else {
