@@ -5,11 +5,11 @@
 //! verify basic functionality, these probe invariant boundaries.
 
 use crate::common::*;
-use strata_engine::{KVStoreExt, EventLogExt};
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Barrier};
 use std::thread;
+use strata_engine::{EventLogExt, KVStoreExt};
 
 /// Helper to create an event payload object
 fn event_payload(data: Value) -> Value {
@@ -37,39 +37,43 @@ fn lost_update_prevented() {
     let success_count = Arc::new(AtomicU64::new(0));
 
     // Run many increment attempts - with proper OCC, conflicts should be detected
-    let handles: Vec<_> = (0..iterations).map(|_| {
-        let db = db.clone();
-        let count = success_count.clone();
+    let handles: Vec<_> = (0..iterations)
+        .map(|_| {
+            let db = db.clone();
+            let count = success_count.clone();
 
-        thread::spawn(move || {
-            // Retry loop for OCC
-            loop {
-                let result = db.transaction(branch_id, |txn| {
-                    // Read current value
-                    let current = txn.kv_get("counter")?.expect("counter key must exist after initialization");
-                    let n = match current {
-                        Value::Int(v) => v,
-                        _ => 0,
-                    };
+            thread::spawn(move || {
+                // Retry loop for OCC
+                loop {
+                    let result = db.transaction(branch_id, |txn| {
+                        // Read current value
+                        let current = txn
+                            .kv_get("counter")?
+                            .expect("counter key must exist after initialization");
+                        let n = match current {
+                            Value::Int(v) => v,
+                            _ => 0,
+                        };
 
-                    // Increment and write back
-                    txn.kv_put("counter", Value::Int(n + 1))?;
-                    Ok(())
-                });
+                        // Increment and write back
+                        txn.kv_put("counter", Value::Int(n + 1))?;
+                        Ok(())
+                    });
 
-                match result {
-                    Ok(()) => {
-                        count.fetch_add(1, Ordering::SeqCst);
-                        break;
-                    }
-                    Err(_) => {
-                        // Conflict - retry
-                        continue;
+                    match result {
+                        Ok(()) => {
+                            count.fetch_add(1, Ordering::SeqCst);
+                            break;
+                        }
+                        Err(_) => {
+                            // Conflict - retry
+                            continue;
+                        }
                     }
                 }
-            }
+            })
         })
-    }).collect();
+        .collect();
 
     for h in handles {
         h.join().unwrap();
@@ -107,8 +111,10 @@ fn write_skew_behavior() {
 
     let kv = KVStore::new(db.clone());
     // Both doctors start on-call
-    kv.put(&branch_id, "doctor_a_oncall", Value::Bool(true)).unwrap();
-    kv.put(&branch_id, "doctor_b_oncall", Value::Bool(true)).unwrap();
+    kv.put(&branch_id, "doctor_a_oncall", Value::Bool(true))
+        .unwrap();
+    kv.put(&branch_id, "doctor_b_oncall", Value::Bool(true))
+        .unwrap();
 
     let barrier = Arc::new(Barrier::new(2));
     let both_succeeded = Arc::new(AtomicBool::new(false));
@@ -130,7 +136,8 @@ fn write_skew_behavior() {
                 txn.kv_put("doctor_a_oncall", Value::Bool(false))?;
             }
             Ok(())
-        }).is_ok()
+        })
+        .is_ok()
     });
 
     let b2 = barrier.clone();
@@ -149,7 +156,8 @@ fn write_skew_behavior() {
                 txn.kv_put("doctor_b_oncall", Value::Bool(false))?;
             }
             Ok(())
-        }).is_ok()
+        })
+        .is_ok()
     });
 
     let a_success = doctor_a.join().unwrap();
@@ -251,7 +259,9 @@ fn atomicity_on_operation_failure() {
     let version = state.readv(&branch_id, "cell").unwrap().unwrap().version();
 
     // First, modify cell outside transaction to make CAS fail
-    state.cas(&branch_id, "cell", version, Value::Int(201)).unwrap();
+    state
+        .cas(&branch_id, "cell", version, Value::Int(201))
+        .unwrap();
 
     // Now try a transaction that writes to KV then does a CAS with stale version
     // The CAS should fail, rolling back the KV write
@@ -263,7 +273,9 @@ fn atomicity_on_operation_failure() {
         // This will fail - stale version
         // Note: We can't easily do CAS in transaction context, so we'll simulate
         // by just returning an error
-        Err(strata_core::StrataError::invalid_input("simulated CAS failure"))
+        Err(strata_core::StrataError::invalid_input(
+            "simulated CAS failure",
+        ))
     });
 
     assert!(result.is_err());
@@ -304,18 +316,20 @@ fn stale_read_write_conflict() {
 
     // Transaction A: read, wait, write
     let txn_a = thread::spawn(move || {
-        let success = db1.transaction(branch_id, |txn| {
-            // Read key (adds to read-set)
-            let _val = txn.kv_get("key")?;
+        let success = db1
+            .transaction(branch_id, |txn| {
+                // Read key (adds to read-set)
+                let _val = txn.kv_get("key")?;
 
-            // Wait for B to commit
-            b1.wait();
-            b1.wait();
+                // Wait for B to commit
+                b1.wait();
+                b1.wait();
 
-            // Try to write - should conflict because B modified key
-            txn.kv_put("key", Value::Int(100))?;
-            Ok(())
-        }).is_ok();
+                // Try to write - should conflict because B modified key
+                txn.kv_put("key", Value::Int(100))?;
+                Ok(())
+            })
+            .is_ok();
 
         result1.store(success, Ordering::SeqCst);
     });
@@ -389,10 +403,13 @@ fn rapid_transaction_cycling() {
     for i in 0..500 {
         if i % 2 == 0 {
             // Commit
-            test_db.db.transaction(branch_id, |txn| {
-                txn.kv_put(&format!("key_{}", i), Value::Int(i))?;
-                Ok(())
-            }).unwrap();
+            test_db
+                .db
+                .transaction(branch_id, |txn| {
+                    txn.kv_put(&format!("key_{}", i), Value::Int(i))?;
+                    Ok(())
+                })
+                .unwrap();
         } else {
             // Abort
             let _: Result<(), _> = test_db.db.transaction(branch_id, |txn| {
@@ -439,7 +456,9 @@ fn cross_primitive_atomic_failure() {
         txn.event_append("debit", event_payload(Value::Int(100)))?;
 
         // Credit to external system "fails"
-        Err(strata_core::StrataError::invalid_input("external system failure"))
+        Err(strata_core::StrataError::invalid_input(
+            "external system failure",
+        ))
     });
 
     assert!(result.is_err());
@@ -496,17 +515,23 @@ fn interleaved_multikey_consistency() {
     // Transaction B: reads x and y, checks invariant x == y
     let txn_b = thread::spawn(move || {
         let result = db2.transaction(branch_id, |txn| {
-            let x = txn.kv_get("x")?.map(|v| match v {
-                Value::Int(n) => n,
-                _ => 0,
-            }).unwrap_or(0);
+            let x = txn
+                .kv_get("x")?
+                .map(|v| match v {
+                    Value::Int(n) => n,
+                    _ => 0,
+                })
+                .unwrap_or(0);
 
             b2.wait(); // Interleave (A writes y here)
 
-            let y = txn.kv_get("y")?.map(|v| match v {
-                Value::Int(n) => n,
-                _ => 0,
-            }).unwrap_or(0);
+            let y = txn
+                .kv_get("y")?
+                .map(|v| match v {
+                    Value::Int(n) => n,
+                    _ => 0,
+                })
+                .unwrap_or(0);
 
             // Under snapshot isolation, x and y should be from same snapshot
             // So either both 0 (before A) or both 1 (after A), never mixed

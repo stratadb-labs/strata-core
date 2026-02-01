@@ -3,8 +3,8 @@
 //! Branch operations: create, get, list, exists, delete.
 
 use super::Strata;
-use crate::{Command, Error, Output, Result, Value};
 use crate::types::*;
+use crate::{Command, Error, Output, Result, Value};
 
 impl Strata {
     // =========================================================================
@@ -24,7 +24,10 @@ impl Strata {
         branch_id: Option<String>,
         metadata: Option<Value>,
     ) -> Result<(BranchInfo, u64)> {
-        match self.executor.execute(Command::BranchCreate { branch_id, metadata })? {
+        match self.executor.execute(Command::BranchCreate {
+            branch_id,
+            metadata,
+        })? {
             Output::BranchWithVersion { info, version } => Ok((info, version)),
             _ => Err(Error::Internal {
                 reason: "Unexpected output for BranchCreate".into(),

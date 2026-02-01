@@ -27,7 +27,8 @@ fn wal_grows_monotonically_during_writes() {
 
     let mut prev_size = 0u64;
     for i in 0..10 {
-        kv.put(&branch_id, &format!("k{}", i), Value::Int(i)).unwrap();
+        kv.put(&branch_id, &format!("k{}", i), Value::Int(i))
+            .unwrap();
         let size = file_size(&wal_path);
         assert!(
             size >= prev_size,
@@ -115,6 +116,12 @@ fn wal_handles_many_small_writes() {
     // Sample check — don't need to check all 2000
     for i in (0..2000).step_by(100) {
         let val = kv.get(&branch_id, &format!("small_{}", i)).unwrap();
-        assert_eq!(val, Some(Value::Int(i)), "Key small_{} should have value {} after WAL recovery", i, i);
+        assert_eq!(
+            val,
+            Some(Value::Int(i)),
+            "Key small_{} should have value {} after WAL recovery",
+            i,
+            i
+        );
     }
 }

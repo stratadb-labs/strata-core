@@ -9,12 +9,12 @@
 //! - `Scorer` trait: pluggable scoring interface
 //! - `BM25LiteScorer`: default BM25-inspired scorer
 
-use strata_core::StrataResult;
-use super::types::{EntityRef, SearchHit, SearchRequest, SearchResponse, SearchStats};
-use strata_core::PrimitiveType;
-use super::tokenizer::tokenize;
 use super::index::InvertedIndex;
+use super::tokenizer::tokenize;
+use super::types::{EntityRef, SearchHit, SearchRequest, SearchResponse, SearchStats};
 use std::collections::HashMap;
+use strata_core::PrimitiveType;
+use strata_core::StrataResult;
 
 /// Trait for primitives that support search
 ///
@@ -472,8 +472,8 @@ pub fn build_search_response_with_index(
             let mut scored: Vec<(SearchCandidate, f32)> = candidates
                 .into_iter()
                 .map(|c| {
-                    let doc = SearchDoc::new(c.text.clone())
-                        .with_timestamp(c.timestamp.unwrap_or(0));
+                    let doc =
+                        SearchDoc::new(c.text.clone()).with_timestamp(c.timestamp.unwrap_or(0));
                     let score = scorer.score(&doc, query, &ctx);
                     (c, score)
                 })
@@ -552,13 +552,21 @@ mod tests {
     fn test_score_and_rank() {
         let branch_id = BranchId::new();
         let candidates = vec![
-            SearchCandidate::new(EntityRef::Branch { branch_id }, "hello world".to_string(), None),
+            SearchCandidate::new(
+                EntityRef::Branch { branch_id },
+                "hello world".to_string(),
+                None,
+            ),
             SearchCandidate::new(
                 EntityRef::Branch { branch_id },
                 "hello hello hello".to_string(),
                 None,
             ),
-            SearchCandidate::new(EntityRef::Branch { branch_id }, "goodbye world".to_string(), None),
+            SearchCandidate::new(
+                EntityRef::Branch { branch_id },
+                "goodbye world".to_string(),
+                None,
+            ),
         ];
 
         let hits = SimpleScorer::score_and_rank(candidates, "hello", 10);
@@ -638,8 +646,14 @@ mod tests {
         index.enable();
 
         // Index some documents
-        let ref1 = EntityRef::Kv { branch_id, key: "doc1".to_string() };
-        let ref2 = EntityRef::Kv { branch_id, key: "doc2".to_string() };
+        let ref1 = EntityRef::Kv {
+            branch_id,
+            key: "doc1".to_string(),
+        };
+        let ref2 = EntityRef::Kv {
+            branch_id,
+            key: "doc2".to_string(),
+        };
         index.index_document(&ref1, "hello world test", None);
         index.index_document(&ref2, "hello there", None);
 
@@ -648,9 +662,8 @@ mod tests {
             SearchCandidate::new(ref2, "hello there".to_string(), None),
         ];
 
-        let response = build_search_response_with_index(
-            candidates, "hello", 10, false, 100, Some(&index),
-        );
+        let response =
+            build_search_response_with_index(candidates, "hello", 10, false, 100, Some(&index));
 
         assert!(!response.hits.is_empty());
         assert!(response.stats.index_used);
@@ -659,13 +672,11 @@ mod tests {
     #[test]
     fn test_build_search_response_without_index() {
         let branch_id = BranchId::new();
-        let candidates = vec![
-            SearchCandidate::new(
-                EntityRef::Branch { branch_id },
-                "hello world".to_string(),
-                None,
-            ),
-        ];
+        let candidates = vec![SearchCandidate::new(
+            EntityRef::Branch { branch_id },
+            "hello world".to_string(),
+            None,
+        )];
 
         let response = build_search_response(candidates, "hello", 10, false, 100);
         assert!(!response.hits.is_empty());

@@ -6,6 +6,8 @@
 //! - JSON document conflicts
 //! - JSON path conflicts
 
+use std::collections::HashMap;
+use std::sync::Arc;
 use strata_concurrency::transaction::{CASOperation, TransactionContext};
 use strata_concurrency::validation::{
     validate_cas_set, validate_read_set, validate_transaction, ConflictType,
@@ -15,8 +17,6 @@ use strata_core::types::{Key, Namespace};
 use strata_core::value::Value;
 use strata_core::BranchId;
 use strata_storage::sharded::ShardedStore;
-use std::collections::HashMap;
-use std::sync::Arc;
 
 fn create_test_key(branch_id: BranchId, name: &str) -> Key {
     let ns = Namespace::for_branch(branch_id);
@@ -35,7 +35,11 @@ fn read_write_conflict_version_increased() {
 
     // Initial value
     Storage::put(&*store, key.clone(), Value::Int(1), None).unwrap();
-    let v1 = Storage::get(&*store, &key).unwrap().unwrap().version.as_u64();
+    let v1 = Storage::get(&*store, &key)
+        .unwrap()
+        .unwrap()
+        .version
+        .as_u64();
 
     // Read set at v1
     let mut read_set = HashMap::new();
@@ -61,7 +65,11 @@ fn read_write_conflict_key_deleted() {
 
     // Initial value
     Storage::put(&*store, key.clone(), Value::Int(1), None).unwrap();
-    let v1 = Storage::get(&*store, &key).unwrap().unwrap().version.as_u64();
+    let v1 = Storage::get(&*store, &key)
+        .unwrap()
+        .unwrap()
+        .version
+        .as_u64();
 
     // Read set at v1
     let mut read_set = HashMap::new();
@@ -101,7 +109,11 @@ fn no_read_write_conflict_version_same() {
 
     // Initial value
     Storage::put(&*store, key.clone(), Value::Int(1), None).unwrap();
-    let v1 = Storage::get(&*store, &key).unwrap().unwrap().version.as_u64();
+    let v1 = Storage::get(&*store, &key)
+        .unwrap()
+        .unwrap()
+        .version
+        .as_u64();
 
     // Read set at v1
     let mut read_set = HashMap::new();
@@ -129,7 +141,11 @@ fn cas_conflict_version_mismatch() {
 
     // Update to version 2
     Storage::put(&*store, key.clone(), Value::Int(200), None).unwrap();
-    let v2 = Storage::get(&*store, &key).unwrap().unwrap().version.as_u64();
+    let v2 = Storage::get(&*store, &key)
+        .unwrap()
+        .unwrap()
+        .version
+        .as_u64();
 
     // CAS with stale expected_version (1, but current is 2)
     let cas_set = vec![CASOperation {
@@ -189,7 +205,11 @@ fn cas_success_version_matches() {
 
     // Initial value
     Storage::put(&*store, key.clone(), Value::Int(100), None).unwrap();
-    let v1 = Storage::get(&*store, &key).unwrap().unwrap().version.as_u64();
+    let v1 = Storage::get(&*store, &key)
+        .unwrap()
+        .unwrap()
+        .version
+        .as_u64();
 
     // CAS with correct expected_version
     let cas_set = vec![CASOperation {
@@ -230,7 +250,11 @@ fn multiple_cas_operations() {
 
     // Setup
     Storage::put(&*store, key1.clone(), Value::Int(1), None).unwrap();
-    let v1 = Storage::get(&*store, &key1).unwrap().unwrap().version.as_u64();
+    let v1 = Storage::get(&*store, &key1)
+        .unwrap()
+        .unwrap()
+        .version
+        .as_u64();
     Storage::put(&*store, key2.clone(), Value::Int(2), None).unwrap();
 
     // Update key2
@@ -268,7 +292,11 @@ fn transaction_validation_combines_all_checks() {
 
     // Setup
     Storage::put(&*store, key1.clone(), Value::Int(1), None).unwrap();
-    let v1 = Storage::get(&*store, &key1).unwrap().unwrap().version.as_u64();
+    let v1 = Storage::get(&*store, &key1)
+        .unwrap()
+        .unwrap()
+        .version
+        .as_u64();
     Storage::put(&*store, key2.clone(), Value::Int(2), None).unwrap();
 
     // Transaction with read and CAS
@@ -339,7 +367,11 @@ fn large_read_set_validation() {
     for i in 0..100 {
         let key = create_test_key(branch_id, &format!("key_{}", i));
         Storage::put(&*store, key.clone(), Value::Int(i), None).unwrap();
-        let v = Storage::get(&*store, &key).unwrap().unwrap().version.as_u64();
+        let v = Storage::get(&*store, &key)
+            .unwrap()
+            .unwrap()
+            .version
+            .as_u64();
         read_set.insert(key, v);
     }
 
@@ -358,7 +390,11 @@ fn large_read_set_with_one_conflict() {
     for i in 0..100 {
         let key = create_test_key(branch_id, &format!("key_{}", i));
         Storage::put(&*store, key.clone(), Value::Int(i), None).unwrap();
-        let v = Storage::get(&*store, &key).unwrap().unwrap().version.as_u64();
+        let v = Storage::get(&*store, &key)
+            .unwrap()
+            .unwrap()
+            .version
+            .as_u64();
         read_set.insert(key, v);
     }
 

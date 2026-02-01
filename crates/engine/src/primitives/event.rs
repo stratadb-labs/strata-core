@@ -34,18 +34,18 @@
 //! - Event key: `<namespace>:<TypeTag::Event>:<sequence_be_bytes>`
 //! - Metadata key: `<namespace>:<TypeTag::Event>:__meta__`
 
-use crate::primitives::extensions::EventLogExt;
-use sha2::{Digest, Sha256};
-use strata_concurrency::TransactionContext;
-use strata_core::contract::{Timestamp, Version, Versioned};
-use strata_core::StrataResult;
-use strata_core::StrataError;
-use strata_core::types::{Key, Namespace, BranchId};
-use strata_core::value::Value;
 use crate::database::{Database, RetryConfig};
+use crate::primitives::extensions::EventLogExt;
 use serde::{Deserialize, Serialize};
+use sha2::{Digest, Sha256};
 use std::collections::HashMap;
 use std::sync::Arc;
+use strata_concurrency::TransactionContext;
+use strata_core::contract::{Timestamp, Version, Versioned};
+use strata_core::types::{BranchId, Key, Namespace};
+use strata_core::value::Value;
+use strata_core::StrataError;
+use strata_core::StrataResult;
 
 // Re-export Event from core
 pub use strata_core::primitives::Event;
@@ -305,10 +305,8 @@ impl EventLog {
         payload: Value,
     ) -> StrataResult<Version> {
         // Validate inputs before entering transaction
-        validate_event_type(event_type)
-            .map_err(|e| StrataError::invalid_input(e.to_string()))?;
-        validate_payload(&payload)
-            .map_err(|e| StrataError::invalid_input(e.to_string()))?;
+        validate_event_type(event_type).map_err(|e| StrataError::invalid_input(e.to_string()))?;
+        validate_payload(&payload).map_err(|e| StrataError::invalid_input(e.to_string()))?;
 
         // Use high retry count for contention scenarios
         // EventLog appends serialize through metadata CAS, so conflicts are expected
@@ -322,7 +320,8 @@ impl EventLog {
         let ns = self.namespace_for_branch(branch_id);
         let event_type_owned = event_type.to_string();
 
-        let result = self.db
+        let result = self
+            .db
             .transaction_with_retry(*branch_id, retry_config, |txn| {
                 // Read current metadata (or default)
                 let meta_key = Key::new_event_meta(ns.clone());
@@ -382,7 +381,11 @@ impl EventLog {
         // Update inverted index (zero overhead when disabled)
         let idx = self.db.extension::<crate::search::InvertedIndex>();
         if idx.is_enabled() {
-            let text = format!("{} {}", event_type, serde_json::to_string(&payload).unwrap_or_default());
+            let text = format!(
+                "{} {}",
+                event_type,
+                serde_json::to_string(&payload).unwrap_or_default()
+            );
             if let Version::Sequence(seq) = result {
                 let entity_ref = crate::search::EntityRef::Event {
                     branch_id: *branch_id,
@@ -400,7 +403,11 @@ impl EventLog {
     /// Read a single event by sequence number.
     ///
     /// Returns Versioned<Event> if found.
-    pub fn read(&self, branch_id: &BranchId, sequence: u64) -> StrataResult<Option<Versioned<Event>>> {
+    pub fn read(
+        &self,
+        branch_id: &BranchId,
+        sequence: u64,
+    ) -> StrataResult<Option<Versioned<Event>>> {
         self.db.transaction(*branch_id, |txn| {
             let ns = self.namespace_for_branch(branch_id);
             let event_key = Key::new_event(ns, sequence);
@@ -440,7 +447,11 @@ impl EventLog {
     /// Read events filtered by type
     ///
     /// Returns Vec<Versioned<Event>> for events matching the type.
-    pub fn read_by_type(&self, branch_id: &BranchId, event_type: &str) -> StrataResult<Vec<Versioned<Event>>> {
+    pub fn read_by_type(
+        &self,
+        branch_id: &BranchId,
+        event_type: &str,
+    ) -> StrataResult<Vec<Versioned<Event>>> {
         self.db.transaction(*branch_id, |txn| {
             let ns = self.namespace_for_branch(branch_id);
             let meta_key = Key::new_event_meta(ns.clone());
@@ -454,9 +465,8 @@ impl EventLog {
             for seq in 0..meta.next_sequence {
                 let event_key = Key::new_event(ns.clone(), seq);
                 if let Some(v) = txn.get(&event_key)? {
-                    let event: Event = from_stored_value(&v).map_err(|e| {
-                        strata_core::StrataError::serialization(e.to_string())
-                    })?;
+                    let event: Event = from_stored_value(&v)
+                        .map_err(|e| strata_core::StrataError::serialization(e.to_string()))?;
                     if event.event_type == event_type {
                         filtered.push(Versioned::with_timestamp(
                             event.clone(),
@@ -470,7 +480,6 @@ impl EventLog {
             Ok(filtered)
         })
     }
-
 }
 
 // ========== Searchable Trait Implementation ==========
@@ -494,10 +503,8 @@ impl crate::search::Searchable for EventLog {
 impl EventLogExt for TransactionContext {
     fn event_append(&mut self, event_type: &str, payload: Value) -> StrataResult<u64> {
         // Validate inputs
-        validate_event_type(event_type)
-            .map_err(|e| StrataError::invalid_input(e.to_string()))?;
-        validate_payload(&payload)
-            .map_err(|e| StrataError::invalid_input(e.to_string()))?;
+        validate_event_type(event_type).map_err(|e| StrataError::invalid_input(e.to_string()))?;
+        validate_payload(&payload).map_err(|e| StrataError::invalid_input(e.to_string()))?;
 
         let ns = Namespace::for_branch(self.branch_id);
 
@@ -515,13 +522,7 @@ impl EventLogExt for TransactionContext {
             .unwrap()
             .as_micros() as u64;
 
-        let hash = compute_event_hash(
-            sequence,
-            event_type,
-            &payload,
-            timestamp,
-            &meta.head_hash,
-        );
+        let hash = compute_event_hash(sequence, event_type, &payload, timestamp, &meta.head_hash);
 
         // Build event
         let event = Event {
@@ -542,10 +543,8 @@ impl EventLogExt for TransactionContext {
         match meta.streams.get_mut(&event_type_owned) {
             Some(stream_meta) => stream_meta.update(sequence, timestamp),
             None => {
-                meta.streams.insert(
-                    event_type_owned,
-                    StreamMeta::new(sequence, timestamp),
-                );
+                meta.streams
+                    .insert(event_type_owned, StreamMeta::new(sequence, timestamp));
             }
         }
 
@@ -657,7 +656,9 @@ mod tests {
 
         // Test various primitive types
         assert!(log.append(&branch_id, "test", Value::Int(42)).is_err());
-        assert!(log.append(&branch_id, "test", Value::String("hello".into())).is_err());
+        assert!(log
+            .append(&branch_id, "test", Value::String("hello".into()))
+            .is_err());
         assert!(log.append(&branch_id, "test", Value::Bool(true)).is_err());
         assert!(log.append(&branch_id, "test", Value::Float(3.14)).is_err());
     }
@@ -776,8 +777,13 @@ mod tests {
             ("query".to_string(), Value::String("rust async".into())),
         ]));
 
-        let version = log.append(&branch_id, "tool_call", payload.clone()).unwrap();
-        let seq = match version { Version::Sequence(s) => s, _ => panic!("Expected sequence") };
+        let version = log
+            .append(&branch_id, "tool_call", payload.clone())
+            .unwrap();
+        let seq = match version {
+            Version::Sequence(s) => s,
+            _ => panic!("Expected sequence"),
+        };
         let event = log.read(&branch_id, seq).unwrap().unwrap();
 
         assert_eq!(event.value.event_type, "tool_call");
@@ -790,9 +796,12 @@ mod tests {
         let branch1 = BranchId::new();
         let branch2 = BranchId::new();
 
-        log.append(&branch1, "branch1_event", int_payload(1)).unwrap();
-        log.append(&branch1, "branch1_event", int_payload(2)).unwrap();
-        log.append(&branch2, "branch2_event", int_payload(100)).unwrap();
+        log.append(&branch1, "branch1_event", int_payload(1))
+            .unwrap();
+        log.append(&branch1, "branch1_event", int_payload(2))
+            .unwrap();
+        log.append(&branch2, "branch2_event", int_payload(100))
+            .unwrap();
 
         assert_eq!(log.len(&branch1).unwrap(), 2);
         assert_eq!(log.len(&branch2).unwrap(), 1);
@@ -854,20 +863,8 @@ mod tests {
     #[test]
     fn test_sha256_hash_determinism() {
         // Same inputs should produce same hash
-        let hash1 = compute_event_hash(
-            42,
-            "test_event",
-            &int_payload(100),
-            1234567890,
-            &[0u8; 32],
-        );
-        let hash2 = compute_event_hash(
-            42,
-            "test_event",
-            &int_payload(100),
-            1234567890,
-            &[0u8; 32],
-        );
+        let hash1 = compute_event_hash(42, "test_event", &int_payload(100), 1234567890, &[0u8; 32]);
+        let hash2 = compute_event_hash(42, "test_event", &int_payload(100), 1234567890, &[0u8; 32]);
         assert_eq!(hash1, hash2);
     }
 
@@ -910,7 +907,8 @@ mod tests {
         let branch_id = BranchId::new();
 
         log.append(&branch_id, "tool_call", int_payload(1)).unwrap();
-        log.append(&branch_id, "tool_result", int_payload(2)).unwrap();
+        log.append(&branch_id, "tool_result", int_payload(2))
+            .unwrap();
         log.append(&branch_id, "tool_call", int_payload(3)).unwrap();
         log.append(&branch_id, "thought", int_payload(4)).unwrap();
         log.append(&branch_id, "tool_call", int_payload(5)).unwrap();
@@ -939,7 +937,10 @@ mod tests {
 
         // Append via extension trait
         db.transaction(branch_id, |txn| {
-            let seq = txn.event_append("ext_event", payload_with("data", Value::String("test".into())))?;
+            let seq = txn.event_append(
+                "ext_event",
+                payload_with("data", Value::String("test".into())),
+            )?;
             assert_eq!(seq, 0);
             Ok(())
         })
@@ -993,7 +994,10 @@ mod tests {
         // Atomic: KV put + event append
         db.transaction(branch_id, |txn| {
             txn.kv_put("key", Value::String("value".into()))?;
-            txn.event_append("kv_updated", payload_with("key", Value::String("key".into())))?;
+            txn.event_append(
+                "kv_updated",
+                payload_with("key", Value::String("key".into())),
+            )?;
             Ok(())
         })
         .unwrap();

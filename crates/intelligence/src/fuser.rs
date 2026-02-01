@@ -7,8 +7,8 @@
 //!
 //! See `docs/architecture/M6_ARCHITECTURE.md` for authoritative specification.
 
-use strata_engine::search::{EntityRef, SearchHit, SearchResponse};
 use strata_core::PrimitiveType;
+use strata_engine::search::{EntityRef, SearchHit, SearchResponse};
 
 // ============================================================================
 // FusedResult
@@ -252,8 +252,8 @@ impl Fuser for RRFFuser {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use strata_engine::search::{EntityRef, SearchStats};
     use strata_core::types::BranchId;
+    use strata_engine::search::{EntityRef, SearchStats};
 
     fn make_hit(doc_ref: EntityRef, score: f32, rank: u32) -> SearchHit {
         SearchHit {
@@ -314,7 +314,9 @@ mod tests {
         let branch_id = BranchId::new();
 
         let kv_ref = make_kv_doc_ref(&branch_id, "test");
-        let branch_ref = EntityRef::Branch { branch_id: branch_id.clone() };
+        let branch_ref = EntityRef::Branch {
+            branch_id: branch_id.clone(),
+        };
 
         let kv_hits = vec![make_hit(kv_ref, 0.7, 1)];
         let branch_hits = vec![make_hit(branch_ref, 0.9, 1)];
@@ -383,10 +385,7 @@ mod tests {
         let doc_ref_a = make_kv_doc_ref(&branch_id, "a");
         let doc_ref_b = make_kv_doc_ref(&branch_id, "b");
 
-        let hits = vec![
-            make_hit(doc_ref_a, 0.9, 1),
-            make_hit(doc_ref_b, 0.8, 2),
-        ];
+        let hits = vec![make_hit(doc_ref_a, 0.9, 1), make_hit(doc_ref_b, 0.8, 2)];
         let results = vec![(PrimitiveType::Kv, make_response(hits))];
 
         let result = fuser.fuse(results, 10);

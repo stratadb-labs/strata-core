@@ -25,8 +25,7 @@ use strata_core::types::{BranchId, Key, TypeTag};
 use strata_core::StrataError;
 use strata_core::StrataResult;
 use strata_durability::branch_bundle::{
-    BundleBranchInfo, ExportOptions, BranchBundleReader, BranchBundleWriter,
-    BranchlogPayload,
+    BranchBundleReader, BranchBundleWriter, BranchlogPayload, BundleBranchInfo, ExportOptions,
 };
 
 // =============================================================================
@@ -164,8 +163,7 @@ fn scan_branch_data(
 
     // For each key, get the full version history and group entries by version.
     // BTreeMap keeps versions sorted ascending for deterministic replay order.
-    let mut version_groups: BTreeMap<u64, Vec<(Key, strata_core::value::Value)>> =
-        BTreeMap::new();
+    let mut version_groups: BTreeMap<u64, Vec<(Key, strata_core::value::Value)>> = BTreeMap::new();
 
     for key in &all_keys {
         let history = db.get_history(key, None, None)?;
@@ -363,7 +361,11 @@ mod tests {
 
         // Write some data to the branch
         let branch_index = BranchIndex::new(db.clone());
-        let meta = branch_index.get_branch("data-branch").unwrap().unwrap().value;
+        let meta = branch_index
+            .get_branch("data-branch")
+            .unwrap()
+            .unwrap()
+            .value;
         let core_branch_id = crate::primitives::branch::resolve_branch_name(&meta.name);
         let ns = Namespace::for_branch(core_branch_id);
 
@@ -415,7 +417,11 @@ mod tests {
 
         // Write data
         let branch_index = BranchIndex::new(db.clone());
-        let meta = branch_index.get_branch("export-branch").unwrap().unwrap().value;
+        let meta = branch_index
+            .get_branch("export-branch")
+            .unwrap()
+            .unwrap()
+            .value;
         let core_branch_id = crate::primitives::branch::resolve_branch_name(&meta.name);
         let ns = Namespace::for_branch(core_branch_id);
 

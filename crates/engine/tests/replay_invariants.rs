@@ -12,11 +12,11 @@
 //! **CRITICAL**: Replay NEVER writes to the canonical store.
 //! ReadOnlyView is derived, not authoritative.
 
-use strata_core::types::{Key, Namespace, BranchId};
+use std::collections::HashMap;
+use strata_core::types::{BranchId, Key, Namespace};
 use strata_core::value::Value;
 use strata_core::PrimitiveType;
 use strata_engine::{diff_views, ReadOnlyView};
-use std::collections::HashMap;
 
 /// Helper to create a test namespace
 fn test_namespace(branch_id: BranchId) -> Namespace {

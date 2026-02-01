@@ -4,8 +4,8 @@
 //! and deserialized back without loss of information.
 
 use crate::types::*;
-use crate::{Command, Output};
 use crate::Value;
+use crate::{Command, Output};
 
 /// Helper to test round-trip serialization of a Command.
 fn test_command_round_trip(cmd: Command) {
@@ -480,11 +480,17 @@ fn test_command_with_branch_none_round_trip() {
         value: Value::Int(42),
     };
     let json = serde_json::to_string(&cmd).unwrap();
-    assert!(!json.contains("branch"), "branch: None should be skipped in serialization");
+    assert!(
+        !json.contains("branch"),
+        "branch: None should be skipped in serialization"
+    );
     let restored: Command = serde_json::from_str(&json).unwrap();
     match restored {
         Command::KvPut { branch, key, value } => {
-            assert!(branch.is_none(), "branch should deserialize as None when omitted");
+            assert!(
+                branch.is_none(),
+                "branch should deserialize as None when omitted"
+            );
             assert_eq!(key, "test");
             assert_eq!(value, Value::Int(42));
         }
@@ -500,7 +506,10 @@ fn test_command_with_branch_some_round_trip() {
         key: "test".to_string(),
     };
     let json = serde_json::to_string(&cmd).unwrap();
-    assert!(json.contains("branch"), "branch: Some should be included in serialization");
+    assert!(
+        json.contains("branch"),
+        "branch: Some should be included in serialization"
+    );
     let restored: Command = serde_json::from_str(&json).unwrap();
     match restored {
         Command::KvGet { branch, key } => {

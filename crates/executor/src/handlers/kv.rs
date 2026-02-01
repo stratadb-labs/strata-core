@@ -7,7 +7,9 @@ use std::sync::Arc;
 
 use strata_core::Value;
 
-use crate::bridge::{extract_version, to_core_branch_id, to_versioned_value, validate_key, Primitives};
+use crate::bridge::{
+    extract_version, to_core_branch_id, to_versioned_value, validate_key, Primitives,
+};
 use crate::convert::convert_result;
 use crate::types::BranchId;
 use crate::{Output, Result};
@@ -32,12 +34,7 @@ pub fn kv_getv(p: &Arc<Primitives>, branch: BranchId, key: String) -> Result<Out
 // =============================================================================
 
 /// Handle KvPut command.
-pub fn kv_put(
-    p: &Arc<Primitives>,
-    branch: BranchId,
-    key: String,
-    value: Value,
-) -> Result<Output> {
+pub fn kv_put(p: &Arc<Primitives>, branch: BranchId, key: String, value: Value) -> Result<Output> {
     let branch_id = to_core_branch_id(&branch)?;
     convert_result(validate_key(&key))?;
     let version = convert_result(p.kv.put(&branch_id, &key, value))?;
@@ -61,11 +58,7 @@ pub fn kv_delete(p: &Arc<Primitives>, branch: BranchId, key: String) -> Result<O
 }
 
 /// Handle KvList command.
-pub fn kv_list(
-    p: &Arc<Primitives>,
-    branch: BranchId,
-    prefix: Option<String>,
-) -> Result<Output> {
+pub fn kv_list(p: &Arc<Primitives>, branch: BranchId, prefix: Option<String>) -> Result<Output> {
     let branch_id = to_core_branch_id(&branch)?;
     if let Some(ref pfx) = prefix {
         if !pfx.is_empty() {

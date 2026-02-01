@@ -42,8 +42,8 @@ impl SnapshotReader {
         let mut header_bytes = [0u8; SNAPSHOT_HEADER_SIZE];
         reader.read_exact(&mut header_bytes)?;
 
-        let header = SnapshotHeader::from_bytes(&header_bytes)
-            .ok_or(SnapshotReadError::InvalidHeader)?;
+        let header =
+            SnapshotHeader::from_bytes(&header_bytes).ok_or(SnapshotReadError::InvalidHeader)?;
 
         // Validate magic
         if header.magic != SNAPSHOT_MAGIC {
@@ -54,14 +54,16 @@ impl SnapshotReader {
         }
 
         // Validate header
-        header.validate().map_err(|e| SnapshotReadError::HeaderValidation(e.to_string()))?;
+        header
+            .validate()
+            .map_err(|e| SnapshotReadError::HeaderValidation(e.to_string()))?;
 
         // Read codec ID
         let codec_id_len = header.codec_id_len as usize;
         let mut codec_id_bytes = vec![0u8; codec_id_len];
         reader.read_exact(&mut codec_id_bytes)?;
-        let codec_id = String::from_utf8(codec_id_bytes)
-            .map_err(|_| SnapshotReadError::InvalidCodecId)?;
+        let codec_id =
+            String::from_utf8(codec_id_bytes).map_err(|_| SnapshotReadError::InvalidCodecId)?;
 
         // Validate codec ID matches
         if codec_id != self.codec.codec_id() {
@@ -77,13 +79,13 @@ impl SnapshotReader {
 
         // Validate CRC (last 4 bytes)
         if remaining_data.len() < 4 {
-            return Err(SnapshotReadError::FileTooSmall {
-                size: file_size,
-            });
+            return Err(SnapshotReadError::FileTooSmall { size: file_size });
         }
 
         let stored_crc = u32::from_le_bytes(
-            remaining_data[remaining_data.len() - 4..].try_into().unwrap(),
+            remaining_data[remaining_data.len() - 4..]
+                .try_into()
+                .unwrap(),
         );
 
         // Compute CRC of header + codec_id + sections
@@ -123,8 +125,10 @@ impl SnapshotReader {
                 break;
             }
 
-            let section_header_bytes: [u8; SectionHeader::SIZE] =
-                data[cursor..cursor + SectionHeader::SIZE].try_into().unwrap();
+            let section_header_bytes: [u8; SectionHeader::SIZE] = data
+                [cursor..cursor + SectionHeader::SIZE]
+                .try_into()
+                .unwrap();
             let section_header = SectionHeader::from_bytes(&section_header_bytes);
             cursor += SectionHeader::SIZE;
 
@@ -199,7 +203,9 @@ impl LoadedSnapshot {
 
     /// Find a section by primitive type
     pub fn find_section(&self, primitive_type: u8) -> Option<&LoadedSection> {
-        self.sections.iter().find(|s| s.primitive_type == primitive_type)
+        self.sections
+            .iter()
+            .find(|s| s.primitive_type == primitive_type)
     }
 
     /// Get all section types present
@@ -502,7 +508,10 @@ mod tests {
         let reader = SnapshotReader::new(Box::new(IdentityCodec));
         let result = reader.load(&path);
 
-        assert!(matches!(result, Err(SnapshotReadError::InvalidMagic { .. })));
+        assert!(matches!(
+            result,
+            Err(SnapshotReadError::InvalidMagic { .. })
+        ));
     }
 
     #[test]
@@ -516,7 +525,10 @@ mod tests {
         let reader = SnapshotReader::new(Box::new(IdentityCodec));
         let result = reader.load(&path);
 
-        assert!(matches!(result, Err(SnapshotReadError::FileTooSmall { .. })));
+        assert!(matches!(
+            result,
+            Err(SnapshotReadError::FileTooSmall { .. })
+        ));
     }
 
     #[test]

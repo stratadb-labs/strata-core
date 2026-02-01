@@ -291,8 +291,8 @@ mod tests {
     use super::*;
     use crate::codec::IdentityCodec;
     use crate::wal::config::WalConfig;
-    use crate::wal::DurabilityMode;
     use crate::wal::writer::WalWriter;
+    use crate::wal::DurabilityMode;
     use tempfile::tempdir;
 
     fn make_codec() -> Box<dyn StorageCodec> {

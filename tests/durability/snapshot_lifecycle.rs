@@ -61,7 +61,8 @@ fn corrupted_snapshot_falls_back_to_wal() {
 
     let kv = test_db.kv();
     for i in 0..50 {
-        kv.put(&branch_id, &format!("k{}", i), Value::Int(i)).unwrap();
+        kv.put(&branch_id, &format!("k{}", i), Value::Int(i))
+            .unwrap();
     }
 
     // Corrupt any existing snapshots
@@ -86,7 +87,8 @@ fn deleted_snapshots_dont_prevent_recovery() {
 
     let kv = test_db.kv();
     for i in 0..20 {
-        kv.put(&branch_id, &format!("k{}", i), Value::Int(i)).unwrap();
+        kv.put(&branch_id, &format!("k{}", i), Value::Int(i))
+            .unwrap();
     }
 
     // Delete all snapshots
@@ -98,7 +100,12 @@ fn deleted_snapshots_dont_prevent_recovery() {
     let kv = test_db.kv();
     for i in 0..20 {
         let val = kv.get(&branch_id, &format!("k{}", i)).unwrap();
-        assert_eq!(val, Some(Value::Int(i)), "Key k{} should be recoverable from WAL after snapshot deletion", i);
+        assert_eq!(
+            val,
+            Some(Value::Int(i)),
+            "Key k{} should be recoverable from WAL after snapshot deletion",
+            i
+        );
     }
 }
 

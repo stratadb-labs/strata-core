@@ -4,18 +4,16 @@
 //! Run with: cargo test --test engine stress -- --ignored
 
 use crate::common::*;
-use strata_engine::{KVStoreExt, EventLogExt};
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Barrier};
 use std::thread;
 use std::time::{Duration, Instant};
+use strata_engine::{EventLogExt, KVStoreExt};
 
 /// Helper to create an event payload object
 fn event_payload(data: Value) -> Value {
-    Value::Object(HashMap::from([
-        ("data".to_string(), data),
-    ]))
+    Value::Object(HashMap::from([("data".to_string(), data)]))
 }
 
 /// High concurrency KV workload
@@ -29,23 +27,25 @@ fn stress_concurrent_kv_operations() {
     let barrier = Arc::new(Barrier::new(8));
     let ops = Arc::new(AtomicU64::new(0));
 
-    let handles: Vec<_> = (0..8).map(|thread_id| {
-        let db = db.clone();
-        let barrier = barrier.clone();
-        let ops = ops.clone();
+    let handles: Vec<_> = (0..8)
+        .map(|thread_id| {
+            let db = db.clone();
+            let barrier = barrier.clone();
+            let ops = ops.clone();
 
-        thread::spawn(move || {
-            let kv = KVStore::new(db);
-            barrier.wait();
+            thread::spawn(move || {
+                let kv = KVStore::new(db);
+                barrier.wait();
 
-            for i in 0..1000 {
-                let key = format!("thread_{}_key_{}", thread_id, i);
-                kv.put(&branch_id, &key, Value::Int(i)).unwrap();
-                let _ = kv.get(&branch_id, &key);
-                ops.fetch_add(2, Ordering::Relaxed);
-            }
+                for i in 0..1000 {
+                    let key = format!("thread_{}_key_{}", thread_id, i);
+                    kv.put(&branch_id, &key, Value::Int(i)).unwrap();
+                    let _ = kv.get(&branch_id, &key);
+                    ops.fetch_add(2, Ordering::Relaxed);
+                }
+            })
         })
-    }).collect();
+        .collect();
 
     for h in handles {
         h.join().unwrap();
@@ -103,7 +103,8 @@ fn stress_large_batch_kv() {
 
     // Write 10K keys
     for i in 0..10_000 {
-        kv.put(&branch_id, &format!("key_{}", i), Value::Int(i)).unwrap();
+        kv.put(&branch_id, &format!("key_{}", i), Value::Int(i))
+            .unwrap();
     }
 
     let write_time = start.elapsed();
@@ -115,10 +116,7 @@ fn stress_large_batch_kv() {
     }
     let read_time = read_start.elapsed();
 
-    println!(
-        "10K writes: {:?}, 10K reads: {:?}",
-        write_time, read_time
-    );
+    println!("10K writes: {:?}, 10K reads: {:?}", write_time, read_time);
 
     // List all keys
     let list_start = Instant::now();
@@ -139,31 +137,34 @@ fn stress_many_concurrent_branches() {
     let barrier = Arc::new(Barrier::new(50));
     let success = Arc::new(AtomicU64::new(0));
 
-    let handles: Vec<_> = (0..50).map(|_| {
-        let db = db.clone();
-        let barrier = barrier.clone();
-        let success = success.clone();
+    let handles: Vec<_> = (0..50)
+        .map(|_| {
+            let db = db.clone();
+            let barrier = barrier.clone();
+            let success = success.clone();
 
-        thread::spawn(move || {
-            let branch_id = BranchId::new(); // Each thread has its own branch
-            let kv = KVStore::new(db.clone());
+            thread::spawn(move || {
+                let branch_id = BranchId::new(); // Each thread has its own branch
+                let kv = KVStore::new(db.clone());
 
-            barrier.wait();
+                barrier.wait();
 
-            // Each branch does independent work
-            for i in 0..100 {
-                kv.put(&branch_id, &format!("key_{}", i), Value::Int(i)).unwrap();
-            }
-
-            // Verify
-            for i in 0..100 {
-                let val = kv.get(&branch_id, &format!("key_{}", i)).unwrap();
-                if val.is_some() && val.unwrap() == Value::Int(i) {
-                    success.fetch_add(1, Ordering::Relaxed);
+                // Each branch does independent work
+                for i in 0..100 {
+                    kv.put(&branch_id, &format!("key_{}", i), Value::Int(i))
+                        .unwrap();
                 }
-            }
+
+                // Verify
+                for i in 0..100 {
+                    let val = kv.get(&branch_id, &format!("key_{}", i)).unwrap();
+                    if val.is_some() && val.unwrap() == Value::Int(i) {
+                        success.fetch_add(1, Ordering::Relaxed);
+                    }
+                }
+            })
         })
-    }).collect();
+        .collect();
 
     for h in handles {
         h.join().unwrap();
@@ -185,31 +186,33 @@ fn stress_cross_primitive_transactions() {
     let barrier = Arc::new(Barrier::new(4));
     let commits = Arc::new(AtomicU64::new(0));
 
-    let handles: Vec<_> = (0..4).map(|thread_id| {
-        let db = db.clone();
-        let barrier = barrier.clone();
-        let commits = commits.clone();
+    let handles: Vec<_> = (0..4)
+        .map(|thread_id| {
+            let db = db.clone();
+            let barrier = barrier.clone();
+            let commits = commits.clone();
 
-        thread::spawn(move || {
-            barrier.wait();
+            thread::spawn(move || {
+                barrier.wait();
 
-            for i in 0..100 {
-                let result = db.transaction(branch_id, |txn| {
-                    let key = format!("thread_{}_iter_{}", thread_id, i);
+                for i in 0..100 {
+                    let result = db.transaction(branch_id, |txn| {
+                        let key = format!("thread_{}_iter_{}", thread_id, i);
 
-                    // KV + Event in same transaction
-                    txn.kv_put(&key, Value::Int(i))?;
-                    txn.event_append("stress", event_payload(Value::String(key)))?;
+                        // KV + Event in same transaction
+                        txn.kv_put(&key, Value::Int(i))?;
+                        txn.event_append("stress", event_payload(Value::String(key)))?;
 
-                    Ok(())
-                });
+                        Ok(())
+                    });
 
-                if result.is_ok() {
-                    commits.fetch_add(1, Ordering::Relaxed);
+                    if result.is_ok() {
+                        commits.fetch_add(1, Ordering::Relaxed);
+                    }
                 }
-            }
+            })
         })
-    }).collect();
+        .collect();
 
     for h in handles {
         h.join().unwrap();
@@ -230,13 +233,17 @@ fn stress_vector_search() {
     let branch_id = test_db.branch_id;
 
     let config = config_standard(); // 384 dimensions
-    vector.create_collection(branch_id, "stress_coll", config).unwrap();
+    vector
+        .create_collection(branch_id, "stress_coll", config)
+        .unwrap();
 
     // Insert 1000 vectors
     let insert_start = Instant::now();
     for i in 0..1000 {
         let v = seeded_vector(384, i as u64);
-        vector.insert(branch_id, "stress_coll", &format!("vec_{}", i), &v, None).unwrap();
+        vector
+            .insert(branch_id, "stress_coll", &format!("vec_{}", i), &v, None)
+            .unwrap();
     }
     let insert_time = insert_start.elapsed();
 
@@ -246,7 +253,9 @@ fn stress_vector_search() {
     let search_start = Instant::now();
     for i in 0..100 {
         let query = seeded_vector(384, i * 10);
-        let _ = vector.search(branch_id, "stress_coll", &query, 10, None).unwrap();
+        let _ = vector
+            .search(branch_id, "stress_coll", &query, 10, None)
+            .unwrap();
     }
     let search_time = search_start.elapsed();
 
@@ -269,7 +278,9 @@ fn stress_eventlog_append() {
 
     // Append 10K events
     for i in 0..10_000 {
-        event.append(&branch_id, "stress_event", event_payload(Value::Int(i))).unwrap();
+        event
+            .append(&branch_id, "stress_event", event_payload(Value::Int(i)))
+            .unwrap();
     }
 
     let elapsed = start.elapsed();

@@ -14,8 +14,8 @@
 //! This ensures round-trip serialization preserves exact values.
 
 use base64::{engine::general_purpose::STANDARD as BASE64, Engine};
-use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use serde::de;
+use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use serde_json::Value as JsonValue;
 use strata_core::Value;
 
@@ -272,10 +272,7 @@ mod tests {
                 ("nan".to_string(), Value::Float(f64::NAN)),
                 (
                     "nested".to_string(),
-                    Value::Array(vec![
-                        Value::Float(f64::INFINITY),
-                        Value::Float(-0.0),
-                    ]),
+                    Value::Array(vec![Value::Float(f64::INFINITY), Value::Float(-0.0)]),
                 ),
             ]
             .into_iter()

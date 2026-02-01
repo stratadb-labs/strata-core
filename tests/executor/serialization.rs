@@ -4,7 +4,7 @@
 //! This is critical for cross-language SDKs (Python, CLI, MCP).
 
 use strata_core::Value;
-use strata_executor::{Command, Output, DistanceMetric, BranchId, BranchStatus, VersionedValue};
+use strata_executor::{BranchId, BranchStatus, Command, DistanceMetric, Output, VersionedValue};
 
 // ============================================================================
 // Command Serialization Roundtrip
@@ -56,9 +56,11 @@ fn event_append_roundtrip() {
     let cmd = Command::EventAppend {
         branch: None,
         event_type: "events".into(),
-        payload: Value::Object([
-            ("data".to_string(), Value::Int(123)),
-        ].into_iter().collect()),
+        payload: Value::Object(
+            [("data".to_string(), Value::Int(123))]
+                .into_iter()
+                .collect(),
+        ),
     };
 
     let json = serde_json::to_string(&cmd).unwrap();
@@ -88,9 +90,11 @@ fn vector_search_roundtrip() {
 fn branch_create_roundtrip() {
     let cmd = Command::BranchCreate {
         branch_id: Some("550e8400-e29b-41d4-a716-446655440401-id".into()),
-        metadata: Some(Value::Object([
-            ("key".to_string(), Value::String("value".into())),
-        ].into_iter().collect())),
+        metadata: Some(Value::Object(
+            [("key".to_string(), Value::String("value".into()))]
+                .into_iter()
+                .collect(),
+        )),
     };
 
     let json = serde_json::to_string(&cmd).unwrap();
@@ -190,7 +194,10 @@ fn deserialize_kv_put_with_branch() {
 
     match cmd {
         Command::KvPut { branch, key, value } => {
-            assert_eq!(branch.unwrap().as_str(), "550e8400-e29b-41d4-a716-446655440401");
+            assert_eq!(
+                branch.unwrap().as_str(),
+                "550e8400-e29b-41d4-a716-446655440401"
+            );
             assert_eq!(key, "k");
             assert_eq!(value, Value::String("v".into()));
         }
@@ -201,12 +208,17 @@ fn deserialize_kv_put_with_branch() {
 #[test]
 fn deserialize_event_append() {
     // Value::Object uses tagged enum: {"Object": {...}}
-    let json = r#"{"EventAppend":{"event_type":"logs","payload":{"Object":{"msg":{"String":"hello"}}}}}"#;
+    let json =
+        r#"{"EventAppend":{"event_type":"logs","payload":{"Object":{"msg":{"String":"hello"}}}}}"#;
 
     let cmd: Command = serde_json::from_str(json).unwrap();
 
     match cmd {
-        Command::EventAppend { branch, event_type, payload } => {
+        Command::EventAppend {
+            branch,
+            event_type,
+            payload,
+        } => {
             assert!(branch.is_none());
             assert_eq!(event_type, "logs");
             match payload {
@@ -227,7 +239,12 @@ fn deserialize_vector_search() {
     let cmd: Command = serde_json::from_str(json).unwrap();
 
     match cmd {
-        Command::VectorSearch { collection, query, k, .. } => {
+        Command::VectorSearch {
+            collection,
+            query,
+            k,
+            ..
+        } => {
             assert_eq!(collection, "emb");
             assert_eq!(query, vec![1.0, 0.0, 0.0]);
             assert_eq!(k, 5);
@@ -380,9 +397,11 @@ fn value_types_roundtrip() {
     let cmd = Command::KvPut {
         branch: None,
         key: "k".into(),
-        value: Value::Object([
-            ("nested".to_string(), Value::Int(1)),
-        ].into_iter().collect()),
+        value: Value::Object(
+            [("nested".to_string(), Value::Int(1))]
+                .into_iter()
+                .collect(),
+        ),
     };
     let json = serde_json::to_string(&cmd).unwrap();
     let parsed: Command = serde_json::from_str(&json).unwrap();

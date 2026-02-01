@@ -4,8 +4,8 @@
 
 use std::sync::Arc;
 
-use strata_engine::{SearchBudget, SearchRequest};
 use strata_engine::search::PrimitiveType;
+use strata_engine::{SearchBudget, SearchRequest};
 use strata_intelligence::HybridSearch;
 
 use crate::bridge::{to_core_branch_id, Primitives};
@@ -76,24 +76,18 @@ pub fn search(
 /// Format an EntityRef into (entity_string, primitive_string) for display
 fn format_entity_ref(doc_ref: &strata_engine::search::EntityRef) -> (String, String) {
     match doc_ref {
-        strata_engine::search::EntityRef::Kv { key, .. } => {
-            (key.clone(), "kv".to_string())
-        }
+        strata_engine::search::EntityRef::Kv { key, .. } => (key.clone(), "kv".to_string()),
         strata_engine::search::EntityRef::Json { doc_id, .. } => {
             (doc_id.clone(), "json".to_string())
         }
         strata_engine::search::EntityRef::Event { sequence, .. } => {
             (format!("seq:{}", sequence), "event".to_string())
         }
-        strata_engine::search::EntityRef::State { name, .. } => {
-            (name.clone(), "state".to_string())
-        }
+        strata_engine::search::EntityRef::State { name, .. } => (name.clone(), "state".to_string()),
         strata_engine::search::EntityRef::Branch { branch_id } => {
             let uuid = uuid::Uuid::from_bytes(*branch_id.as_bytes());
             (uuid.to_string(), "branch".to_string())
         }
-        strata_engine::search::EntityRef::Vector { key, .. } => {
-            (key.clone(), "vector".to_string())
-        }
+        strata_engine::search::EntityRef::Vector { key, .. } => (key.clone(), "vector".to_string()),
     }
 }

@@ -5,17 +5,15 @@
 //! adversarial conditions.
 
 use crate::common::*;
-use strata_engine::{KVStoreExt, EventLogExt};
 use std::collections::HashMap;
-use std::sync::atomic::{AtomicU64, AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Barrier};
 use std::thread;
+use strata_engine::{EventLogExt, KVStoreExt};
 
 /// Helper to create an event payload object
 fn event_payload(data: Value) -> Value {
-    Value::Object(HashMap::from([
-        ("data".to_string(), data),
-    ]))
+    Value::Object(HashMap::from([("data".to_string(), data)]))
 }
 
 // ============================================================================
@@ -35,7 +33,9 @@ fn cross_primitive_rollback_leaves_no_trace() {
 
     // Pre-populate with known values
     kv.put(&branch_id, "existing_key", Value::Int(100)).unwrap();
-    state.init(&branch_id, "existing_cell", Value::Int(200)).unwrap();
+    state
+        .init(&branch_id, "existing_cell", Value::Int(200))
+        .unwrap();
 
     // Attempt a transaction that touches all primitives then fails
     let result: Result<(), _> = test_db.db.transaction(branch_id, |txn| {
@@ -57,8 +57,10 @@ fn cross_primitive_rollback_leaves_no_trace() {
 
     // Verify NO partial writes leaked:
     // - new_key should not exist
-    assert!(kv.get(&branch_id, "new_key").unwrap().is_none(),
-        "new_key should not exist after rollback");
+    assert!(
+        kv.get(&branch_id, "new_key").unwrap().is_none(),
+        "new_key should not exist after rollback"
+    );
 
     // - existing_key should have original value
     assert_eq!(
@@ -68,8 +70,11 @@ fn cross_primitive_rollback_leaves_no_trace() {
     );
 
     // - EventLog should be empty (no events committed)
-    assert_eq!(event.len(&branch_id).unwrap(), 0,
-        "EventLog should be empty after rollback");
+    assert_eq!(
+        event.len(&branch_id).unwrap(),
+        0,
+        "EventLog should be empty after rollback"
+    );
 
     // - existing_cell should be unchanged
     assert_eq!(
@@ -112,7 +117,8 @@ fn cross_primitive_isolation_no_dirty_reads() {
             b1.wait();
 
             Ok(())
-        }).unwrap();
+        })
+        .unwrap();
     });
 
     let b2 = barrier.clone();
@@ -138,8 +144,10 @@ fn cross_primitive_isolation_no_dirty_reads() {
     writer.join().unwrap();
     reader.join().unwrap();
 
-    assert!(!dirty_read_detected.load(Ordering::SeqCst),
-        "Dirty read detected: reader saw uncommitted write");
+    assert!(
+        !dirty_read_detected.load(Ordering::SeqCst),
+        "Dirty read detected: reader saw uncommitted write"
+    );
 }
 
 /// Verify that committed data from one transaction is visible to subsequent reads.
@@ -149,16 +157,25 @@ fn committed_writes_are_visible() {
     let branch_id = test_db.branch_id;
 
     // Write in transaction
-    test_db.db.transaction(branch_id, |txn| {
-        txn.kv_put("key1", Value::Int(100))?;
-        txn.kv_put("key2", Value::Int(200))?;
-        Ok(())
-    }).unwrap();
+    test_db
+        .db
+        .transaction(branch_id, |txn| {
+            txn.kv_put("key1", Value::Int(100))?;
+            txn.kv_put("key2", Value::Int(200))?;
+            Ok(())
+        })
+        .unwrap();
 
     // Read outside transaction - should see committed values
     let kv = test_db.kv();
-    assert_eq!(kv.get(&branch_id, "key1").unwrap().unwrap(), Value::Int(100));
-    assert_eq!(kv.get(&branch_id, "key2").unwrap().unwrap(), Value::Int(200));
+    assert_eq!(
+        kv.get(&branch_id, "key1").unwrap().unwrap(),
+        Value::Int(100)
+    );
+    assert_eq!(
+        kv.get(&branch_id, "key2").unwrap().unwrap(),
+        Value::Int(200)
+    );
 }
 
 // ============================================================================
@@ -179,33 +196,35 @@ fn occ_first_committer_wins() {
     let barrier = Arc::new(Barrier::new(2));
     let success_count = Arc::new(AtomicU64::new(0));
 
-    let handles: Vec<_> = (0..2).map(|i| {
-        let db = db.clone();
-        let b = barrier.clone();
-        let count = success_count.clone();
+    let handles: Vec<_> = (0..2)
+        .map(|i| {
+            let db = db.clone();
+            let b = barrier.clone();
+            let count = success_count.clone();
 
-        thread::spawn(move || {
-            let result = db.transaction(branch_id, |txn| {
-                // Both read the key (adding to read-set)
-                let _val = txn.kv_get("contested_key")?;
+            thread::spawn(move || {
+                let result = db.transaction(branch_id, |txn| {
+                    // Both read the key (adding to read-set)
+                    let _val = txn.kv_get("contested_key")?;
 
-                // Synchronize so both have read
-                b.wait();
+                    // Synchronize so both have read
+                    b.wait();
 
-                // Both try to write
-                txn.kv_put("contested_key", Value::Int(i + 1))?;
+                    // Both try to write
+                    txn.kv_put("contested_key", Value::Int(i + 1))?;
 
-                // Synchronize before commit
-                b.wait();
+                    // Synchronize before commit
+                    b.wait();
 
-                Ok(())
-            });
+                    Ok(())
+                });
 
-            if result.is_ok() {
-                count.fetch_add(1, Ordering::SeqCst);
-            }
+                if result.is_ok() {
+                    count.fetch_add(1, Ordering::SeqCst);
+                }
+            })
         })
-    }).collect();
+        .collect();
 
     for h in handles {
         h.join().unwrap();
@@ -213,8 +232,11 @@ fn occ_first_committer_wins() {
 
     // Exactly one should succeed (first committer wins)
     let successes = success_count.load(Ordering::SeqCst);
-    assert_eq!(successes, 1,
-        "Expected exactly 1 successful commit, got {}", successes);
+    assert_eq!(
+        successes, 1,
+        "Expected exactly 1 successful commit, got {}",
+        successes
+    );
 
     // Final value should be from the winner
     let final_val = kv.get(&branch_id, "contested_key").unwrap().unwrap();
@@ -234,34 +256,39 @@ fn blind_writes_dont_conflict() {
     let barrier = Arc::new(Barrier::new(2));
     let success_count = Arc::new(AtomicU64::new(0));
 
-    let handles: Vec<_> = (0..2).map(|i| {
-        let db = db.clone();
-        let b = barrier.clone();
-        let count = success_count.clone();
+    let handles: Vec<_> = (0..2)
+        .map(|i| {
+            let db = db.clone();
+            let b = barrier.clone();
+            let count = success_count.clone();
 
-        thread::spawn(move || {
-            let result = db.transaction(branch_id, |txn| {
-                // NO read - just blind write to different keys
-                txn.kv_put(&format!("key_{}", i), Value::Int(i))?;
+            thread::spawn(move || {
+                let result = db.transaction(branch_id, |txn| {
+                    // NO read - just blind write to different keys
+                    txn.kv_put(&format!("key_{}", i), Value::Int(i))?;
 
-                b.wait(); // Sync point
+                    b.wait(); // Sync point
 
-                Ok(())
-            });
+                    Ok(())
+                });
 
-            if result.is_ok() {
-                count.fetch_add(1, Ordering::SeqCst);
-            }
+                if result.is_ok() {
+                    count.fetch_add(1, Ordering::SeqCst);
+                }
+            })
         })
-    }).collect();
+        .collect();
 
     for h in handles {
         h.join().unwrap();
     }
 
     // Both should succeed (no conflict)
-    assert_eq!(success_count.load(Ordering::SeqCst), 2,
-        "Both blind writes should succeed");
+    assert_eq!(
+        success_count.load(Ordering::SeqCst),
+        2,
+        "Both blind writes should succeed"
+    );
 }
 
 /// Read-only transactions should never conflict.
@@ -278,30 +305,35 @@ fn read_only_transactions_never_conflict() {
     let success_count = Arc::new(AtomicU64::new(0));
 
     // Launch 4 read-only transactions concurrently
-    let handles: Vec<_> = (0..4).map(|_| {
-        let db = db.clone();
-        let b = barrier.clone();
-        let count = success_count.clone();
+    let handles: Vec<_> = (0..4)
+        .map(|_| {
+            let db = db.clone();
+            let b = barrier.clone();
+            let count = success_count.clone();
 
-        thread::spawn(move || {
-            let result = db.transaction(branch_id, |txn| {
-                let _val = txn.kv_get("key")?;
-                b.wait(); // All read at the same time
-                Ok(())
-            });
+            thread::spawn(move || {
+                let result = db.transaction(branch_id, |txn| {
+                    let _val = txn.kv_get("key")?;
+                    b.wait(); // All read at the same time
+                    Ok(())
+                });
 
-            if result.is_ok() {
-                count.fetch_add(1, Ordering::SeqCst);
-            }
+                if result.is_ok() {
+                    count.fetch_add(1, Ordering::SeqCst);
+                }
+            })
         })
-    }).collect();
+        .collect();
 
     for h in handles {
         h.join().unwrap();
     }
 
-    assert_eq!(success_count.load(Ordering::SeqCst), 4,
-        "All read-only transactions should succeed");
+    assert_eq!(
+        success_count.load(Ordering::SeqCst),
+        4,
+        "All read-only transactions should succeed"
+    );
 }
 
 // ============================================================================
@@ -316,7 +348,12 @@ fn primitive_error_propagates() {
 
     // Try to CAS on non-existent cell - should fail
     let state = test_db.state();
-    let result = state.cas(&branch_id, "nonexistent", Version::from(1u64), Value::Int(1));
+    let result = state.cas(
+        &branch_id,
+        "nonexistent",
+        Version::from(1u64),
+        Value::Int(1),
+    );
 
     assert!(result.is_err(), "CAS on non-existent cell should fail");
 }
@@ -334,7 +371,9 @@ fn transaction_error_recovery() {
     for _ in 0..5 {
         let _result: Result<(), _> = test_db.db.transaction(branch_id, |txn| {
             txn.kv_put("key", Value::Int(999))?;
-            Err(strata_core::StrataError::invalid_input("intentional failure"))
+            Err(strata_core::StrataError::invalid_input(
+                "intentional failure",
+            ))
         });
     }
 
@@ -361,10 +400,16 @@ fn versions_monotonically_increase() {
     for i in 1..=10 {
         let current = state.readv(&branch_id, "key").unwrap().unwrap();
         let current_version = current.version().as_u64();
-        state.cas(&branch_id, "key", current.version(), Value::Int(i)).unwrap();
+        state
+            .cas(&branch_id, "key", current.version(), Value::Int(i))
+            .unwrap();
 
-        assert!(current_version >= last_version,
-            "Version {} should be >= previous version {}", current_version, last_version);
+        assert!(
+            current_version >= last_version,
+            "Version {} should be >= previous version {}",
+            current_version,
+            last_version
+        );
         last_version = current_version;
     }
 }
@@ -378,12 +423,18 @@ fn eventlog_sequence_monotonic() {
 
     let mut last_seq = 0u64;
     for i in 0..10i64 {
-        let seq = event.append(&branch_id, "test", event_payload(Value::Int(i))).unwrap();
+        let seq = event
+            .append(&branch_id, "test", event_payload(Value::Int(i)))
+            .unwrap();
         let seq_u64 = seq.as_u64();
 
         if i > 0 {
-            assert!(seq_u64 > last_seq,
-                "Sequence {} should be > previous {}", seq_u64, last_seq);
+            assert!(
+                seq_u64 > last_seq,
+                "Sequence {} should be > previous {}",
+                seq_u64,
+                last_seq
+            );
         }
         last_seq = seq_u64;
     }
@@ -429,41 +480,51 @@ fn branch_isolation_under_contention() {
     let barrier = Arc::new(Barrier::new(4));
     let errors = Arc::new(AtomicU64::new(0));
 
-    let handles: Vec<_> = branches.iter().enumerate().map(|(i, &branch_id)| {
-        let db = db.clone();
-        let b = barrier.clone();
-        let err_count = errors.clone();
+    let handles: Vec<_> = branches
+        .iter()
+        .enumerate()
+        .map(|(i, &branch_id)| {
+            let db = db.clone();
+            let b = barrier.clone();
+            let err_count = errors.clone();
 
-        thread::spawn(move || {
-            b.wait(); // Start all at once
+            thread::spawn(move || {
+                b.wait(); // Start all at once
 
-            let kv = KVStore::new(db.clone());
+                let kv = KVStore::new(db.clone());
 
-            // Each branch writes to "key" with its own value
-            for j in 0..50 {
-                if kv.put(&branch_id, "key", Value::Int((i * 100 + j) as i64)).is_err() {
+                // Each branch writes to "key" with its own value
+                for j in 0..50 {
+                    if kv
+                        .put(&branch_id, "key", Value::Int((i * 100 + j) as i64))
+                        .is_err()
+                    {
+                        err_count.fetch_add(1, Ordering::Relaxed);
+                    }
+                }
+
+                // Verify our final value is ours
+                let val = kv.get(&branch_id, "key").unwrap().unwrap();
+                if let Value::Int(n) = val {
+                    if n / 100 != i as i64 {
+                        err_count.fetch_add(1, Ordering::Relaxed);
+                    }
+                } else {
                     err_count.fetch_add(1, Ordering::Relaxed);
                 }
-            }
-
-            // Verify our final value is ours
-            let val = kv.get(&branch_id, "key").unwrap().unwrap();
-            if let Value::Int(n) = val {
-                if n / 100 != i as i64 {
-                    err_count.fetch_add(1, Ordering::Relaxed);
-                }
-            } else {
-                err_count.fetch_add(1, Ordering::Relaxed);
-            }
+            })
         })
-    }).collect();
+        .collect();
 
     for h in handles {
         h.join().unwrap();
     }
 
-    assert_eq!(errors.load(Ordering::Relaxed), 0,
-        "Branch isolation violated under contention");
+    assert_eq!(
+        errors.load(Ordering::Relaxed),
+        0,
+        "Branch isolation violated under contention"
+    );
 }
 
 // ============================================================================

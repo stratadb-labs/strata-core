@@ -36,10 +36,10 @@ use crate::primitives::vector::{
     VectorId, VectorRecord, VectorResult, VectorStore,
 };
 use byteorder::{LittleEndian, ReadBytesExt, WriteBytesExt};
-use strata_core::value::Value;
-use strata_core::BranchId;
 use serde::{Deserialize, Serialize};
 use std::io::{Read, Write};
+use strata_core::value::Value;
+use strata_core::BranchId;
 
 /// Snapshot format version
 pub const VECTOR_SNAPSHOT_VERSION: u8 = 0x01;
@@ -340,8 +340,8 @@ impl VectorStore {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::primitives::vector::VectorStore;
     use crate::database::Database;
+    use crate::primitives::vector::VectorStore;
     use std::io::Cursor;
     use std::sync::Arc;
     use tempfile::TempDir;
@@ -472,8 +472,12 @@ mod tests {
         let config3 = VectorConfig::new(3, DistanceMetric::Cosine).unwrap();
         let config5 = VectorConfig::new(5, DistanceMetric::Euclidean).unwrap();
 
-        store.create_collection(branch_id, "col_a", config3).unwrap();
-        store.create_collection(branch_id, "col_b", config5).unwrap();
+        store
+            .create_collection(branch_id, "col_a", config3)
+            .unwrap();
+        store
+            .create_collection(branch_id, "col_b", config5)
+            .unwrap();
 
         store
             .insert(branch_id, "col_a", "v1", &[1.0, 0.0, 0.0], None)

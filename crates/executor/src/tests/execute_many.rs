@@ -4,8 +4,8 @@
 //! including error handling and result ordering.
 
 use crate::types::*;
-use crate::{Command, Executor, Output};
 use crate::Value;
+use crate::{Command, Executor, Output};
 
 /// Create a test executor with an ephemeral in-memory database.
 fn create_test_executor() -> Executor {
@@ -40,11 +40,7 @@ fn test_execute_many_single_command() {
 #[test]
 fn test_execute_many_multiple_commands() {
     let executor = create_test_executor();
-    let results = executor.execute_many(vec![
-        Command::Ping,
-        Command::Info,
-        Command::Flush,
-    ]);
+    let results = executor.execute_many(vec![Command::Ping, Command::Info, Command::Flush]);
 
     assert_eq!(results.len(), 3);
     assert!(results[0].is_ok());
@@ -135,7 +131,10 @@ fn test_execute_many_continues_after_error() {
     assert_eq!(results.len(), 3);
     assert!(results[0].is_ok(), "First Ping should succeed");
     assert!(results[1].is_err(), "Empty key should fail");
-    assert!(results[2].is_ok(), "Second Ping should succeed despite previous error");
+    assert!(
+        results[2].is_ok(),
+        "Second Ping should succeed despite previous error"
+    );
 }
 
 #[test]

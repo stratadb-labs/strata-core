@@ -21,8 +21,8 @@
 //! // db.branches().fork("main", "experiment-2")?;
 //! ```
 
-use crate::{Command, Error, Executor, Output, Result};
 use crate::types::BranchId;
+use crate::{Command, Error, Executor, Output, Result};
 
 /// Handle for branch management operations.
 ///
@@ -52,7 +52,9 @@ impl<'a> Branches<'a> {
             limit: None,
             offset: None,
         })? {
-            Output::BranchInfoList(branches) => Ok(branches.into_iter().map(|r| r.info.id.0).collect()),
+            Output::BranchInfoList(branches) => {
+                Ok(branches.into_iter().map(|r| r.info.id.0).collect())
+            }
             _ => Err(Error::Internal {
                 reason: "Unexpected output for BranchList".into(),
             }),

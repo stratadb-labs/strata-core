@@ -6,14 +6,14 @@
 //! - TTL expiration semantics
 //! - Tombstone semantics
 
+use std::sync::Arc;
+use std::thread;
+use std::time::Duration;
 use strata_core::traits::{SnapshotView, Storage};
 use strata_core::types::{Key, Namespace};
 use strata_core::value::Value;
 use strata_core::BranchId;
 use strata_storage::sharded::ShardedStore;
-use std::sync::Arc;
-use std::thread;
-use std::time::Duration;
 
 fn create_test_key(branch_id: BranchId, name: &str) -> Key {
     let ns = Namespace::for_branch(branch_id);
@@ -76,7 +76,10 @@ fn get_at_version_before_first_returns_none() {
 
     // Get at version 1 (before first) - should return None
     let result = Storage::get_versioned(&store, &key, 1).unwrap();
-    assert!(result.is_none(), "Should not find value before first version");
+    assert!(
+        result.is_none(),
+        "Should not find value before first version"
+    );
 }
 
 #[test]
@@ -151,7 +154,11 @@ fn no_ttl_never_expires() {
 
     // Should always be returned
     let result = Storage::get(&store, &key).unwrap();
-    assert_eq!(result.unwrap().value, Value::Int(42), "Value without TTL should be returned");
+    assert_eq!(
+        result.unwrap().value,
+        Value::Int(42),
+        "Value without TTL should be returned"
+    );
 }
 
 // ============================================================================

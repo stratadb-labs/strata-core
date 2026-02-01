@@ -34,13 +34,13 @@ use crate::primitives::vector::{
 use strata_concurrency::TransactionContext;
 use strata_core::contract::{Timestamp, Version, Versioned};
 // Unused after MVP simplification: EntityRef, SearchBudget, SearchHit, SearchResponse, SearchStats
-use strata_core::types::{Key, Namespace, BranchId};
-use strata_core::value::Value;
 use crate::database::Database;
+use parking_lot::RwLock;
 use serde_json::Value as JsonValue;
 use std::collections::BTreeMap;
-use parking_lot::RwLock;
 use std::sync::Arc;
+use strata_core::types::{BranchId, Key, Namespace};
+use strata_core::value::Value;
 
 /// Statistics from vector recovery
 #[derive(Debug, Default, Clone)]
@@ -613,18 +613,22 @@ impl VectorStore {
             let candidates = {
                 let state = self.state();
                 let backends = state.backends.read();
-                let backend =
-                    backends
-                        .get(&collection_id)
-                        .ok_or_else(|| VectorError::CollectionNotFound {
-                            name: collection.to_string(),
-                        })?;
+                let backend = backends.get(&collection_id).ok_or_else(|| {
+                    VectorError::CollectionNotFound {
+                        name: collection.to_string(),
+                    }
+                })?;
                 backend.search(query, k)
             };
 
             for (vector_id, score) in candidates {
-                let (key, metadata) = self.get_key_and_metadata(branch_id, collection, vector_id)?;
-                matches.push(VectorMatch { key, score, metadata });
+                let (key, metadata) =
+                    self.get_key_and_metadata(branch_id, collection, vector_id)?;
+                matches.push(VectorMatch {
+                    key,
+                    score,
+                    metadata,
+                });
             }
         } else {
             // Filter active - use adaptive over-fetch
@@ -632,10 +636,7 @@ impl VectorStore {
             let collection_size = {
                 let state = self.state();
                 let backends = state.backends.read();
-                backends
-                    .get(&collection_id)
-                    .map(|b| b.len())
-                    .unwrap_or(0)
+                backends.get(&collection_id).map(|b| b.len()).unwrap_or(0)
             };
 
             for &mult in &multipliers {
@@ -647,18 +648,18 @@ impl VectorStore {
                 let candidates = {
                     let state = self.state();
                     let backends = state.backends.read();
-                    let backend =
-                        backends
-                            .get(&collection_id)
-                            .ok_or_else(|| VectorError::CollectionNotFound {
-                                name: collection.to_string(),
-                            })?;
+                    let backend = backends.get(&collection_id).ok_or_else(|| {
+                        VectorError::CollectionNotFound {
+                            name: collection.to_string(),
+                        }
+                    })?;
                     backend.search(query, fetch_k)
                 };
 
                 matches.clear();
                 for (vector_id, score) in candidates {
-                    let (key, metadata) = self.get_key_and_metadata(branch_id, collection, vector_id)?;
+                    let (key, metadata) =
+                        self.get_key_and_metadata(branch_id, collection, vector_id)?;
 
                     // Apply filter
                     if let Some(ref f) = filter {
@@ -667,7 +668,11 @@ impl VectorStore {
                         }
                     }
 
-                    matches.push(VectorMatch { key, score, metadata });
+                    matches.push(VectorMatch {
+                        key,
+                        score,
+                        metadata,
+                    });
                     if matches.len() >= k {
                         break;
                     }
@@ -888,7 +893,11 @@ impl VectorStore {
     ///
     /// If the collection exists in KV but not in memory (after recovery),
     /// this loads it and initializes the backend.
-    pub(crate) fn ensure_collection_loaded(&self, branch_id: BranchId, name: &str) -> VectorResult<()> {
+    pub(crate) fn ensure_collection_loaded(
+        &self,
+        branch_id: BranchId,
+        name: &str,
+    ) -> VectorResult<()> {
         let collection_id = CollectionId::new(branch_id, name);
 
         // Already loaded?
@@ -900,11 +909,11 @@ impl VectorStore {
         }
 
         // Load from KV
-        let config = self.load_collection_config(branch_id, name)?.ok_or_else(|| {
-            VectorError::CollectionNotFound {
+        let config = self
+            .load_collection_config(branch_id, name)?
+            .ok_or_else(|| VectorError::CollectionNotFound {
                 name: name.to_string(),
-            }
-        })?;
+            })?;
 
         // Initialize backend
         self.init_backend(&collection_id, &config);
@@ -976,9 +985,7 @@ impl VectorStore {
         // Initialize backend (no KV write - KV is replayed separately)
         let backend = self.backend_factory().create(&config);
         let state = self.state();
-        state.backends
-            .write()
-            .insert(collection_id, backend);
+        state.backends.write().insert(collection_id, backend);
 
         Ok(())
     }
@@ -1068,7 +1075,12 @@ impl VectorStore {
     }
 
     /// Internal helper to create vector KV key
-    pub(crate) fn vector_key_internal(&self, branch_id: BranchId, collection: &str, key: &str) -> Key {
+    pub(crate) fn vector_key_internal(
+        &self,
+        branch_id: BranchId,
+        collection: &str,
+        key: &str,
+    ) -> Key {
         Key::new_vector(Namespace::for_branch(branch_id), collection, key)
     }
 }
@@ -1157,7 +1169,10 @@ impl strata_storage::PrimitiveStorageExt for VectorStore {
     ///
     /// Wraps the existing snapshot_deserialize method.
     /// Note: Uses interior mutability via the RwLock in VectorBackendState.
-    fn snapshot_deserialize(&mut self, data: &[u8]) -> Result<(), strata_storage::PrimitiveExtError> {
+    fn snapshot_deserialize(
+        &mut self,
+        data: &[u8],
+    ) -> Result<(), strata_storage::PrimitiveExtError> {
         use std::io::Cursor;
         let mut cursor = Cursor::new(data);
         // Note: snapshot_deserialize takes &self and uses interior mutability
@@ -1224,7 +1239,11 @@ fn now_micros() -> u64 {
 // and apply them at commit time, but this requires significant infrastructure.
 
 impl VectorStoreExt for TransactionContext {
-    fn vector_get(&mut self, collection: &str, key: &str) -> strata_core::StrataResult<Option<Vec<f32>>> {
+    fn vector_get(
+        &mut self,
+        collection: &str,
+        key: &str,
+    ) -> strata_core::StrataResult<Option<Vec<f32>>> {
         // VectorStore embeddings are stored in VectorHeap (in-memory backend),
         // which is not accessible from TransactionContext.
         //
@@ -1395,7 +1414,11 @@ mod tests {
             .create_collection(branch_id, "embeddings", config)
             .unwrap();
 
-        let info = store.get_collection(branch_id, "embeddings").unwrap().unwrap().value;
+        let info = store
+            .get_collection(branch_id, "embeddings")
+            .unwrap()
+            .unwrap()
+            .value;
         assert_eq!(info.name, "embeddings");
         assert_eq!(info.config.dimension, 768);
         assert_eq!(info.config.metric, DistanceMetric::Euclidean);
@@ -1439,7 +1462,10 @@ mod tests {
 
         // Deleting from one branch doesn't affect the other
         store.delete_collection(branch1, "shared_name").unwrap();
-        assert!(store.get_collection(branch2, "shared_name").unwrap().is_some());
+        assert!(store
+            .get_collection(branch2, "shared_name")
+            .unwrap()
+            .is_some());
     }
 
     // ========================================
@@ -1457,7 +1483,11 @@ mod tests {
             .unwrap();
 
         // Get collection and verify config
-        let info = store.get_collection(branch_id, "test").unwrap().unwrap().value;
+        let info = store
+            .get_collection(branch_id, "test")
+            .unwrap()
+            .unwrap()
+            .value;
         assert_eq!(info.config.dimension, config.dimension);
         assert_eq!(info.config.metric, config.metric);
     }
@@ -1483,7 +1513,11 @@ mod tests {
             let db = Database::open(temp_dir.path()).unwrap();
             let store = VectorStore::new(db);
 
-            let info = store.get_collection(branch_id, "persistent").unwrap().unwrap().value;
+            let info = store
+                .get_collection(branch_id, "persistent")
+                .unwrap()
+                .unwrap()
+                .value;
             assert_eq!(info.config.dimension, 512);
             assert_eq!(info.config.metric, DistanceMetric::DotProduct);
         }
@@ -1824,7 +1858,11 @@ mod tests {
 
         // Backend should be created
         let collection_id = CollectionId::new(branch_id, "test");
-        assert!(store.backends().backends.read().contains_key(&collection_id));
+        assert!(store
+            .backends()
+            .backends
+            .read()
+            .contains_key(&collection_id));
     }
 
     #[test]
@@ -1838,12 +1876,20 @@ mod tests {
             .unwrap();
 
         let collection_id = CollectionId::new(branch_id, "test");
-        assert!(store.backends().backends.read().contains_key(&collection_id));
+        assert!(store
+            .backends()
+            .backends
+            .read()
+            .contains_key(&collection_id));
 
         // Replay deletion
         store.replay_delete_collection(branch_id, "test").unwrap();
 
-        assert!(!store.backends().backends.read().contains_key(&collection_id));
+        assert!(!store
+            .backends()
+            .backends
+            .read()
+            .contains_key(&collection_id));
     }
 
     #[test]
@@ -1859,7 +1905,15 @@ mod tests {
         // Replay upsert with specific VectorId
         let vector_id = VectorId::new(42);
         store
-            .replay_upsert(branch_id, "test", "doc1", vector_id, &[1.0, 0.0, 0.0], None, None)
+            .replay_upsert(
+                branch_id,
+                "test",
+                "doc1",
+                vector_id,
+                &[1.0, 0.0, 0.0],
+                None,
+                None,
+            )
             .unwrap();
 
         // Verify vector exists in backend
@@ -1884,7 +1938,15 @@ mod tests {
         // Replay upsert with high VectorId
         let high_id = VectorId::new(1000);
         store
-            .replay_upsert(branch_id, "test", "doc", high_id, &[1.0, 0.0, 0.0], None, None)
+            .replay_upsert(
+                branch_id,
+                "test",
+                "doc",
+                high_id,
+                &[1.0, 0.0, 0.0],
+                None,
+                None,
+            )
             .unwrap();
 
         // Verify the vector exists
@@ -1908,7 +1970,15 @@ mod tests {
         // Replay upsert
         let vector_id = VectorId::new(1);
         store
-            .replay_upsert(branch_id, "test", "doc", vector_id, &[1.0, 0.0, 0.0], None, None)
+            .replay_upsert(
+                branch_id,
+                "test",
+                "doc",
+                vector_id,
+                &[1.0, 0.0, 0.0],
+                None,
+                None,
+            )
             .unwrap();
 
         let collection_id = CollectionId::new(branch_id, "test");

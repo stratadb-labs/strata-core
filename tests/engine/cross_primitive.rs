@@ -3,14 +3,12 @@
 //! Tests that verify atomic transactions spanning multiple primitives.
 
 use crate::common::*;
-use strata_engine::{KVStoreExt, EventLogExt, StateCellExt};
 use std::collections::HashMap;
+use strata_engine::{EventLogExt, KVStoreExt, StateCellExt};
 
 /// Helper to create an event payload object
 fn event_payload(data: Value) -> Value {
-    Value::Object(HashMap::from([
-        ("data".to_string(), data),
-    ]))
+    Value::Object(HashMap::from([("data".to_string(), data)]))
 }
 
 // ============================================================================
@@ -22,16 +20,25 @@ fn kv_and_eventlog_atomic() {
     let test_db = TestDb::new();
     let branch_id = test_db.branch_id;
 
-    test_db.db.transaction(branch_id, |txn| {
-        txn.kv_put("order_id", Value::String("ORD-123".into()))?;
-        txn.event_append("order_created", event_payload(Value::String("ORD-123".into())))?;
-        Ok(())
-    }).unwrap();
+    test_db
+        .db
+        .transaction(branch_id, |txn| {
+            txn.kv_put("order_id", Value::String("ORD-123".into()))?;
+            txn.event_append(
+                "order_created",
+                event_payload(Value::String("ORD-123".into())),
+            )?;
+            Ok(())
+        })
+        .unwrap();
 
     let kv = test_db.kv();
     let event = test_db.event();
 
-    assert_eq!(kv.get(&branch_id, "order_id").unwrap(), Some(Value::String("ORD-123".into())));
+    assert_eq!(
+        kv.get(&branch_id, "order_id").unwrap(),
+        Some(Value::String("ORD-123".into()))
+    );
     assert_eq!(event.len(&branch_id).unwrap(), 1);
 }
 
@@ -42,16 +49,24 @@ fn kv_and_statecell_atomic() {
     let state = test_db.state();
 
     // Init state first
-    state.init(&branch_id, "status", Value::String("pending".into())).unwrap();
+    state
+        .init(&branch_id, "status", Value::String("pending".into()))
+        .unwrap();
 
-    test_db.db.transaction(branch_id, |txn| {
-        txn.kv_put("processed_at", Value::Int(1234567890))?;
-        txn.state_set("status", Value::String("completed".into()))?;
-        Ok(())
-    }).unwrap();
+    test_db
+        .db
+        .transaction(branch_id, |txn| {
+            txn.kv_put("processed_at", Value::Int(1234567890))?;
+            txn.state_set("status", Value::String("completed".into()))?;
+            Ok(())
+        })
+        .unwrap();
 
     let kv = test_db.kv();
-    assert_eq!(kv.get(&branch_id, "processed_at").unwrap(), Some(Value::Int(1234567890)));
+    assert_eq!(
+        kv.get(&branch_id, "processed_at").unwrap(),
+        Some(Value::Int(1234567890))
+    );
 
     let current = state.read(&branch_id, "status").unwrap().unwrap();
     assert_eq!(current, Value::String("completed".into()));
@@ -65,23 +80,29 @@ fn three_primitives_atomic() {
 
     state.init(&branch_id, "counter", Value::Int(0)).unwrap();
 
-    test_db.db.transaction(branch_id, |txn| {
-        // KV
-        txn.kv_put("data", Value::String("value".into()))?;
+    test_db
+        .db
+        .transaction(branch_id, |txn| {
+            // KV
+            txn.kv_put("data", Value::String("value".into()))?;
 
-        // Event
-        txn.event_append("log", event_payload(Value::String("action".into())))?;
+            // Event
+            txn.event_append("log", event_payload(Value::String("action".into())))?;
 
-        // State
-        txn.state_set("counter", Value::Int(1))?;
+            // State
+            txn.state_set("counter", Value::Int(1))?;
 
-        Ok(())
-    }).unwrap();
+            Ok(())
+        })
+        .unwrap();
 
     let kv = test_db.kv();
     let event = test_db.event();
 
-    assert_eq!(kv.get(&branch_id, "data").unwrap(), Some(Value::String("value".into())));
+    assert_eq!(
+        kv.get(&branch_id, "data").unwrap(),
+        Some(Value::String("value".into()))
+    );
     assert_eq!(event.len(&branch_id).unwrap(), 1);
 
     let counter = state.read(&branch_id, "counter").unwrap().unwrap();
@@ -141,7 +162,10 @@ fn partial_writes_not_visible() {
     assert!(kv.get(&branch_id, "new_2").unwrap().is_none());
 
     // Existing key unchanged
-    assert_eq!(kv.get(&branch_id, "existing").unwrap().unwrap(), Value::Int(100));
+    assert_eq!(
+        kv.get(&branch_id, "existing").unwrap().unwrap(),
+        Value::Int(100)
+    );
 }
 
 // ============================================================================
@@ -156,13 +180,16 @@ fn read_modify_write_single_primitive() {
 
     kv.put(&branch_id, "counter", Value::Int(10)).unwrap();
 
-    test_db.db.transaction(branch_id, |txn| {
-        let val = txn.kv_get("counter")?;
-        if let Some(Value::Int(n)) = val {
-            txn.kv_put("counter", Value::Int(n + 5))?;
-        }
-        Ok(())
-    }).unwrap();
+    test_db
+        .db
+        .transaction(branch_id, |txn| {
+            let val = txn.kv_get("counter")?;
+            if let Some(Value::Int(n)) = val {
+                txn.kv_put("counter", Value::Int(n + 5))?;
+            }
+            Ok(())
+        })
+        .unwrap();
 
     let result = kv.get(&branch_id, "counter").unwrap().unwrap();
     assert_eq!(result, Value::Int(15));
@@ -179,11 +206,14 @@ fn read_from_one_write_to_another() {
     kv.put(&branch_id, "source", Value::Int(42)).unwrap();
 
     // Copy to state cell using transaction
-    test_db.db.transaction(branch_id, |txn| {
-        let val = txn.kv_get("source")?.unwrap();
-        txn.state_set("copied", val)?;
-        Ok(())
-    }).unwrap();
+    test_db
+        .db
+        .transaction(branch_id, |txn| {
+            let val = txn.kv_get("source")?.unwrap();
+            txn.state_set("copied", val)?;
+            Ok(())
+        })
+        .unwrap();
 
     let copied = state.read(&branch_id, "copied").unwrap().unwrap();
     assert_eq!(copied, Value::Int(42));
@@ -199,30 +229,45 @@ fn saga_pattern_all_steps_complete() {
     let branch_id = test_db.branch_id;
 
     // Simulate a multi-step workflow
-    test_db.db.transaction(branch_id, |txn| {
-        // Step 1: Create order
-        txn.kv_put("order:1", Value::String("created".into()))?;
+    test_db
+        .db
+        .transaction(branch_id, |txn| {
+            // Step 1: Create order
+            txn.kv_put("order:1", Value::String("created".into()))?;
 
-        // Step 2: Reserve inventory
-        txn.kv_put("inventory:item1", Value::Int(99))?;
+            // Step 2: Reserve inventory
+            txn.kv_put("inventory:item1", Value::Int(99))?;
 
-        // Step 3: Log event
-        txn.event_append("order_event", event_payload(Value::String("order:1 created".into())))?;
+            // Step 3: Log event
+            txn.event_append(
+                "order_event",
+                event_payload(Value::String("order:1 created".into())),
+            )?;
 
-        // Step 4: Update status via state_set
-        txn.state_set("order:1:status", Value::String("processing".into()))?;
+            // Step 4: Update status via state_set
+            txn.state_set("order:1:status", Value::String("processing".into()))?;
 
-        Ok(())
-    }).unwrap();
+            Ok(())
+        })
+        .unwrap();
 
     let kv = test_db.kv();
     let event = test_db.event();
     let state = test_db.state();
 
-    assert_eq!(kv.get(&branch_id, "order:1").unwrap(), Some(Value::String("created".into())));
-    assert_eq!(kv.get(&branch_id, "inventory:item1").unwrap(), Some(Value::Int(99)));
+    assert_eq!(
+        kv.get(&branch_id, "order:1").unwrap(),
+        Some(Value::String("created".into()))
+    );
+    assert_eq!(
+        kv.get(&branch_id, "inventory:item1").unwrap(),
+        Some(Value::Int(99))
+    );
     assert_eq!(event.len(&branch_id).unwrap(), 1);
-    assert_eq!(state.read(&branch_id, "order:1:status").unwrap().unwrap(), Value::String("processing".into()));
+    assert_eq!(
+        state.read(&branch_id, "order:1:status").unwrap().unwrap(),
+        Value::String("processing".into())
+    );
 }
 
 // ============================================================================
@@ -236,18 +281,24 @@ fn cross_primitive_branch_isolation() {
     let branch_b = BranchId::new();
 
     // Write to branch A
-    test_db.db.transaction(branch_a, |txn| {
-        txn.kv_put("shared_key", Value::String("branch_a".into()))?;
-        txn.event_append("log", event_payload(Value::String("branch_a".into())))?;
-        Ok(())
-    }).unwrap();
+    test_db
+        .db
+        .transaction(branch_a, |txn| {
+            txn.kv_put("shared_key", Value::String("branch_a".into()))?;
+            txn.event_append("log", event_payload(Value::String("branch_a".into())))?;
+            Ok(())
+        })
+        .unwrap();
 
     // Write to branch B
-    test_db.db.transaction(branch_b, |txn| {
-        txn.kv_put("shared_key", Value::String("branch_b".into()))?;
-        txn.event_append("log", event_payload(Value::String("branch_b".into())))?;
-        Ok(())
-    }).unwrap();
+    test_db
+        .db
+        .transaction(branch_b, |txn| {
+            txn.kv_put("shared_key", Value::String("branch_b".into()))?;
+            txn.event_append("log", event_payload(Value::String("branch_b".into())))?;
+            Ok(())
+        })
+        .unwrap();
 
     let kv = test_db.kv();
     let event = test_db.event();

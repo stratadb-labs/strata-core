@@ -232,7 +232,10 @@ mod tests {
         assert_eq!(PrimitiveType::from_id("kv"), Some(PrimitiveType::Kv));
         assert_eq!(PrimitiveType::from_id("event"), Some(PrimitiveType::Event));
         assert_eq!(PrimitiveType::from_id("state"), Some(PrimitiveType::State));
-        assert_eq!(PrimitiveType::from_id("branch"), Some(PrimitiveType::Branch));
+        assert_eq!(
+            PrimitiveType::from_id("branch"),
+            Some(PrimitiveType::Branch)
+        );
         assert_eq!(PrimitiveType::from_id("json"), Some(PrimitiveType::Json));
         assert_eq!(
             PrimitiveType::from_id("vector"),
@@ -337,24 +340,32 @@ mod tests {
 
     #[test]
     fn test_entry_type_ranges_do_not_overlap() {
-        let ranges: Vec<(u8, u8)> = PrimitiveType::ALL.iter()
+        let ranges: Vec<(u8, u8)> = PrimitiveType::ALL
+            .iter()
             .map(|pt| pt.entry_type_range())
             .collect();
         for i in 0..ranges.len() {
             for j in (i + 1)..ranges.len() {
                 let (a_lo, a_hi) = ranges[i];
                 let (b_lo, b_hi) = ranges[j];
-                assert!(a_hi < b_lo || b_hi < a_lo,
+                assert!(
+                    a_hi < b_lo || b_hi < a_lo,
                     "Entry type ranges overlap: {:?} ({:02X}-{:02X}) and {:?} ({:02X}-{:02X})",
-                    PrimitiveType::ALL[i], a_lo, a_hi,
-                    PrimitiveType::ALL[j], b_lo, b_hi);
+                    PrimitiveType::ALL[i],
+                    a_lo,
+                    a_hi,
+                    PrimitiveType::ALL[j],
+                    b_lo,
+                    b_hi
+                );
             }
         }
     }
 
     #[test]
     fn test_primitive_id_uniqueness() {
-        let ids: std::collections::HashSet<u8> = PrimitiveType::ALL.iter()
+        let ids: std::collections::HashSet<u8> = PrimitiveType::ALL
+            .iter()
             .map(|pt| pt.primitive_id())
             .collect();
         assert_eq!(ids.len(), 6, "All primitive IDs must be unique");
@@ -385,8 +396,12 @@ mod tests {
     #[test]
     fn test_append_only_is_inverse_of_supports_crud() {
         for pt in PrimitiveType::ALL {
-            assert_eq!(pt.is_append_only(), !pt.supports_crud(),
-                "{:?}: is_append_only and supports_crud must be inverses", pt);
+            assert_eq!(
+                pt.is_append_only(),
+                !pt.supports_crud(),
+                "{:?}: is_append_only and supports_crud must be inverses",
+                pt
+            );
         }
     }
 }

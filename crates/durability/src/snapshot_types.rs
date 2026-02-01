@@ -432,7 +432,10 @@ mod tests {
         for id in 1..=4 {
             assert!(primitive_ids::is_valid(id), "ID {} should be valid", id);
         }
-        assert!(!primitive_ids::is_valid(5), "ID 5 (formerly Trace) should not be valid");
+        assert!(
+            !primitive_ids::is_valid(5),
+            "ID 5 (formerly Trace) should not be valid"
+        );
         for id in 6..=7 {
             assert!(primitive_ids::is_valid(id), "ID {} should be valid", id);
         }
@@ -701,9 +704,7 @@ mod tests {
                 expected: 100,
                 actual: 10,
             },
-            SnapshotError::InvalidMagic {
-                found: vec![0; 10],
-            },
+            SnapshotError::InvalidMagic { found: vec![0; 10] },
             SnapshotError::UnsupportedVersion(99),
             SnapshotError::ChecksumMismatch {
                 expected: 1,
@@ -722,7 +723,11 @@ mod tests {
 
         for err in &errors {
             let msg = err.to_string();
-            assert!(!msg.is_empty(), "Error {:?} should have non-empty display", err);
+            assert!(
+                !msg.is_empty(),
+                "Error {:?} should have non-empty display",
+                err
+            );
         }
     }
 

@@ -3,13 +3,13 @@
 //! Tests verifying that different branches are completely isolated from each other.
 //! Each branch has its own namespace and cannot see or affect other branches' data.
 
+use std::collections::HashMap;
+use std::sync::Arc;
 use strata_core::contract::Version;
 use strata_core::types::BranchId;
 use strata_core::value::Value;
 use strata_engine::Database;
-use strata_engine::{EventLog, KVStore, BranchIndex, StateCell};
-use std::collections::HashMap;
-use std::sync::Arc;
+use strata_engine::{BranchIndex, EventLog, KVStore, StateCell};
 use tempfile::TempDir;
 
 /// Helper to create an empty object payload for EventLog
@@ -24,7 +24,10 @@ fn int_payload(v: i64) -> Value {
 
 /// Helper to create an object payload with a string value
 fn string_payload(s: &str) -> Value {
-    Value::Object(HashMap::from([("data".to_string(), Value::String(s.into()))]))
+    Value::Object(HashMap::from([(
+        "data".to_string(),
+        Value::String(s.into()),
+    )]))
 }
 
 fn setup() -> (Arc<Database>, TempDir) {
@@ -112,7 +115,9 @@ fn test_state_cell_isolation() {
 
     // Same cell name, different branches
     state_cell.init(&branch1, "counter", Value::Int(0)).unwrap();
-    state_cell.init(&branch2, "counter", Value::Int(100)).unwrap();
+    state_cell
+        .init(&branch2, "counter", Value::Int(100))
+        .unwrap();
 
     // Each branch sees its own value
     let state1 = state_cell.read(&branch1, "counter").unwrap().unwrap();
@@ -122,7 +127,9 @@ fn test_state_cell_isolation() {
     assert_eq!(state2, Value::Int(100));
 
     // CAS on branch1 doesn't affect branch2
-    state_cell.cas(&branch1, "counter", Version::counter(1), Value::Int(10)).unwrap();
+    state_cell
+        .cas(&branch1, "counter", Version::counter(1), Value::Int(10))
+        .unwrap();
 
     let state1 = state_cell.read(&branch1, "counter").unwrap().unwrap();
     let state2 = state_cell.read(&branch2, "counter").unwrap().unwrap();
@@ -146,7 +153,8 @@ fn test_cross_branch_query_isolation() {
 
     // Branch1 data
     for i in 0..10 {
-        kv.put(&branch1, &format!("key{}", i), Value::Int(i)).unwrap();
+        kv.put(&branch1, &format!("key{}", i), Value::Int(i))
+            .unwrap();
         event_log.append(&branch1, "event", int_payload(i)).unwrap();
     }
     state_cell
@@ -210,8 +218,12 @@ fn test_branch_delete_isolation() {
     kv.put(&branch1, "key", Value::Int(1)).unwrap();
     kv.put(&branch2, "key", Value::Int(2)).unwrap();
 
-    event_log.append(&branch1, "event", empty_payload()).unwrap();
-    event_log.append(&branch2, "event", empty_payload()).unwrap();
+    event_log
+        .append(&branch1, "event", empty_payload())
+        .unwrap();
+    event_log
+        .append(&branch2, "event", empty_payload())
+        .unwrap();
 
     state_cell.init(&branch1, "cell", Value::Int(10)).unwrap();
     state_cell.init(&branch2, "cell", Value::Int(20)).unwrap();
@@ -246,7 +258,8 @@ fn test_many_branches_isolation() {
     // Each branch writes its own data
     for (i, branch_id) in branches.iter().enumerate() {
         kv.put(branch_id, "value", Value::Int(i as i64)).unwrap();
-        kv.put(branch_id, "branch_index", Value::Int(i as i64)).unwrap();
+        kv.put(branch_id, "branch_index", Value::Int(i as i64))
+            .unwrap();
     }
 
     // Verify each branch sees only its data
@@ -273,7 +286,9 @@ fn test_state_cell_cas_isolation() {
     state_cell.init(&branch2, "cell", Value::Int(0)).unwrap();
 
     // CAS on branch1 with version 1
-    state_cell.cas(&branch1, "cell", Version::counter(1), Value::Int(10)).unwrap();
+    state_cell
+        .cas(&branch1, "cell", Version::counter(1), Value::Int(10))
+        .unwrap();
 
     // CAS on branch2 with version 1 should ALSO succeed (independent versions)
     let result = state_cell.cas(&branch2, "cell", Version::counter(1), Value::Int(20));
@@ -321,4 +336,3 @@ fn test_event_log_chain_isolation() {
     assert_eq!(event_log.len(&branch1).unwrap(), 3);
     assert_eq!(event_log.len(&branch2).unwrap(), 2);
 }
-

@@ -31,17 +31,17 @@ use crate::coordinator::TransactionCoordinator;
 use crate::transaction::TransactionPool;
 use dashmap::DashMap;
 use parking_lot::Mutex as ParkingMutex;
-use strata_concurrency::{RecoveryCoordinator, TransactionContext};
-use strata_core::{StrataResult, VersionedValue};
-use strata_core::types::{Key, BranchId};
-use strata_core::StrataError;
-use strata_durability::codec::IdentityCodec;
-use strata_durability::wal::{DurabilityMode, WalConfig, WalWriter};
-use strata_storage::ShardedStore;
 use std::any::{Any, TypeId};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
+use strata_concurrency::{RecoveryCoordinator, TransactionContext};
+use strata_core::types::{BranchId, Key};
+use strata_core::StrataError;
+use strata_core::{StrataResult, VersionedValue};
+use strata_durability::codec::IdentityCodec;
+use strata_durability::wal::{DurabilityMode, WalConfig, WalWriter};
+use strata_storage::ShardedStore;
 use tracing::info;
 
 // ============================================================================
@@ -622,7 +622,11 @@ impl Database {
     /// })?;
     /// // commit_version now contains the version assigned to the put
     /// ```
-    pub(crate) fn transaction_with_version<F, T>(&self, branch_id: BranchId, f: F) -> StrataResult<(T, u64)>
+    pub(crate) fn transaction_with_version<F, T>(
+        &self,
+        branch_id: BranchId,
+        f: F,
+    ) -> StrataResult<(T, u64)>
     where
         F: FnOnce(&mut TransactionContext) -> StrataResult<T>,
     {
@@ -692,8 +696,7 @@ impl Database {
             }
         }
 
-        Err(last_error
-            .unwrap_or_else(|| StrataError::conflict("Max retries exceeded".to_string())))
+        Err(last_error.unwrap_or_else(|| StrataError::conflict("Max retries exceeded".to_string())))
     }
 
     /// Begin a new transaction (for manual control)
@@ -936,7 +939,10 @@ mod tests {
                 &wal_dir,
                 1,
                 branch_id,
-                vec![(Key::new_kv(ns.clone(), "key1"), Value::Bytes(b"value1".to_vec()))],
+                vec![(
+                    Key::new_kv(ns.clone(), "key1"),
+                    Value::Bytes(b"value1".to_vec()),
+                )],
                 vec![],
                 1,
             );
@@ -1031,8 +1037,7 @@ mod tests {
             );
 
             // Append garbage to simulate crash mid-write of second record
-            let segment_path =
-                strata_durability::format::WalSegment::segment_path(&wal_dir, 1);
+            let segment_path = strata_durability::format::WalSegment::segment_path(&wal_dir, 1);
             use std::io::Write;
             let mut file = std::fs::OpenOptions::new()
                 .append(true)
@@ -1097,11 +1102,8 @@ mod tests {
 
         // None mode
         {
-            let db = Database::open_with_mode(
-                temp_dir.path().join("none"),
-                DurabilityMode::None,
-            )
-            .unwrap();
+            let db = Database::open_with_mode(temp_dir.path().join("none"), DurabilityMode::None)
+                .unwrap();
             assert!(!db.is_ephemeral());
         }
     }
@@ -1431,5 +1433,4 @@ mod tests {
         let result = Database::builder().open();
         assert!(result.is_err());
     }
-
 }

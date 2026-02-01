@@ -15,16 +15,16 @@
 //! - TypeTag: State (0x03)
 //! - Key format: `<namespace>:<TypeTag::State>:<cell_name>`
 
-use crate::primitives::extensions::StateCellExt;
-use strata_concurrency::TransactionContext;
-use strata_core::contract::{Version, Versioned};
-use strata_core::{StrataResult, VersionedHistory};
-use strata_core::types::{Key, Namespace, BranchId};
-use strata_core::value::Value;
-use strata_core::Timestamp;
 use crate::database::Database;
+use crate::primitives::extensions::StateCellExt;
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
+use strata_concurrency::TransactionContext;
+use strata_core::contract::{Version, Versioned};
+use strata_core::types::{BranchId, Key, Namespace};
+use strata_core::value::Value;
+use strata_core::Timestamp;
+use strata_core::{StrataResult, VersionedHistory};
 
 // Re-export State from core
 pub use strata_core::primitives::State;
@@ -104,7 +104,12 @@ impl StateCell {
     /// The version uses `Version::Counter` type.
     ///
     /// # StateCell Versioned Returns
-    pub fn init(&self, branch_id: &BranchId, name: &str, value: Value) -> StrataResult<Versioned<Version>> {
+    pub fn init(
+        &self,
+        branch_id: &BranchId,
+        name: &str,
+        value: Value,
+    ) -> StrataResult<Versioned<Version>> {
         self.db.transaction(*branch_id, |txn| {
             let key = self.key_for(branch_id, name);
 
@@ -128,15 +133,13 @@ impl StateCell {
     pub fn read(&self, branch_id: &BranchId, name: &str) -> StrataResult<Option<Value>> {
         let key = self.key_for(branch_id, name);
 
-        self.db.transaction(*branch_id, |txn| {
-            match txn.get(&key)? {
-                Some(v) => {
-                    let state: State = from_stored_value(&v)
-                        .map_err(|e| strata_core::StrataError::serialization(e.to_string()))?;
-                    Ok(Some(state.value))
-                }
-                None => Ok(None),
+        self.db.transaction(*branch_id, |txn| match txn.get(&key)? {
+            Some(v) => {
+                let state: State = from_stored_value(&v)
+                    .map_err(|e| strata_core::StrataError::serialization(e.to_string()))?;
+                Ok(Some(state.value))
             }
+            None => Ok(None),
         })
     }
 
@@ -147,7 +150,11 @@ impl StateCell {
     ///
     /// Returns `VersionedHistory<Value>` — the internal `State` wrapper is
     /// unwrapped so callers see the user value with storage-layer version/timestamp.
-    pub fn readv(&self, branch_id: &BranchId, name: &str) -> StrataResult<Option<VersionedHistory<Value>>> {
+    pub fn readv(
+        &self,
+        branch_id: &BranchId,
+        name: &str,
+    ) -> StrataResult<Option<VersionedHistory<Value>>> {
         let key = self.key_for(branch_id, name);
         let history = self.db.get_history(&key, None, None)?;
         let versions: Vec<Versioned<Value>> = history
@@ -218,16 +225,20 @@ impl StateCell {
     /// Creates the cell if it doesn't exist.
     ///
     /// # StateCell Versioned Returns
-    pub fn set(&self, branch_id: &BranchId, name: &str, value: Value) -> StrataResult<Versioned<Version>> {
+    pub fn set(
+        &self,
+        branch_id: &BranchId,
+        name: &str,
+        value: Value,
+    ) -> StrataResult<Versioned<Version>> {
         let value_for_index = value.clone();
         let result = self.db.transaction(*branch_id, |txn| {
             let key = self.key_for(branch_id, name);
 
             let new_version = match txn.get(&key)? {
                 Some(v) => {
-                    let current: State = from_stored_value(&v).map_err(|e| {
-                        strata_core::StrataError::serialization(e.to_string())
-                    })?;
+                    let current: State = from_stored_value(&v)
+                        .map_err(|e| strata_core::StrataError::serialization(e.to_string()))?;
                     current.version.increment()
                 }
                 None => Version::counter(1),
@@ -246,7 +257,11 @@ impl StateCell {
         // Update inverted index (zero overhead when disabled)
         let index = self.db.extension::<crate::search::InvertedIndex>();
         if index.is_enabled() {
-            let text = format!("{} {}", name, serde_json::to_string(&value_for_index).unwrap_or_default());
+            let text = format!(
+                "{} {}",
+                name,
+                serde_json::to_string(&value_for_index).unwrap_or_default()
+            );
             let entity_ref = crate::search::EntityRef::State {
                 branch_id: *branch_id,
                 name: name.to_string(),
@@ -256,7 +271,6 @@ impl StateCell {
 
         Ok(result)
     }
-
 }
 
 // ========== Searchable Trait Implementation ==========
@@ -292,7 +306,12 @@ impl StateCellExt for TransactionContext {
         }
     }
 
-    fn state_cas(&mut self, name: &str, expected_version: Version, new_value: Value) -> StrataResult<Version> {
+    fn state_cas(
+        &mut self,
+        name: &str,
+        expected_version: Version,
+        new_value: Value,
+    ) -> StrataResult<Version> {
         let ns = Namespace::for_branch(self.branch_id);
         let key = Key::new_state(ns, name);
 
@@ -415,7 +434,10 @@ mod tests {
         let v1 = sc.init(&branch_id, "cell", Value::Int(42)).unwrap();
         // Second init with different value should succeed but return existing version
         let v2 = sc.init(&branch_id, "cell", Value::Int(99)).unwrap();
-        assert_eq!(v1.version, v2.version, "Idempotent init should return same version");
+        assert_eq!(
+            v1.version, v2.version,
+            "Idempotent init should return same version"
+        );
     }
 
     #[test]
@@ -453,7 +475,9 @@ mod tests {
         sc.init(&branch_id, "counter", Value::Int(0)).unwrap();
 
         // CAS with correct version
-        let new_versioned = sc.cas(&branch_id, "counter", Version::counter(1), Value::Int(1)).unwrap();
+        let new_versioned = sc
+            .cas(&branch_id, "counter", Version::counter(1), Value::Int(1))
+            .unwrap();
         assert_eq!(new_versioned.value, Version::counter(2));
         assert!(new_versioned.version.is_counter());
 
@@ -481,7 +505,12 @@ mod tests {
         let (_temp, _db, sc) = setup();
         let branch_id = BranchId::new();
 
-        let result = sc.cas(&branch_id, "nonexistent", Version::counter(1), Value::Int(1));
+        let result = sc.cas(
+            &branch_id,
+            "nonexistent",
+            Version::counter(1),
+            Value::Int(1),
+        );
         assert!(result.is_err());
     }
 
@@ -569,7 +598,9 @@ mod tests {
         sc.init(&branch_id, "cell", Value::Int(1)).unwrap();
 
         let new_version = db
-            .transaction(branch_id, |txn| txn.state_cas("cell", Version::counter(1), Value::Int(2)))
+            .transaction(branch_id, |txn| {
+                txn.state_cas("cell", Version::counter(1), Value::Int(2))
+            })
             .unwrap();
 
         assert_eq!(new_version, Version::counter(2));
@@ -686,7 +717,9 @@ mod tests {
         let branch_id = BranchId::new();
 
         sc.init(&branch_id, "cell", Value::Int(0)).unwrap();
-        let versioned = sc.cas(&branch_id, "cell", Version::counter(1), Value::Int(1)).unwrap();
+        let versioned = sc
+            .cas(&branch_id, "cell", Version::counter(1), Value::Int(1))
+            .unwrap();
 
         assert!(versioned.version.is_counter());
         assert_eq!(versioned.version, Version::counter(2));

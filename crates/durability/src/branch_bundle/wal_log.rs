@@ -25,9 +25,9 @@
 use crate::branch_bundle::error::{BranchBundleError, BranchBundleResult};
 use crate::branch_bundle::types::{xxh3_hex, WAL_BRANCHLOG_MAGIC, WAL_BRANCHLOG_VERSION};
 use serde::{Deserialize, Serialize};
+use std::io::{Read, Write};
 use strata_core::types::Key;
 use strata_core::value::Value;
-use std::io::{Read, Write};
 
 /// Header size in bytes: magic (10) + version (2) + count (4)
 const HEADER_SIZE: usize = 16;
@@ -120,9 +120,7 @@ impl WalLogWriter {
 
         // Write to output
         let bytes_written = buffer.len() as u64;
-        writer
-            .write_all(&buffer)
-            .map_err(BranchBundleError::from)?;
+        writer.write_all(&buffer).map_err(BranchBundleError::from)?;
 
         Ok(WalLogInfo {
             entry_count: payloads.len() as u64,
@@ -134,7 +132,9 @@ impl WalLogWriter {
     /// Write payloads to a Vec<u8>
     ///
     /// Convenience method for testing and in-memory operations.
-    pub fn write_to_vec(payloads: &[BranchlogPayload]) -> BranchBundleResult<(Vec<u8>, WalLogInfo)> {
+    pub fn write_to_vec(
+        payloads: &[BranchlogPayload],
+    ) -> BranchBundleResult<(Vec<u8>, WalLogInfo)> {
         let mut buffer = Vec::new();
         let info = Self::write(payloads, &mut buffer)?;
         Ok((buffer, info))
@@ -155,9 +155,9 @@ impl WalLogReader {
     pub fn read<R: Read>(mut reader: R) -> BranchBundleResult<Vec<BranchlogPayload>> {
         // Read header
         let mut header = [0u8; HEADER_SIZE];
-        reader
-            .read_exact(&mut header)
-            .map_err(|e| BranchBundleError::invalid_bundle(format!("failed to read header: {}", e)))?;
+        reader.read_exact(&mut header).map_err(|e| {
+            BranchBundleError::invalid_bundle(format!("failed to read header: {}", e))
+        })?;
 
         // Validate magic
         if &header[0..10] != WAL_BRANCHLOG_MAGIC {
@@ -202,9 +202,9 @@ impl WalLogReader {
     pub fn validate<R: Read>(mut reader: R) -> BranchBundleResult<u32> {
         // Read header
         let mut header = [0u8; HEADER_SIZE];
-        reader
-            .read_exact(&mut header)
-            .map_err(|e| BranchBundleError::invalid_bundle(format!("failed to read header: {}", e)))?;
+        reader.read_exact(&mut header).map_err(|e| {
+            BranchBundleError::invalid_bundle(format!("failed to read header: {}", e))
+        })?;
 
         // Validate magic
         if &header[0..10] != WAL_BRANCHLOG_MAGIC {
@@ -235,9 +235,9 @@ impl WalLogReader {
     /// Returns (version, entry_count) if header is valid.
     pub fn read_header<R: Read>(mut reader: R) -> BranchBundleResult<(u16, u32)> {
         let mut header = [0u8; HEADER_SIZE];
-        reader
-            .read_exact(&mut header)
-            .map_err(|e| BranchBundleError::invalid_bundle(format!("failed to read header: {}", e)))?;
+        reader.read_exact(&mut header).map_err(|e| {
+            BranchBundleError::invalid_bundle(format!("failed to read header: {}", e))
+        })?;
 
         // Validate magic
         if &header[0..10] != WAL_BRANCHLOG_MAGIC {
@@ -313,15 +313,18 @@ impl<R: Read> Iterator for WalLogIterator<R> {
 // =============================================================================
 
 /// Read a single entry from a reader (length + data + CRC)
-fn read_single_entry<R: Read>(reader: &mut R, index: usize) -> BranchBundleResult<BranchlogPayload> {
+fn read_single_entry<R: Read>(
+    reader: &mut R,
+    index: usize,
+) -> BranchBundleResult<BranchlogPayload> {
     // Read length
     let mut len_bytes = [0u8; 4];
-    reader.read_exact(&mut len_bytes).map_err(|e| {
-        BranchBundleError::InvalidWalEntry {
+    reader
+        .read_exact(&mut len_bytes)
+        .map_err(|e| BranchBundleError::InvalidWalEntry {
             index,
             reason: format!("failed to read length: {}", e),
-        }
-    })?;
+        })?;
     let len = u32::from_le_bytes(len_bytes) as usize;
 
     // Sanity check
@@ -334,21 +337,21 @@ fn read_single_entry<R: Read>(reader: &mut R, index: usize) -> BranchBundleResul
 
     // Read data
     let mut data = vec![0u8; len];
-    reader.read_exact(&mut data).map_err(|e| {
-        BranchBundleError::InvalidWalEntry {
+    reader
+        .read_exact(&mut data)
+        .map_err(|e| BranchBundleError::InvalidWalEntry {
             index,
             reason: format!("failed to read data: {}", e),
-        }
-    })?;
+        })?;
 
     // Read and verify CRC
     let mut crc_bytes = [0u8; 4];
-    reader.read_exact(&mut crc_bytes).map_err(|e| {
-        BranchBundleError::InvalidWalEntry {
+    reader
+        .read_exact(&mut crc_bytes)
+        .map_err(|e| BranchBundleError::InvalidWalEntry {
             index,
             reason: format!("failed to read crc: {}", e),
-        }
-    })?;
+        })?;
     let expected_crc = u32::from_le_bytes(crc_bytes);
     let actual_crc = crc32fast::hash(&data);
 
@@ -373,12 +376,12 @@ fn read_single_entry<R: Read>(reader: &mut R, index: usize) -> BranchBundleResul
 fn validate_single_entry<R: Read>(reader: &mut R, index: usize) -> BranchBundleResult<()> {
     // Read length
     let mut len_bytes = [0u8; 4];
-    reader.read_exact(&mut len_bytes).map_err(|e| {
-        BranchBundleError::InvalidWalEntry {
+    reader
+        .read_exact(&mut len_bytes)
+        .map_err(|e| BranchBundleError::InvalidWalEntry {
             index,
             reason: format!("failed to read length: {}", e),
-        }
-    })?;
+        })?;
     let len = u32::from_le_bytes(len_bytes) as usize;
 
     // Sanity check
@@ -391,21 +394,21 @@ fn validate_single_entry<R: Read>(reader: &mut R, index: usize) -> BranchBundleR
 
     // Read entry data
     let mut data = vec![0u8; len];
-    reader.read_exact(&mut data).map_err(|e| {
-        BranchBundleError::InvalidWalEntry {
+    reader
+        .read_exact(&mut data)
+        .map_err(|e| BranchBundleError::InvalidWalEntry {
             index,
             reason: format!("failed to read data: {}", e),
-        }
-    })?;
+        })?;
 
     // Read and verify CRC32
     let mut crc_bytes = [0u8; 4];
-    reader.read_exact(&mut crc_bytes).map_err(|e| {
-        BranchBundleError::InvalidWalEntry {
+    reader
+        .read_exact(&mut crc_bytes)
+        .map_err(|e| BranchBundleError::InvalidWalEntry {
             index,
             reason: format!("failed to read crc: {}", e),
-        }
-    })?;
+        })?;
     let expected_crc = u32::from_le_bytes(crc_bytes);
     let actual_crc = crc32fast::hash(&data);
 
@@ -425,7 +428,7 @@ fn validate_single_entry<R: Read>(reader: &mut R, index: usize) -> BranchBundleR
 #[cfg(test)]
 mod tests {
     use super::*;
-    use strata_core::types::{Key, Namespace, BranchId, TypeTag};
+    use strata_core::types::{BranchId, Key, Namespace, TypeTag};
     use strata_core::value::Value;
 
     fn make_test_branch_id() -> (BranchId, String) {

@@ -3,7 +3,7 @@
 //! Documents ClonedSnapshotView memory overhead
 //! and TransactionContext footprint.
 
-use strata_core::types::{Key, Namespace, BranchId};
+use strata_core::types::{BranchId, Key, Namespace};
 use strata_core::value::Value;
 use strata_engine::Database;
 use tempfile::TempDir;
@@ -147,10 +147,13 @@ fn test_large_value_memory() {
     println!("Successfully wrote 100KB value");
 
     // Read it back via transaction
-    let read_result = db.transaction(branch_id, |txn| {
-        let key = Key::new_kv(ns.clone(), "large_value");
-        txn.get(&key)
-    }).unwrap().unwrap();
+    let read_result = db
+        .transaction(branch_id, |txn| {
+            let key = Key::new_kv(ns.clone(), "large_value");
+            txn.get(&key)
+        })
+        .unwrap()
+        .unwrap();
     if let Value::String(s) = read_result {
         assert_eq!(s.len(), 100_000);
         println!("Successfully read 100KB value");

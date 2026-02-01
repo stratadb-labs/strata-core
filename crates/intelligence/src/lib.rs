@@ -30,8 +30,8 @@ pub mod index;
 pub mod scorer;
 pub mod tokenizer;
 
-use strata_engine::Database;
 use std::sync::Arc;
+use strata_engine::Database;
 
 // Re-export commonly used types
 pub use fuser::{FusedResult, Fuser, RRFFuser, SimpleFuser};
@@ -75,13 +75,12 @@ impl DatabaseSearchExt for Arc<Database> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use strata_engine::search::SearchRequest;
     use strata_core::types::BranchId;
+    use strata_engine::search::SearchRequest;
 
     #[test]
     fn test_database_search_ext() {
-        let db = Database::ephemeral()
-            .expect("Failed to create test database");
+        let db = Database::ephemeral().expect("Failed to create test database");
 
         let hybrid = db.hybrid();
         let branch_id = BranchId::new();

@@ -109,8 +109,10 @@ fn event_append_and_read_by_type() {
     let db = create_strata();
 
     // Event payloads must be Objects
-    db.event_append("stream", event_payload("value", Value::Int(1))).unwrap();
-    db.event_append("stream", event_payload("value", Value::Int(2))).unwrap();
+    db.event_append("stream", event_payload("value", Value::Int(1)))
+        .unwrap();
+    db.event_append("stream", event_payload("value", Value::Int(2)))
+        .unwrap();
 
     let events = db.event_read_by_type("stream").unwrap();
     assert_eq!(events.len(), 2);
@@ -121,7 +123,8 @@ fn event_len() {
     let db = create_strata();
 
     for i in 0..5 {
-        db.event_append("counting", event_payload("n", Value::Int(i))).unwrap();
+        db.event_append("counting", event_payload("n", Value::Int(i)))
+            .unwrap();
     }
 
     let len = db.event_len().unwrap();
@@ -136,8 +139,10 @@ fn event_len() {
 fn vector_create_collection_and_upsert() {
     let db = create_strata();
 
-    db.vector_create_collection("vecs", 4u64, DistanceMetric::Cosine).unwrap();
-    db.vector_upsert("vecs", "v1", vec![1.0, 0.0, 0.0, 0.0], None).unwrap();
+    db.vector_create_collection("vecs", 4u64, DistanceMetric::Cosine)
+        .unwrap();
+    db.vector_upsert("vecs", "v1", vec![1.0, 0.0, 0.0, 0.0], None)
+        .unwrap();
 
     let vector = db.vector_get("vecs", "v1").unwrap();
     assert!(vector.is_some());
@@ -147,11 +152,16 @@ fn vector_create_collection_and_upsert() {
 fn vector_search() {
     let db = create_strata();
 
-    db.vector_create_collection("search", 4u64, DistanceMetric::Cosine).unwrap();
-    db.vector_upsert("search", "v1", vec![1.0, 0.0, 0.0, 0.0], None).unwrap();
-    db.vector_upsert("search", "v2", vec![0.0, 1.0, 0.0, 0.0], None).unwrap();
+    db.vector_create_collection("search", 4u64, DistanceMetric::Cosine)
+        .unwrap();
+    db.vector_upsert("search", "v1", vec![1.0, 0.0, 0.0, 0.0], None)
+        .unwrap();
+    db.vector_upsert("search", "v2", vec![0.0, 1.0, 0.0, 0.0], None)
+        .unwrap();
 
-    let matches = db.vector_search("search", vec![1.0, 0.0, 0.0, 0.0], 10u64).unwrap();
+    let matches = db
+        .vector_search("search", vec![1.0, 0.0, 0.0, 0.0], 10u64)
+        .unwrap();
     assert_eq!(matches.len(), 2);
     assert_eq!(matches[0].key, "v1");
 }
@@ -160,8 +170,10 @@ fn vector_search() {
 fn vector_list_collections() {
     let db = create_strata();
 
-    db.vector_create_collection("coll_a", 4u64, DistanceMetric::Cosine).unwrap();
-    db.vector_create_collection("coll_b", 8u64, DistanceMetric::Euclidean).unwrap();
+    db.vector_create_collection("coll_a", 4u64, DistanceMetric::Cosine)
+        .unwrap();
+    db.vector_create_collection("coll_b", 8u64, DistanceMetric::Euclidean)
+        .unwrap();
 
     let collections = db.vector_list_collections().unwrap();
     assert_eq!(collections.len(), 2);
@@ -171,7 +183,8 @@ fn vector_list_collections() {
 fn vector_delete_collection() {
     let db = create_strata();
 
-    db.vector_create_collection("to_delete", 4u64, DistanceMetric::Cosine).unwrap();
+    db.vector_create_collection("to_delete", 4u64, DistanceMetric::Cosine)
+        .unwrap();
 
     // Verify it exists by listing
     let collections = db.vector_list_collections().unwrap();
@@ -193,10 +206,9 @@ fn branch_create_and_get() {
     let db = create_strata();
 
     // Users can name branches like git branches
-    let (info, _version) = db.branch_create(
-        Some("my-agent-branch".to_string()),
-        None,
-    ).unwrap();
+    let (info, _version) = db
+        .branch_create(Some("my-agent-branch".to_string()), None)
+        .unwrap();
     assert_eq!(info.id.as_str(), "my-agent-branch");
 
     let branch_info = db.branch_get(info.id.as_str()).unwrap();
@@ -213,7 +225,11 @@ fn branch_list() {
 
     let branches = db.branch_list(None, None, None).unwrap();
     // At least our two branches plus default
-    assert!(branches.len() >= 2, "Expected >= 2 branches (dev + prod), got {}", branches.len());
+    assert!(
+        branches.len() >= 2,
+        "Expected >= 2 branches (dev + prod), got {}",
+        branches.len()
+    );
 }
 
 // ============================================================================
@@ -224,10 +240,14 @@ fn branch_list() {
 fn json_set_and_get() {
     let db = create_strata();
 
-    let doc = Value::Object([
-        ("name".to_string(), Value::String("Alice".into())),
-        ("age".to_string(), Value::Int(30)),
-    ].into_iter().collect());
+    let doc = Value::Object(
+        [
+            ("name".to_string(), Value::String("Alice".into())),
+            ("age".to_string(), Value::Int(30)),
+        ]
+        .into_iter()
+        .collect(),
+    );
 
     db.json_set("user:1", "$", doc).unwrap();
 
@@ -247,9 +267,7 @@ fn json_set_and_get() {
 fn json_delete() {
     let db = create_strata();
 
-    let doc = Value::Object([
-        ("key".to_string(), Value::Int(1)),
-    ].into_iter().collect());
+    let doc = Value::Object([("key".to_string(), Value::Int(1))].into_iter().collect());
 
     db.json_set("doc1", "$", doc).unwrap();
 
@@ -273,30 +291,48 @@ fn use_all_primitives() {
     let db = create_strata();
 
     // KV
-    db.kv_put("config", Value::String("enabled".into())).unwrap();
+    db.kv_put("config", Value::String("enabled".into()))
+        .unwrap();
 
     // State
-    db.state_set("status", Value::String("running".into())).unwrap();
+    db.state_set("status", Value::String("running".into()))
+        .unwrap();
 
     // Event
-    db.event_append("audit", event_payload("action", Value::String("start".into()))).unwrap();
+    db.event_append(
+        "audit",
+        event_payload("action", Value::String("start".into())),
+    )
+    .unwrap();
 
     // Vector
-    db.vector_create_collection("embeddings", 4u64, DistanceMetric::Cosine).unwrap();
-    db.vector_upsert("embeddings", "e1", vec![1.0, 0.0, 0.0, 0.0], None).unwrap();
+    db.vector_create_collection("embeddings", 4u64, DistanceMetric::Cosine)
+        .unwrap();
+    db.vector_upsert("embeddings", "e1", vec![1.0, 0.0, 0.0, 0.0], None)
+        .unwrap();
 
     // JSON
-    let doc = Value::Object([
-        ("type".to_string(), Value::String("test".into())),
-    ].into_iter().collect());
+    let doc = Value::Object(
+        [("type".to_string(), Value::String("test".into()))]
+            .into_iter()
+            .collect(),
+    );
     db.json_set("doc1", "$", doc).unwrap();
 
     // Branch
-    let (branch_info, _) = db.branch_create(Some("integration-test".to_string()), None).unwrap();
+    let (branch_info, _) = db
+        .branch_create(Some("integration-test".to_string()), None)
+        .unwrap();
 
     // Verify all data
-    assert_eq!(db.kv_get("config").unwrap(), Some(Value::String("enabled".into())));
-    assert_eq!(db.state_read("status").unwrap().unwrap(), Value::String("running".into()));
+    assert_eq!(
+        db.kv_get("config").unwrap(),
+        Some(Value::String("enabled".into()))
+    );
+    assert_eq!(
+        db.state_read("status").unwrap().unwrap(),
+        Value::String("running".into())
+    );
     assert_eq!(db.event_len().unwrap(), 1);
     let collections = db.vector_list_collections().unwrap();
     assert!(collections.iter().any(|c| c.name == "embeddings"));

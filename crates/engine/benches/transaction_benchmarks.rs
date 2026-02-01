@@ -7,12 +7,12 @@
 //! - Multi-threaded (with conflict): >2K txns/sec
 
 use criterion::{black_box, criterion_group, criterion_main, BenchmarkId, Criterion, Throughput};
-use strata_core::Storage;
-use strata_core::types::{Key, Namespace, BranchId};
-use strata_core::value::Value;
-use strata_engine::Database;
 use std::sync::Arc;
 use std::thread;
+use strata_core::types::{BranchId, Key, Namespace};
+use strata_core::value::Value;
+use strata_core::Storage;
+use strata_engine::Database;
 use tempfile::TempDir;
 
 fn create_ns(branch_id: BranchId) -> Namespace {
@@ -278,7 +278,6 @@ criterion_group!(
     bench_single_threaded_transactions,
     bench_multi_threaded_no_conflict,
     bench_multi_threaded_with_conflict,
-
     bench_read_only_transactions,
     bench_direct_operations,
 );

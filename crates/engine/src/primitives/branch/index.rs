@@ -19,19 +19,18 @@
 
 use crate::database::Database;
 use serde::{Deserialize, Serialize};
+use std::sync::Arc;
 use strata_core::contract::{Timestamp, Version, Versioned};
-use strata_core::StrataResult;
-use strata_core::types::{Key, Namespace, BranchId, TypeTag};
+use strata_core::types::{BranchId, Key, Namespace, TypeTag};
 use strata_core::value::Value;
 use strata_core::StrataError;
-use std::sync::Arc;
+use strata_core::StrataResult;
 use uuid::Uuid;
 
 /// Namespace UUID for generating deterministic branch IDs from names.
 /// Must match the executor's BRANCH_NAMESPACE for consistency.
 const BRANCH_NAMESPACE: Uuid = Uuid::from_bytes([
-    0x6b, 0xa7, 0xb8, 0x10, 0x9d, 0xad, 0x11, 0xd1,
-    0x80, 0xb4, 0x00, 0xc0, 0x4f, 0xd4, 0x30, 0xc8,
+    0x6b, 0xa7, 0xb8, 0x10, 0x9d, 0xad, 0x11, 0xd1, 0x80, 0xb4, 0x00, 0xc0, 0x4f, 0xd4, 0x30, 0xc8,
 ]);
 
 /// Resolve a branch name to a core BranchId using the same logic as the executor.

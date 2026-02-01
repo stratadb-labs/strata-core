@@ -139,15 +139,31 @@ mod tests {
 
     #[test]
     fn test_state_inequality_different_version() {
-        let s1 = State { value: Value::Int(1), version: Version::counter(1), updated_at: 1000 };
-        let s2 = State { value: Value::Int(1), version: Version::counter(2), updated_at: 1000 };
+        let s1 = State {
+            value: Value::Int(1),
+            version: Version::counter(1),
+            updated_at: 1000,
+        };
+        let s2 = State {
+            value: Value::Int(1),
+            version: Version::counter(2),
+            updated_at: 1000,
+        };
         assert_ne!(s1, s2);
     }
 
     #[test]
     fn test_state_inequality_different_timestamp() {
-        let s1 = State { value: Value::Int(1), version: Version::counter(1), updated_at: 1000 };
-        let s2 = State { value: Value::Int(1), version: Version::counter(1), updated_at: 2000 };
+        let s1 = State {
+            value: Value::Int(1),
+            version: Version::counter(1),
+            updated_at: 1000,
+        };
+        let s2 = State {
+            value: Value::Int(1),
+            version: Version::counter(1),
+            updated_at: 2000,
+        };
         assert_ne!(s1, s2);
     }
 
@@ -155,7 +171,10 @@ mod tests {
     fn test_state_with_complex_value() {
         let complex = Value::Object({
             let mut m = std::collections::HashMap::new();
-            m.insert("nested".to_string(), Value::Array(vec![Value::Int(1), Value::Null]));
+            m.insert(
+                "nested".to_string(),
+                Value::Array(vec![Value::Int(1), Value::Null]),
+            );
             m
         });
         let state = State::new(complex.clone());
@@ -170,10 +189,14 @@ mod tests {
     #[test]
     fn test_state_now_returns_reasonable_timestamp() {
         let before = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH).unwrap().as_micros() as u64;
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_micros() as u64;
         let now = State::now();
         let after = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH).unwrap().as_micros() as u64;
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_micros() as u64;
         assert!(now >= before);
         assert!(now <= after);
     }

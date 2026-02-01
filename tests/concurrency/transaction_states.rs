@@ -127,7 +127,8 @@ fn double_mark_validating_fails() {
     let msg = err.to_string().to_lowercase();
     assert!(
         msg.contains("active") || msg.contains("invalid") || msg.contains("state"),
-        "Expected invalid state transition error, got: {}", err
+        "Expected invalid state transition error, got: {}",
+        err
     );
 }
 
@@ -142,7 +143,8 @@ fn commit_while_active_fails() {
     let msg = err.to_string().to_lowercase();
     assert!(
         msg.contains("commit") || msg.contains("state") || msg.contains("invalid"),
-        "Expected invalid state transition error, got: {}", err
+        "Expected invalid state transition error, got: {}",
+        err
     );
 }
 
@@ -157,7 +159,8 @@ fn commit_while_aborted_fails() {
     let msg = err.to_string().to_lowercase();
     assert!(
         msg.contains("commit") || msg.contains("state") || msg.contains("abort"),
-        "Expected invalid state transition error, got: {}", err
+        "Expected invalid state transition error, got: {}",
+        err
     );
 }
 
@@ -173,7 +176,8 @@ fn commit_while_already_committed_fails() {
     let msg = err.to_string().to_lowercase();
     assert!(
         msg.contains("commit") || msg.contains("state") || msg.contains("invalid"),
-        "Expected invalid state transition error, got: {}", err
+        "Expected invalid state transition error, got: {}",
+        err
     );
 }
 
@@ -300,8 +304,10 @@ fn pending_operations_count() {
     let ns = Namespace::for_branch(branch_id);
 
     // Add some operations
-    txn.write_set.insert(Key::new_kv(ns.clone(), "w1"), Value::Int(1));
-    txn.write_set.insert(Key::new_kv(ns.clone(), "w2"), Value::Int(2));
+    txn.write_set
+        .insert(Key::new_kv(ns.clone(), "w1"), Value::Int(1));
+    txn.write_set
+        .insert(Key::new_kv(ns.clone(), "w2"), Value::Int(2));
     txn.delete_set.insert(Key::new_kv(ns.clone(), "d1"));
 
     let pending = txn.pending_operations();
@@ -336,8 +342,10 @@ fn write_count_tracks_only_writes() {
 
     let ns = Namespace::for_branch(branch_id);
 
-    txn.write_set.insert(Key::new_kv(ns.clone(), "w1"), Value::Int(1));
-    txn.write_set.insert(Key::new_kv(ns.clone(), "w2"), Value::Int(2));
+    txn.write_set
+        .insert(Key::new_kv(ns.clone(), "w1"), Value::Int(1));
+    txn.write_set
+        .insert(Key::new_kv(ns.clone(), "w2"), Value::Int(2));
     txn.delete_set.insert(Key::new_kv(ns.clone(), "d1"));
     txn.delete_set.insert(Key::new_kv(ns.clone(), "d2"));
 

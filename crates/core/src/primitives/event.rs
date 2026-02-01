@@ -202,8 +202,12 @@ mod tests {
     #[test]
     fn test_event_inequality_different_hash() {
         let e1 = Event {
-            sequence: 1, event_type: "t".to_string(), payload: Value::Null,
-            timestamp: 100, prev_hash: [0u8; 32], hash: [1u8; 32],
+            sequence: 1,
+            event_type: "t".to_string(),
+            payload: Value::Null,
+            timestamp: 100,
+            prev_hash: [0u8; 32],
+            hash: [1u8; 32],
         };
         let mut e2 = e1.clone();
         e2.hash = [2u8; 32];
@@ -213,8 +217,12 @@ mod tests {
     #[test]
     fn test_event_inequality_different_payload() {
         let e1 = Event {
-            sequence: 1, event_type: "t".to_string(), payload: Value::Int(1),
-            timestamp: 100, prev_hash: [0u8; 32], hash: [1u8; 32],
+            sequence: 1,
+            event_type: "t".to_string(),
+            payload: Value::Int(1),
+            timestamp: 100,
+            prev_hash: [0u8; 32],
+            hash: [1u8; 32],
         };
         let mut e2 = e1.clone();
         e2.payload = Value::Int(2);
@@ -224,8 +232,12 @@ mod tests {
     #[test]
     fn test_event_inequality_different_timestamp() {
         let e1 = Event {
-            sequence: 1, event_type: "t".to_string(), payload: Value::Null,
-            timestamp: 100, prev_hash: [0u8; 32], hash: [1u8; 32],
+            sequence: 1,
+            event_type: "t".to_string(),
+            payload: Value::Null,
+            timestamp: 100,
+            prev_hash: [0u8; 32],
+            hash: [1u8; 32],
         };
         let mut e2 = e1.clone();
         e2.timestamp = 200;

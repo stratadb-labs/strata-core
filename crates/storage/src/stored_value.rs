@@ -135,8 +135,7 @@ impl StoredValue {
     ///
     /// Returns `Some(timestamp)` when the value will expire, or `None` if no TTL.
     pub fn expiry_timestamp(&self) -> Option<Timestamp> {
-        self.ttl
-            .map(|ttl| self.inner.timestamp.saturating_add(ttl))
+        self.ttl.map(|ttl| self.inner.timestamp.saturating_add(ttl))
     }
 }
 
@@ -208,7 +207,11 @@ mod tests {
 
     #[test]
     fn test_stored_value_into_versioned() {
-        let sv = StoredValue::new(Value::Int(42), Version::txn(5), Some(Duration::from_secs(10)));
+        let sv = StoredValue::new(
+            Value::Int(42),
+            Version::txn(5),
+            Some(Duration::from_secs(10)),
+        );
         let vv = sv.into_versioned();
         assert_eq!(vv.value, Value::Int(42));
         assert_eq!(vv.version, Version::Txn(5));

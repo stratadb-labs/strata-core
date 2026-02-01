@@ -166,7 +166,8 @@ fn supports_string_values() {
     let test_db = TestDb::new();
     let kv = test_db.kv();
 
-    kv.put(&test_db.branch_id, "str", Value::String("hello".into())).unwrap();
+    kv.put(&test_db.branch_id, "str", Value::String("hello".into()))
+        .unwrap();
     let result = kv.get(&test_db.branch_id, "str").unwrap();
     assert_eq!(result.unwrap(), Value::String("hello".into()));
 }
@@ -176,7 +177,8 @@ fn supports_bool_values() {
     let test_db = TestDb::new();
     let kv = test_db.kv();
 
-    kv.put(&test_db.branch_id, "bool", Value::Bool(true)).unwrap();
+    kv.put(&test_db.branch_id, "bool", Value::Bool(true))
+        .unwrap();
     let result = kv.get(&test_db.branch_id, "bool").unwrap();
     assert_eq!(result.unwrap(), Value::Bool(true));
 }
@@ -186,7 +188,8 @@ fn supports_float_values() {
     let test_db = TestDb::new();
     let kv = test_db.kv();
 
-    kv.put(&test_db.branch_id, "float", Value::Float(3.14.into())).unwrap();
+    kv.put(&test_db.branch_id, "float", Value::Float(3.14.into()))
+        .unwrap();
     let result = kv.get(&test_db.branch_id, "float").unwrap();
 
     match result.unwrap() {
@@ -200,7 +203,8 @@ fn supports_bytes_values() {
     let test_db = TestDb::new();
     let kv = test_db.kv();
 
-    kv.put(&test_db.branch_id, "bytes", Value::Bytes(vec![1, 2, 3])).unwrap();
+    kv.put(&test_db.branch_id, "bytes", Value::Bytes(vec![1, 2, 3]))
+        .unwrap();
     let result = kv.get(&test_db.branch_id, "bytes").unwrap();
     assert_eq!(result.unwrap(), Value::Bytes(vec![1, 2, 3]));
 }
@@ -225,7 +229,8 @@ fn long_key_works() {
     let kv = test_db.kv();
 
     let long_key = "k".repeat(1000);
-    kv.put(&test_db.branch_id, &long_key, Value::Int(1)).unwrap();
+    kv.put(&test_db.branch_id, &long_key, Value::Int(1))
+        .unwrap();
     let result = kv.get(&test_db.branch_id, &long_key).unwrap();
     assert_eq!(result, Some(Value::Int(1)));
 }
@@ -236,7 +241,8 @@ fn special_characters_in_key() {
     let kv = test_db.kv();
 
     let special_key = "key/with:special@chars#and$symbols";
-    kv.put(&test_db.branch_id, special_key, Value::Int(1)).unwrap();
+    kv.put(&test_db.branch_id, special_key, Value::Int(1))
+        .unwrap();
     let result = kv.get(&test_db.branch_id, special_key).unwrap();
     assert_eq!(result, Some(Value::Int(1)));
 }

@@ -15,11 +15,7 @@ use crate::types::{BranchId, VersionedValue};
 use crate::{Output, Result};
 
 /// Handle JsonGetv command — get full version history for a JSON document.
-pub fn json_getv(
-    p: &Arc<Primitives>,
-    branch: BranchId,
-    key: String,
-) -> Result<Output> {
+pub fn json_getv(p: &Arc<Primitives>, branch: BranchId, key: String) -> Result<Output> {
     let branch_id = to_core_branch_id(&branch)?;
     convert_result(validate_key(&key))?;
     let result = convert_result(p.json.getv(&branch_id, &key))?;

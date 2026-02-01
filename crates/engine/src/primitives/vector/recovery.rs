@@ -17,9 +17,9 @@
 //! in-memory indices by scanning the KV store after KV recovery completes.
 //! This eliminates the need for separate WALEntry::Vector* variants.
 
-use strata_core::StrataResult;
-use crate::recovery::{register_recovery_participant, RecoveryParticipant};
 use crate::database::Database;
+use crate::recovery::{register_recovery_participant, RecoveryParticipant};
+use strata_core::StrataResult;
 use tracing::info;
 
 /// Recovery function for VectorStore
@@ -31,9 +31,7 @@ fn recover_vector_state(db: &Database) -> StrataResult<()> {
 
 /// Internal recovery implementation that works with &Database
 fn recover_from_db(db: &Database) -> StrataResult<()> {
-    use super::{
-        CollectionId, IndexBackendFactory, VectorBackendState, VectorId, VectorConfig,
-    };
+    use super::{CollectionId, IndexBackendFactory, VectorBackendState, VectorConfig, VectorId};
     use strata_core::traits::SnapshotView;
     use strata_core::types::{Key, Namespace};
     use strata_core::value::Value;
@@ -109,7 +107,10 @@ fn recover_from_db(db: &Database) -> StrataResult<()> {
 
             // Create backend for this collection
             let backend = factory.create(&config);
-            state.backends.write().insert(collection_id.clone(), backend);
+            state
+                .backends
+                .write()
+                .insert(collection_id.clone(), backend);
             stats.collections_created += 1;
 
             // Scan for all vector entries in this collection

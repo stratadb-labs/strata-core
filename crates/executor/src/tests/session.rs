@@ -1,7 +1,7 @@
 //! Session tests: verify transactional session lifecycle and routing.
 
-use crate::{Command, Error, Output, Session};
 use crate::Value;
+use crate::{Command, Error, Output, Session};
 use strata_engine::Database;
 
 /// Create a test session with an ephemeral in-memory database.
@@ -386,9 +386,10 @@ fn test_event_append_in_txn() {
     let result = session.execute(Command::EventAppend {
         branch: None,
         event_type: "test_stream".to_string(),
-        payload: Value::Object(std::collections::HashMap::from([
-            ("data".to_string(), Value::String("event_data".into())),
-        ])),
+        payload: Value::Object(std::collections::HashMap::from([(
+            "data".to_string(),
+            Value::String("event_data".into()),
+        )])),
     });
     assert!(result.is_ok(), "EventAppend should succeed in txn");
 

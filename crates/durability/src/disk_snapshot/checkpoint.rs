@@ -7,9 +7,9 @@ use std::path::{Path, PathBuf};
 
 use crate::codec::StorageCodec;
 use crate::disk_snapshot::{SnapshotSection, SnapshotWriter};
+use crate::format::primitives::SnapshotSerializer;
 use crate::format::snapshot::primitive_tags;
 use crate::format::watermark::{CheckpointInfo, SnapshotWatermark};
-use crate::format::primitives::SnapshotSerializer;
 
 /// Checkpoint coordinator
 ///
@@ -209,7 +209,10 @@ impl CheckpointData {
     }
 
     /// Set Branch entries
-    pub fn with_branches(mut self, entries: Vec<crate::format::primitives::BranchSnapshotEntry>) -> Self {
+    pub fn with_branches(
+        mut self,
+        entries: Vec<crate::format::primitives::BranchSnapshotEntry>,
+    ) -> Self {
         self.branches = Some(entries);
         self
     }
@@ -242,7 +245,7 @@ pub enum CheckpointError {
 mod tests {
     use super::*;
     use crate::codec::IdentityCodec;
-    use crate::format::primitives::{KvSnapshotEntry, EventSnapshotEntry};
+    use crate::format::primitives::{EventSnapshotEntry, KvSnapshotEntry};
 
     fn test_uuid() -> [u8; 16] {
         [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16]
@@ -420,11 +423,7 @@ mod tests {
         .unwrap();
 
         // Create temp files manually
-        std::fs::write(
-            temp_dir.path().join(".snap-000001.tmp"),
-            b"incomplete",
-        )
-        .unwrap();
+        std::fs::write(temp_dir.path().join(".snap-000001.tmp"), b"incomplete").unwrap();
 
         let cleaned = coordinator.cleanup().unwrap();
         assert_eq!(cleaned, 1);

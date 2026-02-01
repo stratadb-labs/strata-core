@@ -14,13 +14,13 @@
 //! | `retention` | 3 | RetentionSubstrate |
 //! | `database` | 4 | Database-level |
 
-pub mod kv;
-pub mod json;
+pub mod branch;
 pub mod event;
+pub mod json;
+pub mod kv;
+pub mod search;
 pub mod state;
 pub mod vector;
-pub mod branch;
-pub mod search;
 
 // Transaction commands are deferred because the Executor is stateless by design.
 // Transactions require session state management which would need additional design work.

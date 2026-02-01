@@ -12,6 +12,6 @@ mod acid_concurrent;
 mod acid_properties;
 mod adversarial;
 mod adversarial_deep;
-mod cross_primitive;
 mod branch_isolation;
+mod cross_primitive;
 mod stress;

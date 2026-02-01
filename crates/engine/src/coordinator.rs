@@ -9,15 +9,15 @@
 //! - Transaction metrics (started, committed, aborted)
 //! - Commit rate calculation
 
-use strata_concurrency::{RecoveryResult, TransactionContext, TransactionManager};
-use strata_core::StrataError;
-use strata_core::StrataResult;
-use strata_core::traits::Storage;
-use strata_core::types::BranchId;
-use strata_durability::wal::WalWriter;
-use strata_storage::ShardedStore;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
+use strata_concurrency::{RecoveryResult, TransactionContext, TransactionManager};
+use strata_core::traits::Storage;
+use strata_core::types::BranchId;
+use strata_core::StrataError;
+use strata_core::StrataResult;
+use strata_durability::wal::WalWriter;
+use strata_storage::ShardedStore;
 
 /// Transaction coordinator for the database
 ///
@@ -171,9 +171,11 @@ impl TransactionCoordinator {
     /// Decrements active count (saturating at 0) and increments committed count.
     pub fn record_commit(&self) {
         // Use fetch_update for saturating decrement to prevent underflow
-        let _ = self.active_count.fetch_update(Ordering::Relaxed, Ordering::Relaxed, |x| {
-            Some(x.saturating_sub(1))
-        });
+        let _ = self
+            .active_count
+            .fetch_update(Ordering::Relaxed, Ordering::Relaxed, |x| {
+                Some(x.saturating_sub(1))
+            });
         self.total_committed.fetch_add(1, Ordering::Relaxed);
     }
 
@@ -182,9 +184,11 @@ impl TransactionCoordinator {
     /// Decrements active count and increments aborted count.
     pub fn record_abort(&self) {
         // Use fetch_update for saturating decrement to prevent underflow
-        let _ = self.active_count.fetch_update(Ordering::Relaxed, Ordering::Relaxed, |x| {
-            Some(x.saturating_sub(1))
-        });
+        let _ = self
+            .active_count
+            .fetch_update(Ordering::Relaxed, Ordering::Relaxed, |x| {
+                Some(x.saturating_sub(1))
+            });
         self.total_aborted.fetch_add(1, Ordering::Relaxed);
     }
 
@@ -451,7 +455,10 @@ mod tests {
 
         // No transactions active, should return immediately
         let result = coordinator.wait_for_idle(std::time::Duration::from_millis(100));
-        assert!(result, "wait_for_idle should return true when no transactions are active");
+        assert!(
+            result,
+            "wait_for_idle should return true when no transactions are active"
+        );
     }
 
     #[test]
@@ -507,7 +514,10 @@ mod tests {
 
         completer.join().unwrap();
 
-        assert!(result, "wait_for_idle should return true when transaction completes");
+        assert!(
+            result,
+            "wait_for_idle should return true when transaction completes"
+        );
         assert!(
             elapsed < std::time::Duration::from_millis(100),
             "Should have returned early when transaction completed, waited {:?}",
@@ -517,8 +527,8 @@ mod tests {
 
     #[test]
     fn test_wait_for_idle_multiple_transactions_complete() {
-        use std::thread;
         use std::sync::Barrier;
+        use std::thread;
 
         let coordinator = Arc::new(TransactionCoordinator::new(0));
         let storage = create_test_storage();
@@ -552,7 +562,10 @@ mod tests {
             handle.join().unwrap();
         }
 
-        assert!(result, "wait_for_idle should return true when all transactions complete");
+        assert!(
+            result,
+            "wait_for_idle should return true when all transactions complete"
+        );
         assert_eq!(coordinator.active_count(), 0);
         assert_eq!(coordinator.metrics().total_committed, 5);
     }
@@ -571,7 +584,10 @@ mod tests {
         let result = coordinator.wait_for_idle(std::time::Duration::ZERO);
         let elapsed = start.elapsed();
 
-        assert!(!result, "wait_for_idle with zero timeout should return false");
+        assert!(
+            !result,
+            "wait_for_idle with zero timeout should return false"
+        );
         // Should return very quickly (within a few milliseconds)
         assert!(
             elapsed < std::time::Duration::from_millis(10),
@@ -582,8 +598,8 @@ mod tests {
 
     #[test]
     fn test_wait_for_idle_concurrent_start_and_complete() {
-        use std::thread;
         use std::sync::atomic::{AtomicBool, Ordering};
+        use std::thread;
 
         let coordinator = Arc::new(TransactionCoordinator::new(0));
         let storage = Arc::new(ShardedStore::new());
@@ -618,13 +634,16 @@ mod tests {
         // After worker stops, wait for idle should succeed
         let result = coordinator.wait_for_idle(std::time::Duration::from_millis(100));
         assert!(result, "Should eventually reach idle state");
-        assert!(completed > 0, "Worker should have completed some transactions");
+        assert!(
+            completed > 0,
+            "Worker should have completed some transactions"
+        );
     }
 
     #[test]
     fn test_active_count_accuracy_under_concurrent_load() {
-        use std::thread;
         use std::sync::Barrier;
+        use std::thread;
 
         let coordinator = Arc::new(TransactionCoordinator::new(0));
         let storage = Arc::new(ShardedStore::new());
@@ -735,10 +754,18 @@ mod tests {
 
         // Extra commits should saturate at 0, not underflow
         coordinator.record_commit();
-        assert_eq!(coordinator.active_count(), 0, "Should saturate at 0, not underflow");
+        assert_eq!(
+            coordinator.active_count(),
+            0,
+            "Should saturate at 0, not underflow"
+        );
 
         coordinator.record_commit();
-        assert_eq!(coordinator.active_count(), 0, "Still 0 after multiple extra commits");
+        assert_eq!(
+            coordinator.active_count(),
+            0,
+            "Still 0 after multiple extra commits"
+        );
 
         // Same for abort
         coordinator.record_abort();

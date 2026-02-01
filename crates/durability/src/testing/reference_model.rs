@@ -203,7 +203,11 @@ impl ReferenceModel {
     /// Compare expected KV state against actual
     ///
     /// Returns list of mismatches found.
-    pub fn compare_kv(&self, branch: &str, actual: &HashMap<String, Vec<u8>>) -> Vec<StateMismatch> {
+    pub fn compare_kv(
+        &self,
+        branch: &str,
+        actual: &HashMap<String, Vec<u8>>,
+    ) -> Vec<StateMismatch> {
         let mut mismatches = Vec::new();
 
         let expected = self.kv_state.get(branch);
@@ -407,7 +411,10 @@ mod tests {
         let mut model = ReferenceModel::new();
         model.state_set("branch1", "status", b"active".to_vec());
 
-        assert_eq!(model.get_state("branch1", "status"), Some(&b"active".to_vec()));
+        assert_eq!(
+            model.get_state("branch1", "status"),
+            Some(&b"active".to_vec())
+        );
     }
 
     #[test]

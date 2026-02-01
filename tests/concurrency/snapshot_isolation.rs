@@ -5,14 +5,14 @@
 //! - Repeatable reads
 //! - Read-your-writes semantics
 
+use std::collections::BTreeMap;
+use std::sync::Arc;
 use strata_concurrency::snapshot::ClonedSnapshotView;
 use strata_concurrency::transaction::TransactionContext;
 use strata_core::traits::SnapshotView;
 use strata_core::types::{Key, Namespace};
 use strata_core::value::Value;
 use strata_core::{BranchId, Versioned};
-use std::collections::BTreeMap;
-use std::sync::Arc;
 
 fn create_test_key(branch_id: BranchId, name: &str) -> Key {
     let ns = Namespace::for_branch(branch_id);

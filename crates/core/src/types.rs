@@ -505,8 +505,10 @@ mod tests {
     #[test]
     fn test_branch_id_bytes_roundtrip_preserves_all_bits() {
         // Ensure no bits are lost in from_bytes/as_bytes
-        let bytes: [u8; 16] = [0xFF, 0x00, 0xAA, 0x55, 0x01, 0x02, 0x03, 0x04,
-                                 0x80, 0x7F, 0xFE, 0xFD, 0x10, 0x20, 0x30, 0x40];
+        let bytes: [u8; 16] = [
+            0xFF, 0x00, 0xAA, 0x55, 0x01, 0x02, 0x03, 0x04, 0x80, 0x7F, 0xFE, 0xFD, 0x10, 0x20,
+            0x30, 0x40,
+        ];
         let id = BranchId::from_bytes(bytes);
         assert_eq!(*id.as_bytes(), bytes);
     }
@@ -679,7 +681,10 @@ mod tests {
     fn test_namespace_for_branch_different_branches_differ() {
         let ns1 = Namespace::for_branch(BranchId::new());
         let ns2 = Namespace::for_branch(BranchId::new());
-        assert_ne!(ns1, ns2, "Different branch_ids should produce different namespaces");
+        assert_ne!(
+            ns1, ns2,
+            "Different branch_ids should produce different namespaces"
+        );
     }
 
     #[test]
@@ -688,7 +693,10 @@ mod tests {
         let ns = Namespace::new("".to_string(), "".to_string(), "".to_string(), branch_id);
         let display = format!("{}", ns);
         // Should produce "///branch_id" with empty components
-        assert!(display.starts_with("///"), "Empty components should produce leading slashes");
+        assert!(
+            display.starts_with("///"),
+            "Empty components should produce leading slashes"
+        );
         assert!(display.ends_with(&format!("{}", branch_id)));
     }
 
@@ -929,8 +937,16 @@ mod tests {
     #[test]
     fn test_typetag_from_byte_gap_values_return_none() {
         // Bytes between defined variants must return None (on-disk format safety)
-        for byte in [0x00, 0x06, 0x07, 0x08, 0x09, 0x0A, 0x0B, 0x0C, 0x0D, 0x0E, 0x0F, 0x13, 0x14, 0x20, 0x80, 0xFE, 0xFF] {
-            assert_eq!(TypeTag::from_byte(byte), None, "Byte 0x{:02X} should not map to any TypeTag", byte);
+        for byte in [
+            0x00, 0x06, 0x07, 0x08, 0x09, 0x0A, 0x0B, 0x0C, 0x0D, 0x0E, 0x0F, 0x13, 0x14, 0x20,
+            0x80, 0xFE, 0xFF,
+        ] {
+            assert_eq!(
+                TypeTag::from_byte(byte),
+                None,
+                "Byte 0x{:02X} should not map to any TypeTag",
+                byte
+            );
         }
     }
 
@@ -946,13 +962,25 @@ mod tests {
         // Every valid TypeTag must roundtrip through as_byte/from_byte
         #[allow(deprecated)]
         let all_tags = [
-            TypeTag::KV, TypeTag::Event, TypeTag::State, TypeTag::Trace,
-            TypeTag::Branch, TypeTag::Vector, TypeTag::Json, TypeTag::VectorConfig,
+            TypeTag::KV,
+            TypeTag::Event,
+            TypeTag::State,
+            TypeTag::Trace,
+            TypeTag::Branch,
+            TypeTag::Vector,
+            TypeTag::Json,
+            TypeTag::VectorConfig,
         ];
         for tag in all_tags {
             let byte = tag.as_byte();
             let restored = TypeTag::from_byte(byte);
-            assert_eq!(restored, Some(tag), "TypeTag {:?} (0x{:02X}) failed roundtrip", tag, byte);
+            assert_eq!(
+                restored,
+                Some(tag),
+                "TypeTag {:?} (0x{:02X}) failed roundtrip",
+                tag,
+                byte
+            );
         }
     }
 
@@ -961,13 +989,24 @@ mod tests {
         // BTreeMap ordering must match the numeric byte values
         #[allow(deprecated)]
         let tags_in_order = [
-            TypeTag::KV, TypeTag::Event, TypeTag::State, TypeTag::Trace,
-            TypeTag::Branch, TypeTag::Vector, TypeTag::Json, TypeTag::VectorConfig,
+            TypeTag::KV,
+            TypeTag::Event,
+            TypeTag::State,
+            TypeTag::Trace,
+            TypeTag::Branch,
+            TypeTag::Vector,
+            TypeTag::Json,
+            TypeTag::VectorConfig,
         ];
         for window in tags_in_order.windows(2) {
-            assert!(window[0] < window[1],
+            assert!(
+                window[0] < window[1],
                 "{:?} (0x{:02X}) should sort before {:?} (0x{:02X})",
-                window[0], window[0].as_byte(), window[1], window[1].as_byte());
+                window[0],
+                window[0].as_byte(),
+                window[1],
+                window[1].as_byte()
+            );
         }
     }
 
@@ -1356,8 +1395,14 @@ mod tests {
         let vec_key = Key::new_vector(ns.clone(), "coll", "vec_1");
         let other_coll = Key::new_vector(ns.clone(), "other", "vec_1");
 
-        assert!(vec_key.starts_with(&prefix), "Vector in same collection should match prefix");
-        assert!(!other_coll.starts_with(&prefix), "Vector in different collection should not match");
+        assert!(
+            vec_key.starts_with(&prefix),
+            "Vector in same collection should match prefix"
+        );
+        assert!(
+            !other_coll.starts_with(&prefix),
+            "Vector in different collection should not match"
+        );
     }
 
     #[test]
@@ -1367,8 +1412,14 @@ mod tests {
         let config_key = Key::new_vector_config(ns.clone(), "any_collection");
         let vector_key = Key::new_vector(ns.clone(), "any_collection", "v1");
 
-        assert!(config_key.starts_with(&prefix), "Config should match config prefix");
-        assert!(!vector_key.starts_with(&prefix), "Vector key should not match config prefix (different TypeTag)");
+        assert!(
+            config_key.starts_with(&prefix),
+            "Config should match config prefix"
+        );
+        assert!(
+            !vector_key.starts_with(&prefix),
+            "Vector key should not match config prefix (different TypeTag)"
+        );
     }
 
     #[test]
@@ -1377,7 +1428,10 @@ mod tests {
         let ns2 = Namespace::for_branch(BranchId::new());
         let prefix = Key::new_kv(ns1, b"");
         let key = Key::new_kv(ns2, b"anything");
-        assert!(!key.starts_with(&prefix), "Different namespace should never match");
+        assert!(
+            !key.starts_with(&prefix),
+            "Different namespace should never match"
+        );
     }
 
     #[test]
@@ -1406,8 +1460,10 @@ mod tests {
         let key_from_str = Key::new_branch_with_id(ns.clone(), &branch_str);
 
         // These use different byte representations (UUID bytes vs UTF-8 string bytes)
-        assert_ne!(key_from_id.user_key, key_from_str.user_key,
-            "new_branch uses 16 UUID bytes, new_branch_with_id uses 36 UTF-8 bytes");
+        assert_ne!(
+            key_from_id.user_key, key_from_str.user_key,
+            "new_branch uses 16 UUID bytes, new_branch_with_id uses 36 UTF-8 bytes"
+        );
     }
 
     #[test]
@@ -1453,7 +1509,6 @@ mod tests {
             "Binary user_key should be preserved"
         );
     }
-
 
     // ========================================
     // Key::new_json Tests

@@ -16,9 +16,11 @@
 //! 3. **Replay vs Normal Operations**: replay_* methods do NOT write to WAL (they are
 //!    replaying from WAL). Normal operations use the VectorStore methods which write WAL.
 
-use crate::primitives::vector::{VectorConfig, VectorConfigSerde, VectorError, VectorId, VectorResult};
-use strata_core::{EntityRef, BranchId};
+use crate::primitives::vector::{
+    VectorConfig, VectorConfigSerde, VectorError, VectorId, VectorResult,
+};
 use serde::{Deserialize, Serialize};
+use strata_core::{BranchId, EntityRef};
 
 // ============================================================================
 // WAL Entry Type Constants (0x70-0x7F range)
@@ -198,7 +200,10 @@ pub fn create_wal_collection_create(
 }
 
 /// Create a WalVectorCollectionDelete payload
-pub fn create_wal_collection_delete(branch_id: BranchId, collection: &str) -> WalVectorCollectionDelete {
+pub fn create_wal_collection_delete(
+    branch_id: BranchId,
+    collection: &str,
+) -> WalVectorCollectionDelete {
     WalVectorCollectionDelete {
         branch_id,
         collection: collection.to_string(),
@@ -306,8 +311,10 @@ impl<'a> VectorWalReplayer<'a> {
                         VectorError::Serialization(format!("Invalid metric: {}", wal.config.metric))
                     })?,
                     // Use persisted storage_dtype, default to F32 for backward compatibility
-                    storage_dtype: crate::primitives::vector::StorageDtype::from_byte(wal.config.storage_dtype)
-                        .unwrap_or(crate::primitives::vector::StorageDtype::F32),
+                    storage_dtype: crate::primitives::vector::StorageDtype::from_byte(
+                        wal.config.storage_dtype,
+                    )
+                    .unwrap_or(crate::primitives::vector::StorageDtype::F32),
                 };
                 self.store
                     .replay_create_collection(wal.branch_id, &wal.collection, config)

@@ -4,8 +4,8 @@
 //! Command executed on the same database state produces the same Output.
 
 use crate::types::*;
-use crate::{Command, Executor, Output};
 use crate::Value;
+use crate::{Command, Executor, Output};
 use strata_engine::Database;
 
 /// Create a test executor.
@@ -23,9 +23,7 @@ fn test_ping_determinism() {
     let executor = create_test_executor();
 
     // Execute same command multiple times
-    let results: Vec<_> = (0..5)
-        .map(|_| executor.execute(Command::Ping))
-        .collect();
+    let results: Vec<_> = (0..5).map(|_| executor.execute(Command::Ping)).collect();
 
     // All should produce Pong with same version
     let first = &results[0];
@@ -43,9 +41,7 @@ fn test_info_determinism() {
     let executor = create_test_executor();
 
     // Execute same command multiple times
-    let results: Vec<_> = (0..5)
-        .map(|_| executor.execute(Command::Info))
-        .collect();
+    let results: Vec<_> = (0..5).map(|_| executor.execute(Command::Info)).collect();
 
     // All should produce DatabaseInfo with same basic structure
     for result in &results {
@@ -345,11 +341,7 @@ fn test_event_read_by_type_determinism() {
             .execute(Command::EventAppend {
                 branch: Some(BranchId::from("default")),
                 event_type: "events".to_string(),
-                payload: Value::Object(
-                    [("seq".to_string(), Value::Int(i))]
-                        .into_iter()
-                        .collect(),
-                ),
+                payload: Value::Object([("seq".to_string(), Value::Int(i))].into_iter().collect()),
             })
             .unwrap();
     }
@@ -394,8 +386,8 @@ fn test_json_get_determinism() {
                     ("name".to_string(), Value::String("Alice".into())),
                     ("age".to_string(), Value::Int(30)),
                 ]
-                    .into_iter()
-                    .collect(),
+                .into_iter()
+                .collect(),
             ),
         })
         .unwrap();

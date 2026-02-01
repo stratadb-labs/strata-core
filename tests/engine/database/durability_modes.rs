@@ -4,15 +4,13 @@
 //! Only persistence behavior should differ.
 
 use crate::common::*;
+use std::collections::HashMap;
 use strata_core::primitives::json::JsonPath;
 use strata_engine::KVStoreExt;
-use std::collections::HashMap;
 
 /// Helper to create an event payload object
 fn event_payload(data: Value) -> Value {
-    Value::Object(HashMap::from([
-        ("data".to_string(), data),
-    ]))
+    Value::Object(HashMap::from([("data".to_string(), data)]))
 }
 
 // ============================================================================
@@ -51,7 +49,13 @@ fn eventlog_append_same_across_modes() {
         let branch_id = BranchId::new();
         let event = EventLog::new(db);
 
-        event.append(&branch_id, "test_type", event_payload(Value::String("payload".into()))).unwrap();
+        event
+            .append(
+                &branch_id,
+                "test_type",
+                event_payload(Value::String("payload".into())),
+            )
+            .unwrap();
         let len = event.len(&branch_id).unwrap();
         let first = event.read(&branch_id, 0).unwrap();
 
@@ -67,7 +71,10 @@ fn statecell_cas_same_across_modes() {
 
         state.init(&branch_id, "cell", Value::Int(1)).unwrap();
         let read = state.readv(&branch_id, "cell").unwrap();
-        let version = read.as_ref().map(|v| v.version()).unwrap_or(Version::from(0u64));
+        let version = read
+            .as_ref()
+            .map(|v| v.version())
+            .unwrap_or(Version::from(0u64));
 
         let cas_result = state.cas(&branch_id, "cell", version, Value::Int(2));
 
@@ -82,7 +89,8 @@ fn json_create_get_same_across_modes() {
         let json = JsonStore::new(db);
 
         let doc_value = serde_json::json!({"name": "test", "count": 42});
-        json.create(&branch_id, "doc1", doc_value.clone().into()).unwrap();
+        json.create(&branch_id, "doc1", doc_value.clone().into())
+            .unwrap();
 
         let result = json.get(&branch_id, "doc1", &JsonPath::root()).unwrap();
 
@@ -144,11 +152,14 @@ fn transaction_atomicity_in_memory() {
     let branch_id = test_db.branch_id;
 
     // Atomic transaction using extension trait
-    test_db.db.transaction(branch_id, |txn| {
-        txn.kv_put("a", Value::Int(1))?;
-        txn.kv_put("b", Value::Int(2))?;
-        Ok(())
-    }).unwrap();
+    test_db
+        .db
+        .transaction(branch_id, |txn| {
+            txn.kv_put("a", Value::Int(1))?;
+            txn.kv_put("b", Value::Int(2))?;
+            Ok(())
+        })
+        .unwrap();
 
     let kv = test_db.kv();
     assert_eq!(kv.get(&branch_id, "a").unwrap(), Some(Value::Int(1)));
@@ -160,11 +171,14 @@ fn transaction_atomicity_buffered() {
     let test_db = TestDb::new(); // TestDb::new() uses temp dir with durability
     let branch_id = test_db.branch_id;
 
-    test_db.db.transaction(branch_id, |txn| {
-        txn.kv_put("a", Value::Int(1))?;
-        txn.kv_put("b", Value::Int(2))?;
-        Ok(())
-    }).unwrap();
+    test_db
+        .db
+        .transaction(branch_id, |txn| {
+            txn.kv_put("a", Value::Int(1))?;
+            txn.kv_put("b", Value::Int(2))?;
+            Ok(())
+        })
+        .unwrap();
 
     let kv = test_db.kv();
     assert_eq!(kv.get(&branch_id, "a").unwrap(), Some(Value::Int(1)));
@@ -185,7 +199,8 @@ fn transaction_atomicity_strict() {
         txn.kv_put("a", Value::Int(1))?;
         txn.kv_put("b", Value::Int(2))?;
         Ok(())
-    }).unwrap();
+    })
+    .unwrap();
 
     let kv = KVStore::new(db);
     assert_eq!(kv.get(&branch_id, "a").unwrap(), Some(Value::Int(1)));
@@ -211,13 +226,16 @@ fn all_primitives_work_in_all_modes() {
         kv.put(&branch_id, "k", Value::Int(1)).unwrap();
 
         // Event
-        event.append(&branch_id, "e", event_payload(Value::Int(2))).unwrap();
+        event
+            .append(&branch_id, "e", event_payload(Value::Int(2)))
+            .unwrap();
 
         // State
         state.init(&branch_id, "s", Value::Int(3)).unwrap();
 
         // JSON
-        json.create(&branch_id, "j", serde_json::json!({"x": 4}).into()).unwrap();
+        json.create(&branch_id, "j", serde_json::json!({"x": 4}).into())
+            .unwrap();
 
         // BranchIndex
         branch_idx.create_branch("test_branch").unwrap();

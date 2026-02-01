@@ -28,18 +28,18 @@
 //! };
 //! ```
 
+pub mod branch_name;
 pub mod entity_ref;
 pub mod primitive_type;
-pub mod branch_name;
 pub mod timestamp;
 pub mod version;
 pub mod versioned;
 pub mod versioned_history;
 
 // Re-exports
+pub use branch_name::{BranchName, BranchNameError, MAX_BRANCH_NAME_LENGTH};
 pub use entity_ref::EntityRef;
 pub use primitive_type::PrimitiveType;
-pub use branch_name::{BranchName, BranchNameError, MAX_BRANCH_NAME_LENGTH};
 pub use timestamp::Timestamp;
 pub use version::Version;
 pub use versioned::{Versioned, VersionedValue};

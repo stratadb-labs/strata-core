@@ -292,10 +292,7 @@ impl TombstoneIndex {
     pub fn add(&mut self, tombstone: Tombstone) {
         let key = TombstoneKey::from_tombstone(&tombstone);
 
-        self.tombstones
-            .entry(key)
-            .or_default()
-            .push(tombstone);
+        self.tombstones.entry(key).or_default().push(tombstone);
 
         self.count += 1;
     }

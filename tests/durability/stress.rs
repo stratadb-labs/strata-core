@@ -28,7 +28,13 @@ fn stress_large_wal_recovery() {
     let kv = test_db.kv();
     for i in (0..10_000).step_by(100) {
         let val = kv.get(&branch_id, &format!("key_{}", i)).unwrap();
-        assert_eq!(val, Some(Value::Int(i)), "Key {} should be {} after recovery", i, i);
+        assert_eq!(
+            val,
+            Some(Value::Int(i)),
+            "Key {} should be {} after recovery",
+            i,
+            i
+        );
     }
 }
 
@@ -69,7 +75,8 @@ fn stress_concurrent_read_write() {
     // Pre-populate
     let kv = KVStore::new(db.clone());
     for i in 0..500 {
-        kv.put(&branch_id, &format!("rw_{}", i), Value::Int(i)).unwrap();
+        kv.put(&branch_id, &format!("rw_{}", i), Value::Int(i))
+            .unwrap();
     }
 
     let writer_db = db.clone();
@@ -115,7 +122,8 @@ fn stress_many_small_writes() {
     let kv = test_db.kv();
     let start = Instant::now();
     for i in 0..100_000 {
-        kv.put(&branch_id, &format!("k{}", i), Value::Int(i)).unwrap();
+        kv.put(&branch_id, &format!("k{}", i), Value::Int(i))
+            .unwrap();
     }
     let elapsed = start.elapsed();
 
@@ -149,7 +157,12 @@ fn stress_large_values() {
 
     for i in 0..50 {
         let val = kv.get(&branch_id, &format!("large_{}", i)).unwrap();
-        assert_eq!(val, Some(large.clone()), "Large value {} should be preserved", i);
+        assert_eq!(
+            val,
+            Some(large.clone()),
+            "Large value {} should be preserved",
+            i
+        );
     }
 }
 
@@ -225,10 +238,13 @@ fn stress_repeated_reopen() {
     // Verify data from all cycles
     let kv = test_db.kv();
     for cycle in 0..20 {
-        let val = kv
-            .get(&branch_id, &format!("c{}_k0", cycle))
-            .unwrap();
-        assert_eq!(val, Some(Value::Int((cycle * 100) as i64)), "Data from cycle {} should survive repeated reopens", cycle);
+        let val = kv.get(&branch_id, &format!("c{}_k0", cycle)).unwrap();
+        assert_eq!(
+            val,
+            Some(Value::Int((cycle * 100) as i64)),
+            "Data from cycle {} should survive repeated reopens",
+            cycle
+        );
     }
 }
 

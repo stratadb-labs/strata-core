@@ -125,7 +125,11 @@ impl CompactInfo {
     pub fn summary(&self) -> String {
         format!(
             "mode={}, segments_removed={}, versions_removed={}, bytes_reclaimed={}, duration_ms={}",
-            self.mode, self.wal_segments_removed, self.versions_removed, self.reclaimed_bytes, self.duration_ms
+            self.mode,
+            self.wal_segments_removed,
+            self.versions_removed,
+            self.reclaimed_bytes,
+            self.duration_ms
         )
     }
 }

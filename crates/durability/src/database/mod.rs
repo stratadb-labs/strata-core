@@ -155,8 +155,7 @@ mod tests {
 
         // Create source database
         {
-            let handle =
-                DatabaseHandle::create(&src_path, DatabaseConfig::for_testing()).unwrap();
+            let handle = DatabaseHandle::create(&src_path, DatabaseConfig::for_testing()).unwrap();
             handle.close().unwrap();
         }
 
@@ -181,8 +180,7 @@ mod tests {
 
         // Create source
         {
-            let handle =
-                DatabaseHandle::create(&src_path, DatabaseConfig::for_testing()).unwrap();
+            let handle = DatabaseHandle::create(&src_path, DatabaseConfig::for_testing()).unwrap();
             handle.close().unwrap();
         }
 

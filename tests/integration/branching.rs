@@ -18,10 +18,12 @@ fn data_isolated_between_branches() {
     let branch_b = BranchId::new();
 
     // Write to branch A
-    kv.put(&branch_a, "key", Value::String("value_a".into())).unwrap();
+    kv.put(&branch_a, "key", Value::String("value_a".into()))
+        .unwrap();
 
     // Write to branch B
-    kv.put(&branch_b, "key", Value::String("value_b".into())).unwrap();
+    kv.put(&branch_b, "key", Value::String("value_b".into()))
+        .unwrap();
 
     // Each branch sees only its own data
     let val_a = kv.get(&branch_a, "key").unwrap().unwrap();
@@ -48,7 +50,10 @@ fn delete_in_one_branch_doesnt_affect_other() {
 
     // Branch A should be empty, branch B should have data
     assert!(kv.get(&branch_a, "shared_key").unwrap().is_none());
-    assert_eq!(kv.get(&branch_b, "shared_key").unwrap(), Some(Value::Int(2)));
+    assert_eq!(
+        kv.get(&branch_b, "shared_key").unwrap(),
+        Some(Value::Int(2))
+    );
 }
 
 #[test]
@@ -63,24 +68,42 @@ fn all_primitives_isolated_between_branches() {
     p.kv.put(&branch_a, "k", Value::Int(1)).unwrap();
     p.state.init(&branch_a, "s", Value::Int(1)).unwrap();
     p.event.append(&branch_a, "e", int_payload(1)).unwrap();
-    p.json.create(&branch_a, "j", json_value(serde_json::json!({"a": 1}))).unwrap();
-    p.vector.create_collection(branch_a, "v", config_small()).unwrap();
-    p.vector.insert(branch_a, "v", "vec", &[1.0, 0.0, 0.0], None).unwrap();
+    p.json
+        .create(&branch_a, "j", json_value(serde_json::json!({"a": 1})))
+        .unwrap();
+    p.vector
+        .create_collection(branch_a, "v", config_small())
+        .unwrap();
+    p.vector
+        .insert(branch_a, "v", "vec", &[1.0, 0.0, 0.0], None)
+        .unwrap();
 
     // Write different values to branch B
     p.kv.put(&branch_b, "k", Value::Int(2)).unwrap();
     p.state.init(&branch_b, "s", Value::Int(2)).unwrap();
     p.event.append(&branch_b, "e", int_payload(2)).unwrap();
-    p.json.create(&branch_b, "j", json_value(serde_json::json!({"b": 2}))).unwrap();
-    p.vector.create_collection(branch_b, "v", config_small()).unwrap();
-    p.vector.insert(branch_b, "v", "vec", &[0.0, 1.0, 0.0], None).unwrap();
+    p.json
+        .create(&branch_b, "j", json_value(serde_json::json!({"b": 2})))
+        .unwrap();
+    p.vector
+        .create_collection(branch_b, "v", config_small())
+        .unwrap();
+    p.vector
+        .insert(branch_b, "v", "vec", &[0.0, 1.0, 0.0], None)
+        .unwrap();
 
     // Verify isolation
     assert_eq!(p.kv.get(&branch_a, "k").unwrap().unwrap(), Value::Int(1));
     assert_eq!(p.kv.get(&branch_b, "k").unwrap().unwrap(), Value::Int(2));
 
-    assert_eq!(p.state.read(&branch_a, "s").unwrap().unwrap(), Value::Int(1));
-    assert_eq!(p.state.read(&branch_b, "s").unwrap().unwrap(), Value::Int(2));
+    assert_eq!(
+        p.state.read(&branch_a, "s").unwrap().unwrap(),
+        Value::Int(1)
+    );
+    assert_eq!(
+        p.state.read(&branch_b, "s").unwrap().unwrap(),
+        Value::Int(2)
+    );
 
     let events_a = p.event.read_by_type(&branch_a, "e").unwrap();
     let events_b = p.event.read_by_type(&branch_b, "e").unwrap();
@@ -167,11 +190,19 @@ fn vector_collections_isolated_per_branch() {
     let branch_b = BranchId::new();
 
     // Same collection name, different branches
-    vector.create_collection(branch_a, "embeddings", config_small()).unwrap();
-    vector.create_collection(branch_b, "embeddings", config_small()).unwrap();
+    vector
+        .create_collection(branch_a, "embeddings", config_small())
+        .unwrap();
+    vector
+        .create_collection(branch_b, "embeddings", config_small())
+        .unwrap();
 
-    vector.insert(branch_a, "embeddings", "vec", &[1.0, 0.0, 0.0], None).unwrap();
-    vector.insert(branch_b, "embeddings", "vec", &[0.0, 1.0, 0.0], None).unwrap();
+    vector
+        .insert(branch_a, "embeddings", "vec", &[1.0, 0.0, 0.0], None)
+        .unwrap();
+    vector
+        .insert(branch_b, "embeddings", "vec", &[0.0, 1.0, 0.0], None)
+        .unwrap();
 
     // Verify isolation
     let vec_a = vector.get(branch_a, "embeddings", "vec").unwrap().unwrap();
@@ -207,11 +238,27 @@ fn json_documents_isolated_per_branch() {
     let branch_b = BranchId::new();
 
     // Same doc ID, different branches
-    json.create(&branch_a, "config", json_value(serde_json::json!({"version": 1}))).unwrap();
-    json.create(&branch_b, "config", json_value(serde_json::json!({"version": 2}))).unwrap();
+    json.create(
+        &branch_a,
+        "config",
+        json_value(serde_json::json!({"version": 1})),
+    )
+    .unwrap();
+    json.create(
+        &branch_b,
+        "config",
+        json_value(serde_json::json!({"version": 2})),
+    )
+    .unwrap();
 
-    let doc_a = json.get(&branch_a, "config", &path(".version")).unwrap().unwrap();
-    let doc_b = json.get(&branch_b, "config", &path(".version")).unwrap().unwrap();
+    let doc_a = json
+        .get(&branch_a, "config", &path(".version"))
+        .unwrap()
+        .unwrap();
+    let doc_b = json
+        .get(&branch_b, "config", &path(".version"))
+        .unwrap()
+        .unwrap();
 
     assert_eq!(doc_a.as_inner(), &serde_json::json!(1));
     assert_eq!(doc_b.as_inner(), &serde_json::json!(2));
@@ -233,8 +280,12 @@ fn child_branch_does_not_inherit_parent_data_currently() {
     let parent_meta = branch_index.create_branch("parent").unwrap();
     let parent_branch_id = BranchId::from_string(&parent_meta.value.branch_id).unwrap();
 
-    kv.put(&parent_branch_id, "parent_key", Value::String("parent_value".into()))
-        .unwrap();
+    kv.put(
+        &parent_branch_id,
+        "parent_key",
+        Value::String("parent_value".into()),
+    )
+    .unwrap();
 
     // Create child branch (parent reference is not supported in current API)
     let child_meta = branch_index.create_branch("child").unwrap();
@@ -251,7 +302,11 @@ fn child_branch_does_not_inherit_parent_data_currently() {
 
     // Parent data should still exist
     let parent_value = kv.get(&parent_branch_id, "parent_key").unwrap();
-    assert_eq!(parent_value, Some(Value::String("parent_value".into())), "Parent data should remain");
+    assert_eq!(
+        parent_value,
+        Some(Value::String("parent_value".into())),
+        "Parent data should remain"
+    );
 }
 
 /// When forking is properly implemented, child should inherit all parent data.
@@ -277,7 +332,11 @@ fn child_branch_should_inherit_parent_data() {
         .append(&parent_id, "history", int_payload(1))
         .unwrap();
     p.json
-        .create(&parent_id, "context", json_value(serde_json::json!({"fork": true})))
+        .create(
+            &parent_id,
+            "context",
+            json_value(serde_json::json!({"fork": true})),
+        )
         .unwrap();
     p.vector
         .create_collection(parent_id, "memory", config_small())
@@ -291,11 +350,36 @@ fn child_branch_should_inherit_parent_data() {
     let child_id = BranchId::from_string(&child_meta.value.branch_id).unwrap();
 
     // Child SHOULD have all parent's data (when #780 is fixed)
-    assert_eq!(p.kv.get(&child_id, "config").unwrap(), Some(Value::String("inherited".into())));
-    assert_eq!(p.state.read(&child_id, "status").unwrap().unwrap(), Value::String("active".into()));
-    assert!(!p.event.read_by_type(&child_id, "history").unwrap().is_empty());
-    assert_eq!(p.json.get(&child_id, "context", &root()).unwrap().unwrap().as_inner(), &serde_json::json!({"fork": true}));
-    assert_eq!(p.vector.get(child_id, "memory", "m1").unwrap().unwrap().value.embedding, vec![1.0f32, 0.0, 0.0]);
+    assert_eq!(
+        p.kv.get(&child_id, "config").unwrap(),
+        Some(Value::String("inherited".into()))
+    );
+    assert_eq!(
+        p.state.read(&child_id, "status").unwrap().unwrap(),
+        Value::String("active".into())
+    );
+    assert!(!p
+        .event
+        .read_by_type(&child_id, "history")
+        .unwrap()
+        .is_empty());
+    assert_eq!(
+        p.json
+            .get(&child_id, "context", &root())
+            .unwrap()
+            .unwrap()
+            .as_inner(),
+        &serde_json::json!({"fork": true})
+    );
+    assert_eq!(
+        p.vector
+            .get(child_id, "memory", "m1")
+            .unwrap()
+            .unwrap()
+            .value
+            .embedding,
+        vec![1.0f32, 0.0, 0.0]
+    );
 
     // Modifications to child should not affect parent
     p.kv.put(&child_id, "config", Value::String("modified".into()))
@@ -333,8 +417,12 @@ fn concurrent_operations_across_branches() {
                 barrier.wait();
 
                 for i in 0..ops_per_branch {
-                    kv.put(&branch_id, &format!("key_{}", i), Value::Int((r * 1000 + i) as i64))
-                        .unwrap();
+                    kv.put(
+                        &branch_id,
+                        &format!("key_{}", i),
+                        Value::Int((r * 1000 + i) as i64),
+                    )
+                    .unwrap();
                     event
                         .append(&branch_id, "ops", int_payload((r * 1000 + i) as i64))
                         .unwrap();

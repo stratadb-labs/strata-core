@@ -32,16 +32,15 @@ pub mod transaction_ops; // TransactionOps Trait Definition
 
 pub use coordinator::{TransactionCoordinator, TransactionMetrics};
 pub use database::{Database, DatabaseBuilder, RetryConfig};
+pub use instrumentation::PerfTrace;
 pub use recovery::{
-    recover_all_participants, register_recovery_participant, RecoveryFn, RecoveryParticipant,
-    diff_views, DiffEntry, ReadOnlyView, ReplayError, BranchDiff, BranchError,
-    ReplayBranchIndex,
+    diff_views, recover_all_participants, register_recovery_participant, BranchDiff, BranchError,
+    DiffEntry, ReadOnlyView, RecoveryFn, RecoveryParticipant, ReplayBranchIndex, ReplayError,
 };
 pub use strata_durability::wal::DurabilityMode;
-pub use instrumentation::PerfTrace;
 // Note: Use strata_core::PrimitiveType for DiffEntry.primitive field
-pub use transaction::{Transaction, TransactionPool, MAX_POOL_SIZE};
 pub use strata_concurrency::TransactionContext;
+pub use transaction::{Transaction, TransactionPool, MAX_POOL_SIZE};
 pub use transaction_ops::TransactionOps;
 
 pub mod bundle;
@@ -52,38 +51,79 @@ pub mod search;
 pub use search::{SearchBudget, SearchHit, SearchMode, SearchRequest, SearchResponse, SearchStats};
 
 // Re-export submodules for `strata_engine::vector::*` and `strata_engine::extensions::*` access
-pub use primitives::vector;
 pub use primitives::extensions;
+pub use primitives::vector;
 
 // Re-export primitive types at crate root for convenience
 pub use primitives::{
-    // Primitives
-    KVStore, EventLog, Event,
-    StateCell, State, JsonStore, JsonDoc, VectorStore,
-    BranchIndex, BranchMetadata, BranchStatus,
-    // Handles
-    BranchHandle, EventHandle, JsonHandle, KvHandle, StateHandle, VectorHandle,
-    // Search & Scoring
-    Searchable, SearchCandidate, SimpleScorer,
-    BM25LiteScorer, Scorer, ScorerContext, SearchDoc,
+    build_search_response,
     build_search_response_with_index,
-    // Index
-    InvertedIndex, PostingEntry, PostingList,
-    // Vector types
-    VectorConfig, VectorEntry, VectorMatch, DistanceMetric,
-    CollectionId, CollectionInfo, VectorIndexBackend, BruteForceBackend, VectorError,
-    VectorId, VectorRecord, VectorResult, VectorConfigSerde, VectorHeap,
-    CollectionRecord, IndexBackendFactory, JsonScalar, MetadataFilter, StorageDtype,
-    VectorBackendState,
-    validate_collection_name, validate_vector_key, build_search_response,
-    // Extension traits
-    KVStoreExt, EventLogExt, StateCellExt, JsonStoreExt, VectorStoreExt,
     // Recovery
     register_vector_recovery,
+    validate_collection_name,
+    validate_vector_key,
+    BM25LiteScorer,
+    // Handles
+    BranchHandle,
+    BranchIndex,
+    BranchMetadata,
+    BranchStatus,
+    BruteForceBackend,
+    CollectionId,
+    CollectionInfo,
+    CollectionRecord,
+    DistanceMetric,
+    Event,
+    EventHandle,
+    EventLog,
+    EventLogExt,
+    IndexBackendFactory,
+    // Index
+    InvertedIndex,
+    JsonDoc,
+    JsonHandle,
+    JsonScalar,
+    JsonStore,
+    JsonStoreExt,
+    // Primitives
+    KVStore,
+    // Extension traits
+    KVStoreExt,
+    KvHandle,
+    MetadataFilter,
+    PostingEntry,
+    PostingList,
+    Scorer,
+    ScorerContext,
+    SearchCandidate,
+    SearchDoc,
+    // Search & Scoring
+    Searchable,
+    SimpleScorer,
+    State,
+    StateCell,
+    StateCellExt,
+    StateHandle,
+    StorageDtype,
+    VectorBackendState,
+    // Vector types
+    VectorConfig,
+    VectorConfigSerde,
+    VectorEntry,
+    VectorError,
+    VectorHandle,
+    VectorHeap,
+    VectorId,
+    VectorIndexBackend,
+    VectorMatch,
+    VectorRecord,
+    VectorResult,
+    VectorStore,
+    VectorStoreExt,
 };
 
 // Re-export bundle types at crate root
-pub use bundle::{ExportInfo, ImportInfo, BundleInfo};
+pub use bundle::{BundleInfo, ExportInfo, ImportInfo};
 
 #[cfg(feature = "perf-trace")]
 pub use instrumentation::{PerfBreakdown, PerfStats};

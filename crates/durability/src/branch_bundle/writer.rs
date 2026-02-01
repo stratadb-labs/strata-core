@@ -7,7 +7,8 @@
 
 use crate::branch_bundle::error::{BranchBundleError, BranchBundleResult};
 use crate::branch_bundle::types::{
-    paths, xxh3_hex, BundleContents, BundleManifest, BundleBranchInfo, ExportOptions, BranchExportInfo,
+    paths, xxh3_hex, BranchExportInfo, BundleBranchInfo, BundleContents, BundleManifest,
+    ExportOptions,
 };
 use crate::branch_bundle::wal_log::{BranchlogPayload, WalLogWriter};
 use std::fs::{self, File};
@@ -106,8 +107,7 @@ impl BranchBundleWriter {
         let buf_writer = BufWriter::new(file);
         let zstd_writer = zstd::Encoder::new(buf_writer, self.compression_level)
             .map_err(|e| BranchBundleError::compression(format!("zstd encoder: {}", e)))?;
-        let zstd_writer = zstd_writer
-            .auto_finish();
+        let zstd_writer = zstd_writer.auto_finish();
 
         let mut tar_builder = Builder::new(zstd_writer);
 
@@ -148,7 +148,8 @@ impl BranchBundleWriter {
         data: &[u8],
     ) -> BranchBundleResult<()> {
         let mut header = Header::new_gnu();
-        header.set_path(path)
+        header
+            .set_path(path)
             .map_err(|e| BranchBundleError::archive(format!("set path '{}': {}", path, e)))?;
         header.set_size(data.len() as u64);
         header.set_mode(0o644);
@@ -225,11 +226,11 @@ impl BranchBundleWriter {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::branch_bundle::wal_log::BranchlogPayload;
     use crate::branch_bundle::types::BRANCHBUNDLE_FORMAT_VERSION;
-    use strata_core::types::{Key, Namespace, BranchId, TypeTag};
-    use strata_core::value::Value;
+    use crate::branch_bundle::wal_log::BranchlogPayload;
     use std::io::Read;
+    use strata_core::types::{BranchId, Key, Namespace, TypeTag};
+    use strata_core::value::Value;
     use tempfile::tempdir;
 
     fn make_test_branch_info() -> BundleBranchInfo {
@@ -251,12 +252,10 @@ mod tests {
             BranchlogPayload {
                 branch_id: branch_id.to_string(),
                 version: 1,
-                puts: vec![
-                    (
-                        Key::new(ns.clone(), TypeTag::KV, b"key1".to_vec()),
-                        Value::String("value1".to_string()),
-                    ),
-                ],
+                puts: vec![(
+                    Key::new(ns.clone(), TypeTag::KV, b"key1".to_vec()),
+                    Value::String("value1".to_string()),
+                )],
                 deletes: vec![],
             },
             BranchlogPayload {

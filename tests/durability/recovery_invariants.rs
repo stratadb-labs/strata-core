@@ -39,7 +39,8 @@ fn committed_json_data_survives_restart() {
 
     let json = test_db.json();
     let doc_id = new_doc_id();
-    json.create(&branch_id, &doc_id, test_json_value(42)).unwrap();
+    json.create(&branch_id, &doc_id, test_json_value(42))
+        .unwrap();
 
     test_db.reopen();
 
@@ -56,7 +57,9 @@ fn committed_event_data_survives_restart() {
 
     let event = test_db.event();
     for i in 0..10 {
-        event.append(&branch_id, "test_stream", int_payload(i)).unwrap();
+        event
+            .append(&branch_id, "test_stream", int_payload(i))
+            .unwrap();
     }
 
     test_db.reopen();
@@ -73,7 +76,9 @@ fn committed_statecell_survives_restart() {
 
     let state = test_db.state();
     let v = state.init(&branch_id, "counter", Value::Int(0)).unwrap();
-    state.cas(&branch_id, "counter", v.value, Value::Int(42)).unwrap();
+    state
+        .cas(&branch_id, "counter", v.value, Value::Int(42))
+        .unwrap();
 
     test_db.reopen();
 
@@ -143,7 +148,8 @@ fn double_reopen_produces_same_state() {
 
     let kv = test_db.kv();
     for i in 0..50 {
-        kv.put(&branch_id, &format!("k{}", i), Value::Int(i)).unwrap();
+        kv.put(&branch_id, &format!("k{}", i), Value::Int(i))
+            .unwrap();
     }
 
     test_db.reopen();
@@ -166,7 +172,8 @@ fn triple_reopen_is_stable() {
 
     let kv = test_db.kv();
     for i in 0..20 {
-        kv.put(&branch_id, &format!("k{}", i), Value::Int(i)).unwrap();
+        kv.put(&branch_id, &format!("k{}", i), Value::Int(i))
+            .unwrap();
     }
 
     test_db.reopen();
@@ -174,7 +181,11 @@ fn triple_reopen_is_stable() {
     test_db.reopen();
 
     let state = CapturedState::capture(&test_db.db, &branch_id);
-    assert_eq!(state.kv_entries.len(), 20, "All keys must survive 3 reopens");
+    assert_eq!(
+        state.kv_entries.len(),
+        20,
+        "All keys must survive 3 reopens"
+    );
 }
 
 // ============================================================================
@@ -206,7 +217,11 @@ fn recovery_produces_deterministic_state() {
             .kv_entries
             .get(key)
             .unwrap_or_else(|| panic!("Key {} missing in second db", key));
-        assert_eq!(val1, val2, "Value for key {} differs between databases", key);
+        assert_eq!(
+            val1, val2,
+            "Value for key {} differs between databases",
+            key
+        );
     }
 }
 
@@ -244,5 +259,8 @@ fn deletes_are_respected_after_recovery() {
 
     let kv = test_db.kv();
     let val = kv.get(&branch_id, "delete_me").unwrap();
-    assert!(val.is_none(), "Deleted key should remain deleted after recovery");
+    assert!(
+        val.is_none(),
+        "Deleted key should remain deleted after recovery"
+    );
 }

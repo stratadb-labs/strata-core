@@ -18,8 +18,8 @@
 #![warn(clippy::all)]
 
 // === Existing modules ===
-pub mod recovery; // WAL replay logic
 pub mod branch_bundle; // Portable execution artifacts (BranchBundle)
+pub mod recovery; // WAL replay logic
 pub mod snapshot; // Snapshot writer and serialization
 pub mod snapshot_types; // Snapshot envelope and header types
 pub mod wal; // WAL segment types, durability modes
@@ -48,11 +48,11 @@ pub use wal::DurabilityMode;
 
 // BranchBundle types
 pub use branch_bundle::{
-    BundleContents, BundleManifest, BundleBranchInfo, BundleVerifyInfo,
-    ExportOptions, ImportedBranchInfo, ReadBundleContents, BranchBundleError, BranchBundleReader,
-    BranchBundleResult, BranchBundleWriter, BranchExportInfo, BranchlogPayload,
-    WalLogInfo, WalLogIterator, WalLogReader, WalLogWriter,
-    BRANCHBUNDLE_EXTENSION, BRANCHBUNDLE_FORMAT_VERSION,
+    BranchBundleError, BranchBundleReader, BranchBundleResult, BranchBundleWriter,
+    BranchExportInfo, BranchlogPayload, BundleBranchInfo, BundleContents, BundleManifest,
+    BundleVerifyInfo, ExportOptions, ImportedBranchInfo, ReadBundleContents, WalLogInfo,
+    WalLogIterator, WalLogReader, WalLogWriter, BRANCHBUNDLE_EXTENSION,
+    BRANCHBUNDLE_FORMAT_VERSION,
 };
 
 // === Re-exports from moved modules ===
@@ -63,29 +63,56 @@ pub use codec::{get_codec, CodecError, IdentityCodec, StorageCodec};
 // Disk snapshot
 pub use disk_snapshot::{
     CheckpointCoordinator, CheckpointData, CheckpointError, LoadedSection, LoadedSnapshot,
-    SnapshotInfo as DiskSnapshotInfo, SnapshotReadError,
-    SnapshotReader as DiskSnapshotReader, SnapshotSection,
-    SnapshotWriter as DiskSnapshotWriter,
+    SnapshotInfo as DiskSnapshotInfo, SnapshotReadError, SnapshotReader as DiskSnapshotReader,
+    SnapshotSection, SnapshotWriter as DiskSnapshotWriter,
 };
 
 // Format types
 pub use format::{
     // Snapshot format
-    find_latest_snapshot, list_snapshots, parse_snapshot_id, primitive_tags, snapshot_path,
+    find_latest_snapshot,
+    list_snapshots,
+    parse_snapshot_id,
+    primitive_tags,
+    snapshot_path,
+    BranchSnapshotEntry,
     // Watermark tracking
     CheckpointInfo,
     // Primitive serialization
-    EventSnapshotEntry, JsonSnapshotEntry, KvSnapshotEntry,
+    EventSnapshotEntry,
+    JsonSnapshotEntry,
+    KvSnapshotEntry,
     // MANIFEST format
-    Manifest, ManifestError, ManifestManager,
+    Manifest,
+    ManifestError,
+    ManifestManager,
     // WAL format
-    Mutation, PrimitiveSerializeError, BranchSnapshotEntry, SectionHeader, SegmentHeader,
-    SnapshotHeader as FormatSnapshotHeader, SnapshotHeaderError, SnapshotSerializer,
-    SnapshotWatermark, StateSnapshotEntry, VectorCollectionSnapshotEntry, VectorSnapshotEntry,
-    WalRecord, WalRecordError, WalSegment, WatermarkError, Writeset, WritesetError,
-    MANIFEST_FORMAT_VERSION, MANIFEST_MAGIC, SEGMENT_FORMAT_VERSION, SEGMENT_HEADER_SIZE,
-    SEGMENT_MAGIC, SNAPSHOT_FORMAT_VERSION, SNAPSHOT_HEADER_SIZE as FORMAT_SNAPSHOT_HEADER_SIZE,
-    SNAPSHOT_MAGIC as FORMAT_SNAPSHOT_MAGIC, WAL_RECORD_FORMAT_VERSION,
+    Mutation,
+    PrimitiveSerializeError,
+    SectionHeader,
+    SegmentHeader,
+    SnapshotHeader as FormatSnapshotHeader,
+    SnapshotHeaderError,
+    SnapshotSerializer,
+    SnapshotWatermark,
+    StateSnapshotEntry,
+    VectorCollectionSnapshotEntry,
+    VectorSnapshotEntry,
+    WalRecord,
+    WalRecordError,
+    WalSegment,
+    WatermarkError,
+    Writeset,
+    WritesetError,
+    MANIFEST_FORMAT_VERSION,
+    MANIFEST_MAGIC,
+    SEGMENT_FORMAT_VERSION,
+    SEGMENT_HEADER_SIZE,
+    SEGMENT_MAGIC,
+    SNAPSHOT_FORMAT_VERSION,
+    SNAPSHOT_HEADER_SIZE as FORMAT_SNAPSHOT_HEADER_SIZE,
+    SNAPSHOT_MAGIC as FORMAT_SNAPSHOT_MAGIC,
+    WAL_RECORD_FORMAT_VERSION,
 };
 
 // Retention
@@ -114,7 +141,7 @@ pub use wal::{TruncateInfo, WalConfig, WalConfigError, WalReader, WalReaderError
 
 // Recovery coordinator types (new in Phase 2)
 pub use recovery::{
-    RecoveryCoordinator, RecoveryError, RecoveryPlan,
-    RecoveryResult as SegmentedRecoveryResult, RecoverySnapshot,
+    RecoveryCoordinator, RecoveryError, RecoveryPlan, RecoveryResult as SegmentedRecoveryResult,
+    RecoverySnapshot,
 };
 pub use recovery::{WalReplayError, WalReplayer};

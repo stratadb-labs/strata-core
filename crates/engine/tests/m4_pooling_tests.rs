@@ -8,7 +8,7 @@
 //!
 //! Per specification: Hot path must have zero allocations after warmup.
 
-use strata_core::types::{Key, Namespace, BranchId, TypeTag};
+use strata_core::types::{BranchId, Key, Namespace, TypeTag};
 use strata_core::value::Value;
 use strata_engine::{Database, TransactionPool, MAX_POOL_SIZE};
 use tempfile::TempDir;

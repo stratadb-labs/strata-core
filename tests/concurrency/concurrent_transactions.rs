@@ -5,6 +5,9 @@
 //! - Serial commits on same branch
 //! - High contention scenarios
 
+use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::{Arc, Barrier};
+use std::thread;
 use strata_concurrency::manager::TransactionManager;
 use strata_concurrency::transaction::TransactionContext;
 use strata_concurrency::validation::validate_transaction;
@@ -13,9 +16,6 @@ use strata_core::types::{Key, Namespace};
 use strata_core::value::Value;
 use strata_core::BranchId;
 use strata_storage::sharded::ShardedStore;
-use std::sync::atomic::{AtomicU64, Ordering};
-use std::sync::{Arc, Barrier};
-use std::thread;
 
 fn create_test_key(branch_id: BranchId, name: &str) -> Key {
     let ns = Namespace::for_branch(branch_id);
@@ -52,10 +52,15 @@ fn parallel_commits_different_runs_no_contention() {
                 // Each thread commits 10 transactions
                 for i in 0..10 {
                     let txn_id = manager.next_txn_id();
-                    let mut txn = TransactionContext::new(txn_id, branch_id, manager.allocate_version());
+                    let mut txn =
+                        TransactionContext::new(txn_id, branch_id, manager.allocate_version());
 
                     // Read and write
-                    let v = Storage::get(&*store, &key).unwrap().unwrap().version.as_u64();
+                    let v = Storage::get(&*store, &key)
+                        .unwrap()
+                        .unwrap()
+                        .version
+                        .as_u64();
                     txn.read_set.insert(key.clone(), v);
                     txn.write_set.insert(key.clone(), Value::Int(i));
 
@@ -171,7 +176,10 @@ fn high_contention_single_key() {
     let total_commits = commits.load(Ordering::Relaxed);
 
     // All 80 operations must eventually commit (with retries)
-    assert_eq!(total_commits, 80, "All 80 operations must eventually commit");
+    assert_eq!(
+        total_commits, 80,
+        "All 80 operations must eventually commit"
+    );
 }
 
 // ============================================================================
@@ -189,8 +197,16 @@ fn interleaved_disjoint_operations_both_commit() {
     Storage::put(&*store, key_a.clone(), Value::Int(1), None).unwrap();
     Storage::put(&*store, key_b.clone(), Value::Int(2), None).unwrap();
 
-    let va = Storage::get(&*store, &key_a).unwrap().unwrap().version.as_u64();
-    let vb = Storage::get(&*store, &key_b).unwrap().unwrap().version.as_u64();
+    let va = Storage::get(&*store, &key_a)
+        .unwrap()
+        .unwrap()
+        .version
+        .as_u64();
+    let vb = Storage::get(&*store, &key_b)
+        .unwrap()
+        .unwrap()
+        .version
+        .as_u64();
 
     // T1: reads A, writes B
     let mut t1 = TransactionContext::new(1, branch_id, 1);
@@ -206,8 +222,14 @@ fn interleaved_disjoint_operations_both_commit() {
     let result1 = validate_transaction(&t1, &*store);
     let result2 = validate_transaction(&t2, &*store);
 
-    assert!(result1.unwrap().is_valid(), "T1 should commit (reads A, writes B)");
-    assert!(result2.unwrap().is_valid(), "T2 should commit (reads B, writes A)");
+    assert!(
+        result1.unwrap().is_valid(),
+        "T1 should commit (reads A, writes B)"
+    );
+    assert!(
+        result2.unwrap().is_valid(),
+        "T2 should commit (reads B, writes A)"
+    );
 }
 
 // ============================================================================
@@ -274,13 +296,21 @@ fn txn_id_allocation_is_unique() {
         })
         .collect();
 
-    let mut all_ids: Vec<u64> = handles.into_iter().flat_map(|h| h.join().unwrap()).collect();
+    let mut all_ids: Vec<u64> = handles
+        .into_iter()
+        .flat_map(|h| h.join().unwrap())
+        .collect();
 
     all_ids.sort();
 
     // Check for duplicates
     for i in 1..all_ids.len() {
-        assert_ne!(all_ids[i], all_ids[i - 1], "Duplicate txn_id: {}", all_ids[i]);
+        assert_ne!(
+            all_ids[i],
+            all_ids[i - 1],
+            "Duplicate txn_id: {}",
+            all_ids[i]
+        );
     }
 }
 
@@ -344,7 +374,10 @@ fn concurrent_empty_transactions() {
         .collect();
 
     for handle in handles {
-        assert!(handle.join().unwrap(), "Empty transactions should always commit");
+        assert!(
+            handle.join().unwrap(),
+            "Empty transactions should always commit"
+        );
     }
 }
 

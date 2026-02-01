@@ -30,18 +30,20 @@
 //! 5. WAL remains unified (entry types 0x20-0x23)
 //! 6. JSON API feels like other primitives
 
-use crate::primitives::extensions::JsonStoreExt;
-use strata_concurrency::TransactionContext;
-use strata_core::contract::{Timestamp, Version, Versioned};
-use strata_core::{StrataResult, VersionedHistory};
-use strata_core::primitives::json::{delete_at_path, get_at_path, set_at_path, JsonLimitError, JsonPath, JsonValue};
-use strata_core::StrataError;
-use strata_core::types::{Key, Namespace, BranchId};
-use strata_core::value::Value;
 use crate::database::Database;
+use crate::primitives::extensions::JsonStoreExt;
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 use std::time::SystemTime;
+use strata_concurrency::TransactionContext;
+use strata_core::contract::{Timestamp, Version, Versioned};
+use strata_core::primitives::json::{
+    delete_at_path, get_at_path, set_at_path, JsonLimitError, JsonPath, JsonValue,
+};
+use strata_core::types::{BranchId, Key, Namespace};
+use strata_core::value::Value;
+use strata_core::StrataError;
+use strata_core::{StrataResult, VersionedHistory};
 
 // =============================================================================
 // Limit Validation Helpers
@@ -196,7 +198,8 @@ impl JsonStore {
     ///
     /// Uses MessagePack for efficient binary serialization.
     pub(crate) fn serialize_doc(doc: &JsonDoc) -> StrataResult<Value> {
-        let bytes = rmp_serde::to_vec(doc).map_err(|e| StrataError::serialization(e.to_string()))?;
+        let bytes =
+            rmp_serde::to_vec(doc).map_err(|e| StrataError::serialization(e.to_string()))?;
         Ok(Value::Bytes(bytes))
     }
 
@@ -238,7 +241,12 @@ impl JsonStore {
     /// let version = json.create(&branch_id, &doc_id, JsonValue::object())?;
     /// assert_eq!(version, Version::counter(1));
     /// ```
-    pub fn create(&self, branch_id: &BranchId, doc_id: &str, value: JsonValue) -> StrataResult<Version> {
+    pub fn create(
+        &self,
+        branch_id: &BranchId,
+        doc_id: &str,
+        value: JsonValue,
+    ) -> StrataResult<Version> {
         // Validate document limits (Issue #440)
         value.validate().map_err(limit_error_to_error)?;
 
@@ -290,14 +298,12 @@ impl JsonStore {
 
         let key = self.key_for(branch_id, doc_id);
 
-        self.db.transaction(*branch_id, |txn| {
-            match txn.get(&key)? {
-                Some(value) => {
-                    let doc = Self::deserialize_doc(&value)?;
-                    Ok(get_at_path(&doc.value, path).cloned())
-                }
-                None => Ok(None),
+        self.db.transaction(*branch_id, |txn| match txn.get(&key)? {
+            Some(value) => {
+                let doc = Self::deserialize_doc(&value)?;
+                Ok(get_at_path(&doc.value, path).cloned())
             }
+            None => Ok(None),
         })
     }
 
@@ -308,7 +314,11 @@ impl JsonStore {
     ///
     /// History is per-document (not per-path). To inspect a path within a
     /// specific version, index into the result and navigate the `JsonValue`.
-    pub fn getv(&self, branch_id: &BranchId, doc_id: &str) -> StrataResult<Option<VersionedHistory<JsonValue>>> {
+    pub fn getv(
+        &self,
+        branch_id: &BranchId,
+        doc_id: &str,
+    ) -> StrataResult<Option<VersionedHistory<JsonValue>>> {
         let key = self.key_for(branch_id, doc_id);
         let history = self.db.get_history(&key, None, None)?;
         let versions: Vec<Versioned<JsonValue>> = history
@@ -328,9 +338,8 @@ impl JsonStore {
     /// Check if document exists.
     pub fn exists(&self, branch_id: &BranchId, doc_id: &str) -> StrataResult<bool> {
         let key = self.key_for(branch_id, doc_id);
-        self.db.transaction(*branch_id, |txn| {
-            Ok(txn.get(&key)?.is_some())
-        })
+        self.db
+            .transaction(*branch_id, |txn| Ok(txn.get(&key)?.is_some()))
     }
 
     // ========================================================================
@@ -566,10 +575,12 @@ impl JsonStore {
                 None
             };
 
-            Ok(JsonListResult { doc_ids, next_cursor })
+            Ok(JsonListResult {
+                doc_ids,
+                next_cursor,
+            })
         })
     }
-
 }
 
 // ========== Searchable Trait Implementation ==========
@@ -595,7 +606,6 @@ impl crate::search::Searchable for JsonStore {
 // Extension trait implementation for cross-primitive transactions.
 // Allows JSON operations within a TransactionContext.
 
-
 impl JsonStoreExt for TransactionContext {
     fn json_get(&mut self, doc_id: &str, path: &JsonPath) -> StrataResult<Option<JsonValue>> {
         // Validate path limits (Issue #440)
@@ -613,7 +623,12 @@ impl JsonStoreExt for TransactionContext {
         }
     }
 
-    fn json_set(&mut self, doc_id: &str, path: &JsonPath, value: JsonValue) -> StrataResult<Version> {
+    fn json_set(
+        &mut self,
+        doc_id: &str,
+        path: &JsonPath,
+        value: JsonValue,
+    ) -> StrataResult<Version> {
         // Validate path and value limits (Issue #440)
         path.validate().map_err(limit_error_to_error)?;
         value.validate().map_err(limit_error_to_error)?;
@@ -917,8 +932,12 @@ mod tests {
         let doc1 = "doc-1";
         let doc2 = "doc-2";
 
-        let v1 = store.create(&branch_id, &doc1, JsonValue::from(1i64)).unwrap();
-        let v2 = store.create(&branch_id, &doc2, JsonValue::from(2i64)).unwrap();
+        let v1 = store
+            .create(&branch_id, &doc1, JsonValue::from(1i64))
+            .unwrap();
+        let v2 = store
+            .create(&branch_id, &doc2, JsonValue::from(2i64))
+            .unwrap();
 
         assert_eq!(v1, Version::counter(1));
         assert_eq!(v2, Version::counter(1));
@@ -934,8 +953,12 @@ mod tests {
         let doc_id = "test-doc";
 
         // Same doc_id can be created in different branches
-        let v1 = store.create(&branch1, &doc_id, JsonValue::from(1i64)).unwrap();
-        let v2 = store.create(&branch2, &doc_id, JsonValue::from(2i64)).unwrap();
+        let v1 = store
+            .create(&branch1, &doc_id, JsonValue::from(1i64))
+            .unwrap();
+        let v2 = store
+            .create(&branch2, &doc_id, JsonValue::from(2i64))
+            .unwrap();
 
         assert_eq!(v1, Version::counter(1));
         assert_eq!(v2, Version::counter(1));
@@ -948,7 +971,9 @@ mod tests {
         let branch_id = BranchId::new();
         let doc_id = "test-doc";
 
-        let version = store.create(&branch_id, &doc_id, JsonValue::null()).unwrap();
+        let version = store
+            .create(&branch_id, &doc_id, JsonValue::null())
+            .unwrap();
         assert_eq!(version, Version::counter(1));
     }
 
@@ -959,7 +984,9 @@ mod tests {
         let branch_id = BranchId::new();
         let doc_id = "test-doc";
 
-        let version = store.create(&branch_id, &doc_id, JsonValue::object()).unwrap();
+        let version = store
+            .create(&branch_id, &doc_id, JsonValue::object())
+            .unwrap();
         assert_eq!(version, Version::counter(1));
     }
 
@@ -970,7 +997,9 @@ mod tests {
         let branch_id = BranchId::new();
         let doc_id = "test-doc";
 
-        let version = store.create(&branch_id, &doc_id, JsonValue::array()).unwrap();
+        let version = store
+            .create(&branch_id, &doc_id, JsonValue::array())
+            .unwrap();
         assert_eq!(version, Version::counter(1));
     }
 
@@ -1090,7 +1119,9 @@ mod tests {
         let branch_id = BranchId::new();
         let doc_id = "test-doc";
 
-        store.create(&branch_id, &doc_id, JsonValue::object()).unwrap();
+        store
+            .create(&branch_id, &doc_id, JsonValue::object())
+            .unwrap();
 
         let result = store
             .get(&branch_id, &doc_id, &"nonexistent".parse().unwrap())
@@ -1148,7 +1179,12 @@ mod tests {
             .unwrap();
 
         let v2 = store
-            .set(&branch_id, &doc_id, &JsonPath::root(), JsonValue::from(100i64))
+            .set(
+                &branch_id,
+                &doc_id,
+                &JsonPath::root(),
+                JsonValue::from(100i64),
+            )
             .unwrap();
         assert_eq!(v2, Version::counter(2));
 
@@ -1163,7 +1199,9 @@ mod tests {
         let branch_id = BranchId::new();
         let doc_id = "test-doc";
 
-        store.create(&branch_id, &doc_id, JsonValue::object()).unwrap();
+        store
+            .create(&branch_id, &doc_id, JsonValue::object())
+            .unwrap();
 
         let v2 = store
             .set(
@@ -1191,7 +1229,9 @@ mod tests {
         let branch_id = BranchId::new();
         let doc_id = "test-doc";
 
-        store.create(&branch_id, &doc_id, JsonValue::object()).unwrap();
+        store
+            .create(&branch_id, &doc_id, JsonValue::object())
+            .unwrap();
 
         // Creates intermediate objects automatically
         let v2 = store
@@ -1220,7 +1260,9 @@ mod tests {
         let branch_id = BranchId::new();
         let doc_id = "test-doc";
 
-        let v1 = store.create(&branch_id, &doc_id, JsonValue::object()).unwrap();
+        let v1 = store
+            .create(&branch_id, &doc_id, JsonValue::object())
+            .unwrap();
         assert_eq!(v1, Version::counter(1));
 
         let v2 = store
@@ -1466,7 +1508,9 @@ mod tests {
         let branch_id = BranchId::new();
         let doc_id = "test-doc";
 
-        store.create(&branch_id, &doc_id, JsonValue::object()).unwrap();
+        store
+            .create(&branch_id, &doc_id, JsonValue::object())
+            .unwrap();
 
         // Deleting a nonexistent path is idempotent (succeeds, increments version)
         let v2 = store
@@ -1517,8 +1561,12 @@ mod tests {
         let doc_id = "test-doc";
 
         // Create document in both branches
-        store.create(&branch1, &doc_id, JsonValue::from(1i64)).unwrap();
-        store.create(&branch2, &doc_id, JsonValue::from(2i64)).unwrap();
+        store
+            .create(&branch1, &doc_id, JsonValue::from(1i64))
+            .unwrap();
+        store
+            .create(&branch2, &doc_id, JsonValue::from(2i64))
+            .unwrap();
 
         // Destroy in branch1
         store.destroy(&branch1, &doc_id).unwrap();

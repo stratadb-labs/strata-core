@@ -294,7 +294,10 @@ mod tests {
         manifest.add_checksum("RUN.json", "abc123");
         manifest.add_checksum("WAL.runlog", "def456");
 
-        assert_eq!(manifest.checksums.get("RUN.json"), Some(&"abc123".to_string()));
+        assert_eq!(
+            manifest.checksums.get("RUN.json"),
+            Some(&"abc123".to_string())
+        );
         assert_eq!(
             manifest.checksums.get("WAL.runlog"),
             Some(&"def456".to_string())

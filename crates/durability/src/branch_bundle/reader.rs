@@ -4,7 +4,8 @@
 
 use crate::branch_bundle::error::{BranchBundleError, BranchBundleResult};
 use crate::branch_bundle::types::{
-    paths, xxh3_hex, BundleManifest, BundleBranchInfo, BundleVerifyInfo, BRANCHBUNDLE_FORMAT_VERSION,
+    paths, xxh3_hex, BundleBranchInfo, BundleManifest, BundleVerifyInfo,
+    BRANCHBUNDLE_FORMAT_VERSION,
 };
 use crate::branch_bundle::wal_log::{BranchlogPayload, WalLogReader};
 use std::collections::HashMap;
@@ -171,7 +172,10 @@ impl BranchBundleReader {
         let mut archive = Archive::new(decoder);
         let target_path = format!("{}/{}", paths::ROOT, file_name);
 
-        for entry in archive.entries().map_err(|e| BranchBundleError::archive(e.to_string()))? {
+        for entry in archive
+            .entries()
+            .map_err(|e| BranchBundleError::archive(e.to_string()))?
+        {
             let mut entry = entry.map_err(|e| BranchBundleError::archive(e.to_string()))?;
             let entry_path = entry
                 .path()
@@ -181,9 +185,9 @@ impl BranchBundleReader {
 
             if entry_path == target_path {
                 let mut data = Vec::new();
-                entry
-                    .read_to_end(&mut data)
-                    .map_err(|e| BranchBundleError::archive(format!("read {}: {}", file_name, e)))?;
+                entry.read_to_end(&mut data).map_err(|e| {
+                    BranchBundleError::archive(format!("read {}: {}", file_name, e))
+                })?;
                 return Ok(data);
             }
         }
@@ -202,7 +206,10 @@ impl BranchBundleReader {
         let mut files = HashMap::new();
         let prefix = format!("{}/", paths::ROOT);
 
-        for entry in archive.entries().map_err(|e| BranchBundleError::archive(e.to_string()))? {
+        for entry in archive
+            .entries()
+            .map_err(|e| BranchBundleError::archive(e.to_string()))?
+        {
             let mut entry = entry.map_err(|e| BranchBundleError::archive(e.to_string()))?;
             let entry_path = entry
                 .path()
@@ -233,7 +240,10 @@ impl BranchBundleReader {
         let mut archive = Archive::new(decoder);
         let target_path = paths::MANIFEST;
 
-        for entry in archive.entries().map_err(|e| BranchBundleError::archive(e.to_string()))? {
+        for entry in archive
+            .entries()
+            .map_err(|e| BranchBundleError::archive(e.to_string()))?
+        {
             let mut entry = entry.map_err(|e| BranchBundleError::archive(e.to_string()))?;
             let entry_path = entry
                 .path()
@@ -260,7 +270,10 @@ impl BranchBundleReader {
         let mut archive = Archive::new(decoder);
         let target_path = paths::BRANCH;
 
-        for entry in archive.entries().map_err(|e| BranchBundleError::archive(e.to_string()))? {
+        for entry in archive
+            .entries()
+            .map_err(|e| BranchBundleError::archive(e.to_string()))?
+        {
             let mut entry = entry.map_err(|e| BranchBundleError::archive(e.to_string()))?;
             let entry_path = entry
                 .path()
@@ -287,7 +300,10 @@ impl BranchBundleReader {
         let mut archive = Archive::new(decoder);
         let target_path = paths::WAL;
 
-        for entry in archive.entries().map_err(|e| BranchBundleError::archive(e.to_string()))? {
+        for entry in archive
+            .entries()
+            .map_err(|e| BranchBundleError::archive(e.to_string()))?
+        {
             let mut entry = entry.map_err(|e| BranchBundleError::archive(e.to_string()))?;
             let entry_path = entry
                 .path()
@@ -320,10 +336,10 @@ pub struct BundleContents {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::branch_bundle::writer::BranchBundleWriter;
-    use crate::branch_bundle::wal_log::BranchlogPayload;
     use crate::branch_bundle::types::ExportOptions;
-    use strata_core::types::{Key, Namespace, BranchId, TypeTag};
+    use crate::branch_bundle::wal_log::BranchlogPayload;
+    use crate::branch_bundle::writer::BranchBundleWriter;
+    use strata_core::types::{BranchId, Key, Namespace, TypeTag};
     use strata_core::value::Value;
     use tempfile::tempdir;
 
@@ -442,7 +458,9 @@ mod tests {
         let writer = BranchBundleWriter::new(&ExportOptions::default());
         let expected_branch_info = make_test_branch_info();
         let payloads = make_test_payloads();
-        writer.write(&expected_branch_info, &payloads, &path).unwrap();
+        writer
+            .write(&expected_branch_info, &payloads, &path)
+            .unwrap();
 
         let branch_info = BranchBundleReader::read_branch_info(&path).unwrap();
 
@@ -551,7 +569,10 @@ mod tests {
         let contents = BranchBundleReader::read_all(&path).unwrap();
 
         // Verify
-        assert_eq!(contents.branch_info.branch_id, original_branch_info.branch_id);
+        assert_eq!(
+            contents.branch_info.branch_id,
+            original_branch_info.branch_id
+        );
         assert_eq!(contents.branch_info.name, original_branch_info.name);
         assert_eq!(contents.branch_info.state, original_branch_info.state);
         assert_eq!(contents.payloads.len(), original_payloads.len());

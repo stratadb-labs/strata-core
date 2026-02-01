@@ -102,7 +102,7 @@ fn delete_branch() {
     assert!(branch_index.exists("test_branch").unwrap());
 
     branch_index.delete_branch("test_branch").unwrap();
-    assert!(! branch_index.exists("test_branch").unwrap());
+    assert!(!branch_index.exists("test_branch").unwrap());
 }
 
 // ============================================================================

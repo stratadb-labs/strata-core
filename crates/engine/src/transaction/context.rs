@@ -17,14 +17,14 @@
 //! - State cell CAS (compare-and-swap) support
 //! - JSON document operations via TransactionContext
 
-use crate::transaction_ops::TransactionOps;
 use crate::primitives::event::{EventLogMeta, HASH_VERSION_SHA256};
+use crate::transaction_ops::TransactionOps;
 use strata_concurrency::{JsonStoreExt, TransactionContext};
+use strata_core::types::{BranchId, Key, Namespace, TypeTag};
 use strata_core::{
-    EntityRef, Event, JsonPatch, JsonPath, JsonValue, MetadataFilter, BranchMetadata, BranchStatus,
+    BranchMetadata, BranchStatus, EntityRef, Event, JsonPatch, JsonPath, JsonValue, MetadataFilter,
     State, StrataError, Timestamp, Value, VectorEntry, VectorMatch, Version, Versioned,
 };
-use strata_core::types::{Key, Namespace, BranchId, TypeTag};
 
 /// Transaction wrapper that implements TransactionOps
 ///
@@ -271,12 +271,12 @@ impl<'a> TransactionOps for Transaction<'a> {
 
         // Write event to context as Value::String (matching EventLog primitive format)
         let event_key = self.event_key(sequence);
-        let event_json = serde_json::to_string(&event).map_err(|e| {
-            StrataError::Serialization {
-                message: e.to_string(),
-            }
+        let event_json = serde_json::to_string(&event).map_err(|e| StrataError::Serialization {
+            message: e.to_string(),
         })?;
-        self.ctx.put(event_key, Value::String(event_json)).map_err(StrataError::from)?;
+        self.ctx
+            .put(event_key, Value::String(event_json))
+            .map_err(StrataError::from)?;
 
         // Write EventLogMeta so EventLog::len() and other readers see the update after commit
         let meta_key = Key::new_event_meta(self.namespace.clone());
@@ -286,12 +286,12 @@ impl<'a> TransactionOps for Transaction<'a> {
             hash_version: HASH_VERSION_SHA256,
             streams: Default::default(),
         };
-        let meta_json = serde_json::to_string(&meta).map_err(|e| {
-            StrataError::Serialization {
-                message: e.to_string(),
-            }
+        let meta_json = serde_json::to_string(&meta).map_err(|e| StrataError::Serialization {
+            message: e.to_string(),
         })?;
-        self.ctx.put(meta_key, Value::String(meta_json)).map_err(StrataError::from)?;
+        self.ctx
+            .put(meta_key, Value::String(meta_json))
+            .map_err(StrataError::from)?;
 
         // Update TransactionContext event state for cross-Transaction continuity
         self.ctx.set_event_state(
@@ -311,20 +311,15 @@ impl<'a> TransactionOps for Transaction<'a> {
             let index = (sequence - self.base_sequence) as usize;
             if index < self.pending_events.len() {
                 let event = &self.pending_events[index];
-                return Ok(Some(Versioned::new(
-                    event.clone(),
-                    Version::seq(sequence),
-                )));
+                return Ok(Some(Versioned::new(event.clone(), Version::seq(sequence))));
             }
         }
 
         // Check if the event was written to ctx.write_set
         let event_key = self.event_key(sequence);
         if let Some(Value::String(s)) = self.ctx.write_set.get(&event_key) {
-            let event: Event = serde_json::from_str(s).map_err(|e| {
-                StrataError::Serialization {
-                    message: e.to_string(),
-                }
+            let event: Event = serde_json::from_str(s).map_err(|e| StrataError::Serialization {
+                message: e.to_string(),
             })?;
             return Ok(Some(Versioned::new(event, Version::seq(sequence))));
         }
@@ -361,15 +356,10 @@ impl<'a> TransactionOps for Transaction<'a> {
         // Check write set first (read-your-writes)
         // Uses Value::String matching StateCell primitive format
         if let Some(Value::String(s)) = self.ctx.write_set.get(&full_key) {
-            let state: State = serde_json::from_str(s).map_err(|e| {
-                StrataError::Serialization {
-                    message: e.to_string(),
-                }
+            let state: State = serde_json::from_str(s).map_err(|e| StrataError::Serialization {
+                message: e.to_string(),
             })?;
-            return Ok(Some(Versioned::new(
-                state.clone(),
-                state.version,
-            )));
+            return Ok(Some(Versioned::new(state.clone(), state.version)));
         }
 
         // Check delete set (uncommitted delete returns None)
@@ -398,13 +388,13 @@ impl<'a> TransactionOps for Transaction<'a> {
         let version = state.version;
 
         // Serialize as Value::String (matching StateCell primitive format)
-        let state_json = serde_json::to_string(&state).map_err(|e| {
-            StrataError::Serialization {
-                message: e.to_string(),
-            }
+        let state_json = serde_json::to_string(&state).map_err(|e| StrataError::Serialization {
+            message: e.to_string(),
         })?;
 
-        self.ctx.put(full_key, Value::String(state_json)).map_err(StrataError::from)?;
+        self.ctx
+            .put(full_key, Value::String(state_json))
+            .map_err(StrataError::from)?;
 
         Ok(version)
     }
@@ -419,10 +409,8 @@ impl<'a> TransactionOps for Transaction<'a> {
 
         // Read current state to get version (Value::String matching StateCell format)
         let current_state = if let Some(Value::String(s)) = self.ctx.write_set.get(&full_key) {
-            let state: State = serde_json::from_str(s).map_err(|e| {
-                StrataError::Serialization {
-                    message: e.to_string(),
-                }
+            let state: State = serde_json::from_str(s).map_err(|e| StrataError::Serialization {
+                message: e.to_string(),
             })?;
             Some(state)
         } else {
@@ -430,9 +418,8 @@ impl<'a> TransactionOps for Transaction<'a> {
         };
 
         // For CAS, state must exist
-        let current = current_state.ok_or_else(|| {
-            StrataError::not_found(EntityRef::state(self.branch_id(), name))
-        })?;
+        let current = current_state
+            .ok_or_else(|| StrataError::not_found(EntityRef::state(self.branch_id(), name)))?;
 
         // Check version matches
         if current.version != expected_version {
@@ -448,13 +435,14 @@ impl<'a> TransactionOps for Transaction<'a> {
         let new_state = State::with_version(value, new_version);
 
         // Serialize as Value::String (matching StateCell primitive format)
-        let state_json = serde_json::to_string(&new_state).map_err(|e| {
-            StrataError::Serialization {
+        let state_json =
+            serde_json::to_string(&new_state).map_err(|e| StrataError::Serialization {
                 message: e.to_string(),
-            }
-        })?;
+            })?;
 
-        self.ctx.put(full_key, Value::String(state_json)).map_err(StrataError::from)?;
+        self.ctx
+            .put(full_key, Value::String(state_json))
+            .map_err(StrataError::from)?;
 
         Ok(new_version)
     }
@@ -681,7 +669,12 @@ mod tests {
 
     fn create_test_namespace() -> Namespace {
         let branch_id = BranchId::new();
-        Namespace::new("tenant".to_string(), "app".to_string(), "agent".to_string(), branch_id)
+        Namespace::new(
+            "tenant".to_string(),
+            "app".to_string(),
+            "agent".to_string(),
+            branch_id,
+        )
     }
 
     fn create_test_context(ns: &Namespace) -> TransactionContext {
@@ -700,7 +693,9 @@ mod tests {
         let mut txn = Transaction::new(&mut ctx, ns.clone());
 
         // Put a value
-        let version = txn.kv_put("test_key", Value::String("test_value".to_string())).unwrap();
+        let version = txn
+            .kv_put("test_key", Value::String("test_value".to_string()))
+            .unwrap();
         assert!(version.as_u64() > 0);
 
         // Get the value back (read-your-writes)
@@ -717,7 +712,8 @@ mod tests {
         let mut txn = Transaction::new(&mut ctx, ns.clone());
 
         // Put then delete
-        txn.kv_put("test_key", Value::String("value".to_string())).unwrap();
+        txn.kv_put("test_key", Value::String("value".to_string()))
+            .unwrap();
         let existed = txn.kv_delete("test_key").unwrap();
         assert!(existed);
 
@@ -736,7 +732,8 @@ mod tests {
         assert!(!txn.kv_exists("missing").unwrap());
 
         // Put and check
-        txn.kv_put("present", Value::String("value".to_string())).unwrap();
+        txn.kv_put("present", Value::String("value".to_string()))
+            .unwrap();
         assert!(txn.kv_exists("present").unwrap());
     }
 
@@ -747,9 +744,12 @@ mod tests {
         let mut txn = Transaction::new(&mut ctx, ns.clone());
 
         // Add some keys
-        txn.kv_put("user:1", Value::String("alice".to_string())).unwrap();
-        txn.kv_put("user:2", Value::String("bob".to_string())).unwrap();
-        txn.kv_put("config:app", Value::String("settings".to_string())).unwrap();
+        txn.kv_put("user:1", Value::String("alice".to_string()))
+            .unwrap();
+        txn.kv_put("user:2", Value::String("bob".to_string()))
+            .unwrap();
+        txn.kv_put("config:app", Value::String("settings".to_string()))
+            .unwrap();
 
         // List all
         let all_keys = txn.kv_list(None).unwrap();
@@ -789,7 +789,9 @@ mod tests {
         let mut txn = Transaction::new(&mut ctx, ns.clone());
 
         // Append an event
-        let version = txn.event_append("user_created", Value::String("alice".to_string())).unwrap();
+        let version = txn
+            .event_append("user_created", Value::String("alice".to_string()))
+            .unwrap();
         assert_eq!(version, Version::seq(0));
 
         // Check event count
@@ -820,7 +822,8 @@ mod tests {
         let mut txn = Transaction::new(&mut ctx, ns.clone());
 
         // Append an event
-        txn.event_append("test_event", Value::String("payload".to_string())).unwrap();
+        txn.event_append("test_event", Value::String("payload".to_string()))
+            .unwrap();
 
         // Read it back
         let result = txn.event_read(0).unwrap();
@@ -829,7 +832,10 @@ mod tests {
         let versioned = result.unwrap();
         assert_eq!(versioned.value.sequence, 0);
         assert_eq!(versioned.value.event_type, "test_event");
-        assert_eq!(versioned.value.payload, Value::String("payload".to_string()));
+        assert_eq!(
+            versioned.value.payload,
+            Value::String("payload".to_string())
+        );
     }
 
     #[test]
@@ -870,7 +876,8 @@ mod tests {
 
         // Append several events
         for i in 0..5 {
-            txn.event_append(&format!("event_{}", i), Value::Int(i)).unwrap();
+            txn.event_append(&format!("event_{}", i), Value::Int(i))
+                .unwrap();
         }
 
         // Read a range
@@ -969,7 +976,9 @@ mod tests {
 
         // Initialize then CAS
         txn.state_init("counter", Value::Int(0)).unwrap();
-        let new_version = txn.state_cas("counter", Version::counter(1), Value::Int(1)).unwrap();
+        let new_version = txn
+            .state_cas("counter", Version::counter(1), Value::Int(1))
+            .unwrap();
         assert_eq!(new_version, Version::counter(2)); // Version incremented
 
         // Verify the value changed
@@ -990,7 +999,9 @@ mod tests {
 
         assert!(result.is_err());
         match result.unwrap_err() {
-            StrataError::VersionConflict { expected, actual, .. } => {
+            StrataError::VersionConflict {
+                expected, actual, ..
+            } => {
                 assert_eq!(expected, Version::counter(99));
                 assert_eq!(actual, Version::counter(1));
             }
@@ -1071,7 +1082,8 @@ mod tests {
 
         // Set a nested value
         let path: JsonPath = "user.age".parse().unwrap();
-        txn.json_set("doc", &path, serde_json::json!(25).into()).unwrap();
+        txn.json_set("doc", &path, serde_json::json!(25).into())
+            .unwrap();
 
         // Get the path value back
         let result = txn.json_get_path("doc", &path).unwrap();
@@ -1152,5 +1164,4 @@ mod tests {
         let result = txn.json_get_path("doc", &JsonPath::root()).unwrap();
         assert_eq!(result, Some(doc));
     }
-
 }

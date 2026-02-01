@@ -5,8 +5,8 @@
 //! These tests verify the Search command infrastructure works correctly,
 //! even when primitives return empty results.
 
-use crate::{Command, Executor, Output};
 use crate::Value;
+use crate::{Command, Executor, Output};
 use strata_engine::Database;
 
 fn create_executor() -> Executor {
@@ -100,10 +100,7 @@ fn test_search_with_primitive_filter() {
     match result {
         Ok(Output::SearchResults(hits)) => {
             // Should not find any data from event primitive
-            assert!(
-                hits.is_empty(),
-                "Should not find data in event primitive"
-            );
+            assert!(hits.is_empty(), "Should not find data in event primitive");
         }
         other => panic!("Expected SearchResults, got {:?}", other),
     }

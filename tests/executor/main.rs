@@ -9,10 +9,10 @@
 
 mod common;
 
-mod command_dispatch;
-mod session_transactions;
-mod strata_api;
-mod serialization;
-mod error_handling;
 mod adversarial;
 mod branch_invariants;
+mod command_dispatch;
+mod error_handling;
+mod serialization;
+mod session_transactions;
+mod strata_api;

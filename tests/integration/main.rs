@@ -10,7 +10,7 @@
 #[path = "../common/mod.rs"]
 mod common;
 
+mod branching;
 mod modes;
 mod primitives;
 mod scale;
-mod branching;

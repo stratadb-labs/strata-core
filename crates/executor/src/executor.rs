@@ -66,7 +66,10 @@ impl Executor {
                 version: env!("CARGO_PKG_VERSION").to_string(),
             }),
             Command::Info => {
-                let branch_count = self.primitives.branch.list_branches()
+                let branch_count = self
+                    .primitives
+                    .branch
+                    .list_branches()
                     .map(|ids| ids.len() as u64)
                     .unwrap_or(0);
                 Ok(Output::DatabaseInfo(crate::types::DatabaseInfo {
@@ -162,7 +165,11 @@ impl Executor {
             }
 
             // State commands (4 MVP)
-            Command::StateSet { branch, cell, value } => {
+            Command::StateSet {
+                branch,
+                cell,
+                value,
+            } => {
                 let branch = branch.expect("resolved by resolve_default_branch");
                 crate::handlers::state::state_set(&self.primitives, branch, cell, value)
             }
@@ -181,9 +188,19 @@ impl Executor {
                 value,
             } => {
                 let branch = branch.expect("resolved by resolve_default_branch");
-                crate::handlers::state::state_cas(&self.primitives, branch, cell, expected_counter, value)
+                crate::handlers::state::state_cas(
+                    &self.primitives,
+                    branch,
+                    cell,
+                    expected_counter,
+                    value,
+                )
             }
-            Command::StateInit { branch, cell, value } => {
+            Command::StateInit {
+                branch,
+                cell,
+                value,
+            } => {
                 let branch = branch.expect("resolved by resolve_default_branch");
                 crate::handlers::state::state_init(&self.primitives, branch, cell, value)
             }
@@ -258,7 +275,11 @@ impl Executor {
             }
             Command::VectorDeleteCollection { branch, collection } => {
                 let branch = branch.expect("resolved by resolve_default_branch");
-                crate::handlers::vector::vector_delete_collection(&self.primitives, branch, collection)
+                crate::handlers::vector::vector_delete_collection(
+                    &self.primitives,
+                    branch,
+                    collection,
+                )
             }
             Command::VectorListCollections { branch } => {
                 let branch = branch.expect("resolved by resolve_default_branch");
@@ -266,37 +287,40 @@ impl Executor {
             }
 
             // Branch commands (5 MVP)
-            Command::BranchCreate { branch_id, metadata } => {
-                crate::handlers::branch::branch_create(&self.primitives, branch_id, metadata)
+            Command::BranchCreate {
+                branch_id,
+                metadata,
+            } => crate::handlers::branch::branch_create(&self.primitives, branch_id, metadata),
+            Command::BranchGet { branch } => {
+                crate::handlers::branch::branch_get(&self.primitives, branch)
             }
-            Command::BranchGet { branch } => crate::handlers::branch::branch_get(&self.primitives, branch),
             Command::BranchList {
                 state,
                 limit,
                 offset,
             } => crate::handlers::branch::branch_list(&self.primitives, state, limit, offset),
-            Command::BranchExists { branch } => crate::handlers::branch::branch_exists(&self.primitives, branch),
-            Command::BranchDelete { branch } => crate::handlers::branch::branch_delete(&self.primitives, branch),
+            Command::BranchExists { branch } => {
+                crate::handlers::branch::branch_exists(&self.primitives, branch)
+            }
+            Command::BranchDelete { branch } => {
+                crate::handlers::branch::branch_delete(&self.primitives, branch)
+            }
 
             // Transaction commands - handled by Session, not Executor
             Command::TxnBegin { .. }
             | Command::TxnCommit
             | Command::TxnRollback
             | Command::TxnInfo
-            | Command::TxnIsActive => {
-                Err(Error::Internal {
-                    reason: "Transaction commands not yet implemented".to_string(),
-                })
-            }
+            | Command::TxnIsActive => Err(Error::Internal {
+                reason: "Transaction commands not yet implemented".to_string(),
+            }),
 
             // Retention commands - will be implemented in Phase 3
             Command::RetentionApply { .. }
             | Command::RetentionStats { .. }
-            | Command::RetentionPreview { .. } => {
-                Err(Error::Internal {
-                    reason: "Retention commands not yet implemented".to_string(),
-                })
-            }
+            | Command::RetentionPreview { .. } => Err(Error::Internal {
+                reason: "Retention commands not yet implemented".to_string(),
+            }),
 
             // Bundle commands
             Command::BranchExport { branch_id, path } => {
@@ -310,7 +334,12 @@ impl Executor {
             }
 
             // Intelligence commands
-            Command::Search { branch, query, k, primitives } => {
+            Command::Search {
+                branch,
+                query,
+                k,
+                primitives,
+            } => {
                 let branch = branch.expect("resolved by resolve_default_branch");
                 crate::handlers::search::search(&self.primitives, branch, query, k, primitives)
             }

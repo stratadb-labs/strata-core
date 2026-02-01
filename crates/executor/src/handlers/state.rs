@@ -16,11 +16,7 @@ use crate::types::BranchId;
 use crate::{Output, Result};
 
 /// Handle StateReadv command — get full version history for a state cell.
-pub fn state_readv(
-    p: &Arc<Primitives>,
-    branch: BranchId,
-    cell: String,
-) -> Result<Output> {
+pub fn state_readv(p: &Arc<Primitives>, branch: BranchId, cell: String) -> Result<Output> {
     let branch_id = bridge::to_core_branch_id(&branch)?;
     convert_result(bridge::validate_key(&cell))?;
     let result = convert_result(p.state.readv(&branch_id, &cell))?;
@@ -52,11 +48,7 @@ pub fn state_set(
 }
 
 /// Handle StateRead command.
-pub fn state_read(
-    p: &Arc<Primitives>,
-    branch: BranchId,
-    cell: String,
-) -> Result<Output> {
+pub fn state_read(p: &Arc<Primitives>, branch: BranchId, cell: String) -> Result<Output> {
     let branch_id = bridge::to_core_branch_id(&branch)?;
     convert_result(bridge::validate_key(&cell))?;
     let result = convert_result(p.state.read(&branch_id, &cell))?;
@@ -81,13 +73,20 @@ pub fn state_cas(
                 return Ok(Output::MaybeVersion(None));
             }
             match p.state.init(&branch_id, &cell, value) {
-                Ok(versioned) => Ok(Output::MaybeVersion(Some(bridge::extract_version(&versioned.version)))),
+                Ok(versioned) => Ok(Output::MaybeVersion(Some(bridge::extract_version(
+                    &versioned.version,
+                )))),
                 Err(_) => Ok(Output::MaybeVersion(None)),
             }
         }
         Some(expected) => {
-            match p.state.cas(&branch_id, &cell, Version::Counter(expected), value) {
-                Ok(versioned) => Ok(Output::MaybeVersion(Some(bridge::extract_version(&versioned.version)))),
+            match p
+                .state
+                .cas(&branch_id, &cell, Version::Counter(expected), value)
+            {
+                Ok(versioned) => Ok(Output::MaybeVersion(Some(bridge::extract_version(
+                    &versioned.version,
+                )))),
                 Err(_) => Ok(Output::MaybeVersion(None)),
             }
         }

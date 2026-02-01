@@ -2394,7 +2394,10 @@ mod tests {
         );
 
         let result = v.validate_depth();
-        assert!(result.is_err(), "Should fail validation when exceeding MAX_NESTING_DEPTH");
+        assert!(
+            result.is_err(),
+            "Should fail validation when exceeding MAX_NESTING_DEPTH"
+        );
 
         match result {
             Err(JsonLimitError::NestingTooDeep { depth: d, max }) => {

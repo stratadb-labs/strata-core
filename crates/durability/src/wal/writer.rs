@@ -3,10 +3,10 @@
 //! The writer handles appending WAL records to segments with proper
 //! durability guarantees based on the configured mode.
 
+use super::DurabilityMode;
 use crate::codec::StorageCodec;
 use crate::format::{WalRecord, WalSegment, SEGMENT_HEADER_SIZE};
 use crate::wal::config::WalConfig;
-use super::DurabilityMode;
 use std::path::{Path, PathBuf};
 use std::time::Instant;
 

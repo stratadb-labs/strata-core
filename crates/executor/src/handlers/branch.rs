@@ -128,11 +128,12 @@ pub fn branch_delete(p: &Arc<Primitives>, branch: BranchId) -> Result<Output> {
 /// Handle BranchExport command.
 pub fn branch_export(p: &Arc<Primitives>, branch_id: String, path: String) -> Result<Output> {
     let export_path = std::path::Path::new(&path);
-    let info = strata_engine::bundle::export_branch(&p.db, &branch_id, export_path).map_err(|e| {
-        Error::Io {
-            reason: format!("Export failed: {}", e),
-        }
-    })?;
+    let info =
+        strata_engine::bundle::export_branch(&p.db, &branch_id, export_path).map_err(|e| {
+            Error::Io {
+                reason: format!("Export failed: {}", e),
+            }
+        })?;
 
     Ok(Output::BranchExported(crate::types::BranchExportResult {
         branch_id: info.branch_id,
@@ -145,10 +146,8 @@ pub fn branch_export(p: &Arc<Primitives>, branch_id: String, path: String) -> Re
 /// Handle BranchImport command.
 pub fn branch_import(p: &Arc<Primitives>, path: String) -> Result<Output> {
     let import_path = std::path::Path::new(&path);
-    let info = strata_engine::bundle::import_branch(&p.db, import_path).map_err(|e| {
-        Error::Io {
-            reason: format!("Import failed: {}", e),
-        }
+    let info = strata_engine::bundle::import_branch(&p.db, import_path).map_err(|e| Error::Io {
+        reason: format!("Import failed: {}", e),
     })?;
 
     Ok(Output::BranchImported(crate::types::BranchImportResult {
@@ -161,18 +160,18 @@ pub fn branch_import(p: &Arc<Primitives>, path: String) -> Result<Output> {
 /// Handle BranchBundleValidate command.
 pub fn branch_bundle_validate(path: String) -> Result<Output> {
     let validate_path = std::path::Path::new(&path);
-    let info = strata_engine::bundle::validate_bundle(validate_path).map_err(|e| {
-        Error::Io {
-            reason: format!("Validation failed: {}", e),
-        }
+    let info = strata_engine::bundle::validate_bundle(validate_path).map_err(|e| Error::Io {
+        reason: format!("Validation failed: {}", e),
     })?;
 
-    Ok(Output::BundleValidated(crate::types::BundleValidateResult {
-        branch_id: info.branch_id,
-        format_version: info.format_version,
-        entry_count: info.entry_count,
-        checksums_valid: info.checksums_valid,
-    }))
+    Ok(Output::BundleValidated(
+        crate::types::BundleValidateResult {
+            branch_id: info.branch_id,
+            format_version: info.format_version,
+            entry_count: info.entry_count,
+            checksums_valid: info.checksums_valid,
+        },
+    ))
 }
 
 #[cfg(test)]

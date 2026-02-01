@@ -1,8 +1,8 @@
 //! Database operations: ping, info, flush, compact.
 
 use super::Strata;
-use crate::{Command, Error, Output, Result};
 use crate::types::*;
+use crate::{Command, Error, Output, Result};
 
 impl Strata {
     // =========================================================================

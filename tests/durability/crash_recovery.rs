@@ -12,7 +12,8 @@ fn truncated_wal_recovers_prefix() {
 
     let kv = test_db.kv();
     for i in 0..100 {
-        kv.put(&branch_id, &format!("k{}", i), Value::Int(i)).unwrap();
+        kv.put(&branch_id, &format!("k{}", i), Value::Int(i))
+            .unwrap();
     }
 
     // Truncate the WAL to simulate crash mid-write
@@ -28,11 +29,7 @@ fn truncated_wal_recovers_prefix() {
     let kv = test_db.kv();
     // Early keys are more likely to survive truncation
     let recovered = (0..100)
-        .filter(|i| {
-            kv.get(&branch_id, &format!("k{}", i))
-                .unwrap()
-                .is_some()
-        })
+        .filter(|i| kv.get(&branch_id, &format!("k{}", i)).unwrap().is_some())
         .count();
 
     // At minimum, some prefix should survive
@@ -50,7 +47,8 @@ fn corrupted_wal_tail_recovers_valid_prefix() {
 
     let kv = test_db.kv();
     for i in 0..50 {
-        kv.put(&branch_id, &format!("k{}", i), Value::Int(i)).unwrap();
+        kv.put(&branch_id, &format!("k{}", i), Value::Int(i))
+            .unwrap();
     }
 
     // Corrupt the tail of the WAL (simulates incomplete write)
@@ -75,7 +73,8 @@ fn completely_corrupted_wal_still_boots() {
     let branch_id = test_db.branch_id;
 
     let kv = test_db.kv();
-    kv.put(&branch_id, "before_corruption", Value::Int(1)).unwrap();
+    kv.put(&branch_id, "before_corruption", Value::Int(1))
+        .unwrap();
 
     // Completely trash the WAL file
     let wal_path = test_db.wal_path();
@@ -91,9 +90,14 @@ fn completely_corrupted_wal_still_boots() {
 
     // Should be functional for new writes
     let kv = test_db.kv();
-    kv.put(&branch_id, "after_corruption", Value::Int(2)).unwrap();
+    kv.put(&branch_id, "after_corruption", Value::Int(2))
+        .unwrap();
     let val = kv.get(&branch_id, "after_corruption").unwrap();
-    assert_eq!(val, Some(Value::Int(2)), "New writes should work after corrupted WAL recovery");
+    assert_eq!(
+        val,
+        Some(Value::Int(2)),
+        "New writes should work after corrupted WAL recovery"
+    );
 }
 
 #[test]
@@ -148,10 +152,13 @@ fn rapid_reopen_cycles_are_stable() {
     // All cycle keys should exist
     let kv = test_db.kv();
     for cycle in 0..5 {
-        let val = kv
-            .get(&branch_id, &format!("cycle_{}", cycle))
-            .unwrap();
-        assert_eq!(val, Some(Value::Int(cycle as i64)), "Key from cycle {} should survive rapid reopen", cycle);
+        let val = kv.get(&branch_id, &format!("cycle_{}", cycle)).unwrap();
+        assert_eq!(
+            val,
+            Some(Value::Int(cycle as i64)),
+            "Key from cycle {} should survive rapid reopen",
+            cycle
+        );
     }
 }
 

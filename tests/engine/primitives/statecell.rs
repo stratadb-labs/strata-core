@@ -16,7 +16,9 @@ fn init_creates_new_cell() {
     let test_db = TestDb::new();
     let state = test_db.state();
 
-    let result = state.init(&test_db.branch_id, "cell", Value::Int(42)).unwrap();
+    let result = state
+        .init(&test_db.branch_id, "cell", Value::Int(42))
+        .unwrap();
     assert!(result.version.as_u64() > 0);
 }
 
@@ -25,9 +27,13 @@ fn init_is_idempotent() {
     let test_db = TestDb::new();
     let state = test_db.state();
 
-    let v1 = state.init(&test_db.branch_id, "cell", Value::Int(1)).unwrap();
+    let v1 = state
+        .init(&test_db.branch_id, "cell", Value::Int(1))
+        .unwrap();
     // Second init should succeed idempotently, returning existing version
-    let v2 = state.init(&test_db.branch_id, "cell", Value::Int(2)).unwrap();
+    let v2 = state
+        .init(&test_db.branch_id, "cell", Value::Int(2))
+        .unwrap();
     assert_eq!(v1.version, v2.version);
 
     // Original value should be preserved (not overwritten)
@@ -49,7 +55,9 @@ fn read_returns_initialized_value() {
     let test_db = TestDb::new();
     let state = test_db.state();
 
-    state.init(&test_db.branch_id, "cell", Value::Int(42)).unwrap();
+    state
+        .init(&test_db.branch_id, "cell", Value::Int(42))
+        .unwrap();
 
     let result = state.read(&test_db.branch_id, "cell").unwrap();
     assert!(result.is_some());
@@ -64,7 +72,9 @@ fn exists_returns_correct_status() {
     // exists rewritten using read().is_some()
     assert!(state.read(&test_db.branch_id, "cell").unwrap().is_none());
 
-    state.init(&test_db.branch_id, "cell", Value::Int(1)).unwrap();
+    state
+        .init(&test_db.branch_id, "cell", Value::Int(1))
+        .unwrap();
     assert!(state.read(&test_db.branch_id, "cell").unwrap().is_some());
 }
 
@@ -91,7 +101,9 @@ fn cas_succeeds_with_correct_version() {
     let test_db = TestDb::new();
     let state = test_db.state();
 
-    state.init(&test_db.branch_id, "cell", Value::Int(1)).unwrap();
+    state
+        .init(&test_db.branch_id, "cell", Value::Int(1))
+        .unwrap();
 
     let current = state.readv(&test_db.branch_id, "cell").unwrap().unwrap();
     let version = current.version();
@@ -108,10 +120,17 @@ fn cas_fails_with_wrong_version() {
     let test_db = TestDb::new();
     let state = test_db.state();
 
-    state.init(&test_db.branch_id, "cell", Value::Int(1)).unwrap();
+    state
+        .init(&test_db.branch_id, "cell", Value::Int(1))
+        .unwrap();
 
     // Use wrong version
-    let result = state.cas(&test_db.branch_id, "cell", Version::counter(999999), Value::Int(2));
+    let result = state.cas(
+        &test_db.branch_id,
+        "cell",
+        Version::counter(999999),
+        Value::Int(2),
+    );
     assert!(result.is_err());
 
     // Value unchanged
@@ -124,7 +143,12 @@ fn cas_fails_on_nonexistent_cell() {
     let test_db = TestDb::new();
     let state = test_db.state();
 
-    let result = state.cas(&test_db.branch_id, "nonexistent", Version::counter(1), Value::Int(1));
+    let result = state.cas(
+        &test_db.branch_id,
+        "nonexistent",
+        Version::counter(1),
+        Value::Int(1),
+    );
     assert!(result.is_err());
 }
 
@@ -133,12 +157,24 @@ fn cas_version_increments() {
     let test_db = TestDb::new();
     let state = test_db.state();
 
-    state.init(&test_db.branch_id, "cell", Value::Int(1)).unwrap();
+    state
+        .init(&test_db.branch_id, "cell", Value::Int(1))
+        .unwrap();
 
-    let v1 = state.readv(&test_db.branch_id, "cell").unwrap().unwrap().version();
+    let v1 = state
+        .readv(&test_db.branch_id, "cell")
+        .unwrap()
+        .unwrap()
+        .version();
 
-    state.cas(&test_db.branch_id, "cell", v1, Value::Int(2)).unwrap();
-    let v2 = state.readv(&test_db.branch_id, "cell").unwrap().unwrap().version();
+    state
+        .cas(&test_db.branch_id, "cell", v1, Value::Int(2))
+        .unwrap();
+    let v2 = state
+        .readv(&test_db.branch_id, "cell")
+        .unwrap()
+        .unwrap()
+        .version();
 
     assert!(v2.as_u64() > v1.as_u64());
 }
@@ -164,10 +200,14 @@ fn set_overwrites_without_version_check() {
     let test_db = TestDb::new();
     let state = test_db.state();
 
-    state.init(&test_db.branch_id, "cell", Value::Int(1)).unwrap();
+    state
+        .init(&test_db.branch_id, "cell", Value::Int(1))
+        .unwrap();
 
     // Set doesn't care about version
-    state.set(&test_db.branch_id, "cell", Value::Int(100)).unwrap();
+    state
+        .set(&test_db.branch_id, "cell", Value::Int(100))
+        .unwrap();
 
     let current = state.read(&test_db.branch_id, "cell").unwrap().unwrap();
     assert_eq!(current, Value::Int(100));
@@ -226,28 +266,33 @@ fn concurrent_cas_exactly_one_wins() {
     let db = test_db.db.clone();
     let barrier = Arc::new(Barrier::new(4));
 
-    let handles: Vec<_> = (0..4).map(|_| {
-        let db = db.clone();
-        let success = success_count.clone();
-        let barrier = barrier.clone();
+    let handles: Vec<_> = (0..4)
+        .map(|_| {
+            let db = db.clone();
+            let success = success_count.clone();
+            let barrier = barrier.clone();
 
-        thread::spawn(move || {
-            let state = StateCell::new(db);
+            thread::spawn(move || {
+                let state = StateCell::new(db);
 
-            // Read the current version
-            let current = state.readv(&branch_id, "counter").unwrap().unwrap();
-            let version = current.version();
+                // Read the current version
+                let current = state.readv(&branch_id, "counter").unwrap().unwrap();
+                let version = current.version();
 
-            // Barrier: all threads have read the same version before any CAS.
-            // Without this, a thread could complete its CAS before others read,
-            // allowing them to see the updated version and CAS successfully.
-            barrier.wait();
+                // Barrier: all threads have read the same version before any CAS.
+                // Without this, a thread could complete its CAS before others read,
+                // allowing them to see the updated version and CAS successfully.
+                barrier.wait();
 
-            if state.cas(&branch_id, "counter", version, Value::Int(1)).is_ok() {
-                success.fetch_add(1, Ordering::SeqCst);
-            }
+                if state
+                    .cas(&branch_id, "counter", version, Value::Int(1))
+                    .is_ok()
+                {
+                    success.fetch_add(1, Ordering::SeqCst);
+                }
+            })
         })
-    }).collect();
+        .collect();
 
     for h in handles {
         h.join().unwrap();
@@ -270,7 +315,10 @@ fn empty_cell_name() {
 
     state.init(&test_db.branch_id, "", Value::Int(1)).unwrap();
     // exists rewritten using read().is_some()
-    assert_eq!(state.read(&test_db.branch_id, "").unwrap().unwrap(), Value::Int(1));
+    assert_eq!(
+        state.read(&test_db.branch_id, "").unwrap().unwrap(),
+        Value::Int(1)
+    );
 }
 
 #[test]
@@ -281,5 +329,8 @@ fn special_characters_in_name() {
     let name = "cell/with:special@chars";
     state.init(&test_db.branch_id, name, Value::Int(1)).unwrap();
     // exists rewritten using read().is_some()
-    assert_eq!(state.read(&test_db.branch_id, name).unwrap().unwrap(), Value::Int(1));
+    assert_eq!(
+        state.read(&test_db.branch_id, name).unwrap().unwrap(),
+        Value::Int(1)
+    );
 }

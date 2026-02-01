@@ -297,7 +297,12 @@ mod tests {
 
     #[test]
     fn test_branch_status_serialization_roundtrip() {
-        for status in [BranchStatus::Active, BranchStatus::Completed, BranchStatus::Orphaned, BranchStatus::NotFound] {
+        for status in [
+            BranchStatus::Active,
+            BranchStatus::Completed,
+            BranchStatus::Orphaned,
+            BranchStatus::NotFound,
+        ] {
             let json = serde_json::to_string(&status).unwrap();
             let restored: BranchStatus = serde_json::from_str(&json).unwrap();
             assert_eq!(status, restored);
@@ -339,7 +344,12 @@ mod tests {
     #[test]
     fn test_branch_status_hash_uniqueness() {
         use std::collections::HashSet;
-        let statuses = [BranchStatus::Active, BranchStatus::Completed, BranchStatus::Orphaned, BranchStatus::NotFound];
+        let statuses = [
+            BranchStatus::Active,
+            BranchStatus::Completed,
+            BranchStatus::Orphaned,
+            BranchStatus::NotFound,
+        ];
         let set: HashSet<BranchStatus> = statuses.iter().copied().collect();
         assert_eq!(set.len(), 4, "All BranchStatus variants must hash uniquely");
     }

@@ -76,7 +76,12 @@ pub trait StateCellExt {
     fn state_read(&mut self, name: &str) -> StrataResult<Option<Value>>;
 
     /// Compare-and-swap update, returns new version
-    fn state_cas(&mut self, name: &str, expected_version: Version, new_value: Value) -> StrataResult<Version>;
+    fn state_cas(
+        &mut self,
+        name: &str,
+        expected_version: Version,
+        new_value: Value,
+    ) -> StrataResult<Version>;
 
     /// Unconditional set, returns new version
     fn state_set(&mut self, name: &str, value: Value) -> StrataResult<Version>;
@@ -90,7 +95,12 @@ pub trait JsonStoreExt {
     fn json_get(&mut self, doc_id: &str, path: &JsonPath) -> StrataResult<Option<JsonValue>>;
 
     /// Set value at path in a document, returns new version
-    fn json_set(&mut self, doc_id: &str, path: &JsonPath, value: JsonValue) -> StrataResult<Version>;
+    fn json_set(
+        &mut self,
+        doc_id: &str,
+        path: &JsonPath,
+        value: JsonValue,
+    ) -> StrataResult<Version>;
 
     /// Create a new JSON document, returns version
     fn json_create(&mut self, doc_id: &str, value: JsonValue) -> StrataResult<Version>;

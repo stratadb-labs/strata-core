@@ -8,14 +8,12 @@
 //! - Cross-primitive txn: >1K ops/sec
 
 use criterion::{criterion_group, criterion_main, Criterion, Throughput};
+use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::Arc;
 use strata_core::types::BranchId;
 use strata_core::value::Value;
 use strata_engine::Database;
-use strata_engine::{
-    EventLog, EventLogExt, KVStore, KVStoreExt, StateCell, StateCellExt,
-};
-use std::sync::atomic::{AtomicU64, Ordering};
-use std::sync::Arc;
+use strata_engine::{EventLog, EventLogExt, KVStore, KVStoreExt, StateCell, StateCellExt};
 use tempfile::TempDir;
 
 fn setup_db() -> (Arc<Database>, TempDir, BranchId) {
@@ -127,7 +125,9 @@ fn bench_cross_primitive_transaction(c: &mut Criterion) {
 
     // Initialize state cell for the transaction
     let state_cell = StateCell::new(db.clone());
-    state_cell.init(&branch_id, "txn_cell", Value::Int(0)).unwrap();
+    state_cell
+        .init(&branch_id, "txn_cell", Value::Int(0))
+        .unwrap();
 
     let mut group = c.benchmark_group("cross_primitive");
     group.throughput(Throughput::Elements(1));
@@ -199,8 +199,12 @@ fn bench_kv_list(c: &mut Criterion) {
 
     // Pre-populate keys with prefix
     for i in 0..100 {
-        kv.put(&branch_id, &format!("prefix/key{}", i), Value::Int(i as i64))
-            .unwrap();
+        kv.put(
+            &branch_id,
+            &format!("prefix/key{}", i),
+            Value::Int(i as i64),
+        )
+        .unwrap();
     }
     for i in 0..100 {
         kv.put(&branch_id, &format!("other/key{}", i), Value::Int(i as i64))
