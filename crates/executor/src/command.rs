@@ -156,7 +156,6 @@ pub enum Command {
 
     // ==================== Event (4 MVP) ====================
     // MVP: append, read, read_by_type, len
-
     /// Append an event to the log.
     /// Returns: `Output::Version`
     EventAppend {
@@ -191,7 +190,6 @@ pub enum Command {
 
     // ==================== State (4 MVP) ====================
     // MVP: set, read, cas, init
-
     /// Set a state cell value (unconditional write).
     /// Returns: `Output::Version`
     StateSet {
@@ -238,7 +236,6 @@ pub enum Command {
 
     // ==================== Vector (7 MVP) ====================
     // MVP: upsert, get, delete, search, create_collection, delete_collection, list_collections
-
     /// Insert or update a vector.
     /// Returns: `Output::Version`
     VectorUpsert {
@@ -315,9 +312,7 @@ pub enum Command {
 
     /// Get branch info.
     /// Returns: `Output::BranchInfoVersioned` or `Output::Maybe(None)`
-    BranchGet {
-        branch: BranchId,
-    },
+    BranchGet { branch: BranchId },
 
     /// List all branches.
     /// Returns: `Output::BranchInfoList`
@@ -329,15 +324,11 @@ pub enum Command {
 
     /// Check if a branch exists.
     /// Returns: `Output::Bool`
-    BranchExists {
-        branch: BranchId,
-    },
+    BranchExists { branch: BranchId },
 
     /// Delete a branch and all its data (cascading delete).
     /// Returns: `Output::Unit`
-    BranchDelete {
-        branch: BranchId,
-    },
+    BranchDelete { branch: BranchId },
 
     // ==================== Transaction (5) ====================
     /// Begin a new transaction.
@@ -367,7 +358,6 @@ pub enum Command {
     // ==================== Retention (3) ====================
     // Note: Branch-level retention is handled via BranchSetRetention/BranchGetRetention
     // These are database-wide retention operations
-
     /// Apply retention policy (trigger garbage collection).
     /// Returns: `Output::RetentionResult`
     RetentionApply {
@@ -405,25 +395,17 @@ pub enum Command {
     // ==================== Bundle (3) ====================
     /// Export a branch to a .branchbundle.tar.zst archive.
     /// Returns: `Output::BranchExported`
-    BranchExport {
-        branch_id: String,
-        path: String,
-    },
+    BranchExport { branch_id: String, path: String },
 
     /// Import a branch from a .branchbundle.tar.zst archive.
     /// Returns: `Output::BranchImported`
-    BranchImport {
-        path: String,
-    },
+    BranchImport { path: String },
 
     /// Validate a .branchbundle.tar.zst archive without importing.
     /// Returns: `Output::BundleValidated`
-    BranchBundleValidate {
-        path: String,
-    },
+    BranchBundleValidate { path: String },
 
     // ==================== Intelligence (1) ====================
-
     /// Search across multiple primitives.
     /// Returns: `Output::SearchResults`
     Search {

@@ -4,7 +4,7 @@
 
 use crate::common::*;
 use strata_core::Value;
-use strata_executor::{Command, Error, DistanceMetric, BranchId};
+use strata_executor::{BranchId, Command, DistanceMetric, Error};
 
 // ============================================================================
 // Vector Errors
@@ -25,7 +25,10 @@ fn vector_upsert_to_nonexistent_collection_behavior() {
     // Note: Current behavior allows upsert to create collection implicitly
     // This is a design choice - documenting current behavior
     // If this changes to require explicit collection creation, update this test
-    assert!(result.is_ok(), "Vector upsert should implicitly create collection");
+    assert!(
+        result.is_ok(),
+        "Vector upsert should implicitly create collection"
+    );
 }
 
 #[test]
@@ -43,7 +46,11 @@ fn vector_search_in_nonexistent_collection_fails() {
 
     match result {
         Err(Error::CollectionNotFound { collection }) => {
-            assert!(collection.contains("nonexistent"), "Collection error should reference 'nonexistent', got: {}", collection);
+            assert!(
+                collection.contains("nonexistent"),
+                "Collection error should reference 'nonexistent', got: {}",
+                collection
+            );
         }
         other => panic!("Expected CollectionNotFound, got {:?}", other),
     }
@@ -53,12 +60,14 @@ fn vector_search_in_nonexistent_collection_fails() {
 fn vector_wrong_dimension_fails() {
     let executor = create_executor();
 
-    executor.execute(Command::VectorCreateCollection {
-        branch: None,
-        collection: "dim4".into(),
-        dimension: 4,
-        metric: DistanceMetric::Cosine,
-    }).unwrap();
+    executor
+        .execute(Command::VectorCreateCollection {
+            branch: None,
+            collection: "dim4".into(),
+            dimension: 4,
+            metric: DistanceMetric::Cosine,
+        })
+        .unwrap();
 
     // Try to insert wrong dimension
     let result = executor.execute(Command::VectorUpsert {
@@ -121,10 +130,12 @@ fn branch_get_nonexistent_returns_none() {
 fn branch_duplicate_id_fails() {
     let executor = create_executor();
 
-    executor.execute(Command::BranchCreate {
-        branch_id: Some("unique-branch".into()),
-        metadata: None,
-    }).unwrap();
+    executor
+        .execute(Command::BranchCreate {
+            branch_id: Some("unique-branch".into()),
+            metadata: None,
+        })
+        .unwrap();
 
     // Try to create another with same name
     let result = executor.execute(Command::BranchCreate {
@@ -134,10 +145,18 @@ fn branch_duplicate_id_fails() {
 
     match result {
         Err(Error::BranchExists { branch }) => {
-            assert!(branch.contains("unique-branch"), "BranchExists error should reference 'unique-branch', got: {}", branch);
+            assert!(
+                branch.contains("unique-branch"),
+                "BranchExists error should reference 'unique-branch', got: {}",
+                branch
+            );
         }
         Err(Error::InvalidInput { reason }) => {
-            assert!(reason.contains("unique-branch"), "InvalidInput error should reference 'unique-branch', got: {}", reason);
+            assert!(
+                reason.contains("unique-branch"),
+                "InvalidInput error should reference 'unique-branch', got: {}",
+                reason
+            );
         }
         other => panic!("Expected BranchExists or InvalidInput, got {:?}", other),
     }
@@ -151,10 +170,12 @@ fn branch_duplicate_id_fails() {
 fn transaction_already_active_error() {
     let mut session = create_session();
 
-    session.execute(Command::TxnBegin {
-        branch: None,
-        options: None,
-    }).unwrap();
+    session
+        .execute(Command::TxnBegin {
+            branch: None,
+            options: None,
+        })
+        .unwrap();
 
     let result = session.execute(Command::TxnBegin {
         branch: None,
@@ -223,11 +244,13 @@ fn event_append_non_object_fails() {
 fn json_get_nonexistent_returns_none() {
     let executor = create_executor();
 
-    let result = executor.execute(Command::JsonGet {
-        branch: None,
-        key: "nonexistent".into(),
-        path: "$".into(),
-    }).unwrap();
+    let result = executor
+        .execute(Command::JsonGet {
+            branch: None,
+            key: "nonexistent".into(),
+            path: "$".into(),
+        })
+        .unwrap();
 
     match result {
         strata_executor::Output::Maybe(None) => {}
@@ -265,15 +288,19 @@ fn concurrent_sessions_independent_transactions() {
     let mut session2 = strata_executor::Session::new(db.clone());
 
     // Both can start transactions
-    session1.execute(Command::TxnBegin {
-        branch: None,
-        options: None,
-    }).unwrap();
+    session1
+        .execute(Command::TxnBegin {
+            branch: None,
+            options: None,
+        })
+        .unwrap();
 
-    session2.execute(Command::TxnBegin {
-        branch: None,
-        options: None,
-    }).unwrap();
+    session2
+        .execute(Command::TxnBegin {
+            branch: None,
+            options: None,
+        })
+        .unwrap();
 
     // Both are in transaction
     assert!(session1.in_transaction());
@@ -295,10 +322,12 @@ fn concurrent_sessions_independent_transactions() {
 fn state_read_nonexistent_returns_none() {
     let executor = create_executor();
 
-    let result = executor.execute(Command::StateRead {
-        branch: None,
-        cell: "nonexistent".into(),
-    }).unwrap();
+    let result = executor
+        .execute(Command::StateRead {
+            branch: None,
+            cell: "nonexistent".into(),
+        })
+        .unwrap();
 
     match result {
         strata_executor::Output::Maybe(None) => {}

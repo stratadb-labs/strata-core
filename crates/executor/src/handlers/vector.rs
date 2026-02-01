@@ -7,21 +7,19 @@ use std::sync::Arc;
 use strata_core::{StrataError, Value};
 
 use crate::bridge::{
-    extract_version, from_engine_metric, is_internal_collection, to_core_branch_id, to_engine_filter,
-    to_engine_metric, validate_not_internal_collection, value_to_serde_json_public,
-    serde_json_to_value_public, Primitives,
+    extract_version, from_engine_metric, is_internal_collection, serde_json_to_value_public,
+    to_core_branch_id, to_engine_filter, to_engine_metric, validate_not_internal_collection,
+    value_to_serde_json_public, Primitives,
 };
 use crate::convert::convert_result;
 use crate::types::{
-    CollectionInfo, DistanceMetric, MetadataFilter, BranchId, VectorData,
-    VectorMatch, VersionedVectorData,
+    BranchId, CollectionInfo, DistanceMetric, MetadataFilter, VectorData, VectorMatch,
+    VersionedVectorData,
 };
 use crate::{Output, Result};
 
 /// Convert an engine `VectorResult<T>` to an executor `Result<T>`.
-fn convert_vector_result<T>(
-    r: std::result::Result<T, strata_engine::VectorError>,
-) -> Result<T> {
+fn convert_vector_result<T>(r: std::result::Result<T, strata_engine::VectorError>) -> Result<T> {
     convert_result(r.map_err(StrataError::from))
 }
 
@@ -80,9 +78,10 @@ pub fn vector_upsert(
 
     // Auto-create collection on first upsert (ignore AlreadyExists error)
     let dim = vector.len();
-    let config = convert_result(
-        strata_core::primitives::VectorConfig::new(dim, strata_engine::DistanceMetric::Cosine),
-    )?;
+    let config = convert_result(strata_core::primitives::VectorConfig::new(
+        dim,
+        strata_engine::DistanceMetric::Cosine,
+    ))?;
     // Try to create - if already exists, that's fine
     let _ = p.vector.create_collection(branch_id, &collection, config);
 
@@ -90,9 +89,13 @@ pub fn vector_upsert(
         .map(value_to_serde_json_public)
         .transpose()
         .map_err(|e| crate::Error::from(e))?;
-    let version = convert_vector_result(
-        p.vector.insert(branch_id, &collection, &key, &vector, json_metadata),
-    )?;
+    let version = convert_vector_result(p.vector.insert(
+        branch_id,
+        &collection,
+        &key,
+        &vector,
+        json_metadata,
+    ))?;
     Ok(Output::Version(extract_version(&version)))
 }
 
@@ -145,9 +148,13 @@ pub fn vector_search(
     convert_result(validate_not_internal_collection(&collection))?;
 
     let engine_filter = filter.as_ref().and_then(|f| to_engine_filter(f));
-    let matches = convert_vector_result(
-        p.vector.search(branch_id, &collection, &query, k as usize, engine_filter),
-    )?;
+    let matches = convert_vector_result(p.vector.search(
+        branch_id,
+        &collection,
+        &query,
+        k as usize,
+        engine_filter,
+    ))?;
 
     let results: Result<Vec<VectorMatch>> = matches.into_iter().map(to_vector_match).collect();
     Ok(Output::VectorMatches(results?))
@@ -164,9 +171,10 @@ pub fn vector_create_collection(
     let branch_id = to_core_branch_id(&branch)?;
     convert_result(validate_not_internal_collection(&collection))?;
 
-    let config = convert_result(
-        strata_core::primitives::VectorConfig::new(dimension as usize, to_engine_metric(metric)),
-    )?;
+    let config = convert_result(strata_core::primitives::VectorConfig::new(
+        dimension as usize,
+        to_engine_metric(metric),
+    ))?;
     let versioned =
         convert_vector_result(p.vector.create_collection(branch_id, &collection, config))?;
     Ok(Output::Version(extract_version(&versioned.version)))

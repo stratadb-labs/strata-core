@@ -6,6 +6,7 @@
 //! - CAS create (expected_version=0)
 //! - CAS not in read set
 
+use std::sync::Arc;
 use strata_concurrency::transaction::{CASOperation, TransactionContext};
 use strata_concurrency::validation::{validate_cas_set, validate_transaction, ConflictType};
 use strata_core::traits::Storage;
@@ -13,7 +14,6 @@ use strata_core::types::{Key, Namespace};
 use strata_core::value::Value;
 use strata_core::BranchId;
 use strata_storage::sharded::ShardedStore;
-use std::sync::Arc;
 
 fn create_test_key(branch_id: BranchId, name: &str) -> Key {
     let ns = Namespace::for_branch(branch_id);
@@ -32,7 +32,11 @@ fn cas_succeeds_when_version_matches() {
 
     // Initial value
     Storage::put(&*store, key.clone(), Value::Int(100), None).unwrap();
-    let version = Storage::get(&*store, &key).unwrap().unwrap().version.as_u64();
+    let version = Storage::get(&*store, &key)
+        .unwrap()
+        .unwrap()
+        .version
+        .as_u64();
 
     // CAS with correct version
     let cas_set = vec![CASOperation {
@@ -61,7 +65,10 @@ fn cas_create_succeeds_when_key_absent() {
     }];
 
     let result = validate_cas_set(&cas_set, &*store).unwrap();
-    assert!(result.is_valid(), "CAS create should succeed when key absent");
+    assert!(
+        result.is_valid(),
+        "CAS create should succeed when key absent"
+    );
 }
 
 // ============================================================================
@@ -79,7 +86,11 @@ fn cas_fails_when_version_stale() {
 
     // Update to version 2
     Storage::put(&*store, key.clone(), Value::Int(2), None).unwrap();
-    let current_version = Storage::get(&*store, &key).unwrap().unwrap().version.as_u64();
+    let current_version = Storage::get(&*store, &key)
+        .unwrap()
+        .unwrap()
+        .version
+        .as_u64();
 
     // CAS with stale version (1)
     let cas_set = vec![CASOperation {
@@ -132,7 +143,11 @@ fn cas_fails_when_key_deleted() {
 
     // Create and delete
     Storage::put(&*store, key.clone(), Value::Int(100), None).unwrap();
-    let version = Storage::get(&*store, &key).unwrap().unwrap().version.as_u64();
+    let version = Storage::get(&*store, &key)
+        .unwrap()
+        .unwrap()
+        .version
+        .as_u64();
     Storage::delete(&*store, &key).unwrap();
 
     // CAS with old version (before delete)
@@ -178,9 +193,17 @@ fn cas_validated_separately_from_reads() {
 
     // Setup
     Storage::put(&*store, read_key.clone(), Value::Int(1), None).unwrap();
-    let read_version = Storage::get(&*store, &read_key).unwrap().unwrap().version.as_u64();
+    let read_version = Storage::get(&*store, &read_key)
+        .unwrap()
+        .unwrap()
+        .version
+        .as_u64();
     Storage::put(&*store, cas_key.clone(), Value::Int(2), None).unwrap();
-    let cas_version = Storage::get(&*store, &cas_key).unwrap().unwrap().version.as_u64();
+    let cas_version = Storage::get(&*store, &cas_key)
+        .unwrap()
+        .unwrap()
+        .version
+        .as_u64();
 
     // Transaction reads one key, CAS on another
     let mut txn = TransactionContext::new(1, branch_id, 1);
@@ -199,8 +222,14 @@ fn cas_validated_separately_from_reads() {
     assert!(!result.is_valid());
 
     // Should have ReadWriteConflict, not CASConflict
-    assert!(result.conflicts.iter().any(|c| matches!(c, ConflictType::ReadWriteConflict { .. })));
-    assert!(!result.conflicts.iter().any(|c| matches!(c, ConflictType::CASConflict { .. })));
+    assert!(result
+        .conflicts
+        .iter()
+        .any(|c| matches!(c, ConflictType::ReadWriteConflict { .. })));
+    assert!(!result
+        .conflicts
+        .iter()
+        .any(|c| matches!(c, ConflictType::CASConflict { .. })));
 }
 
 // ============================================================================
@@ -217,7 +246,11 @@ fn multiple_cas_all_succeed() {
         .map(|i| {
             let key = create_test_key(branch_id, &format!("cas_{}", i));
             Storage::put(&*store, key.clone(), Value::Int(i), None).unwrap();
-            let v = Storage::get(&*store, &key).unwrap().unwrap().version.as_u64();
+            let v = Storage::get(&*store, &key)
+                .unwrap()
+                .unwrap()
+                .version
+                .as_u64();
             (key, v)
         })
         .collect();
@@ -248,14 +281,22 @@ fn multiple_cas_one_fails() {
     let key3 = create_test_key(branch_id, "cas_3");
 
     Storage::put(&*store, key1.clone(), Value::Int(1), None).unwrap();
-    let v1 = Storage::get(&*store, &key1).unwrap().unwrap().version.as_u64();
+    let v1 = Storage::get(&*store, &key1)
+        .unwrap()
+        .unwrap()
+        .version
+        .as_u64();
 
     Storage::put(&*store, key2.clone(), Value::Int(2), None).unwrap();
     // Update key2 to make its version stale
     Storage::put(&*store, key2.clone(), Value::Int(20), None).unwrap();
 
     Storage::put(&*store, key3.clone(), Value::Int(3), None).unwrap();
-    let v3 = Storage::get(&*store, &key3).unwrap().unwrap().version.as_u64();
+    let v3 = Storage::get(&*store, &key3)
+        .unwrap()
+        .unwrap()
+        .version
+        .as_u64();
 
     // CAS with key2's version being stale
     let cas_set = vec![
@@ -293,7 +334,11 @@ fn cas_in_full_transaction() {
 
     // Initial value
     Storage::put(&*store, key.clone(), Value::Int(100), None).unwrap();
-    let version = Storage::get(&*store, &key).unwrap().unwrap().version.as_u64();
+    let version = Storage::get(&*store, &key)
+        .unwrap()
+        .unwrap()
+        .version
+        .as_u64();
 
     // Transaction with CAS
     let mut txn = TransactionContext::new(1, branch_id, 1);
@@ -316,7 +361,11 @@ fn cas_with_read_of_same_key() {
 
     // Initial value
     Storage::put(&*store, key.clone(), Value::Int(100), None).unwrap();
-    let version = Storage::get(&*store, &key).unwrap().unwrap().version.as_u64();
+    let version = Storage::get(&*store, &key)
+        .unwrap()
+        .unwrap()
+        .version
+        .as_u64();
 
     // Transaction reads and CAS same key
     let mut txn = TransactionContext::new(1, branch_id, 1);

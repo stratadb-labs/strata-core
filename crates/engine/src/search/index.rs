@@ -19,8 +19,8 @@
 //! When enabled, search uses the index for candidate lookup.
 
 use super::tokenizer::tokenize;
-use dashmap::DashMap;
 use super::types::EntityRef;
+use dashmap::DashMap;
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
 use std::time::{Duration, Instant};

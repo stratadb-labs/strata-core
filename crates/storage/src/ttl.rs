@@ -6,8 +6,8 @@
 //! - find_expired() returns all keys expired before a given timestamp
 //! - O(expired count) instead of O(total data)
 
-use strata_core::{Key, Timestamp};
 use std::collections::{BTreeMap, HashSet};
+use strata_core::{Key, Timestamp};
 
 /// TTL index: expiry_timestamp → Keys
 ///
@@ -99,7 +99,7 @@ impl TTLIndex {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use strata_core::{Namespace, BranchId};
+    use strata_core::{BranchId, Namespace};
 
     /// Helper to create a test key
     fn test_key(suffix: &str) -> Key {

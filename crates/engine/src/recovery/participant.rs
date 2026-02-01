@@ -29,8 +29,8 @@
 //! register_recovery_participant(RecoveryParticipant::new("vector", recover_vector_state));
 //! ```
 
-use strata_core::StrataResult;
 use parking_lot::RwLock;
+use strata_core::StrataResult;
 use tracing::info;
 
 /// Function signature for primitive recovery
@@ -131,12 +131,13 @@ pub fn recovery_registry_count() -> usize {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use parking_lot::Mutex;
     use std::sync::atomic::{AtomicUsize, Ordering};
     use std::sync::Arc;
-    use parking_lot::Mutex;
 
     // Use a mutex to serialize tests that modify the global registry
-    static TEST_LOCK: once_cell::sync::Lazy<Mutex<()>> = once_cell::sync::Lazy::new(|| Mutex::new(()));
+    static TEST_LOCK: once_cell::sync::Lazy<Mutex<()>> =
+        once_cell::sync::Lazy::new(|| Mutex::new(()));
 
     // Mock recovery function that succeeds
     fn mock_recovery_success(_db: &crate::database::Database) -> StrataResult<()> {
@@ -194,7 +195,10 @@ mod tests {
         assert_eq!(recovery_registry_count(), 1);
 
         // Different name should work
-        register_recovery_participant(RecoveryParticipant::new("other_name", mock_recovery_success));
+        register_recovery_participant(RecoveryParticipant::new(
+            "other_name",
+            mock_recovery_success,
+        ));
         assert_eq!(recovery_registry_count(), 2);
     }
 
@@ -202,7 +206,10 @@ mod tests {
     fn test_clear_recovery_registry() {
         let _lock = TEST_LOCK.lock();
 
-        register_recovery_participant(RecoveryParticipant::new("clear_test", mock_recovery_success));
+        register_recovery_participant(RecoveryParticipant::new(
+            "clear_test",
+            mock_recovery_success,
+        ));
         assert!(recovery_registry_count() > 0);
 
         clear_recovery_registry();
@@ -248,7 +255,11 @@ mod tests {
 
         let result = recover_all_participants(&db);
         assert!(result.is_ok());
-        assert_eq!(CALL_COUNT.load(Ordering::SeqCst), 1, "Recovery should be called exactly once");
+        assert_eq!(
+            CALL_COUNT.load(Ordering::SeqCst),
+            1,
+            "Recovery should be called exactly once"
+        );
 
         db.shutdown().unwrap();
     }
@@ -291,7 +302,11 @@ mod tests {
         assert!(result.is_ok());
 
         let order = ORDER.lock();
-        assert_eq!(order.as_slice(), &["first", "second", "third"], "Should call in registration order");
+        assert_eq!(
+            order.as_slice(),
+            &["first", "second", "third"],
+            "Should call in registration order"
+        );
 
         db.shutdown().unwrap();
     }
@@ -337,7 +352,10 @@ mod tests {
         assert_eq!(called.len(), 2, "Should stop after failure");
         assert!(called.contains(&"success"));
         assert!(called.contains(&"failing"));
-        assert!(!called.contains(&"should_not_run"), "Should not call participant after failure");
+        assert!(
+            !called.contains(&"should_not_run"),
+            "Should not call participant after failure"
+        );
 
         db.shutdown().unwrap();
     }
@@ -368,7 +386,10 @@ mod tests {
                         8 => "concurrent_8",
                         _ => "concurrent_9",
                     };
-                    register_recovery_participant(RecoveryParticipant::new(name, mock_recovery_success));
+                    register_recovery_participant(RecoveryParticipant::new(
+                        name,
+                        mock_recovery_success,
+                    ));
                 })
             })
             .collect();
@@ -377,7 +398,11 @@ mod tests {
             handle.join().unwrap();
         }
 
-        assert_eq!(recovery_registry_count(), 10, "All 10 unique participants should be registered");
+        assert_eq!(
+            recovery_registry_count(),
+            10,
+            "All 10 unique participants should be registered"
+        );
     }
 
     #[test]
@@ -394,7 +419,10 @@ mod tests {
                 thread::spawn(move || {
                     barrier.wait();
                     // All threads try same name
-                    register_recovery_participant(RecoveryParticipant::new("same_name", mock_recovery_success));
+                    register_recovery_participant(RecoveryParticipant::new(
+                        "same_name",
+                        mock_recovery_success,
+                    ));
                 })
             })
             .collect();
@@ -403,6 +431,10 @@ mod tests {
             handle.join().unwrap();
         }
 
-        assert_eq!(recovery_registry_count(), 1, "Only one should be registered despite concurrent attempts");
+        assert_eq!(
+            recovery_registry_count(),
+            1,
+            "Only one should be registered despite concurrent attempts"
+        );
     }
 }

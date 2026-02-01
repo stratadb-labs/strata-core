@@ -2,13 +2,13 @@
 //!
 //! Tests that different branches are properly isolated in the storage layer.
 
+use std::sync::Arc;
+use std::thread;
 use strata_core::traits::Storage;
 use strata_core::types::{Key, Namespace};
 use strata_core::value::Value;
 use strata_core::BranchId;
 use strata_storage::sharded::ShardedStore;
-use std::sync::Arc;
-use std::thread;
 
 fn create_test_key(branch_id: BranchId, name: &str) -> Key {
     let ns = Namespace::for_branch(branch_id);

@@ -62,7 +62,9 @@ impl WalReplayer {
 
     /// Read all WAL records
     pub fn read_all(&self) -> Result<WalReadResult, WalReplayError> {
-        self.reader.read_all(&self.wal_dir).map_err(WalReplayError::from)
+        self.reader
+            .read_all(&self.wal_dir)
+            .map_err(WalReplayError::from)
     }
 
     /// Replay WAL records after a given watermark

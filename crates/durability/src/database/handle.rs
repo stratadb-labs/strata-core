@@ -373,7 +373,9 @@ fn generate_uuid() -> [u8; 16] {
 }
 
 /// Clone a boxed codec
-fn clone_codec(codec: &dyn StorageCodec) -> Result<Box<dyn StorageCodec>, crate::codec::CodecError> {
+fn clone_codec(
+    codec: &dyn StorageCodec,
+) -> Result<Box<dyn StorageCodec>, crate::codec::CodecError> {
     get_codec(codec.codec_id())
 }
 

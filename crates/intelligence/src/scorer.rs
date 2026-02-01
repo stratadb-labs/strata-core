@@ -4,6 +4,4 @@
 //! `build_search_response()` can use BM25 scoring directly.
 //! This module re-exports for backward compatibility.
 
-pub use strata_engine::search::{
-    BM25LiteScorer, Scorer, ScorerContext, SearchDoc,
-};
+pub use strata_engine::search::{BM25LiteScorer, Scorer, ScorerContext, SearchDoc};

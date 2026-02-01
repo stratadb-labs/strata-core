@@ -6,19 +6,22 @@
 //! - Secondary indices: Replayed, not rebuilt
 //! - Derived keys (hashes): Stored, not recomputed
 
+use std::collections::HashMap;
+use std::path::PathBuf;
+use std::sync::Arc;
 use strata_core::contract::Version;
 use strata_core::types::BranchId;
 use strata_core::value::Value;
 use strata_engine::Database;
-use strata_engine::{EventLog, KVStore, BranchIndex, StateCell};
-use std::collections::HashMap;
-use std::path::PathBuf;
-use std::sync::Arc;
+use strata_engine::{BranchIndex, EventLog, KVStore, StateCell};
 use tempfile::TempDir;
 
 /// Helper to create an object payload with a string value
 fn string_payload(s: &str) -> Value {
-    Value::Object(HashMap::from([("data".to_string(), Value::String(s.into()))]))
+    Value::Object(HashMap::from([(
+        "data".to_string(),
+        Value::String(s.into()),
+    )]))
 }
 
 /// Helper to create an object payload with an integer value
@@ -213,9 +216,33 @@ fn test_event_log_multiple_events_survives_recovery() {
 
     // Individual reads work (read_range removed in MVP)
     assert_eq!(event_log.len(&branch_id).unwrap(), 5);
-    assert_eq!(event_log.read(&branch_id, 1).unwrap().unwrap().value.sequence, 1);
-    assert_eq!(event_log.read(&branch_id, 2).unwrap().unwrap().value.sequence, 2);
-    assert_eq!(event_log.read(&branch_id, 3).unwrap().unwrap().value.sequence, 3);
+    assert_eq!(
+        event_log
+            .read(&branch_id, 1)
+            .unwrap()
+            .unwrap()
+            .value
+            .sequence,
+        1
+    );
+    assert_eq!(
+        event_log
+            .read(&branch_id, 2)
+            .unwrap()
+            .unwrap()
+            .value
+            .sequence,
+        2
+    );
+    assert_eq!(
+        event_log
+            .read(&branch_id, 3)
+            .unwrap()
+            .unwrap()
+            .value
+            .sequence,
+        3
+    );
 }
 
 /// Test StateCell version survives recovery
@@ -227,7 +254,9 @@ fn test_state_cell_version_survives_recovery() {
     let state_cell = StateCell::new(db.clone());
 
     // Init creates version 1
-    state_cell.init(&branch_id, "counter", Value::Int(0)).unwrap();
+    state_cell
+        .init(&branch_id, "counter", Value::Int(0))
+        .unwrap();
 
     // CAS increments version
     state_cell
@@ -526,7 +555,12 @@ fn test_all_primitives_recover_together() {
             .init(&branch_id, "full_state", Value::Int(0))
             .unwrap();
         state_cell
-            .cas(&branch_id, "full_state", Version::counter(1), Value::Int(100))
+            .cas(
+                &branch_id,
+                "full_state",
+                Version::counter(1),
+                Value::Int(100),
+            )
             .unwrap();
     }
 

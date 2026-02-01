@@ -3,8 +3,8 @@
 //! MVP: append, read, read_by_type, len
 
 use super::Strata;
-use crate::{Command, Error, Output, Result, Value};
 use crate::types::*;
+use crate::{Command, Error, Output, Result, Value};
 
 impl Strata {
     // =========================================================================

@@ -1,8 +1,8 @@
 //! Primitive API tests
 
-mod kv;
-mod eventlog;
-mod statecell;
-mod jsonstore;
-mod vectorstore;
 mod branchindex;
+mod eventlog;
+mod jsonstore;
+mod kv;
+mod statecell;
+mod vectorstore;

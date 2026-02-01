@@ -27,17 +27,17 @@
 //!
 //! ## BranchHandle Pattern Implementation
 
+use crate::database::Database;
 use crate::primitives::extensions::{
     EventLogExt, JsonStoreExt, KVStoreExt, StateCellExt, VectorStoreExt,
 };
+use std::sync::Arc;
 use strata_concurrency::TransactionContext;
 use strata_core::contract::{Timestamp, Version, Versioned};
-use strata_core::StrataResult;
 use strata_core::primitives::json::{JsonPath, JsonValue};
 use strata_core::types::BranchId;
 use strata_core::value::Value;
-use crate::database::Database;
-use std::sync::Arc;
+use strata_core::StrataResult;
 
 // ============================================================================
 // BranchHandle
@@ -169,9 +169,7 @@ impl KvHandle {
         self.db.transaction(self.branch_id, |txn| {
             let value = txn.kv_get(key)?;
             // Wrap in Versioned - since KVStoreExt returns Option<Value> not Versioned
-            Ok(value.map(|v| {
-                Versioned::with_timestamp(v, Version::counter(0), Timestamp::now())
-            }))
+            Ok(value.map(|v| Versioned::with_timestamp(v, Version::counter(0), Timestamp::now())))
         })
     }
 
@@ -216,16 +214,14 @@ impl EventHandle {
 
     /// Append an event and return sequence number
     pub fn append(&self, event_type: &str, payload: Value) -> StrataResult<u64> {
-        self.db.transaction(self.branch_id, |txn| {
-            txn.event_append(event_type, payload)
-        })
+        self.db
+            .transaction(self.branch_id, |txn| txn.event_append(event_type, payload))
     }
 
     /// Read an event by sequence number
     pub fn read(&self, sequence: u64) -> StrataResult<Option<Value>> {
-        self.db.transaction(self.branch_id, |txn| {
-            txn.event_read(sequence)
-        })
+        self.db
+            .transaction(self.branch_id, |txn| txn.event_read(sequence))
     }
 }
 
@@ -248,13 +244,17 @@ impl StateHandle {
 
     /// Read current state
     pub fn read(&self, name: &str) -> StrataResult<Option<Value>> {
-        self.db.transaction(self.branch_id, |txn| {
-            txn.state_read(name)
-        })
+        self.db
+            .transaction(self.branch_id, |txn| txn.state_read(name))
     }
 
     /// Compare-and-swap update
-    pub fn cas(&self, name: &str, expected_version: Version, new_value: Value) -> StrataResult<Version> {
+    pub fn cas(
+        &self,
+        name: &str,
+        expected_version: Version,
+        new_value: Value,
+    ) -> StrataResult<Version> {
         self.db.transaction(self.branch_id, |txn| {
             txn.state_cas(name, expected_version, new_value)
         })
@@ -262,9 +262,8 @@ impl StateHandle {
 
     /// Unconditional set
     pub fn set(&self, name: &str, value: Value) -> StrataResult<Version> {
-        self.db.transaction(self.branch_id, |txn| {
-            txn.state_set(name, value)
-        })
+        self.db
+            .transaction(self.branch_id, |txn| txn.state_set(name, value))
     }
 }
 
@@ -287,23 +286,20 @@ impl JsonHandle {
 
     /// Create a new JSON document
     pub fn create(&self, doc_id: &str, value: JsonValue) -> StrataResult<Version> {
-        self.db.transaction(self.branch_id, |txn| {
-            txn.json_create(doc_id, value)
-        })
+        self.db
+            .transaction(self.branch_id, |txn| txn.json_create(doc_id, value))
     }
 
     /// Get value at path in a document
     pub fn get(&self, doc_id: &str, path: &JsonPath) -> StrataResult<Option<JsonValue>> {
-        self.db.transaction(self.branch_id, |txn| {
-            txn.json_get(doc_id, path)
-        })
+        self.db
+            .transaction(self.branch_id, |txn| txn.json_get(doc_id, path))
     }
 
     /// Set value at path in a document
     pub fn set(&self, doc_id: &str, path: &JsonPath, value: JsonValue) -> StrataResult<Version> {
-        self.db.transaction(self.branch_id, |txn| {
-            txn.json_set(doc_id, path, value)
-        })
+        self.db
+            .transaction(self.branch_id, |txn| txn.json_set(doc_id, path, value))
     }
 }
 
@@ -332,9 +328,8 @@ impl VectorHandle {
     /// Note: This operation is not supported in cross-primitive transactions.
     /// Use VectorStore::get() directly for vector operations.
     pub fn get(&self, collection: &str, key: &str) -> StrataResult<Option<Vec<f32>>> {
-        self.db.transaction(self.branch_id, |txn| {
-            txn.vector_get(collection, key)
-        })
+        self.db
+            .transaction(self.branch_id, |txn| txn.vector_get(collection, key))
     }
 
     /// Insert a vector

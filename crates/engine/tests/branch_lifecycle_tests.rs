@@ -8,10 +8,12 @@
 //! - Orphaned branch detection
 
 use strata_core::branch_types::{BranchMetadata, BranchStatus};
-use strata_core::types::{Key, Namespace, BranchId};
+use strata_core::types::{BranchId, Key, Namespace};
 use strata_core::value::Value;
 use strata_core::PrimitiveType;
-use strata_engine::{diff_views, DiffEntry, ReadOnlyView, BranchDiff, ReplayBranchIndex as BranchIndex};
+use strata_engine::{
+    diff_views, BranchDiff, DiffEntry, ReadOnlyView, ReplayBranchIndex as BranchIndex,
+};
 
 // ============================================================================
 // BranchStatus and BranchMetadata Tests
@@ -436,8 +438,14 @@ fn test_orphaned_branch_detection_mixed_states() {
     completed_meta.complete(2000, 100);
     index.insert(completed_branch, completed_meta);
 
-    index.insert(active_branch1, BranchMetadata::new(active_branch1, 3000, 200));
-    index.insert(active_branch2, BranchMetadata::new(active_branch2, 4000, 300));
+    index.insert(
+        active_branch1,
+        BranchMetadata::new(active_branch1, 3000, 200),
+    );
+    index.insert(
+        active_branch2,
+        BranchMetadata::new(active_branch2, 4000, 300),
+    );
 
     // Only active branches should be detected
     let active = index.find_active();

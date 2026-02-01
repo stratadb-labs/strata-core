@@ -15,28 +15,28 @@
 #![warn(clippy::all)]
 
 // Module declarations
+pub mod branch_types; // Branch lifecycle types
 pub mod contract; // contract types
 pub mod error;
 pub mod primitive_ext; // extension trait for primitives to integrate with storage/durability
 pub mod primitives; // primitive types (Event, State, Vector, JSON types)
-pub mod branch_types; // Branch lifecycle types
 pub mod search_types; // search types (EntityRef/PrimitiveType re-exports only; types moved to engine)
 pub mod traits;
 pub mod types;
 pub mod value;
 
 // Re-export commonly used types and traits
+pub use branch_types::{BranchEventOffsets, BranchMetadata, BranchStatus};
 pub use error::{
     ConstraintReason, DetailValue, ErrorCode, ErrorDetails, StrataError, StrataResult,
 };
-pub use branch_types::{BranchEventOffsets, BranchMetadata, BranchStatus};
 pub use traits::{SnapshotView, Storage};
-pub use types::{Key, Namespace, BranchId, TypeTag};
+pub use types::{BranchId, Key, Namespace, TypeTag};
 pub use value::Value;
 
 // Re-export contract types at crate root for convenience
 pub use contract::{
-    EntityRef, PrimitiveType, BranchName, BranchNameError, Timestamp, Version, Versioned,
+    BranchName, BranchNameError, EntityRef, PrimitiveType, Timestamp, Version, Versioned,
     VersionedHistory, VersionedValue, MAX_BRANCH_NAME_LENGTH,
 };
 
@@ -48,16 +48,38 @@ pub use primitive_ext::{
 
 // Re-export primitive types at crate root for convenience
 pub use primitives::{
-    // Event types
-    ChainVerification, Event,
     // JSON types
-    apply_patches, delete_at_path, get_at_path, get_at_path_mut, merge_patch, set_at_path,
-    JsonLimitError, JsonPatch, JsonPath, JsonPathError, JsonValue, PathParseError, PathSegment,
-    MAX_ARRAY_SIZE, MAX_DOCUMENT_SIZE, MAX_NESTING_DEPTH, MAX_PATH_LENGTH,
+    apply_patches,
+    delete_at_path,
+    get_at_path,
+    get_at_path_mut,
+    merge_patch,
+    set_at_path,
+    // Event types
+    ChainVerification,
+    // Vector types
+    CollectionId,
+    CollectionInfo,
+    DistanceMetric,
+    Event,
+    JsonLimitError,
+    JsonPatch,
+    JsonPath,
+    JsonPathError,
+    JsonScalar,
+    JsonValue,
+    MetadataFilter,
+    PathParseError,
+    PathSegment,
     // State types
     State,
-    // Vector types
-    CollectionId, CollectionInfo, DistanceMetric, JsonScalar, MetadataFilter, StorageDtype,
-    VectorConfig, VectorEntry, VectorId, VectorMatch,
+    StorageDtype,
+    VectorConfig,
+    VectorEntry,
+    VectorId,
+    VectorMatch,
+    MAX_ARRAY_SIZE,
+    MAX_DOCUMENT_SIZE,
+    MAX_NESTING_DEPTH,
+    MAX_PATH_LENGTH,
 };
-

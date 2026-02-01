@@ -104,7 +104,8 @@ impl SnapshotWriter {
 
         // Write sections
         for section in &sections {
-            let section_header = SectionHeader::new(section.primitive_type, section.data.len() as u64);
+            let section_header =
+                SectionHeader::new(section.primitive_type, section.data.len() as u64);
             let section_header_bytes = section_header.to_bytes();
             file.write_all(&section_header_bytes)?;
             file.write_all(&section.data)?;

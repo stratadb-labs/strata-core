@@ -5,8 +5,8 @@
 //! - BranchIndex: Maps BranchId → Set<Key> for fast branch-scoped queries (critical for replay)
 //! - TypeIndex: Maps TypeTag → Set<Key> for primitive-specific queries
 
-use strata_core::{Key, BranchId, TypeTag};
 use std::collections::{HashMap, HashSet};
+use strata_core::{BranchId, Key, TypeTag};
 
 /// Secondary index: BranchId → Keys
 ///

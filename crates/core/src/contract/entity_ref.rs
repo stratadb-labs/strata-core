@@ -116,7 +116,10 @@ impl EntityRef {
 
     /// Create an event entity reference
     pub fn event(branch_id: BranchId, sequence: u64) -> Self {
-        EntityRef::Event { branch_id, sequence }
+        EntityRef::Event {
+            branch_id,
+            sequence,
+        }
     }
 
     /// Create a state cell entity reference
@@ -134,11 +137,18 @@ impl EntityRef {
 
     /// Create a JSON document entity reference
     pub fn json(branch_id: BranchId, doc_id: impl Into<String>) -> Self {
-        EntityRef::Json { branch_id, doc_id: doc_id.into() }
+        EntityRef::Json {
+            branch_id,
+            doc_id: doc_id.into(),
+        }
     }
 
     /// Create a vector entity reference
-    pub fn vector(branch_id: BranchId, collection: impl Into<String>, key: impl Into<String>) -> Self {
+    pub fn vector(
+        branch_id: BranchId,
+        collection: impl Into<String>,
+        key: impl Into<String>,
+    ) -> Self {
         EntityRef::Vector {
             branch_id,
             collection: collection.into(),
@@ -263,7 +273,10 @@ impl std::fmt::Display for EntityRef {
             EntityRef::Kv { branch_id, key } => {
                 write!(f, "kv://{}/{}", branch_id, key)
             }
-            EntityRef::Event { branch_id, sequence } => {
+            EntityRef::Event {
+                branch_id,
+                sequence,
+            } => {
                 write!(f, "event://{}/{}", branch_id, sequence)
             }
             EntityRef::State { branch_id, name } => {
@@ -429,7 +442,6 @@ mod tests {
         }
     }
 
-
     #[test]
     fn test_wrong_extraction_returns_none() {
         let branch_id = BranchId::new();
@@ -482,9 +494,20 @@ mod tests {
         ];
 
         for r in &refs {
-            let checks = [r.is_kv(), r.is_event(), r.is_state(), r.is_branch(), r.is_json(), r.is_vector()];
-            assert_eq!(checks.iter().filter(|&&b| b).count(), 1,
-                "Exactly one type check should be true for {:?}", r);
+            let checks = [
+                r.is_kv(),
+                r.is_event(),
+                r.is_state(),
+                r.is_branch(),
+                r.is_json(),
+                r.is_vector(),
+            ];
+            assert_eq!(
+                checks.iter().filter(|&&b| b).count(),
+                1,
+                "Exactly one type check should be true for {:?}",
+                r
+            );
         }
     }
 
@@ -516,7 +539,10 @@ mod tests {
         let branch_str = format!("{}", branch_id);
 
         let kv = EntityRef::kv(branch_id, "mykey");
-        assert!(format!("{}", kv).contains(&branch_str), "Display should contain branch_id");
+        assert!(
+            format!("{}", kv).contains(&branch_str),
+            "Display should contain branch_id"
+        );
 
         let event = EntityRef::event(branch_id, 42);
         let display = format!("{}", event);
@@ -540,7 +566,10 @@ mod tests {
     fn test_entity_ref_vector_location_with_special_chars() {
         let branch_id = BranchId::new();
         let v = EntityRef::vector(branch_id, "col/with/slash", "key with spaces");
-        assert_eq!(v.vector_location(), Some(("col/with/slash", "key with spaces")));
+        assert_eq!(
+            v.vector_location(),
+            Some(("col/with/slash", "key with spaces"))
+        );
     }
 
     #[test]

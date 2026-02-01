@@ -4,7 +4,7 @@
 // surface exposes equivalent functionality.
 
 /*
-//! Vector Transaction and Durability Tests 
+//! Vector Transaction and Durability Tests
 //!
 //! Tests that verify vector operations are durable and survive crash/recovery.
 //! These tests validate:

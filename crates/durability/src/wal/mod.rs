@@ -5,8 +5,8 @@
 //! - `writer`: Segmented WAL writer (WalWriter)
 //! - `reader`: Segmented WAL reader (WalReader)
 
-pub mod mode;
 pub mod config;
+pub mod mode;
 pub mod reader;
 pub mod writer;
 

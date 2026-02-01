@@ -31,12 +31,12 @@ use crate::payload::TransactionPayload;
 use crate::{CommitError, TransactionContext, TransactionStatus};
 use dashmap::DashMap;
 use parking_lot::Mutex;
+use std::sync::atomic::{AtomicU64, Ordering};
 use strata_core::traits::Storage;
 use strata_core::types::BranchId;
 use strata_durability::format::WalRecord;
 use strata_durability::now_micros;
 use strata_durability::wal::WalWriter;
-use std::sync::atomic::{AtomicU64, Ordering};
 
 /// Manages transaction lifecycle and atomic commits
 ///
@@ -185,7 +185,10 @@ impl TransactionManager {
         // This ensures no other transaction on the same branch can modify storage between
         // our validation check and our apply_writes call.
         // Transactions on different branches can proceed in parallel.
-        let branch_lock = self.commit_locks.entry(txn.branch_id).or_insert_with(|| Mutex::new(()));
+        let branch_lock = self
+            .commit_locks
+            .entry(txn.branch_id)
+            .or_insert_with(|| Mutex::new(()));
         let _commit_guard = branch_lock.lock();
 
         // Step 1: Validate and mark committed (in-memory)
@@ -246,7 +249,8 @@ impl TransactionManager {
                     reason: format!("Storage application failed: {}", e),
                 };
                 return Err(CommitError::WALError(format!(
-                    "Storage application failed (no WAL): {}", e
+                    "Storage application failed (no WAL): {}",
+                    e
                 )));
             }
         }
@@ -254,7 +258,6 @@ impl TransactionManager {
         // Step 5: Return commit version
         Ok(commit_version)
     }
-
 }
 
 impl Default for TransactionManager {
@@ -267,13 +270,13 @@ impl Default for TransactionManager {
 mod tests {
     use super::*;
     use crate::TransactionContext;
+    use parking_lot::Mutex as ParkingMutex;
+    use std::sync::Arc;
     use strata_core::types::{Key, Namespace};
     use strata_core::value::Value;
     use strata_durability::codec::IdentityCodec;
     use strata_durability::wal::{DurabilityMode, WalConfig};
     use strata_storage::ShardedStore;
-    use std::sync::Arc;
-    use parking_lot::Mutex as ParkingMutex;
     use tempfile::TempDir;
 
     fn create_test_namespace(branch_id: BranchId) -> Namespace {
@@ -410,7 +413,9 @@ mod tests {
             let snapshot = store.snapshot();
             let mut txn = TransactionContext::with_snapshot(1, branch_id, Box::new(snapshot));
             txn.put(key1.clone(), Value::Int(100)).unwrap();
-            let v = manager.commit(&mut txn, store.as_ref(), Some(&mut wal)).unwrap();
+            let v = manager
+                .commit(&mut txn, store.as_ref(), Some(&mut wal))
+                .unwrap();
             assert_eq!(v, 1);
         }
 
@@ -419,7 +424,9 @@ mod tests {
             let snapshot = store.snapshot();
             let mut txn = TransactionContext::with_snapshot(2, branch_id, Box::new(snapshot));
             txn.put(key2.clone(), Value::Int(200)).unwrap();
-            let v = manager.commit(&mut txn, store.as_ref(), Some(&mut wal)).unwrap();
+            let v = manager
+                .commit(&mut txn, store.as_ref(), Some(&mut wal))
+                .unwrap();
             assert_eq!(v, 2);
         }
 
@@ -456,7 +463,8 @@ mod tests {
                 let key = create_test_key(&ns, &format!("key_{}", i));
 
                 let snapshot = store_clone.snapshot();
-                let mut txn = TransactionContext::with_snapshot(i as u64 + 1, branch_id, Box::new(snapshot));
+                let mut txn =
+                    TransactionContext::with_snapshot(i as u64 + 1, branch_id, Box::new(snapshot));
                 txn.put(key, Value::Int(i as i64)).unwrap();
 
                 let mut guard = wal_clone.lock();
@@ -500,7 +508,9 @@ mod tests {
             let mut setup_txn = TransactionContext::with_snapshot(1, branch_id, Box::new(snapshot));
             setup_txn.put(key_alice.clone(), Value::Int(100)).unwrap();
             setup_txn.put(key_bob.clone(), Value::Int(200)).unwrap();
-            manager.commit(&mut setup_txn, store.as_ref(), Some(&mut wal)).unwrap();
+            manager
+                .commit(&mut setup_txn, store.as_ref(), Some(&mut wal))
+                .unwrap();
         }
 
         // T1: Delete alice (blind), then scan
@@ -520,18 +530,27 @@ mod tests {
             // T2 reads alice first (creates read_set entry)
             let _ = txn2.get(&key_alice).unwrap();
             txn2.put(key_alice.clone(), Value::Int(999)).unwrap();
-            manager.commit(&mut txn2, store.as_ref(), Some(&mut wal)).unwrap();
+            manager
+                .commit(&mut txn2, store.as_ref(), Some(&mut wal))
+                .unwrap();
         }
 
         // T1 commits - should FAIL because alice was modified after T1 observed it in scan
         let result = manager.commit(&mut txn1, store.as_ref(), Some(&mut wal));
 
         // Conflict should be detected: T1 scanned and saw alice at v1, but T2 updated it to v2
-        assert!(result.is_err(), "Should detect conflict when scanned deleted key is modified");
+        assert!(
+            result.is_err(),
+            "Should detect conflict when scanned deleted key is modified"
+        );
 
         // T2's update should be preserved
         let final_value = store.get(&key_alice).unwrap().unwrap();
-        assert_eq!(final_value.value, Value::Int(999), "T2's update should be preserved");
+        assert_eq!(
+            final_value.value,
+            Value::Int(999),
+            "T2's update should be preserved"
+        );
     }
 
     /// Test that blind delete without scan does NOT cause conflict (by design).
@@ -552,7 +571,9 @@ mod tests {
             let snapshot = store.snapshot();
             let mut setup_txn = TransactionContext::with_snapshot(1, branch_id, Box::new(snapshot));
             setup_txn.put(key_alice.clone(), Value::Int(100)).unwrap();
-            manager.commit(&mut setup_txn, store.as_ref(), Some(&mut wal)).unwrap();
+            manager
+                .commit(&mut setup_txn, store.as_ref(), Some(&mut wal))
+                .unwrap();
         }
 
         // T1: Blind delete alice (no read, no scan)
@@ -566,16 +587,23 @@ mod tests {
             let mut txn2 = TransactionContext::with_snapshot(3, branch_id, Box::new(snapshot2));
             let _ = txn2.get(&key_alice).unwrap();
             txn2.put(key_alice.clone(), Value::Int(999)).unwrap();
-            manager.commit(&mut txn2, store.as_ref(), Some(&mut wal)).unwrap();
+            manager
+                .commit(&mut txn2, store.as_ref(), Some(&mut wal))
+                .unwrap();
         }
 
         // T1 commits - should SUCCEED because blind writes don't conflict
         let result = manager.commit(&mut txn1, store.as_ref(), Some(&mut wal));
-        assert!(result.is_ok(), "Blind delete should succeed (no read_set entry)");
+        assert!(
+            result.is_ok(),
+            "Blind delete should succeed (no read_set entry)"
+        );
 
         // T1's delete overwrites T2's update - this is expected for blind writes
         let final_value = store.get(&key_alice).unwrap();
-        assert!(final_value.is_none(), "Blind delete should succeed, removing alice");
+        assert!(
+            final_value.is_none(),
+            "Blind delete should succeed, removing alice"
+        );
     }
 }
-

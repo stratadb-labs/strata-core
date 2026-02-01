@@ -7,14 +7,14 @@
 //! See `docs/architecture/M2_TRANSACTION_SEMANTICS.md` for the full specification.
 
 use crate::validation::{validate_transaction, ValidationResult};
-use strata_core::StrataResult;
-use strata_core::primitives::json::{get_at_path, JsonPatch, JsonPath, JsonValue};
-use strata_core::traits::{SnapshotView, Storage};
-use strata_core::types::{Key, BranchId};
-use strata_core::value::Value;
-use strata_core::StrataError;
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::time::{Duration, Instant};
+use strata_core::primitives::json::{get_at_path, JsonPatch, JsonPath, JsonValue};
+use strata_core::traits::{SnapshotView, Storage};
+use strata_core::types::{BranchId, Key};
+use strata_core::value::Value;
+use strata_core::StrataError;
+use strata_core::StrataResult;
 
 /// Error type for commit failures
 ///
@@ -489,7 +489,11 @@ impl TransactionContext {
     /// assert!(txn.is_active());
     /// assert_eq!(txn.start_version, 100);
     /// ```
-    pub fn with_snapshot(txn_id: u64, branch_id: BranchId, snapshot: Box<dyn SnapshotView>) -> Self {
+    pub fn with_snapshot(
+        txn_id: u64,
+        branch_id: BranchId,
+        snapshot: Box<dyn SnapshotView>,
+    ) -> Self {
         let start_version = snapshot.version();
         TransactionContext {
             txn_id,
@@ -1153,7 +1157,11 @@ impl TransactionContext {
     /// # Errors
     /// - StrataError::invalid_input if transaction is not in Committed state
     /// - Error from storage operations if they fail
-    pub fn apply_writes<S: Storage>(&self, store: &S, commit_version: u64) -> StrataResult<ApplyResult> {
+    pub fn apply_writes<S: Storage>(
+        &self,
+        store: &S,
+        commit_version: u64,
+    ) -> StrataResult<ApplyResult> {
         if !self.is_committed() {
             return Err(StrataError::invalid_input(format!(
                 "Cannot apply writes: transaction {} is {:?}, must be Committed",
@@ -1274,7 +1282,12 @@ impl TransactionContext {
     /// // Reset for reuse - capacity is preserved!
     /// ctx.reset(2, new_branch_id, Some(new_snapshot));
     /// ```
-    pub fn reset(&mut self, txn_id: u64, branch_id: BranchId, snapshot: Option<Box<dyn SnapshotView>>) {
+    pub fn reset(
+        &mut self,
+        txn_id: u64,
+        branch_id: BranchId,
+        snapshot: Option<Box<dyn SnapshotView>>,
+    ) {
         // Update identity
         self.txn_id = txn_id;
         self.branch_id = branch_id;
@@ -1491,4 +1504,3 @@ impl JsonStoreExt for TransactionContext {
         Ok(snapshot.get(key)?.is_some())
     }
 }
-

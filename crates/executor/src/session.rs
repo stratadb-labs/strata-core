@@ -27,7 +27,10 @@ use std::sync::Arc;
 use strata_core::types::{Key, Namespace, TypeTag};
 use strata_engine::{Database, Transaction, TransactionContext, TransactionOps};
 
-use crate::bridge::{extract_version, json_to_value, parse_path, to_core_branch_id, to_versioned_value, value_to_json};
+use crate::bridge::{
+    extract_version, json_to_value, parse_path, to_core_branch_id, to_versioned_value,
+    value_to_json,
+};
 use crate::convert::convert_result;
 use crate::types::BranchId;
 use crate::{Command, Error, Executor, Output, Result};
@@ -185,7 +188,9 @@ impl Session {
     // =========================================================================
 
     fn execute_in_txn(&mut self, cmd: Command) -> Result<Output> {
-        let branch_id = self.txn_branch_id.expect("txn_branch_id set when txn_ctx is Some");
+        let branch_id = self
+            .txn_branch_id
+            .expect("txn_branch_id set when txn_ctx is Some");
         let ns = Namespace::for_branch(branch_id);
 
         // Temporarily take the context to create a Transaction
@@ -233,7 +238,9 @@ impl Session {
                 match result {
                     Some(strata_core::value::Value::String(s)) => {
                         let state: strata_core::State =
-                            serde_json::from_str(&s).map_err(|e| Error::Internal { reason: e.to_string() })?;
+                            serde_json::from_str(&s).map_err(|e| Error::Internal {
+                                reason: e.to_string(),
+                            })?;
                         Ok(Output::Maybe(Some(state.value)))
                     }
                     Some(other) => Ok(Output::Maybe(Some(other))),
@@ -249,7 +256,9 @@ impl Session {
                     match result {
                         Some(strata_core::value::Value::String(s)) => {
                             let jv: strata_core::JsonValue =
-                                serde_json::from_str(&s).map_err(|e| Error::Internal { reason: e.to_string() })?;
+                                serde_json::from_str(&s).map_err(|e| Error::Internal {
+                                    reason: e.to_string(),
+                                })?;
                             let val = convert_result(json_to_value(jv))?;
                             Ok(Output::Maybe(Some(val)))
                         }
@@ -260,8 +269,7 @@ impl Session {
                     // Path-based get still needs Transaction for JSON patch logic
                     let txn = Transaction::new(ctx, ns);
                     let json_path = convert_result(parse_path(&path))?;
-                    let result =
-                        txn.json_get_path(&key, &json_path).map_err(Error::from)?;
+                    let result = txn.json_get_path(&key, &json_path).map_err(Error::from)?;
                     match result {
                         Some(jv) => {
                             let val = convert_result(json_to_value(jv))?;
@@ -287,10 +295,14 @@ impl Session {
 
             // === Event operations — use Transaction for hash chaining ===
             Command::EventAppend {
-                event_type, payload, ..
+                event_type,
+                payload,
+                ..
             } => {
                 let mut txn = Transaction::new(ctx, ns);
-                let version = txn.event_append(&event_type, payload).map_err(Error::from)?;
+                let version = txn
+                    .event_append(&event_type, payload)
+                    .map_err(Error::from)?;
                 Ok(Output::Version(extract_version(&version)))
             }
             Command::EventRead { sequence, .. } => {
@@ -337,8 +349,9 @@ impl Session {
                 let mut txn = Transaction::new(ctx, ns);
                 let json_path = convert_result(parse_path(&path))?;
                 let json_value = convert_result(value_to_json(value))?;
-                let version =
-                    txn.json_set(&key, &json_path, json_value).map_err(Error::from)?;
+                let version = txn
+                    .json_set(&key, &json_path, json_value)
+                    .map_err(Error::from)?;
                 Ok(Output::Version(extract_version(&version)))
             }
             Command::JsonDelete { key, .. } => {

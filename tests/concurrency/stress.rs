@@ -3,6 +3,10 @@
 //! Heavy-workload tests for concurrency. All marked #[ignore] for opt-in execution.
 //! Run with: cargo test --test concurrency stress -- --ignored
 
+use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::{Arc, Barrier};
+use std::thread;
+use std::time::{Duration, Instant};
 use strata_concurrency::manager::TransactionManager;
 use strata_concurrency::transaction::TransactionContext;
 use strata_concurrency::validation::validate_transaction;
@@ -11,10 +15,6 @@ use strata_core::types::{Key, Namespace};
 use strata_core::value::Value;
 use strata_core::BranchId;
 use strata_storage::sharded::ShardedStore;
-use std::sync::atomic::{AtomicU64, Ordering};
-use std::sync::{Arc, Barrier};
-use std::thread;
-use std::time::{Duration, Instant};
 
 fn create_test_key(branch_id: BranchId, name: &str) -> Key {
     let ns = Namespace::for_branch(branch_id);
@@ -93,12 +93,13 @@ fn stress_concurrent_read_write() {
     let total_commits = commits.load(Ordering::Relaxed);
     let total_retries = retries.load(Ordering::Relaxed);
 
-    println!(
-        "Commits: {}, Retries: {}",
-        total_commits, total_retries
-    );
+    println!("Commits: {}, Retries: {}", total_commits, total_retries);
 
-    assert_eq!(total_commits, 16 * 100, "All 1600 operations must eventually commit");
+    assert_eq!(
+        total_commits,
+        16 * 100,
+        "All 1600 operations must eventually commit"
+    );
 }
 
 /// Rapid transaction throughput measurement
@@ -149,7 +150,10 @@ fn stress_transaction_throughput() {
     );
 
     // Single-threaded, conflicts should be minimal
-    assert!(conflicts < 10, "Single-threaded should have minimal conflicts");
+    assert!(
+        conflicts < 10,
+        "Single-threaded should have minimal conflicts"
+    );
 }
 
 /// Large transaction with many operations
@@ -246,7 +250,11 @@ fn stress_long_running_transaction() {
 
     // Initial value
     Storage::put(&*store, key.clone(), Value::Int(0), None).unwrap();
-    let initial_version = Storage::get(&*store, &key).unwrap().unwrap().version.as_u64();
+    let initial_version = Storage::get(&*store, &key)
+        .unwrap()
+        .unwrap()
+        .version
+        .as_u64();
 
     // Start a long-running transaction
     let mut long_txn = TransactionContext::new(1, branch_id, initial_version);
@@ -272,7 +280,10 @@ fn stress_long_running_transaction() {
     writer.join().unwrap();
 
     // Should conflict due to concurrent modifications
-    assert!(!result.unwrap().is_valid(), "Long-running transaction should conflict");
+    assert!(
+        !result.unwrap().is_valid(),
+        "Long-running transaction should conflict"
+    );
 }
 
 /// Sustained mixed workload
@@ -318,7 +329,8 @@ fn stress_sustained_workload() {
                         let txn_id = manager.next_txn_id();
                         let mut txn = TransactionContext::new(txn_id, branch_id, version);
                         txn.read_set.insert(key.clone(), version);
-                        txn.write_set.insert(key.clone(), Value::Int(thread_id as i64));
+                        txn.write_set
+                            .insert(key.clone(), Value::Int(thread_id as i64));
 
                         let result = validate_transaction(&txn, &*store);
                         if result.unwrap().is_valid() {

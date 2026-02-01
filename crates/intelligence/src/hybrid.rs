@@ -16,13 +16,13 @@
 //! HybridSearch is STATELESS. It holds only references to Database and primitives.
 
 use crate::fuser::{Fuser, SimpleFuser};
-use strata_core::StrataResult;
-use strata_engine::search::{SearchBudget, SearchRequest, SearchResponse, SearchStats};
-use strata_core::PrimitiveType;
-use strata_engine::Database;
-use strata_engine::{EventLog, JsonStore, KVStore, BranchIndex, StateCell, VectorStore};
 use std::sync::Arc;
 use std::time::Instant;
+use strata_core::PrimitiveType;
+use strata_core::StrataResult;
+use strata_engine::search::{SearchBudget, SearchRequest, SearchResponse, SearchStats};
+use strata_engine::Database;
+use strata_engine::{BranchIndex, EventLog, JsonStore, KVStore, StateCell, VectorStore};
 
 // ============================================================================
 // HybridSearch
@@ -267,8 +267,7 @@ mod tests {
     use strata_core::value::Value;
 
     fn test_db() -> Arc<Database> {
-        Database::ephemeral()
-            .expect("Failed to create test database")
+        Database::ephemeral().expect("Failed to create test database")
     }
 
     #[test]
@@ -304,7 +303,8 @@ mod tests {
             .unwrap();
 
         let hybrid = HybridSearch::new(db);
-        let req = SearchRequest::new(branch_id, "test").with_primitive_filter(vec![PrimitiveType::Kv]);
+        let req =
+            SearchRequest::new(branch_id, "test").with_primitive_filter(vec![PrimitiveType::Kv]);
         let response = hybrid.search(&req).unwrap();
 
         // Note: MVP simplification - primitives' Searchable implementations return empty results.
@@ -385,8 +385,12 @@ mod tests {
         branch_index.create_branch(&branch_id.to_string()).unwrap();
 
         // Add data to KV primitive
-        kv.put(&branch_id, "hello", Value::String("hello world data".into()))
-            .unwrap();
+        kv.put(
+            &branch_id,
+            "hello",
+            Value::String("hello world data".into()),
+        )
+        .unwrap();
 
         let hybrid = HybridSearch::new(db);
         let req = SearchRequest::new(branch_id, "hello");

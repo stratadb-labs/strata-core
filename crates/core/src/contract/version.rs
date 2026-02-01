@@ -437,10 +437,7 @@ mod tests {
 
         // Same variant, compare by value
         assert_eq!(Version::Txn(5).cmp(&Version::Txn(10)), Ordering::Less);
-        assert_eq!(
-            Version::Txn(10).cmp(&Version::Txn(5)),
-            Ordering::Greater
-        );
+        assert_eq!(Version::Txn(10).cmp(&Version::Txn(5)), Ordering::Greater);
         assert_eq!(Version::Txn(5).cmp(&Version::Txn(5)), Ordering::Equal);
     }
 

@@ -24,12 +24,12 @@
 
 use crate::database::Database;
 use crate::primitives::extensions::KVStoreExt;
-use strata_concurrency::TransactionContext;
-use strata_core::StrataResult;
-use strata_core::types::{Key, Namespace, BranchId};
-use strata_core::value::Value;
-use strata_core::{Version, VersionedHistory};
 use std::sync::Arc;
+use strata_concurrency::TransactionContext;
+use strata_core::types::{BranchId, Key, Namespace};
+use strata_core::value::Value;
+use strata_core::StrataResult;
+use strata_core::{Version, VersionedHistory};
 
 /// General-purpose key-value store primitive
 ///
@@ -93,7 +93,11 @@ impl KVStore {
     ///
     /// Returns `None` if the key doesn't exist. Index with `[0]` = latest,
     /// `[1]` = previous, etc. Reads directly from storage (non-transactional).
-    pub fn getv(&self, branch_id: &BranchId, key: &str) -> StrataResult<Option<VersionedHistory<Value>>> {
+    pub fn getv(
+        &self,
+        branch_id: &BranchId,
+        key: &str,
+    ) -> StrataResult<Option<VersionedHistory<Value>>> {
         let storage_key = self.key_for(branch_id, key);
         let history = self.db.get_history(&storage_key, None, None)?;
         Ok(VersionedHistory::new(history))
@@ -309,10 +313,18 @@ mod tests {
         let branch1 = BranchId::new();
         let branch2 = BranchId::new();
 
-        kv.put(&branch1, "shared-key", Value::String("branch1-value".into()))
-            .unwrap();
-        kv.put(&branch2, "shared-key", Value::String("branch2-value".into()))
-            .unwrap();
+        kv.put(
+            &branch1,
+            "shared-key",
+            Value::String("branch1-value".into()),
+        )
+        .unwrap();
+        kv.put(
+            &branch2,
+            "shared-key",
+            Value::String("branch2-value".into()),
+        )
+        .unwrap();
 
         // Each branch sees its own value
         assert_eq!(
@@ -410,7 +422,10 @@ mod tests {
 
         // Float
         kv.put(&branch_id, "float", Value::Float(3.14)).unwrap();
-        assert_eq!(kv.get(&branch_id, "float").unwrap(), Some(Value::Float(3.14)));
+        assert_eq!(
+            kv.get(&branch_id, "float").unwrap(),
+            Some(Value::Float(3.14))
+        );
 
         // Boolean
         kv.put(&branch_id, "bool", Value::Bool(true)).unwrap();

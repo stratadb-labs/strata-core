@@ -10,9 +10,9 @@
 //! - Write skew is ALLOWED (do not try to prevent it)
 
 use crate::transaction::{CASOperation, TransactionContext};
+use std::collections::HashMap;
 use strata_core::traits::Storage;
 use strata_core::types::Key;
-use std::collections::HashMap;
 
 /// Types of conflicts that can occur during transaction validation
 ///
@@ -145,7 +145,10 @@ impl ValidationResult {
 ///
 /// # Returns
 /// ValidationResult with any ReadWriteConflicts found
-pub fn validate_read_set<S: Storage>(read_set: &HashMap<Key, u64>, store: &S) -> strata_core::StrataResult<ValidationResult> {
+pub fn validate_read_set<S: Storage>(
+    read_set: &HashMap<Key, u64>,
+    store: &S,
+) -> strata_core::StrataResult<ValidationResult> {
     let mut result = ValidationResult::ok();
 
     for (key, read_version) in read_set {
@@ -155,9 +158,10 @@ pub fn validate_read_set<S: Storage>(read_set: &HashMap<Key, u64>, store: &S) ->
             Ok(None) => 0, // Key doesn't exist = version 0
             Err(e) => {
                 // Storage error - abort validation to prevent incorrect commit
-                return Err(strata_core::StrataError::internal(
-                    format!("Storage error during read-set validation for key {:?}: {}", key, e)
-                ));
+                return Err(strata_core::StrataError::internal(format!(
+                    "Storage error during read-set validation for key {:?}: {}",
+                    key, e
+                )));
             }
         };
 
@@ -190,7 +194,10 @@ pub fn validate_read_set<S: Storage>(read_set: &HashMap<Key, u64>, store: &S) ->
 ///
 /// # Returns
 /// ValidationResult with any CASConflicts found
-pub fn validate_cas_set<S: Storage>(cas_set: &[CASOperation], store: &S) -> strata_core::StrataResult<ValidationResult> {
+pub fn validate_cas_set<S: Storage>(
+    cas_set: &[CASOperation],
+    store: &S,
+) -> strata_core::StrataResult<ValidationResult> {
     let mut result = ValidationResult::ok();
 
     for cas_op in cas_set {
@@ -199,9 +206,10 @@ pub fn validate_cas_set<S: Storage>(cas_set: &[CASOperation], store: &S) -> stra
             Ok(Some(vv)) => vv.version.as_u64(),
             Ok(None) => 0, // Key doesn't exist = version 0
             Err(e) => {
-                return Err(strata_core::StrataError::internal(
-                    format!("Storage error during CAS validation for key {:?}: {}", cas_op.key, e)
-                ));
+                return Err(strata_core::StrataError::internal(format!(
+                    "Storage error during CAS validation for key {:?}: {}",
+                    cas_op.key, e
+                )));
             }
         };
 
@@ -246,9 +254,10 @@ pub fn validate_json_set<S: Storage>(
             Ok(Some(vv)) => vv.version.as_u64(),
             Ok(None) => 0, // Document deleted = version 0
             Err(e) => {
-                return Err(strata_core::StrataError::internal(
-                    format!("Storage error during JSON validation for key {:?}: {}", key, e)
-                ));
+                return Err(strata_core::StrataError::internal(format!(
+                    "Storage error during JSON validation for key {:?}: {}",
+                    key, e
+                )));
             }
         };
 
@@ -338,7 +347,10 @@ pub fn validate_json_paths(
 /// - Section 3.2: Conflict scenarios (including read-only transaction rule)
 /// - Section 3.3: First-committer-wins rule
 /// - JSON document-level conflict detection
-pub fn validate_transaction<S: Storage>(txn: &TransactionContext, store: &S) -> strata_core::StrataResult<ValidationResult> {
+pub fn validate_transaction<S: Storage>(
+    txn: &TransactionContext,
+    store: &S,
+) -> strata_core::StrataResult<ValidationResult> {
     // Per spec Section 3.2 Scenario 3: Read-only transactions ALWAYS commit.
     // "Read-Only Transaction: T1 only reads keys, never writes any → ALWAYS COMMITS"
     // "Why: Read-only transactions have no writes to validate. They simply return their snapshot view."
@@ -363,4 +375,3 @@ pub fn validate_transaction<S: Storage>(txn: &TransactionContext, store: &S) -> 
 
     Ok(result)
 }
-

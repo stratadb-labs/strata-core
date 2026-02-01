@@ -11,13 +11,12 @@
 //! These types define the interface contracts for search operations.
 //! See `the architecture documentation` for authoritative specification.
 
-use strata_core::types::BranchId;
 use std::collections::HashMap;
+use strata_core::types::BranchId;
 
 // Re-export contract types
 pub use strata_core::contract::EntityRef;
 pub use strata_core::contract::PrimitiveType;
-
 
 // ============================================================================
 // SearchBudget

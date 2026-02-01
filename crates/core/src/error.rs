@@ -450,7 +450,6 @@ pub enum StrataError {
     // =========================================================================
     // Not Found Errors
     // =========================================================================
-
     /// Entity not found
     ///
     /// The referenced entity does not exist. This could be a key, document,
@@ -477,7 +476,6 @@ pub enum StrataError {
     // =========================================================================
     // Type Errors
     // =========================================================================
-
     /// Wrong type
     ///
     /// The operation expected a different value type or primitive type.
@@ -494,7 +492,6 @@ pub enum StrataError {
     // =========================================================================
     // Conflict Errors (Temporal Failures - Retryable)
     // =========================================================================
-
     /// Generic conflict (temporal failure)
     ///
     /// The operation failed due to a temporal conflict that may be resolved
@@ -558,7 +555,6 @@ pub enum StrataError {
     // =========================================================================
     // Transaction Errors
     // =========================================================================
-
     /// Transaction aborted
     ///
     /// The transaction was aborted due to a conflict, timeout, or other
@@ -610,7 +606,6 @@ pub enum StrataError {
     // =========================================================================
     // Validation Errors
     // =========================================================================
-
     /// Invalid operation
     ///
     /// The operation is not valid for the current state of the entity.
@@ -687,7 +682,6 @@ pub enum StrataError {
     // =========================================================================
     // History Errors
     // =========================================================================
-
     /// History trimmed
     ///
     /// The requested version is no longer available because retention policy
@@ -703,7 +697,9 @@ pub enum StrataError {
     ///     Version::Txn(150),
     /// )
     /// ```
-    #[error("history trimmed for {entity_ref}: requested {requested}, earliest is {earliest_retained}")]
+    #[error(
+        "history trimmed for {entity_ref}: requested {requested}, earliest is {earliest_retained}"
+    )]
     HistoryTrimmed {
         /// Reference to the entity
         entity_ref: EntityRef,
@@ -716,7 +712,6 @@ pub enum StrataError {
     // =========================================================================
     // Storage Errors
     // =========================================================================
-
     /// Storage error
     ///
     /// Low-level storage operation failed.
@@ -768,7 +763,6 @@ pub enum StrataError {
     // =========================================================================
     // Resource Errors
     // =========================================================================
-
     /// Capacity exceeded
     ///
     /// A resource limit was exceeded.
@@ -810,7 +804,6 @@ pub enum StrataError {
     // =========================================================================
     // Internal Errors
     // =========================================================================
-
     /// Internal error
     ///
     /// An unexpected internal error occurred. This is a **serious** error
@@ -1660,7 +1653,8 @@ mod strata_error_tests {
     #[test]
     fn test_path_not_found_constructor() {
         let branch_id = BranchId::new();
-        let e = StrataError::path_not_found(EntityRef::json(branch_id, "test-doc"), "/data/items/0");
+        let e =
+            StrataError::path_not_found(EntityRef::json(branch_id, "test-doc"), "/data/items/0");
 
         assert!(e.is_not_found());
         assert!(e.entity_ref().is_some());
@@ -2347,36 +2341,62 @@ mod adversarial_error_tests {
     fn test_constraint_reason_parse_case_sensitive() {
         assert_eq!(ConstraintReason::parse("Value_Too_Large"), None);
         assert_eq!(ConstraintReason::parse("VALUE_TOO_LARGE"), None);
-        assert_eq!(ConstraintReason::parse("value_too_large"), Some(ConstraintReason::ValueTooLarge));
+        assert_eq!(
+            ConstraintReason::parse("value_too_large"),
+            Some(ConstraintReason::ValueTooLarge)
+        );
     }
 
     #[test]
     fn test_every_error_code_has_unique_as_str() {
         let codes = [
-            ErrorCode::NotFound, ErrorCode::WrongType, ErrorCode::InvalidKey,
-            ErrorCode::InvalidPath, ErrorCode::HistoryTrimmed, ErrorCode::ConstraintViolation,
-            ErrorCode::Conflict, ErrorCode::SerializationError, ErrorCode::StorageError,
+            ErrorCode::NotFound,
+            ErrorCode::WrongType,
+            ErrorCode::InvalidKey,
+            ErrorCode::InvalidPath,
+            ErrorCode::HistoryTrimmed,
+            ErrorCode::ConstraintViolation,
+            ErrorCode::Conflict,
+            ErrorCode::SerializationError,
+            ErrorCode::StorageError,
             ErrorCode::InternalError,
         ];
         let strs: std::collections::HashSet<&str> = codes.iter().map(|c| c.as_str()).collect();
-        assert_eq!(strs.len(), codes.len(), "All error code strings must be unique");
+        assert_eq!(
+            strs.len(),
+            codes.len(),
+            "All error code strings must be unique"
+        );
     }
 
     #[test]
     fn test_every_constraint_reason_has_unique_as_str() {
         let reasons = [
-            ConstraintReason::ValueTooLarge, ConstraintReason::StringTooLong,
-            ConstraintReason::BytesTooLong, ConstraintReason::ArrayTooLong,
-            ConstraintReason::ObjectTooLarge, ConstraintReason::NestingTooDeep,
-            ConstraintReason::KeyTooLong, ConstraintReason::KeyInvalid,
-            ConstraintReason::KeyEmpty, ConstraintReason::DimensionMismatch,
-            ConstraintReason::DimensionTooLarge, ConstraintReason::CapacityExceeded,
-            ConstraintReason::BudgetExceeded, ConstraintReason::InvalidOperation,
-            ConstraintReason::BranchNotActive, ConstraintReason::TransactionNotActive,
-            ConstraintReason::WrongType, ConstraintReason::Overflow,
+            ConstraintReason::ValueTooLarge,
+            ConstraintReason::StringTooLong,
+            ConstraintReason::BytesTooLong,
+            ConstraintReason::ArrayTooLong,
+            ConstraintReason::ObjectTooLarge,
+            ConstraintReason::NestingTooDeep,
+            ConstraintReason::KeyTooLong,
+            ConstraintReason::KeyInvalid,
+            ConstraintReason::KeyEmpty,
+            ConstraintReason::DimensionMismatch,
+            ConstraintReason::DimensionTooLarge,
+            ConstraintReason::CapacityExceeded,
+            ConstraintReason::BudgetExceeded,
+            ConstraintReason::InvalidOperation,
+            ConstraintReason::BranchNotActive,
+            ConstraintReason::TransactionNotActive,
+            ConstraintReason::WrongType,
+            ConstraintReason::Overflow,
         ];
         let strs: std::collections::HashSet<&str> = reasons.iter().map(|r| r.as_str()).collect();
-        assert_eq!(strs.len(), reasons.len(), "All constraint reason strings must be unique");
+        assert_eq!(
+            strs.len(),
+            reasons.len(),
+            "All constraint reason strings must be unique"
+        );
     }
 
     #[test]

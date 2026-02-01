@@ -11,8 +11,8 @@ pub use participant::{
     recover_all_participants, register_recovery_participant, RecoveryFn, RecoveryParticipant,
 };
 pub use replay::{
-    diff_views, DiffEntry, ReadOnlyView, ReplayError, BranchDiff, BranchError,
-    BranchIndex as ReplayBranchIndex,
+    diff_views, BranchDiff, BranchError, BranchIndex as ReplayBranchIndex, DiffEntry, ReadOnlyView,
+    ReplayError,
 };
 
 #[cfg(test)]

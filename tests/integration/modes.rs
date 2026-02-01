@@ -80,13 +80,32 @@ fn ephemeral_all_primitives() {
     assert!(event.len(&branch_id).unwrap() > 0);
 
     // JSON
-    json.create(&branch_id, "doc", json_value(serde_json::json!({"x": 4}))).unwrap();
-    assert_eq!(json.get(&branch_id, "doc", &root()).unwrap().unwrap().as_inner(), &serde_json::json!({"x": 4}));
+    json.create(&branch_id, "doc", json_value(serde_json::json!({"x": 4})))
+        .unwrap();
+    assert_eq!(
+        json.get(&branch_id, "doc", &root())
+            .unwrap()
+            .unwrap()
+            .as_inner(),
+        &serde_json::json!({"x": 4})
+    );
 
     // Vector
-    vector.create_collection(branch_id, "coll", config_small()).unwrap();
-    vector.insert(branch_id, "coll", "v", &[1.0, 0.0, 0.0], None).unwrap();
-    assert_eq!(vector.get(branch_id, "coll", "v").unwrap().unwrap().value.embedding, vec![1.0f32, 0.0, 0.0]);
+    vector
+        .create_collection(branch_id, "coll", config_small())
+        .unwrap();
+    vector
+        .insert(branch_id, "coll", "v", &[1.0, 0.0, 0.0], None)
+        .unwrap();
+    assert_eq!(
+        vector
+            .get(branch_id, "coll", "v")
+            .unwrap()
+            .unwrap()
+            .value
+            .embedding,
+        vec![1.0f32, 0.0, 0.0]
+    );
 }
 
 #[test]
@@ -161,7 +180,8 @@ fn strict_mode_survives_reopen() {
         let db = create_persistent_strict(&dir);
         let kv = KVStore::new(db);
         for i in 0..100 {
-            kv.put(&branch_id, &format!("key_{}", i), Value::Int(i)).unwrap();
+            kv.put(&branch_id, &format!("key_{}", i), Value::Int(i))
+                .unwrap();
         }
     }
 
@@ -187,20 +207,28 @@ fn strict_mode_all_primitives_survive_reopen() {
         let db = create_persistent_strict(&dir);
 
         let kv = KVStore::new(db.clone());
-        kv.put(&branch_id, "kv_key", Value::String("kv_val".into())).unwrap();
+        kv.put(&branch_id, "kv_key", Value::String("kv_val".into()))
+            .unwrap();
 
         let state = StateCell::new(db.clone());
-        state.init(&branch_id, "state_cell", Value::Int(42)).unwrap();
+        state
+            .init(&branch_id, "state_cell", Value::Int(42))
+            .unwrap();
 
         let event = EventLog::new(db.clone());
         event.append(&branch_id, "audit", int_payload(123)).unwrap();
 
         let json = JsonStore::new(db.clone());
-        json.create(&branch_id, "doc", json_value(serde_json::json!({"k": "v"}))).unwrap();
+        json.create(&branch_id, "doc", json_value(serde_json::json!({"k": "v"})))
+            .unwrap();
 
         let vector = VectorStore::new(db.clone());
-        vector.create_collection(branch_id, "coll", config_small()).unwrap();
-        vector.insert(branch_id, "coll", "vec", &[1.0, 0.0, 0.0], None).unwrap();
+        vector
+            .create_collection(branch_id, "coll", config_small())
+            .unwrap();
+        vector
+            .insert(branch_id, "coll", "vec", &[1.0, 0.0, 0.0], None)
+            .unwrap();
     }
 
     // Reopen and verify all primitives
@@ -208,19 +236,39 @@ fn strict_mode_all_primitives_survive_reopen() {
         let db = create_persistent_strict(&dir);
 
         let kv = KVStore::new(db.clone());
-        assert_eq!(kv.get(&branch_id, "kv_key").unwrap(), Some(Value::String("kv_val".into())));
+        assert_eq!(
+            kv.get(&branch_id, "kv_key").unwrap(),
+            Some(Value::String("kv_val".into()))
+        );
 
         let state = StateCell::new(db.clone());
-        assert_eq!(state.read(&branch_id, "state_cell").unwrap().unwrap(), Value::Int(42));
+        assert_eq!(
+            state.read(&branch_id, "state_cell").unwrap().unwrap(),
+            Value::Int(42)
+        );
 
         let event = EventLog::new(db.clone());
         assert!(event.len(&branch_id).unwrap() > 0);
 
         let json = JsonStore::new(db.clone());
-        assert_eq!(json.get(&branch_id, "doc", &root()).unwrap().unwrap().as_inner(), &serde_json::json!({"k": "v"}));
+        assert_eq!(
+            json.get(&branch_id, "doc", &root())
+                .unwrap()
+                .unwrap()
+                .as_inner(),
+            &serde_json::json!({"k": "v"})
+        );
 
         let vector = VectorStore::new(db.clone());
-        assert_eq!(vector.get(branch_id, "coll", "vec").unwrap().unwrap().value.embedding, vec![1.0f32, 0.0, 0.0]);
+        assert_eq!(
+            vector
+                .get(branch_id, "coll", "vec")
+                .unwrap()
+                .unwrap()
+                .value
+                .embedding,
+            vec![1.0f32, 0.0, 0.0]
+        );
     }
 }
 
@@ -237,7 +285,8 @@ fn all_modes_produce_same_results() {
     fn workload(db: Arc<Database>, branch_id: BranchId) -> Vec<i64> {
         let kv = KVStore::new(db);
         for i in 0..10 {
-            kv.put(&branch_id, &format!("key_{}", i), Value::Int(i)).unwrap();
+            kv.put(&branch_id, &format!("key_{}", i), Value::Int(i))
+                .unwrap();
         }
 
         let mut results = Vec::new();
@@ -281,7 +330,8 @@ fn ephemeral_mode_is_fast() {
 
     let start = std::time::Instant::now();
     for i in 0..10_000 {
-        kv.put(&branch_id, &format!("key_{}", i), Value::Int(i)).unwrap();
+        kv.put(&branch_id, &format!("key_{}", i), Value::Int(i))
+            .unwrap();
     }
     let elapsed = start.elapsed();
 
@@ -302,7 +352,12 @@ fn strict_mode_is_durable() {
     {
         let db = create_persistent_strict(&dir);
         let kv = KVStore::new(db);
-        kv.put(&branch_id, "critical", Value::String("important_data".into())).unwrap();
+        kv.put(
+            &branch_id,
+            "critical",
+            Value::String("important_data".into()),
+        )
+        .unwrap();
         // Strict mode syncs on every write - no explicit flush needed
     }
 

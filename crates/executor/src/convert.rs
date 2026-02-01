@@ -21,8 +21,7 @@ impl From<StrataError> for Error {
                     Error::KeyNotFound { key: entity_str }
                 } else if entity_str.starts_with("branch:") {
                     Error::BranchNotFound { branch: entity_str }
-                } else if entity_str.starts_with("collection:")
-                    || entity_str.starts_with("vector:")
+                } else if entity_str.starts_with("collection:") || entity_str.starts_with("vector:")
                 {
                     Error::CollectionNotFound {
                         collection: entity_str,

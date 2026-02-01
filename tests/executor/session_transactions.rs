@@ -8,7 +8,7 @@
 
 use crate::common::*;
 use strata_core::Value;
-use strata_executor::{Command, Output, Session, DistanceMetric, BranchId, TxnStatus};
+use strata_executor::{BranchId, Command, DistanceMetric, Output, Session, TxnStatus};
 
 // ============================================================================
 // Transaction Lifecycle
@@ -28,10 +28,12 @@ fn session_starts_without_transaction() {
 fn begin_starts_transaction() {
     let mut session = create_session();
 
-    let output = session.execute(Command::TxnBegin {
-        branch: None,
-        options: None,
-    }).unwrap();
+    let output = session
+        .execute(Command::TxnBegin {
+            branch: None,
+            options: None,
+        })
+        .unwrap();
 
     assert!(matches!(output, Output::TxnBegun));
     assert!(session.in_transaction());
@@ -44,10 +46,12 @@ fn begin_starts_transaction() {
 fn commit_ends_transaction() {
     let mut session = create_session();
 
-    session.execute(Command::TxnBegin {
-        branch: None,
-        options: None,
-    }).unwrap();
+    session
+        .execute(Command::TxnBegin {
+            branch: None,
+            options: None,
+        })
+        .unwrap();
 
     assert!(session.in_transaction());
 
@@ -65,10 +69,12 @@ fn commit_ends_transaction() {
 fn rollback_ends_transaction() {
     let mut session = create_session();
 
-    session.execute(Command::TxnBegin {
-        branch: None,
-        options: None,
-    }).unwrap();
+    session
+        .execute(Command::TxnBegin {
+            branch: None,
+            options: None,
+        })
+        .unwrap();
 
     assert!(session.in_transaction());
 
@@ -87,10 +93,12 @@ fn txn_info_returns_info_when_active() {
     assert!(matches!(output, Output::TxnInfo(None)));
 
     // Start transaction
-    session.execute(Command::TxnBegin {
-        branch: None,
-        options: None,
-    }).unwrap();
+    session
+        .execute(Command::TxnBegin {
+            branch: None,
+            options: None,
+        })
+        .unwrap();
 
     // Should return Some with info
     let output = session.execute(Command::TxnInfo).unwrap();
@@ -111,23 +119,29 @@ fn txn_info_returns_info_when_active() {
 fn read_your_writes_kv() {
     let mut session = create_session();
 
-    session.execute(Command::TxnBegin {
-        branch: None,
-        options: None,
-    }).unwrap();
+    session
+        .execute(Command::TxnBegin {
+            branch: None,
+            options: None,
+        })
+        .unwrap();
 
     // Write within transaction
-    session.execute(Command::KvPut {
-        branch: None,
-        key: "txn_key".into(),
-        value: Value::Int(42),
-    }).unwrap();
+    session
+        .execute(Command::KvPut {
+            branch: None,
+            key: "txn_key".into(),
+            value: Value::Int(42),
+        })
+        .unwrap();
 
     // Read within same transaction should see the write
-    let output = session.execute(Command::KvGet {
-        branch: None,
-        key: "txn_key".into(),
-    }).unwrap();
+    let output = session
+        .execute(Command::KvGet {
+            branch: None,
+            key: "txn_key".into(),
+        })
+        .unwrap();
 
     match output {
         Output::Maybe(Some(val)) => {
@@ -143,22 +157,28 @@ fn read_your_writes_kv() {
 fn read_your_writes_state() {
     let mut session = create_session();
 
-    session.execute(Command::TxnBegin {
-        branch: None,
-        options: None,
-    }).unwrap();
+    session
+        .execute(Command::TxnBegin {
+            branch: None,
+            options: None,
+        })
+        .unwrap();
 
     // Note: StateSet goes through executor, StateInit goes through transaction
-    session.execute(Command::StateInit {
-        branch: None,
-        cell: "cell".into(),
-        value: Value::String("value".into()),
-    }).unwrap();
+    session
+        .execute(Command::StateInit {
+            branch: None,
+            cell: "cell".into(),
+            value: Value::String("value".into()),
+        })
+        .unwrap();
 
-    let output = session.execute(Command::StateRead {
-        branch: None,
-        cell: "cell".into(),
-    }).unwrap();
+    let output = session
+        .execute(Command::StateRead {
+            branch: None,
+            cell: "cell".into(),
+        })
+        .unwrap();
 
     match output {
         Output::Maybe(Some(v)) => {
@@ -174,22 +194,24 @@ fn read_your_writes_state() {
 fn read_your_writes_event() {
     let mut session = create_session();
 
-    session.execute(Command::TxnBegin {
-        branch: None,
-        options: None,
-    }).unwrap();
+    session
+        .execute(Command::TxnBegin {
+            branch: None,
+            options: None,
+        })
+        .unwrap();
 
     // Note: EventAppend in transaction uses event_type
-    session.execute(Command::EventAppend {
-        branch: None,
-        event_type: "default".into(),
-        payload: event_payload("data", Value::Int(1)),
-    }).unwrap();
+    session
+        .execute(Command::EventAppend {
+            branch: None,
+            event_type: "default".into(),
+            payload: event_payload("data", Value::Int(1)),
+        })
+        .unwrap();
 
     // EventLen counts events in the log
-    let output = session.execute(Command::EventLen {
-        branch: None,
-    }).unwrap();
+    let output = session.execute(Command::EventLen { branch: None }).unwrap();
 
     match output {
         Output::Uint(len) => assert_eq!(len, 1, "Expected exactly 1 event, got {}", len),
@@ -208,26 +230,32 @@ fn rollback_discards_kv_writes() {
     let db = create_db();
     let mut session = Session::new(db.clone());
 
-    session.execute(Command::TxnBegin {
-        branch: None,
-        options: None,
-    }).unwrap();
+    session
+        .execute(Command::TxnBegin {
+            branch: None,
+            options: None,
+        })
+        .unwrap();
 
-    session.execute(Command::KvPut {
-        branch: None,
-        key: "rollback_test".into(),
-        value: Value::Int(100),
-    }).unwrap();
+    session
+        .execute(Command::KvPut {
+            branch: None,
+            key: "rollback_test".into(),
+            value: Value::Int(100),
+        })
+        .unwrap();
 
     // Rollback instead of commit
     session.execute(Command::TxnRollback).unwrap();
 
     // Read with a new session - should not find the value
     let executor = strata_executor::Executor::new(db);
-    let output = executor.execute(Command::KvGet {
-        branch: None,
-        key: "rollback_test".into(),
-    }).unwrap();
+    let output = executor
+        .execute(Command::KvGet {
+            branch: None,
+            key: "rollback_test".into(),
+        })
+        .unwrap();
 
     assert!(matches!(output, Output::Maybe(None)));
 }
@@ -237,26 +265,32 @@ fn rollback_discards_state_writes() {
     let db = create_db();
     let mut session = Session::new(db.clone());
 
-    session.execute(Command::TxnBegin {
-        branch: None,
-        options: None,
-    }).unwrap();
+    session
+        .execute(Command::TxnBegin {
+            branch: None,
+            options: None,
+        })
+        .unwrap();
 
     // Use StateInit which goes through transaction
-    session.execute(Command::StateInit {
-        branch: None,
-        cell: "rollback_cell".into(),
-        value: Value::String("uncommitted".into()),
-    }).unwrap();
+    session
+        .execute(Command::StateInit {
+            branch: None,
+            cell: "rollback_cell".into(),
+            value: Value::String("uncommitted".into()),
+        })
+        .unwrap();
 
     session.execute(Command::TxnRollback).unwrap();
 
     // Verify not visible
     let executor = strata_executor::Executor::new(db);
-    let output = executor.execute(Command::StateRead {
-        branch: None,
-        cell: "rollback_cell".into(),
-    }).unwrap();
+    let output = executor
+        .execute(Command::StateRead {
+            branch: None,
+            cell: "rollback_cell".into(),
+        })
+        .unwrap();
 
     assert!(matches!(output, Output::Maybe(None)));
 }
@@ -270,25 +304,31 @@ fn commit_makes_kv_writes_visible() {
     let db = create_db();
     let mut session = Session::new(db.clone());
 
-    session.execute(Command::TxnBegin {
-        branch: None,
-        options: None,
-    }).unwrap();
+    session
+        .execute(Command::TxnBegin {
+            branch: None,
+            options: None,
+        })
+        .unwrap();
 
-    session.execute(Command::KvPut {
-        branch: None,
-        key: "commit_test".into(),
-        value: Value::Int(999),
-    }).unwrap();
+    session
+        .execute(Command::KvPut {
+            branch: None,
+            key: "commit_test".into(),
+            value: Value::Int(999),
+        })
+        .unwrap();
 
     session.execute(Command::TxnCommit).unwrap();
 
     // Read with a new executor - should find the value
     let executor = strata_executor::Executor::new(db);
-    let output = executor.execute(Command::KvGet {
-        branch: None,
-        key: "commit_test".into(),
-    }).unwrap();
+    let output = executor
+        .execute(Command::KvGet {
+            branch: None,
+            key: "commit_test".into(),
+        })
+        .unwrap();
 
     match output {
         Output::Maybe(Some(val)) => {
@@ -306,10 +346,12 @@ fn commit_makes_kv_writes_visible() {
 fn begin_while_active_fails() {
     let mut session = create_session();
 
-    session.execute(Command::TxnBegin {
-        branch: None,
-        options: None,
-    }).unwrap();
+    session
+        .execute(Command::TxnBegin {
+            branch: None,
+            options: None,
+        })
+        .unwrap();
 
     // Second begin should fail
     let result = session.execute(Command::TxnBegin {
@@ -346,16 +388,20 @@ fn rollback_without_transaction_fails() {
 fn branch_commands_bypass_transaction() {
     let mut session = create_session();
 
-    session.execute(Command::TxnBegin {
-        branch: None,
-        options: None,
-    }).unwrap();
+    session
+        .execute(Command::TxnBegin {
+            branch: None,
+            options: None,
+        })
+        .unwrap();
 
     // Run commands should work even in a transaction
-    let output = session.execute(Command::BranchCreate {
-        branch_id: Some("txn-bypass-test".into()),
-        metadata: None,
-    }).unwrap();
+    let output = session
+        .execute(Command::BranchCreate {
+            branch_id: Some("txn-bypass-test".into()),
+            metadata: None,
+        })
+        .unwrap();
 
     match output {
         Output::BranchWithVersion { info, .. } => {
@@ -367,9 +413,11 @@ fn branch_commands_bypass_transaction() {
     session.execute(Command::TxnRollback).unwrap();
 
     // Run should still exist (not rolled back)
-    let output = session.execute(Command::BranchGet {
-        branch: BranchId::from("txn-bypass-test"),
-    }).unwrap();
+    let output = session
+        .execute(Command::BranchGet {
+            branch: BranchId::from("txn-bypass-test"),
+        })
+        .unwrap();
 
     assert!(matches!(output, Output::BranchInfoVersioned(_)));
 }
@@ -378,30 +426,36 @@ fn branch_commands_bypass_transaction() {
 fn vector_commands_bypass_transaction() {
     let mut session = create_session();
 
-    session.execute(Command::TxnBegin {
-        branch: None,
-        options: None,
-    }).unwrap();
+    session
+        .execute(Command::TxnBegin {
+            branch: None,
+            options: None,
+        })
+        .unwrap();
 
     // Vector commands should work even in a transaction
-    session.execute(Command::VectorCreateCollection {
-        branch: None,
-        collection: "txn_coll".into(),
-        dimension: 4,
-        metric: DistanceMetric::Cosine,
-    }).unwrap();
+    session
+        .execute(Command::VectorCreateCollection {
+            branch: None,
+            collection: "txn_coll".into(),
+            dimension: 4,
+            metric: DistanceMetric::Cosine,
+        })
+        .unwrap();
 
     session.execute(Command::TxnRollback).unwrap();
 
     // Collection should still exist (not rolled back)
-    let output = session.execute(Command::VectorListCollections {
-        branch: None,
-    }).unwrap();
+    let output = session
+        .execute(Command::VectorListCollections { branch: None })
+        .unwrap();
 
     match output {
         Output::VectorCollectionList(infos) => {
-            assert!(infos.iter().any(|c| c.name == "txn_coll"),
-                "Collection should still exist after rollback");
+            assert!(
+                infos.iter().any(|c| c.name == "txn_coll"),
+                "Collection should still exist after rollback"
+            );
         }
         _ => panic!("Expected VectorCollectionList output"),
     }
@@ -411,10 +465,12 @@ fn vector_commands_bypass_transaction() {
 fn db_commands_work_in_transaction() {
     let mut session = create_session();
 
-    session.execute(Command::TxnBegin {
-        branch: None,
-        options: None,
-    }).unwrap();
+    session
+        .execute(Command::TxnBegin {
+            branch: None,
+            options: None,
+        })
+        .unwrap();
 
     // These should all work
     session.execute(Command::Ping).unwrap();
@@ -432,26 +488,32 @@ fn multiple_kv_operations_in_transaction() {
     let db = create_db();
     let mut session = Session::new(db.clone());
 
-    session.execute(Command::TxnBegin {
-        branch: None,
-        options: None,
-    }).unwrap();
+    session
+        .execute(Command::TxnBegin {
+            branch: None,
+            options: None,
+        })
+        .unwrap();
 
     // Multiple puts
     for i in 0..10 {
-        session.execute(Command::KvPut {
-            branch: None,
-            key: format!("key_{}", i),
-            value: Value::Int(i),
-        }).unwrap();
+        session
+            .execute(Command::KvPut {
+                branch: None,
+                key: format!("key_{}", i),
+                value: Value::Int(i),
+            })
+            .unwrap();
     }
 
     // All should be readable within transaction
     for i in 0..10 {
-        let output = session.execute(Command::KvGet {
-            branch: None,
-            key: format!("key_{}", i),
-        }).unwrap();
+        let output = session
+            .execute(Command::KvGet {
+                branch: None,
+                key: format!("key_{}", i),
+            })
+            .unwrap();
 
         match output {
             Output::Maybe(Some(val)) => {
@@ -466,10 +528,12 @@ fn multiple_kv_operations_in_transaction() {
     // Verify all visible after commit
     let executor = strata_executor::Executor::new(db);
     for i in 0..10 {
-        let output = executor.execute(Command::KvGet {
-            branch: None,
-            key: format!("key_{}", i),
-        }).unwrap();
+        let output = executor
+            .execute(Command::KvGet {
+                branch: None,
+                key: format!("key_{}", i),
+            })
+            .unwrap();
 
         assert!(matches!(output, Output::Maybe(Some(_))));
     }
@@ -480,52 +544,64 @@ fn cross_primitive_transaction() {
     let db = create_db();
     let mut session = Session::new(db.clone());
 
-    session.execute(Command::TxnBegin {
-        branch: None,
-        options: None,
-    }).unwrap();
+    session
+        .execute(Command::TxnBegin {
+            branch: None,
+            options: None,
+        })
+        .unwrap();
 
     // KV - fully supported in transactions
-    session.execute(Command::KvPut {
-        branch: None,
-        key: "kv_key".into(),
-        value: Value::Int(1),
-    }).unwrap();
+    session
+        .execute(Command::KvPut {
+            branch: None,
+            key: "kv_key".into(),
+            value: Value::Int(1),
+        })
+        .unwrap();
 
     // State - use StateInit for transaction support
-    session.execute(Command::StateInit {
-        branch: None,
-        cell: "state_cell".into(),
-        value: Value::Int(2),
-    }).unwrap();
+    session
+        .execute(Command::StateInit {
+            branch: None,
+            cell: "state_cell".into(),
+            value: Value::Int(2),
+        })
+        .unwrap();
 
     // Event - append supported in transactions
-    session.execute(Command::EventAppend {
-        branch: None,
-        event_type: "default".into(),
-        payload: event_payload("n", Value::Int(3)),
-    }).unwrap();
+    session
+        .execute(Command::EventAppend {
+            branch: None,
+            event_type: "default".into(),
+            payload: event_payload("n", Value::Int(3)),
+        })
+        .unwrap();
 
     session.execute(Command::TxnCommit).unwrap();
 
     // All should be visible
     let executor = strata_executor::Executor::new(db);
 
-    let kv_out = executor.execute(Command::KvGet {
-        branch: None,
-        key: "kv_key".into(),
-    }).unwrap();
+    let kv_out = executor
+        .execute(Command::KvGet {
+            branch: None,
+            key: "kv_key".into(),
+        })
+        .unwrap();
     assert!(matches!(kv_out, Output::Maybe(Some(_))));
 
-    let state_out = executor.execute(Command::StateRead {
-        branch: None,
-        cell: "state_cell".into(),
-    }).unwrap();
+    let state_out = executor
+        .execute(Command::StateRead {
+            branch: None,
+            cell: "state_cell".into(),
+        })
+        .unwrap();
     assert!(matches!(state_out, Output::Maybe(Some(_))));
 
-    let event_out = executor.execute(Command::EventLen {
-        branch: None,
-    }).unwrap();
+    let event_out = executor
+        .execute(Command::EventLen { branch: None })
+        .unwrap();
     match event_out {
         Output::Uint(len) => assert_eq!(len, 1, "Expected exactly 1 event, got {}", len),
         _ => panic!("Expected Uint"),
@@ -543,26 +619,32 @@ fn session_drop_cleans_up_transaction() {
     {
         let mut session = Session::new(db.clone());
 
-        session.execute(Command::TxnBegin {
-            branch: None,
-            options: None,
-        }).unwrap();
+        session
+            .execute(Command::TxnBegin {
+                branch: None,
+                options: None,
+            })
+            .unwrap();
 
-        session.execute(Command::KvPut {
-            branch: None,
-            key: "drop_test".into(),
-            value: Value::Int(1),
-        }).unwrap();
+        session
+            .execute(Command::KvPut {
+                branch: None,
+                key: "drop_test".into(),
+                value: Value::Int(1),
+            })
+            .unwrap();
 
         // Session dropped here without commit or rollback
     }
 
     // Transaction should be rolled back, data not visible
     let executor = strata_executor::Executor::new(db);
-    let output = executor.execute(Command::KvGet {
-        branch: None,
-        key: "drop_test".into(),
-    }).unwrap();
+    let output = executor
+        .execute(Command::KvGet {
+            branch: None,
+            key: "drop_test".into(),
+        })
+        .unwrap();
 
     assert!(matches!(output, Output::Maybe(None)));
 }

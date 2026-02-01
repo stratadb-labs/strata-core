@@ -25,12 +25,12 @@
 //! - diff_branches() - Key-level comparison
 //! - Orphaned branch detection
 
+use std::collections::HashMap;
 use strata_core::branch_types::{BranchEventOffsets, BranchMetadata, BranchStatus};
-use strata_core::types::{Key, BranchId};
+use strata_core::types::{BranchId, Key};
 use strata_core::value::Value;
 use strata_core::PrimitiveType;
 use strata_core::{EntityRef, StrataError};
-use std::collections::HashMap;
 use thiserror::Error;
 
 // ============================================================================
@@ -110,7 +110,8 @@ impl BranchIndex {
     /// Insert a new branch
     pub fn insert(&mut self, branch_id: BranchId, metadata: BranchMetadata) {
         self.branches.insert(branch_id, metadata);
-        self.branch_events.insert(branch_id, BranchEventOffsets::new());
+        self.branch_events
+            .insert(branch_id, BranchEventOffsets::new());
     }
 
     /// Check if a branch exists
@@ -734,11 +735,7 @@ mod tests {
         let diff = BranchDiff {
             branch_a: BranchId::new(),
             branch_b: BranchId::new(),
-            added: vec![DiffEntry::added(
-                "a".into(),
-                PrimitiveType::Kv,
-                "1".into(),
-            )],
+            added: vec![DiffEntry::added("a".into(), PrimitiveType::Kv, "1".into())],
             removed: vec![
                 DiffEntry::removed("b".into(), PrimitiveType::Kv, "2".into()),
                 DiffEntry::removed("c".into(), PrimitiveType::Kv, "3".into()),
@@ -851,7 +848,10 @@ mod tests {
 
         // Diff should be empty
         let diff = diff_views(&view1, &view2);
-        assert!(diff.is_empty(), "Deterministic replay should produce identical views");
+        assert!(
+            diff.is_empty(),
+            "Deterministic replay should produce identical views"
+        );
     }
 
     /// P5: Deterministic - Order of operations matters
@@ -910,7 +910,10 @@ mod tests {
         assert_eq!(view1.event_count(), view2.event_count());
 
         let diff = diff_views(&view1, &view2);
-        assert!(diff.is_empty(), "Idempotent replay should produce identical views");
+        assert!(
+            diff.is_empty(),
+            "Idempotent replay should produce identical views"
+        );
     }
 
     /// P2: Side-effect free - ReadOnlyView operations don't affect external state
@@ -984,7 +987,11 @@ mod tests {
         // Verify counts
         assert_eq!(diff.added.len(), 2, "Should have 2 additions (only_b + E2)");
         assert_eq!(diff.removed.len(), 1, "Should have 1 removal (only_a)");
-        assert_eq!(diff.modified.len(), 1, "Should have 1 modification (modified)");
+        assert_eq!(
+            diff.modified.len(),
+            1,
+            "Should have 1 modification (modified)"
+        );
 
         // Verify specific entries
         assert!(diff.added.iter().any(|e| e.key == "only_b"));
@@ -1009,7 +1016,10 @@ mod tests {
 
         // B has fewer events than A - should show as removed
         assert_eq!(diff.removed.len(), 2);
-        assert!(diff.removed.iter().all(|e| e.primitive == PrimitiveType::Event));
+        assert!(diff
+            .removed
+            .iter()
+            .all(|e| e.primitive == PrimitiveType::Event));
     }
 
     #[test]
@@ -1103,12 +1113,8 @@ mod tests {
         assert!(removed.value_a.is_some());
         assert!(removed.value_b.is_none());
 
-        let modified = DiffEntry::modified(
-            "key".into(),
-            PrimitiveType::Kv,
-            "old".into(),
-            "new".into(),
-        );
+        let modified =
+            DiffEntry::modified("key".into(), PrimitiveType::Kv, "old".into(), "new".into());
         assert!(modified.value_a.is_some());
         assert!(modified.value_b.is_some());
     }

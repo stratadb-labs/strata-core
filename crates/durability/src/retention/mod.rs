@@ -130,7 +130,8 @@ mod tests {
 
         // Wrong length
         assert!(
-            system_namespace::branch_id_from_retention_key("_system/retention_policy/0102").is_none()
+            system_namespace::branch_id_from_retention_key("_system/retention_policy/0102")
+                .is_none()
         );
     }
 }

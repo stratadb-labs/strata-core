@@ -39,34 +39,34 @@
 //! })?;
 //! ```
 
+pub mod branch;
 pub mod event;
 pub mod extensions;
 pub mod json;
 pub mod kv;
-pub mod branch;
 pub mod state;
 pub mod vector;
 
 // Re-exports - primitives are exported as they're implemented
+pub use branch::{BranchHandle, EventHandle, JsonHandle, KvHandle, StateHandle, VectorHandle};
+pub use branch::{BranchIndex, BranchMetadata, BranchStatus};
 pub use event::{Event, EventLog};
 pub use json::{JsonDoc, JsonStore};
 pub use kv::KVStore;
-pub use branch::{BranchHandle, EventHandle, JsonHandle, KvHandle, StateHandle, VectorHandle};
-pub use branch::{BranchIndex, BranchMetadata, BranchStatus};
 pub use state::{State, StateCell};
 pub use vector::{
     register_vector_recovery, validate_collection_name, validate_vector_key, BruteForceBackend,
     CollectionId, CollectionInfo, CollectionRecord, DistanceMetric, IndexBackendFactory,
-    JsonScalar, MetadataFilter, StorageDtype, VectorConfig, VectorConfigSerde, VectorEntry,
-    VectorError, VectorHeap, VectorId, VectorIndexBackend, VectorMatch, VectorRecord,
-    VectorResult, VectorStore, VectorBackendState,
+    JsonScalar, MetadataFilter, StorageDtype, VectorBackendState, VectorConfig, VectorConfigSerde,
+    VectorEntry, VectorError, VectorHeap, VectorId, VectorIndexBackend, VectorMatch, VectorRecord,
+    VectorResult, VectorStore,
 };
 
 // Re-export search types for convenience (from search module)
 pub use crate::search::{
-    build_search_response, build_search_response_with_index,
-    BM25LiteScorer, Scorer, ScorerContext, SearchCandidate, SearchDoc, Searchable, SimpleScorer,
-    InvertedIndex, PostingEntry, PostingList, tokenize, tokenize_unique,
+    build_search_response, build_search_response_with_index, tokenize, tokenize_unique,
+    BM25LiteScorer, InvertedIndex, PostingEntry, PostingList, Scorer, ScorerContext,
+    SearchCandidate, SearchDoc, Searchable, SimpleScorer,
 };
 
 // Re-export extension traits for convenience

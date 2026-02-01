@@ -16,12 +16,12 @@
 
 use crate::payload::TransactionPayload;
 use crate::TransactionManager;
+use std::path::PathBuf;
 use strata_core::traits::Storage;
 use strata_core::StrataResult;
 use strata_durability::codec::IdentityCodec;
 use strata_durability::wal::WalReader;
 use strata_storage::ShardedStore;
-use std::path::PathBuf;
 
 /// Coordinates database recovery after crash or restart
 ///
@@ -90,9 +90,9 @@ impl RecoveryCoordinator {
 
         // Read all records from segmented WAL
         let reader = WalReader::new(Box::new(IdentityCodec));
-        let read_result = reader.read_all(&self.wal_dir).map_err(|e| {
-            strata_core::StrataError::storage(format!("WAL read failed: {}", e))
-        })?;
+        let read_result = reader
+            .read_all(&self.wal_dir)
+            .map_err(|e| strata_core::StrataError::storage(format!("WAL read failed: {}", e)))?;
 
         for record in &read_result.records {
             max_txn_id = max_txn_id.max(record.txn_id);
@@ -108,12 +108,7 @@ impl RecoveryCoordinator {
 
             // Apply puts
             for (key, value) in &payload.puts {
-                storage.put_with_version(
-                    key.clone(),
-                    value.clone(),
-                    payload.version,
-                    None,
-                )?;
+                storage.put_with_version(key.clone(), value.clone(), payload.version, None)?;
                 stats.writes_applied += 1;
             }
 
@@ -218,7 +213,7 @@ impl RecoveryStats {
 mod tests {
     use super::*;
     use crate::payload::TransactionPayload;
-    use strata_core::types::{Key, Namespace, BranchId};
+    use strata_core::types::{BranchId, Key, Namespace};
     use strata_core::value::Value;
     use strata_durability::codec::IdentityCodec;
     use strata_durability::format::WalRecord;
@@ -408,7 +403,10 @@ mod tests {
                     &mut wal,
                     i,
                     branch_id,
-                    vec![(Key::new_kv(ns.clone(), format!("key{}", i)), Value::Int(i as i64 * 10))],
+                    vec![(
+                        Key::new_kv(ns.clone(), format!("key{}", i)),
+                        Value::Int(i as i64 * 10),
+                    )],
                     vec![],
                     i * 100,
                 );
@@ -587,8 +585,7 @@ mod tests {
         }
 
         // Append garbage to simulate crash mid-write of a second record
-        let segment_path =
-            strata_durability::format::WalSegment::segment_path(&wal_dir, 1);
+        let segment_path = strata_durability::format::WalSegment::segment_path(&wal_dir, 1);
         use std::io::Write;
         let mut file = std::fs::OpenOptions::new()
             .append(true)

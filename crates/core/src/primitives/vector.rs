@@ -568,19 +568,41 @@ mod tests {
 
     #[test]
     fn test_distance_metric_parse() {
-        assert_eq!(DistanceMetric::parse("cosine"), Some(DistanceMetric::Cosine));
-        assert_eq!(DistanceMetric::parse("euclidean"), Some(DistanceMetric::Euclidean));
+        assert_eq!(
+            DistanceMetric::parse("cosine"),
+            Some(DistanceMetric::Cosine)
+        );
+        assert_eq!(
+            DistanceMetric::parse("euclidean"),
+            Some(DistanceMetric::Euclidean)
+        );
         assert_eq!(DistanceMetric::parse("l2"), Some(DistanceMetric::Euclidean));
-        assert_eq!(DistanceMetric::parse("dot_product"), Some(DistanceMetric::DotProduct));
-        assert_eq!(DistanceMetric::parse("dot"), Some(DistanceMetric::DotProduct));
-        assert_eq!(DistanceMetric::parse("inner_product"), Some(DistanceMetric::DotProduct));
-        assert_eq!(DistanceMetric::parse("COSINE"), Some(DistanceMetric::Cosine)); // case-insensitive
+        assert_eq!(
+            DistanceMetric::parse("dot_product"),
+            Some(DistanceMetric::DotProduct)
+        );
+        assert_eq!(
+            DistanceMetric::parse("dot"),
+            Some(DistanceMetric::DotProduct)
+        );
+        assert_eq!(
+            DistanceMetric::parse("inner_product"),
+            Some(DistanceMetric::DotProduct)
+        );
+        assert_eq!(
+            DistanceMetric::parse("COSINE"),
+            Some(DistanceMetric::Cosine)
+        ); // case-insensitive
         assert_eq!(DistanceMetric::parse("unknown"), None);
     }
 
     #[test]
     fn test_distance_metric_byte_roundtrip() {
-        for metric in [DistanceMetric::Cosine, DistanceMetric::Euclidean, DistanceMetric::DotProduct] {
+        for metric in [
+            DistanceMetric::Cosine,
+            DistanceMetric::Euclidean,
+            DistanceMetric::DotProduct,
+        ] {
             let byte = metric.to_byte();
             let restored = DistanceMetric::from_byte(byte).unwrap();
             assert_eq!(metric, restored);
@@ -774,9 +796,7 @@ mod tests {
 
     #[test]
     fn test_metadata_filter_eq_match() {
-        let filter = MetadataFilter::new()
-            .eq("color", "red")
-            .eq("active", true);
+        let filter = MetadataFilter::new().eq("color", "red").eq("active", true);
 
         assert_eq!(filter.len(), 2);
 
@@ -877,7 +897,10 @@ mod tests {
         // source_ref should be absent from JSON when None
         let entry = VectorEntry::new("k".to_string(), vec![1.0], None, VectorId::new(1));
         let json = serde_json::to_string(&entry).unwrap();
-        assert!(!json.contains("source_ref"), "source_ref should be skipped when None");
+        assert!(
+            !json.contains("source_ref"),
+            "source_ref should be skipped when None"
+        );
 
         // Deserializing JSON without source_ref should produce None
         let restored: VectorEntry = serde_json::from_str(&json).unwrap();
@@ -889,10 +912,17 @@ mod tests {
         let branch_id = BranchId::new();
         let source = EntityRef::json(branch_id, "source-doc");
         let entry = VectorEntry::new_with_source(
-            "emb".to_string(), vec![1.0], None, VectorId::new(1), source.clone(),
+            "emb".to_string(),
+            vec![1.0],
+            None,
+            VectorId::new(1),
+            source.clone(),
         );
         let json = serde_json::to_string(&entry).unwrap();
-        assert!(json.contains("source_ref"), "source_ref should be present when Some");
+        assert!(
+            json.contains("source_ref"),
+            "source_ref should be present when Some"
+        );
         let restored: VectorEntry = serde_json::from_str(&json).unwrap();
         assert_eq!(restored.source_ref, Some(source));
     }
@@ -919,12 +949,7 @@ mod tests {
 
     #[test]
     fn test_vector_entry_large_dimension() {
-        let entry = VectorEntry::new(
-            "large".to_string(),
-            vec![0.0; 4096],
-            None,
-            VectorId::new(1),
-        );
+        let entry = VectorEntry::new("large".to_string(), vec![0.0; 4096], None, VectorId::new(1));
         assert_eq!(entry.dimension(), 4096);
     }
 
@@ -978,7 +1003,11 @@ mod tests {
 
     #[test]
     fn test_distance_metric_serde_roundtrip() {
-        for metric in [DistanceMetric::Cosine, DistanceMetric::Euclidean, DistanceMetric::DotProduct] {
+        for metric in [
+            DistanceMetric::Cosine,
+            DistanceMetric::Euclidean,
+            DistanceMetric::DotProduct,
+        ] {
             let json = serde_json::to_string(&metric).unwrap();
             let restored: DistanceMetric = serde_json::from_str(&json).unwrap();
             assert_eq!(metric, restored);
@@ -994,7 +1023,11 @@ mod tests {
     fn test_distance_metric_from_byte_reserved_values() {
         // Bytes 3+ are not assigned - should return None
         for b in 3..=255u8 {
-            assert!(DistanceMetric::from_byte(b).is_none(), "Byte {} should not map to a metric", b);
+            assert!(
+                DistanceMetric::from_byte(b).is_none(),
+                "Byte {} should not map to a metric",
+                b
+            );
         }
     }
 
@@ -1014,7 +1047,11 @@ mod tests {
     fn test_storage_dtype_from_byte_reserved_values() {
         // Bytes 1+ are reserved for future F16/Int8
         for b in 1..=255u8 {
-            assert!(StorageDtype::from_byte(b).is_none(), "Byte {} should not map to a dtype", b);
+            assert!(
+                StorageDtype::from_byte(b).is_none(),
+                "Byte {} should not map to a dtype",
+                b
+            );
         }
     }
 

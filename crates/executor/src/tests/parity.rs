@@ -5,10 +5,10 @@
 
 use crate::bridge::{self, Primitives};
 use crate::types::*;
-use crate::{Command, Executor, Output};
 use crate::Value;
-use strata_engine::Database;
+use crate::{Command, Executor, Output};
 use std::sync::Arc;
+use strata_engine::Database;
 
 /// Create a test executor with shared primitives for parity comparisons.
 fn create_test_environment() -> (Executor, Arc<Primitives>) {
@@ -28,7 +28,9 @@ fn test_kv_put_get_parity() {
     let branch_id = strata_core::types::BranchId::from_bytes([0u8; 16]);
 
     // Direct primitive call to write key1
-    let _direct_version = p.kv.put(&branch_id, "key1", Value::String("direct".into())).unwrap();
+    let _direct_version =
+        p.kv.put(&branch_id, "key1", Value::String("direct".into()))
+            .unwrap();
 
     // Executor call to write key2
     let exec_result = executor.execute(Command::KvPut {
@@ -152,7 +154,7 @@ fn test_json_set_get_parity() {
     let result = executor.execute(Command::JsonSet {
         branch: None,
         key: "doc1".to_string(),
-        path: "".to_string(),  // Root path
+        path: "".to_string(), // Root path
         value: Value::Object(
             [("name".to_string(), Value::String("Alice".into()))]
                 .into_iter()
@@ -208,16 +210,18 @@ fn test_event_append_read_by_type_parity() {
     }
 
     // Append via direct primitive
-    let _seq2 = p.event.append(
-        &branch_id,
-        "events",
-        Value::Object(
-            [("type".to_string(), Value::String("scroll".into()))]
-                .into_iter()
-                .collect(),
-        ),
-    )
-    .unwrap();
+    let _seq2 = p
+        .event
+        .append(
+            &branch_id,
+            "events",
+            Value::Object(
+                [("type".to_string(), Value::String("scroll".into()))]
+                    .into_iter()
+                    .collect(),
+            ),
+        )
+        .unwrap();
 
     // ReadByType query via executor
     let read_result = executor.execute(Command::EventReadByType {
@@ -313,7 +317,11 @@ fn test_vector_upsert_search_parity() {
     let branch_id = strata_core::types::BranchId::from_bytes([0u8; 16]);
 
     // Create collection first via primitive
-    let config = strata_core::primitives::vector::VectorConfig::new(4, strata_engine::DistanceMetric::Cosine).unwrap();
+    let config = strata_core::primitives::vector::VectorConfig::new(
+        4,
+        strata_engine::DistanceMetric::Cosine,
+    )
+    .unwrap();
     p.vector
         .create_collection(branch_id, "vecs", config)
         .unwrap();
@@ -331,13 +339,7 @@ fn test_vector_upsert_search_parity() {
 
     // Upsert via direct primitive
     p.vector
-        .insert(
-            branch_id,
-            "vecs",
-            "v2",
-            &[0.0, 1.0, 0.0, 0.0],
-            None,
-        )
+        .insert(branch_id, "vecs", "v2", &[0.0, 1.0, 0.0, 0.0], None)
         .unwrap();
 
     // Search via executor

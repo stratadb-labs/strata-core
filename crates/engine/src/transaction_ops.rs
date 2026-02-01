@@ -30,8 +30,8 @@
 //! ```
 
 use strata_core::{
-    Event, JsonPath, JsonValue, MetadataFilter, BranchMetadata, BranchStatus, State,
-    StrataError, Value, VectorEntry, VectorMatch, Version, Versioned,
+    BranchMetadata, BranchStatus, Event, JsonPath, JsonValue, MetadataFilter, State, StrataError,
+    Value, VectorEntry, VectorMatch, Version, Versioned,
 };
 
 /// Operations available within a transaction
@@ -202,7 +202,10 @@ mod tests {
 
     impl TransactionOps for MockTransactionOps {
         fn kv_get(&self, key: &str) -> Result<Option<Versioned<Value>>, StrataError> {
-            Ok(self.kv_data.get(key).map(|v| Versioned::new(v.clone(), Version::txn(1))))
+            Ok(self
+                .kv_data
+                .get(key)
+                .map(|v| Versioned::new(v.clone(), Version::txn(1))))
         }
 
         fn kv_put(&mut self, key: &str, value: Value) -> Result<Version, StrataError> {
@@ -219,14 +222,20 @@ mod tests {
         }
 
         fn kv_list(&self, prefix: Option<&str>) -> Result<Vec<String>, StrataError> {
-            let keys: Vec<_> = self.kv_data.keys()
+            let keys: Vec<_> = self
+                .kv_data
+                .keys()
                 .filter(|k| prefix.is_none() || k.starts_with(prefix.unwrap()))
                 .cloned()
                 .collect();
             Ok(keys)
         }
 
-        fn event_append(&mut self, _event_type: &str, _payload: Value) -> Result<Version, StrataError> {
+        fn event_append(
+            &mut self,
+            _event_type: &str,
+            _payload: Value,
+        ) -> Result<Version, StrataError> {
             self.event_count += 1;
             Ok(Version::seq(self.event_count))
         }
@@ -241,7 +250,11 @@ mod tests {
             Ok(None)
         }
 
-        fn event_range(&self, _start: u64, _end: u64) -> Result<Vec<Versioned<Event>>, StrataError> {
+        fn event_range(
+            &self,
+            _start: u64,
+            _end: u64,
+        ) -> Result<Vec<Versioned<Event>>, StrataError> {
             // Return empty for simplicity
             Ok(Vec::new())
         }
@@ -252,74 +265,142 @@ mod tests {
 
         // State operations - return not implemented error for mock
         fn state_read(&self, _name: &str) -> Result<Option<Versioned<State>>, StrataError> {
-            Err(StrataError::Internal { message: "state_read not implemented in mock".to_string() })
+            Err(StrataError::Internal {
+                message: "state_read not implemented in mock".to_string(),
+            })
         }
 
         fn state_init(&mut self, _name: &str, _value: Value) -> Result<Version, StrataError> {
-            Err(StrataError::Internal { message: "state_init not implemented in mock".to_string() })
+            Err(StrataError::Internal {
+                message: "state_init not implemented in mock".to_string(),
+            })
         }
 
-        fn state_cas(&mut self, _name: &str, _expected: Version, _value: Value) -> Result<Version, StrataError> {
-            Err(StrataError::Internal { message: "state_cas not implemented in mock".to_string() })
+        fn state_cas(
+            &mut self,
+            _name: &str,
+            _expected: Version,
+            _value: Value,
+        ) -> Result<Version, StrataError> {
+            Err(StrataError::Internal {
+                message: "state_cas not implemented in mock".to_string(),
+            })
         }
 
         // Json operations
-        fn json_create(&mut self, _doc_id: &str, _value: JsonValue) -> Result<Version, StrataError> {
-            Err(StrataError::Internal { message: "json_create not implemented in mock".to_string() })
+        fn json_create(
+            &mut self,
+            _doc_id: &str,
+            _value: JsonValue,
+        ) -> Result<Version, StrataError> {
+            Err(StrataError::Internal {
+                message: "json_create not implemented in mock".to_string(),
+            })
         }
 
         fn json_get(&self, _doc_id: &str) -> Result<Option<Versioned<JsonValue>>, StrataError> {
-            Err(StrataError::Internal { message: "json_get not implemented in mock".to_string() })
+            Err(StrataError::Internal {
+                message: "json_get not implemented in mock".to_string(),
+            })
         }
 
-        fn json_get_path(&self, _doc_id: &str, _path: &JsonPath) -> Result<Option<JsonValue>, StrataError> {
-            Err(StrataError::Internal { message: "json_get_path not implemented in mock".to_string() })
+        fn json_get_path(
+            &self,
+            _doc_id: &str,
+            _path: &JsonPath,
+        ) -> Result<Option<JsonValue>, StrataError> {
+            Err(StrataError::Internal {
+                message: "json_get_path not implemented in mock".to_string(),
+            })
         }
 
-        fn json_set(&mut self, _doc_id: &str, _path: &JsonPath, _value: JsonValue) -> Result<Version, StrataError> {
-            Err(StrataError::Internal { message: "json_set not implemented in mock".to_string() })
+        fn json_set(
+            &mut self,
+            _doc_id: &str,
+            _path: &JsonPath,
+            _value: JsonValue,
+        ) -> Result<Version, StrataError> {
+            Err(StrataError::Internal {
+                message: "json_set not implemented in mock".to_string(),
+            })
         }
 
         fn json_delete(&mut self, _doc_id: &str) -> Result<bool, StrataError> {
-            Err(StrataError::Internal { message: "json_delete not implemented in mock".to_string() })
+            Err(StrataError::Internal {
+                message: "json_delete not implemented in mock".to_string(),
+            })
         }
 
         fn json_exists(&self, _doc_id: &str) -> Result<bool, StrataError> {
-            Err(StrataError::Internal { message: "json_exists not implemented in mock".to_string() })
+            Err(StrataError::Internal {
+                message: "json_exists not implemented in mock".to_string(),
+            })
         }
 
         fn json_destroy(&mut self, _doc_id: &str) -> Result<bool, StrataError> {
-            Err(StrataError::Internal { message: "json_destroy not implemented in mock".to_string() })
+            Err(StrataError::Internal {
+                message: "json_destroy not implemented in mock".to_string(),
+            })
         }
 
         // Vector operations
-        fn vector_insert(&mut self, _collection: &str, _key: &str, _embedding: &[f32], _metadata: Option<Value>) -> Result<Version, StrataError> {
-            Err(StrataError::Internal { message: "vector_insert not implemented in mock".to_string() })
+        fn vector_insert(
+            &mut self,
+            _collection: &str,
+            _key: &str,
+            _embedding: &[f32],
+            _metadata: Option<Value>,
+        ) -> Result<Version, StrataError> {
+            Err(StrataError::Internal {
+                message: "vector_insert not implemented in mock".to_string(),
+            })
         }
 
-        fn vector_get(&self, _collection: &str, _key: &str) -> Result<Option<Versioned<VectorEntry>>, StrataError> {
-            Err(StrataError::Internal { message: "vector_get not implemented in mock".to_string() })
+        fn vector_get(
+            &self,
+            _collection: &str,
+            _key: &str,
+        ) -> Result<Option<Versioned<VectorEntry>>, StrataError> {
+            Err(StrataError::Internal {
+                message: "vector_get not implemented in mock".to_string(),
+            })
         }
 
         fn vector_delete(&mut self, _collection: &str, _key: &str) -> Result<bool, StrataError> {
-            Err(StrataError::Internal { message: "vector_delete not implemented in mock".to_string() })
+            Err(StrataError::Internal {
+                message: "vector_delete not implemented in mock".to_string(),
+            })
         }
 
-        fn vector_search(&self, _collection: &str, _query: &[f32], _k: usize, _filter: Option<MetadataFilter>) -> Result<Vec<VectorMatch>, StrataError> {
-            Err(StrataError::Internal { message: "vector_search not implemented in mock".to_string() })
+        fn vector_search(
+            &self,
+            _collection: &str,
+            _query: &[f32],
+            _k: usize,
+            _filter: Option<MetadataFilter>,
+        ) -> Result<Vec<VectorMatch>, StrataError> {
+            Err(StrataError::Internal {
+                message: "vector_search not implemented in mock".to_string(),
+            })
         }
 
         fn vector_exists(&self, _collection: &str, _key: &str) -> Result<bool, StrataError> {
-            Err(StrataError::Internal { message: "vector_exists not implemented in mock".to_string() })
+            Err(StrataError::Internal {
+                message: "vector_exists not implemented in mock".to_string(),
+            })
         }
 
         // Run operations
         fn branch_metadata(&self) -> Result<Option<Versioned<BranchMetadata>>, StrataError> {
-            Err(StrataError::Internal { message: "branch_metadata not implemented in mock".to_string() })
+            Err(StrataError::Internal {
+                message: "branch_metadata not implemented in mock".to_string(),
+            })
         }
 
         fn branch_update_status(&mut self, _status: BranchStatus) -> Result<Version, StrataError> {
-            Err(StrataError::Internal { message: "branch_update_status not implemented in mock".to_string() })
+            Err(StrataError::Internal {
+                message: "branch_update_status not implemented in mock".to_string(),
+            })
         }
     }
 
@@ -381,8 +462,12 @@ mod tests {
         let mut ops: Box<dyn TransactionOps> = Box::new(MockTransactionOps::new());
 
         // Append events
-        let v1 = ops.event_append("UserCreated", Value::String("alice".into())).unwrap();
-        let v2 = ops.event_append("UserUpdated", Value::String("bob".into())).unwrap();
+        let v1 = ops
+            .event_append("UserCreated", Value::String("alice".into()))
+            .unwrap();
+        let v2 = ops
+            .event_append("UserUpdated", Value::String("bob".into()))
+            .unwrap();
 
         // Check versions are sequential
         assert_eq!(v1.as_u64(), 1);

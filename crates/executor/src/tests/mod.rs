@@ -1,8 +1,8 @@
 //! Test modules for the executor crate.
 
-pub mod serialization;
+pub mod determinism;
 pub mod execute_many;
 pub mod parity;
-pub mod determinism;
-pub mod session;
 pub mod search;
+pub mod serialization;
+pub mod session;

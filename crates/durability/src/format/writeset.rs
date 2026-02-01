@@ -22,7 +22,7 @@
 //! └──────────────────┴──────────────────┴────────────────────────────┘
 //! ```
 
-use strata_core::{EntityRef, BranchId};
+use strata_core::{BranchId, EntityRef};
 
 /// Mutation tag bytes
 const MUTATION_PUT: u8 = 0x01;
@@ -296,7 +296,10 @@ impl Writeset {
                 bytes.extend_from_slice(branch_id.as_bytes());
                 Self::write_string(bytes, key);
             }
-            EntityRef::Event { branch_id, sequence } => {
+            EntityRef::Event {
+                branch_id,
+                sequence,
+            } => {
                 bytes.push(ENTITY_EVENT);
                 bytes.extend_from_slice(branch_id.as_bytes());
                 bytes.extend_from_slice(&sequence.to_le_bytes());
@@ -358,7 +361,13 @@ impl Writeset {
                 }
                 let sequence = u64::from_le_bytes(bytes[cursor..cursor + 8].try_into().unwrap());
                 cursor += 8;
-                Ok((EntityRef::Event { branch_id, sequence }, cursor))
+                Ok((
+                    EntityRef::Event {
+                        branch_id,
+                        sequence,
+                    },
+                    cursor,
+                ))
             }
             ENTITY_STATE => {
                 let (name, consumed) = Self::read_string(&bytes[cursor..])?;
@@ -613,7 +622,11 @@ mod tests {
         let mut ws = Writeset::new();
         ws.put(EntityRef::kv(branch_id, "键值对"), vec![1], 1);
         ws.put(EntityRef::state(branch_id, "状态🎉"), vec![2], 2);
-        ws.put(EntityRef::vector(branch_id, "коллекция", "κλειδί"), vec![3], 3);
+        ws.put(
+            EntityRef::vector(branch_id, "коллекция", "κλειδί"),
+            vec![3],
+            3,
+        );
 
         let bytes = ws.to_bytes();
         let restored = Writeset::from_bytes(&bytes).unwrap();

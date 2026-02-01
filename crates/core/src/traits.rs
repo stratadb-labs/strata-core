@@ -7,7 +7,7 @@ use std::time::Duration;
 
 use crate::contract::VersionedValue;
 use crate::error::StrataResult;
-use crate::types::{Key, BranchId};
+use crate::types::{BranchId, Key};
 use crate::value::Value;
 
 /// Storage abstraction for unified backend
@@ -96,7 +96,11 @@ pub trait Storage: Send + Sync {
     /// # Errors
     ///
     /// Returns an error if the storage operation fails.
-    fn scan_prefix(&self, prefix: &Key, max_version: u64) -> StrataResult<Vec<(Key, VersionedValue)>>;
+    fn scan_prefix(
+        &self,
+        prefix: &Key,
+        max_version: u64,
+    ) -> StrataResult<Vec<(Key, VersionedValue)>>;
 
     /// Scan all keys for a given branch_id at or before max_version
     ///
@@ -106,7 +110,11 @@ pub trait Storage: Send + Sync {
     /// # Errors
     ///
     /// Returns an error if the storage operation fails.
-    fn scan_by_branch(&self, branch_id: BranchId, max_version: u64) -> StrataResult<Vec<(Key, VersionedValue)>>;
+    fn scan_by_branch(
+        &self,
+        branch_id: BranchId,
+        max_version: u64,
+    ) -> StrataResult<Vec<(Key, VersionedValue)>>;
 
     /// Get current global version
     ///
@@ -204,7 +212,10 @@ mod tests {
     use crate::error::StrataError;
     use crate::types::Namespace;
     use std::collections::BTreeMap;
-    use std::sync::{atomic::{AtomicU64, Ordering}, RwLock};
+    use std::sync::{
+        atomic::{AtomicU64, Ordering},
+        RwLock,
+    };
 
     // ====================================================================
     // Minimal mock implementations for behavioral testing
@@ -231,10 +242,16 @@ mod tests {
             Ok(data.get(key).and_then(|versions| versions.last().cloned()))
         }
 
-        fn get_versioned(&self, key: &Key, max_version: u64) -> StrataResult<Option<VersionedValue>> {
+        fn get_versioned(
+            &self,
+            key: &Key,
+            max_version: u64,
+        ) -> StrataResult<Option<VersionedValue>> {
             let data = self.data.read().unwrap();
             Ok(data.get(key).and_then(|versions| {
-                versions.iter().rev()
+                versions
+                    .iter()
+                    .rev()
                     .find(|v| v.version().as_u64() <= max_version)
                     .cloned()
             }))
@@ -250,7 +267,9 @@ mod tests {
             let Some(versions) = data.get(key) else {
                 return Ok(vec![]);
             };
-            let mut result: Vec<_> = versions.iter().rev()
+            let mut result: Vec<_> = versions
+                .iter()
+                .rev()
                 .filter(|v| before_version.map_or(true, |bv| v.version().as_u64() < bv))
                 .cloned()
                 .collect();
@@ -273,13 +292,20 @@ mod tests {
             Ok(data.remove(key).and_then(|v| v.last().cloned()))
         }
 
-        fn scan_prefix(&self, prefix: &Key, max_version: u64) -> StrataResult<Vec<(Key, VersionedValue)>> {
+        fn scan_prefix(
+            &self,
+            prefix: &Key,
+            max_version: u64,
+        ) -> StrataResult<Vec<(Key, VersionedValue)>> {
             let data = self.data.read().unwrap();
             let mut result = vec![];
             for (k, versions) in data.iter() {
                 if k.starts_with(prefix) {
-                    if let Some(v) = versions.iter().rev()
-                        .find(|v| v.version().as_u64() <= max_version) {
+                    if let Some(v) = versions
+                        .iter()
+                        .rev()
+                        .find(|v| v.version().as_u64() <= max_version)
+                    {
                         result.push((k.clone(), v.clone()));
                     }
                 }
@@ -287,13 +313,20 @@ mod tests {
             Ok(result)
         }
 
-        fn scan_by_branch(&self, branch_id: BranchId, max_version: u64) -> StrataResult<Vec<(Key, VersionedValue)>> {
+        fn scan_by_branch(
+            &self,
+            branch_id: BranchId,
+            max_version: u64,
+        ) -> StrataResult<Vec<(Key, VersionedValue)>> {
             let data = self.data.read().unwrap();
             let mut result = vec![];
             for (k, versions) in data.iter() {
                 if k.namespace.branch_id == branch_id {
-                    if let Some(v) = versions.iter().rev()
-                        .find(|v| v.version().as_u64() <= max_version) {
+                    if let Some(v) = versions
+                        .iter()
+                        .rev()
+                        .find(|v| v.version().as_u64() <= max_version)
+                    {
                         result.push((k.clone(), v.clone()));
                     }
                 }
@@ -305,14 +338,25 @@ mod tests {
             self.version.load(Ordering::SeqCst)
         }
 
-        fn put_with_version(&self, key: Key, value: Value, version: u64, _ttl: Option<Duration>) -> StrataResult<()> {
-            let versioned = Versioned::with_timestamp(value, Version::txn(version), Timestamp::now());
+        fn put_with_version(
+            &self,
+            key: Key,
+            value: Value,
+            version: u64,
+            _ttl: Option<Duration>,
+        ) -> StrataResult<()> {
+            let versioned =
+                Versioned::with_timestamp(value, Version::txn(version), Timestamp::now());
             let mut data = self.data.write().unwrap();
             data.entry(key).or_default().push(versioned);
             Ok(())
         }
 
-        fn delete_with_version(&self, key: &Key, _version: u64) -> StrataResult<Option<VersionedValue>> {
+        fn delete_with_version(
+            &self,
+            key: &Key,
+            _version: u64,
+        ) -> StrataResult<Option<VersionedValue>> {
             self.delete(key)
         }
     }
@@ -328,12 +372,18 @@ mod tests {
             let data = storage.data.read().unwrap();
             let mut snap = BTreeMap::new();
             for (k, versions) in data.iter() {
-                if let Some(v) = versions.iter().rev()
-                    .find(|v| v.version().as_u64() <= version) {
+                if let Some(v) = versions
+                    .iter()
+                    .rev()
+                    .find(|v| v.version().as_u64() <= version)
+                {
                     snap.insert(k.clone(), v.clone());
                 }
             }
-            MockSnapshot { data: snap, snap_version: version }
+            MockSnapshot {
+                data: snap,
+                snap_version: version,
+            }
         }
     }
 
@@ -343,7 +393,9 @@ mod tests {
         }
 
         fn scan_prefix(&self, prefix: &Key) -> StrataResult<Vec<(Key, VersionedValue)>> {
-            Ok(self.data.iter()
+            Ok(self
+                .data
+                .iter()
                 .filter(|(k, _)| k.starts_with(prefix))
                 .map(|(k, v)| (k.clone(), v.clone()))
                 .collect())
@@ -548,7 +600,9 @@ mod tests {
         let store = MockStorage::new();
         let ns = test_ns();
         let key = test_key(&ns, "explicit");
-        store.put_with_version(key.clone(), Value::Int(99), 42, None).unwrap();
+        store
+            .put_with_version(key.clone(), Value::Int(99), 42, None)
+            .unwrap();
 
         let result = store.get(&key).unwrap().unwrap();
         assert_eq!(result.value, Value::Int(99));
@@ -560,9 +614,15 @@ mod tests {
         let store = MockStorage::new();
         let ns = test_ns();
         let prefix = Key::new_kv(ns.clone(), "user/");
-        store.put(Key::new_kv(ns.clone(), "user/alice"), Value::Int(1), None).unwrap();
-        store.put(Key::new_kv(ns.clone(), "user/bob"), Value::Int(2), None).unwrap();
-        store.put(Key::new_kv(ns.clone(), "config/x"), Value::Int(3), None).unwrap();
+        store
+            .put(Key::new_kv(ns.clone(), "user/alice"), Value::Int(1), None)
+            .unwrap();
+        store
+            .put(Key::new_kv(ns.clone(), "user/bob"), Value::Int(2), None)
+            .unwrap();
+        store
+            .put(Key::new_kv(ns.clone(), "config/x"), Value::Int(3), None)
+            .unwrap();
 
         let results = store.scan_prefix(&prefix, u64::MAX).unwrap();
         assert_eq!(results.len(), 2);
@@ -576,8 +636,12 @@ mod tests {
         let ns1 = Namespace::new("t".into(), "a".into(), "g".into(), branch1);
         let ns2 = Namespace::new("t".into(), "a".into(), "g".into(), branch2);
 
-        store.put(Key::new_kv(ns1.clone(), "k1"), Value::Int(1), None).unwrap();
-        store.put(Key::new_kv(ns2.clone(), "k2"), Value::Int(2), None).unwrap();
+        store
+            .put(Key::new_kv(ns1.clone(), "k1"), Value::Int(1), None)
+            .unwrap();
+        store
+            .put(Key::new_kv(ns2.clone(), "k2"), Value::Int(2), None)
+            .unwrap();
 
         let results = store.scan_by_branch(branch1, u64::MAX).unwrap();
         assert_eq!(results.len(), 1);
@@ -652,7 +716,12 @@ mod tests {
         fn get_versioned(&self, _: &Key, _: u64) -> StrataResult<Option<VersionedValue>> {
             Err(StrataError::storage("disk read failed"))
         }
-        fn get_history(&self, _: &Key, _: Option<usize>, _: Option<u64>) -> StrataResult<Vec<VersionedValue>> {
+        fn get_history(
+            &self,
+            _: &Key,
+            _: Option<usize>,
+            _: Option<u64>,
+        ) -> StrataResult<Vec<VersionedValue>> {
             Err(StrataError::storage("disk read failed"))
         }
         fn put(&self, _: Key, _: Value, _: Option<Duration>) -> StrataResult<u64> {
@@ -667,8 +736,16 @@ mod tests {
         fn scan_by_branch(&self, _: BranchId, _: u64) -> StrataResult<Vec<(Key, VersionedValue)>> {
             Err(StrataError::storage("disk read failed"))
         }
-        fn current_version(&self) -> u64 { 0 }
-        fn put_with_version(&self, _: Key, _: Value, _: u64, _: Option<Duration>) -> StrataResult<()> {
+        fn current_version(&self) -> u64 {
+            0
+        }
+        fn put_with_version(
+            &self,
+            _: Key,
+            _: Value,
+            _: u64,
+            _: Option<Duration>,
+        ) -> StrataResult<()> {
             Err(StrataError::storage("disk write failed"))
         }
         fn delete_with_version(&self, _: &Key, _: u64) -> StrataResult<Option<VersionedValue>> {
@@ -689,7 +766,9 @@ mod tests {
         assert!(store.get_history(&key, None, None).is_err());
         assert!(store.scan_prefix(&key, 0).is_err());
         assert!(store.scan_by_branch(BranchId::new(), 0).is_err());
-        assert!(store.put_with_version(key.clone(), Value::Null, 1, None).is_err());
+        assert!(store
+            .put_with_version(key.clone(), Value::Null, 1, None)
+            .is_err());
         assert!(store.delete_with_version(&key, 1).is_err());
     }
 

@@ -124,7 +124,12 @@ impl VectorRecord {
     }
 
     /// Update embedding, metadata, source reference, and version
-    pub fn update_with_source(&mut self, embedding: Vec<f32>, metadata: Option<JsonValue>, source_ref: Option<EntityRef>) {
+    pub fn update_with_source(
+        &mut self,
+        embedding: Vec<f32>,
+        metadata: Option<JsonValue>,
+        source_ref: Option<EntityRef>,
+    ) {
         self.embedding = embedding;
         self.metadata = metadata;
         self.source_ref = source_ref;
@@ -263,8 +268,8 @@ impl TryFrom<VectorConfigSerde> for VectorConfig {
         })?;
 
         // Default to F32 for forward compatibility with old WAL entries
-        let storage_dtype = StorageDtype::from_byte(serde.storage_dtype)
-            .unwrap_or(StorageDtype::F32);
+        let storage_dtype =
+            StorageDtype::from_byte(serde.storage_dtype).unwrap_or(StorageDtype::F32);
 
         Ok(VectorConfig {
             dimension: serde.dimension,

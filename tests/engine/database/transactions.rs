@@ -3,9 +3,9 @@
 //! Tests for transaction begin, commit, abort, and retry semantics.
 
 use crate::common::*;
-use strata_engine::KVStoreExt;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
+use strata_engine::KVStoreExt;
 
 // ============================================================================
 // Basic Transaction Flow
@@ -31,10 +31,13 @@ fn transaction_closure_api() {
     let branch_id = test_db.branch_id;
 
     // Use the transaction closure API
-    test_db.db.transaction(branch_id, |txn| {
-        txn.kv_put("tx_key", Value::Int(100))?;
-        Ok(())
-    }).unwrap();
+    test_db
+        .db
+        .transaction(branch_id, |txn| {
+            txn.kv_put("tx_key", Value::Int(100))?;
+            Ok(())
+        })
+        .unwrap();
 
     // Verify data committed
     let kv = test_db.kv();
@@ -51,16 +54,19 @@ fn transaction_returns_value() {
     kv.put(&branch_id, "counter", Value::Int(10)).unwrap();
 
     // Transaction can return a value
-    let result: i64 = test_db.db.transaction(branch_id, |txn| {
-        let val = txn.kv_get("counter")?;
-        match val {
-            Some(Value::Int(n)) => {
-                txn.kv_put("counter", Value::Int(n + 1))?;
-                Ok(n)
+    let result: i64 = test_db
+        .db
+        .transaction(branch_id, |txn| {
+            let val = txn.kv_get("counter")?;
+            match val {
+                Some(Value::Int(n)) => {
+                    txn.kv_put("counter", Value::Int(n + 1))?;
+                    Ok(n)
+                }
+                _ => Ok(0),
             }
-            _ => Ok(0),
-        }
-    }).unwrap();
+        })
+        .unwrap();
 
     assert_eq!(result, 10);
 
@@ -106,10 +112,13 @@ fn read_only_transaction_sees_committed_data() {
     kv.put(&branch_id, "ro_key", Value::Int(42)).unwrap();
 
     // Read in transaction
-    let result: Option<Value> = test_db.db.transaction(branch_id, |txn| {
-        let v = txn.kv_get("ro_key")?;
-        Ok(v)
-    }).unwrap();
+    let result: Option<Value> = test_db
+        .db
+        .transaction(branch_id, |txn| {
+            let v = txn.kv_get("ro_key")?;
+            Ok(v)
+        })
+        .unwrap();
 
     assert_eq!(result, Some(Value::Int(42)));
 }
@@ -124,10 +133,13 @@ fn read_only_transaction_never_conflicts() {
 
     // Multiple read-only transactions should all succeed
     for _ in 0..10 {
-        let result: Option<Value> = test_db.db.transaction(branch_id, |txn| {
-            let v = txn.kv_get("ro_key")?;
-            Ok(v)
-        }).unwrap();
+        let result: Option<Value> = test_db
+            .db
+            .transaction(branch_id, |txn| {
+                let v = txn.kv_get("ro_key")?;
+                Ok(v)
+            })
+            .unwrap();
 
         assert_eq!(result, Some(Value::Int(1)));
     }
@@ -150,15 +162,18 @@ fn transaction_retries_on_conflict() {
 
     // This transaction increments the key
     // If there's conflict, it will retry
-    test_db.db.transaction(branch_id, |txn| {
-        attempt_count_clone.fetch_add(1, Ordering::SeqCst);
+    test_db
+        .db
+        .transaction(branch_id, |txn| {
+            attempt_count_clone.fetch_add(1, Ordering::SeqCst);
 
-        let val = txn.kv_get("retry_key")?;
-        if let Some(Value::Int(n)) = val {
-            txn.kv_put("retry_key", Value::Int(n + 1))?;
-        }
-        Ok(())
-    }).unwrap();
+            let val = txn.kv_get("retry_key")?;
+            if let Some(Value::Int(n)) = val {
+                txn.kv_put("retry_key", Value::Int(n + 1))?;
+            }
+            Ok(())
+        })
+        .unwrap();
 
     // At least one attempt was made
     assert!(attempt_count.load(Ordering::SeqCst) >= 1);
@@ -228,12 +243,15 @@ fn transaction_multiple_puts() {
     let test_db = TestDb::new();
     let branch_id = test_db.branch_id;
 
-    test_db.db.transaction(branch_id, |txn| {
-        for i in 0..10 {
-            txn.kv_put(&format!("multi_{}", i), Value::Int(i))?;
-        }
-        Ok(())
-    }).unwrap();
+    test_db
+        .db
+        .transaction(branch_id, |txn| {
+            for i in 0..10 {
+                txn.kv_put(&format!("multi_{}", i), Value::Int(i))?;
+            }
+            Ok(())
+        })
+        .unwrap();
 
     // All visible
     let kv = test_db.kv();
@@ -252,11 +270,14 @@ fn transaction_put_and_delete() {
     // Pre-existing key
     kv.put(&branch_id, "to_delete", Value::Int(1)).unwrap();
 
-    test_db.db.transaction(branch_id, |txn| {
-        txn.kv_put("new_key", Value::Int(42))?;
-        txn.kv_delete("to_delete")?;
-        Ok(())
-    }).unwrap();
+    test_db
+        .db
+        .transaction(branch_id, |txn| {
+            txn.kv_put("new_key", Value::Int(42))?;
+            txn.kv_delete("to_delete")?;
+            Ok(())
+        })
+        .unwrap();
 
     // New key exists
     assert_eq!(kv.get(&branch_id, "new_key").unwrap(), Some(Value::Int(42)));

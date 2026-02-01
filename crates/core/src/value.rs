@@ -305,11 +305,9 @@ impl From<Value> for serde_json::Value {
             Value::Null => serde_json::Value::Null,
             Value::Bool(b) => serde_json::Value::Bool(b),
             Value::Int(i) => serde_json::Value::Number(i.into()),
-            Value::Float(f) => {
-                serde_json::Number::from_f64(f)
-                    .map(serde_json::Value::Number)
-                    .unwrap_or(serde_json::Value::Null)
-            }
+            Value::Float(f) => serde_json::Number::from_f64(f)
+                .map(serde_json::Value::Number)
+                .unwrap_or(serde_json::Value::Null),
             Value::String(s) => serde_json::Value::String(s),
             Value::Bytes(b) => {
                 // Encode bytes as base64 string for JSON compatibility
@@ -318,13 +316,11 @@ impl From<Value> for serde_json::Value {
             Value::Array(arr) => {
                 serde_json::Value::Array(arr.into_iter().map(serde_json::Value::from).collect())
             }
-            Value::Object(obj) => {
-                serde_json::Value::Object(
-                    obj.into_iter()
-                        .map(|(k, v)| (k, serde_json::Value::from(v)))
-                        .collect(),
-                )
-            }
+            Value::Object(obj) => serde_json::Value::Object(
+                obj.into_iter()
+                    .map(|(k, v)| (k, serde_json::Value::from(v)))
+                    .collect(),
+            ),
         }
     }
 }
@@ -342,10 +338,18 @@ fn base64_encode(data: &[u8]) -> String {
         let b2 = chunk.get(2).copied().unwrap_or(0) as usize;
 
         let _ = write!(result, "{}", ALPHABET[(b0 >> 2) & 0x3F] as char);
-        let _ = write!(result, "{}", ALPHABET[((b0 << 4) | (b1 >> 4)) & 0x3F] as char);
+        let _ = write!(
+            result,
+            "{}",
+            ALPHABET[((b0 << 4) | (b1 >> 4)) & 0x3F] as char
+        );
 
         if chunk.len() > 1 {
-            let _ = write!(result, "{}", ALPHABET[((b1 << 2) | (b2 >> 6)) & 0x3F] as char);
+            let _ = write!(
+                result,
+                "{}",
+                ALPHABET[((b1 << 2) | (b2 >> 6)) & 0x3F] as char
+            );
         } else {
             result.push('=');
         }
@@ -831,7 +835,10 @@ mod tests {
     fn test_serde_json_neg_infinity_becomes_null() {
         let v = Value::Float(f64::NEG_INFINITY);
         let json: serde_json::Value = v.into();
-        assert!(json.is_null(), "Negative infinity should become null in JSON");
+        assert!(
+            json.is_null(),
+            "Negative infinity should become null in JSON"
+        );
     }
 
     #[test]
@@ -840,9 +847,15 @@ mod tests {
         // serde_json::Value (String) -> Value produces Value::String, NOT Value::Bytes
         let original = Value::Bytes(vec![1, 2, 3]);
         let json: serde_json::Value = original.into();
-        assert!(json.is_string(), "Bytes should become base64 string in JSON");
+        assert!(
+            json.is_string(),
+            "Bytes should become base64 string in JSON"
+        );
         let restored: Value = json.into();
-        assert!(restored.is_string(), "Converting back produces String, not Bytes (lossy)");
+        assert!(
+            restored.is_string(),
+            "Converting back produces String, not Bytes (lossy)"
+        );
     }
 
     #[test]
@@ -851,7 +864,10 @@ mod tests {
         let json = serde_json::json!(u64::MAX);
         let v: Value = json.into();
         // Should become Float since it doesn't fit in i64
-        assert!(v.is_float(), "u64::MAX should become Float since it doesn't fit in i64");
+        assert!(
+            v.is_float(),
+            "u64::MAX should become Float since it doesn't fit in i64"
+        );
     }
 
     #[test]

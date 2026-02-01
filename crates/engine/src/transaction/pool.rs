@@ -13,10 +13,10 @@
 //!
 //! After warmup, the hot path has zero allocations.
 
+use std::cell::RefCell;
 use strata_concurrency::TransactionContext;
 use strata_core::traits::SnapshotView;
 use strata_core::types::BranchId;
-use std::cell::RefCell;
 
 /// Maximum contexts per thread
 ///
@@ -161,10 +161,10 @@ impl TransactionPool {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::collections::BTreeMap;
     use strata_concurrency::snapshot::ClonedSnapshotView;
     use strata_core::types::{Namespace, TypeTag};
     use strata_core::value::Value;
-    use std::collections::BTreeMap;
 
     fn create_test_namespace() -> Namespace {
         Namespace::new(

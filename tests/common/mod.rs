@@ -6,11 +6,6 @@
 #![allow(dead_code)]
 #![allow(unused_imports)]
 
-pub use strata_core::{JsonPath, JsonValue, BranchId, Value, Version};
-pub use strata_engine::{
-    register_vector_recovery, Database, DistanceMetric, EventLog, JsonStore, KVStore, BranchIndex,
-    StateCell, StorageDtype, VectorConfig, VectorStore,
-};
 use std::collections::{BTreeMap, HashMap};
 use std::fs::{self, OpenOptions};
 use std::hash::{Hash, Hasher};
@@ -20,6 +15,11 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Barrier, Once};
 use std::thread::{self, JoinHandle};
 use std::time::{Duration, Instant};
+pub use strata_core::{BranchId, JsonPath, JsonValue, Value, Version};
+pub use strata_engine::{
+    register_vector_recovery, BranchIndex, Database, DistanceMetric, EventLog, JsonStore, KVStore,
+    StateCell, StorageDtype, VectorConfig, VectorStore,
+};
 use tempfile::TempDir;
 
 // ============================================================================
@@ -775,7 +775,11 @@ impl CapturedVectorState {
                     }
                     vectors.insert(
                         key,
-                        (vid, entry.value.embedding.clone(), entry.value.metadata.clone()),
+                        (
+                            vid,
+                            entry.value.embedding.clone(),
+                            entry.value.metadata.clone(),
+                        ),
                     );
                 }
             }
@@ -807,7 +811,11 @@ impl CapturedVectorState {
                 }
                 vectors.insert(
                     key.to_string(),
-                    (vid, entry.value.embedding.clone(), entry.value.metadata.clone()),
+                    (
+                        vid,
+                        entry.value.embedding.clone(),
+                        entry.value.metadata.clone(),
+                    ),
                 );
             }
         }
@@ -831,8 +839,14 @@ pub fn assert_db_healthy(db: &Arc<Database>, branch_id: &BranchId) {
     let key = unique_key();
     kv.put(branch_id, &key, Value::String("test".into()))
         .expect("Database should be able to write");
-    let value = kv.get(branch_id, &key).expect("Database should be able to read");
-    assert_eq!(value, Some(Value::String("test".into())), "Database should return written value");
+    let value = kv
+        .get(branch_id, &key)
+        .expect("Database should be able to read");
+    assert_eq!(
+        value,
+        Some(Value::String("test".into())),
+        "Database should return written value"
+    );
 }
 
 /// Assert all 6 primitives can perform basic operations.
@@ -844,7 +858,10 @@ pub fn assert_all_primitives_healthy(test_db: &TestDb) {
     let key = unique_key();
     p.kv.put(&branch_id, &key, Value::String("kv_test".into()))
         .expect("KV should write");
-    assert_eq!(p.kv.get(&branch_id, &key).expect("KV read"), Some(Value::String("kv_test".into())));
+    assert_eq!(
+        p.kv.get(&branch_id, &key).expect("KV read"),
+        Some(Value::String("kv_test".into()))
+    );
 
     // JSON
     let doc_id = new_doc_id();
@@ -1099,10 +1116,10 @@ where
 // ============================================================================
 
 pub mod search {
-    use strata_core::PrimitiveType;
-    use strata_engine::{SearchRequest, SearchResponse, Database};
-    use strata_intelligence::DatabaseSearchExt;
     use std::sync::Arc;
+    use strata_core::PrimitiveType;
+    use strata_engine::{Database, SearchRequest, SearchResponse};
+    use strata_intelligence::DatabaseSearchExt;
 
     /// Assert all hits are from a specific primitive.
     pub fn assert_all_from_primitive(response: &SearchResponse, kind: PrimitiveType) {
@@ -1162,7 +1179,9 @@ pub mod search {
 // ============================================================================
 
 pub mod core_types {
-    use strata_core::{EntityRef, PrimitiveType, BranchId, BranchName, Timestamp, Version, Versioned};
+    use strata_core::{
+        BranchId, BranchName, EntityRef, PrimitiveType, Timestamp, Version, Versioned,
+    };
 
     pub fn test_branch_id() -> BranchId {
         BranchId::new()
@@ -1257,7 +1276,13 @@ pub fn populate_vector_collection_with_metadata(
             "value": i as f64 * 0.1
         });
         vector_store
-            .insert(branch_id, collection, &key, &embedding, Some(metadata.clone()))
+            .insert(
+                branch_id,
+                collection,
+                &key,
+                &embedding,
+                Some(metadata.clone()),
+            )
             .expect("Failed to insert vector");
         entries.push((key, embedding, metadata));
     }

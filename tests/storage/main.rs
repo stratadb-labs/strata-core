@@ -5,7 +5,7 @@
 #[path = "../common/mod.rs"]
 mod common;
 
-mod mvcc_invariants;
 mod branch_isolation;
+mod mvcc_invariants;
 mod snapshot_isolation;
 mod stress;

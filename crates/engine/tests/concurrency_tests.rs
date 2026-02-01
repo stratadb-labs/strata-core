@@ -3,12 +3,12 @@
 //! Validates optimistic concurrency control behavior
 //! with 2-thread scenarios per transaction semantics documentation.
 
-use strata_core::types::{Key, Namespace, BranchId};
-use strata_core::value::Value;
-use strata_engine::Database;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Barrier};
 use std::thread;
+use strata_core::types::{BranchId, Key, Namespace};
+use strata_core::value::Value;
+use strata_engine::Database;
 use tempfile::TempDir;
 
 fn create_ns(branch_id: BranchId) -> Namespace {
@@ -171,10 +171,13 @@ fn test_multi_threaded_contention() {
     );
 
     // Verify some values are readable via transaction
-    let val = db.transaction(branch_id, |txn| {
-        let key = Key::new_kv(ns.clone(), "t0_op0");
-        txn.get(&key)
-    }).unwrap().unwrap();
+    let val = db
+        .transaction(branch_id, |txn| {
+            let key = Key::new_kv(ns.clone(), "t0_op0");
+            txn.get(&key)
+        })
+        .unwrap()
+        .unwrap();
     assert_eq!(val, Value::Int(0));
 }
 

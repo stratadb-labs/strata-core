@@ -7,11 +7,11 @@
 //! - Durability after concurrent writes and transaction restarts
 
 use crate::common::*;
-use strata_engine::{KVStoreExt, EventLogExt, StateCellExt};
+use std::collections::HashMap;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Barrier};
 use std::thread;
-use std::collections::HashMap;
+use strata_engine::{EventLogExt, KVStoreExt, StateCellExt};
 
 fn event_payload(data: Value) -> Value {
     Value::Object(HashMap::from([("data".to_string(), data)]))
@@ -42,45 +42,47 @@ fn concurrent_transfers_conserve_total() {
     let success_count = Arc::new(AtomicU64::new(0));
     let barrier = Arc::new(Barrier::new(num_threads));
 
-    let handles: Vec<_> = (0..num_threads).map(|_| {
-        let db = db.clone();
-        let success = success_count.clone();
-        let barrier = barrier.clone();
+    let handles: Vec<_> = (0..num_threads)
+        .map(|_| {
+            let db = db.clone();
+            let success = success_count.clone();
+            let barrier = barrier.clone();
 
-        thread::spawn(move || {
-            barrier.wait();
+            thread::spawn(move || {
+                barrier.wait();
 
-            for _ in 0..transfers_per_thread {
-                loop {
-                    let result = db.transaction(branch_id, |txn| {
-                        let a_val = txn.kv_get("account_a")?.expect("account_a must exist");
-                        let b_val = txn.kv_get("account_b")?.expect("account_b must exist");
+                for _ in 0..transfers_per_thread {
+                    loop {
+                        let result = db.transaction(branch_id, |txn| {
+                            let a_val = txn.kv_get("account_a")?.expect("account_a must exist");
+                            let b_val = txn.kv_get("account_b")?.expect("account_b must exist");
 
-                        let a = match a_val {
-                            Value::Int(v) => v,
-                            _ => panic!("account_a must be Int"),
-                        };
-                        let b = match b_val {
-                            Value::Int(v) => v,
-                            _ => panic!("account_b must be Int"),
-                        };
+                            let a = match a_val {
+                                Value::Int(v) => v,
+                                _ => panic!("account_a must be Int"),
+                            };
+                            let b = match b_val {
+                                Value::Int(v) => v,
+                                _ => panic!("account_b must be Int"),
+                            };
 
-                        txn.kv_put("account_a", Value::Int(a - transfer_amount))?;
-                        txn.kv_put("account_b", Value::Int(b + transfer_amount))?;
-                        Ok(())
-                    });
+                            txn.kv_put("account_a", Value::Int(a - transfer_amount))?;
+                            txn.kv_put("account_b", Value::Int(b + transfer_amount))?;
+                            Ok(())
+                        });
 
-                    match result {
-                        Ok(()) => {
-                            success.fetch_add(1, Ordering::SeqCst);
-                            break;
+                        match result {
+                            Ok(()) => {
+                                success.fetch_add(1, Ordering::SeqCst);
+                                break;
+                            }
+                            Err(_) => continue, // OCC conflict, retry
                         }
-                        Err(_) => continue, // OCC conflict, retry
                     }
                 }
-            }
+            })
         })
-    }).collect();
+        .collect();
 
     for h in handles {
         h.join().unwrap();
@@ -93,21 +95,43 @@ fn concurrent_transfers_conserve_total() {
         total_transfers
     );
 
-    let final_a = kv.get(&branch_id, "account_a").unwrap().expect("account_a must exist");
-    let final_b = kv.get(&branch_id, "account_b").unwrap().expect("account_b must exist");
+    let final_a = kv
+        .get(&branch_id, "account_a")
+        .unwrap()
+        .expect("account_a must exist");
+    let final_b = kv
+        .get(&branch_id, "account_b")
+        .unwrap()
+        .expect("account_b must exist");
 
     let expected_a = 1000 - (total_transfers as i64 * transfer_amount);
     let expected_b = 1000 + (total_transfers as i64 * transfer_amount);
 
-    assert_eq!(final_a, Value::Int(expected_a), "account_a should be {}", expected_a);
-    assert_eq!(final_b, Value::Int(expected_b), "account_b should be {}", expected_b);
+    assert_eq!(
+        final_a,
+        Value::Int(expected_a),
+        "account_a should be {}",
+        expected_a
+    );
+    assert_eq!(
+        final_b,
+        Value::Int(expected_b),
+        "account_b should be {}",
+        expected_b
+    );
 
     // Conservation invariant
     let (a_int, b_int) = match (&final_a, &final_b) {
         (Value::Int(a), Value::Int(b)) => (*a, *b),
         _ => panic!("Expected Int values"),
     };
-    assert_eq!(a_int + b_int, 2000, "Total must be conserved: A({}) + B({}) != 2000", a_int, b_int);
+    assert_eq!(
+        a_int + b_int,
+        2000,
+        "Total must be conserved: A({}) + B({}) != 2000",
+        a_int,
+        b_int
+    );
 }
 
 // ============================================================================
@@ -134,40 +158,42 @@ fn concurrent_cross_primitive_transactions() {
     let success_count = Arc::new(AtomicU64::new(0));
     let barrier = Arc::new(Barrier::new(num_threads));
 
-    let handles: Vec<_> = (0..num_threads).map(|_| {
-        let db = db.clone();
-        let success = success_count.clone();
-        let barrier = barrier.clone();
+    let handles: Vec<_> = (0..num_threads)
+        .map(|_| {
+            let db = db.clone();
+            let success = success_count.clone();
+            let barrier = barrier.clone();
 
-        thread::spawn(move || {
-            barrier.wait();
+            thread::spawn(move || {
+                barrier.wait();
 
-            for _ in 0..ops_per_thread {
-                loop {
-                    let result = db.transaction(branch_id, |txn| {
-                        let current = txn.kv_get("counter")?.expect("counter must exist");
-                        let n = match current {
-                            Value::Int(v) => v,
-                            _ => panic!("counter must be Int"),
-                        };
+                for _ in 0..ops_per_thread {
+                    loop {
+                        let result = db.transaction(branch_id, |txn| {
+                            let current = txn.kv_get("counter")?.expect("counter must exist");
+                            let n = match current {
+                                Value::Int(v) => v,
+                                _ => panic!("counter must be Int"),
+                            };
 
-                        txn.kv_put("counter", Value::Int(n + 1))?;
-                        txn.event_append("increment", event_payload(Value::Int(n + 1)))?;
-                        txn.state_set("last_value", Value::Int(n + 1))?;
-                        Ok(())
-                    });
+                            txn.kv_put("counter", Value::Int(n + 1))?;
+                            txn.event_append("increment", event_payload(Value::Int(n + 1)))?;
+                            txn.state_set("last_value", Value::Int(n + 1))?;
+                            Ok(())
+                        });
 
-                    match result {
-                        Ok(()) => {
-                            success.fetch_add(1, Ordering::SeqCst);
-                            break;
+                        match result {
+                            Ok(()) => {
+                                success.fetch_add(1, Ordering::SeqCst);
+                                break;
+                            }
+                            Err(_) => continue,
                         }
-                        Err(_) => continue,
                     }
                 }
-            }
+            })
         })
-    }).collect();
+        .collect();
 
     for h in handles {
         h.join().unwrap();
@@ -180,12 +206,24 @@ fn concurrent_cross_primitive_transactions() {
         total_ops
     );
 
-    let final_counter = kv.get(&branch_id, "counter").unwrap().expect("counter must exist");
-    assert_eq!(final_counter, Value::Int(total_ops as i64), "Counter should be {}", total_ops);
+    let final_counter = kv
+        .get(&branch_id, "counter")
+        .unwrap()
+        .expect("counter must exist");
+    assert_eq!(
+        final_counter,
+        Value::Int(total_ops as i64),
+        "Counter should be {}",
+        total_ops
+    );
 
     let event = EventLog::new(db.clone());
     let event_count = event.len(&branch_id).unwrap();
-    assert_eq!(event_count, total_ops as u64, "Event count should be {}", total_ops);
+    assert_eq!(
+        event_count, total_ops as u64,
+        "Event count should be {}",
+        total_ops
+    );
 }
 
 // ============================================================================
@@ -211,42 +249,59 @@ fn concurrent_cross_primitive_conflict_atomicity() {
 
     let barrier = Arc::new(Barrier::new(2));
 
-    let handles: Vec<_> = (0..2).map(|i| {
-        let db = db.clone();
-        let barrier = barrier.clone();
+    let handles: Vec<_> = (0..2)
+        .map(|i| {
+            let db = db.clone();
+            let barrier = barrier.clone();
 
-        thread::spawn(move || {
-            let result = db.transaction(branch_id, |txn| {
-                // Barrier inside the closure: both transactions have snapshots
-                // before either reads, guaranteeing they see the same version.
-                barrier.wait();
-                let _current = txn.kv_get("shared")?;
-                txn.kv_put("shared", Value::Int(1))?;
-                txn.event_append("conflict_test", event_payload(Value::Int(i)))?;
-                txn.state_set("conflict_state", Value::Int(i))?;
-                Ok(())
-            });
+            thread::spawn(move || {
+                let result = db.transaction(branch_id, |txn| {
+                    // Barrier inside the closure: both transactions have snapshots
+                    // before either reads, guaranteeing they see the same version.
+                    barrier.wait();
+                    let _current = txn.kv_get("shared")?;
+                    txn.kv_put("shared", Value::Int(1))?;
+                    txn.event_append("conflict_test", event_payload(Value::Int(i)))?;
+                    txn.state_set("conflict_state", Value::Int(i))?;
+                    Ok(())
+                });
 
-            result.is_ok()
+                result.is_ok()
+            })
         })
-    }).collect();
+        .collect();
 
     let results: Vec<bool> = handles.into_iter().map(|h| h.join().unwrap()).collect();
     let winners: usize = results.iter().filter(|&&r| r).count();
 
-    assert!(winners <= 1, "At most one transaction should win, got {}", winners);
+    assert!(
+        winners <= 1,
+        "At most one transaction should win, got {}",
+        winners
+    );
 
-    let final_shared = kv.get(&branch_id, "shared").unwrap().expect("shared must exist");
+    let final_shared = kv
+        .get(&branch_id, "shared")
+        .unwrap()
+        .expect("shared must exist");
     let event = EventLog::new(db.clone());
     let event_count = event.len(&branch_id).unwrap();
 
     if winners == 1 {
         // Winner committed: all primitives must reflect the write
-        assert_eq!(final_shared, Value::Int(1), "Shared should be 1 if a winner committed");
+        assert_eq!(
+            final_shared,
+            Value::Int(1),
+            "Shared should be 1 if a winner committed"
+        );
         assert_eq!(event_count, 1, "Exactly 1 event if a winner committed");
     } else {
         // Both lost: no changes at all
-        assert_eq!(final_shared, Value::Int(0), "Shared should be 0 if both lost");
+        assert_eq!(
+            final_shared,
+            Value::Int(0),
+            "Shared should be 0 if both lost"
+        );
         assert_eq!(event_count, 0, "No events if both lost");
     }
 }
@@ -267,20 +322,23 @@ fn durability_under_concurrent_load() {
     let writes_per_thread = 50;
     let barrier = Arc::new(Barrier::new(num_threads));
 
-    let handles: Vec<_> = (0..num_threads).map(|t| {
-        let db = test_db.db.clone();
-        let barrier = barrier.clone();
+    let handles: Vec<_> = (0..num_threads)
+        .map(|t| {
+            let db = test_db.db.clone();
+            let barrier = barrier.clone();
 
-        thread::spawn(move || {
-            barrier.wait();
+            thread::spawn(move || {
+                barrier.wait();
 
-            let kv = KVStore::new(db);
-            for i in 0..writes_per_thread {
-                let key = format!("t{}_{}", t, i);
-                kv.put(&branch_id, &key, Value::Int((t * 1000 + i) as i64)).unwrap();
-            }
+                let kv = KVStore::new(db);
+                for i in 0..writes_per_thread {
+                    let key = format!("t{}_{}", t, i);
+                    kv.put(&branch_id, &key, Value::Int((t * 1000 + i) as i64))
+                        .unwrap();
+                }
+            })
         })
-    }).collect();
+        .collect();
 
     for h in handles {
         h.join().unwrap();
@@ -301,7 +359,9 @@ fn durability_under_concurrent_load() {
                 actual,
                 Some(expected.clone()),
                 "Key {} should be {:?} after restart, got {:?}",
-                key, expected, actual
+                key,
+                expected,
+                actual
             );
         }
     }
@@ -331,37 +391,39 @@ fn durability_concurrent_transactions_survive_restart() {
     let success_count = Arc::new(AtomicU64::new(0));
     let barrier = Arc::new(Barrier::new(num_threads));
 
-    let handles: Vec<_> = (0..num_threads).map(|_| {
-        let db = test_db.db.clone();
-        let success = success_count.clone();
-        let barrier = barrier.clone();
+    let handles: Vec<_> = (0..num_threads)
+        .map(|_| {
+            let db = test_db.db.clone();
+            let success = success_count.clone();
+            let barrier = barrier.clone();
 
-        thread::spawn(move || {
-            barrier.wait();
+            thread::spawn(move || {
+                barrier.wait();
 
-            for _ in 0..ops_per_thread {
-                loop {
-                    let result = db.transaction(branch_id, |txn| {
-                        let current = txn.kv_get("counter")?.expect("counter must exist");
-                        let n = match current {
-                            Value::Int(v) => v,
-                            _ => panic!("counter must be Int"),
-                        };
-                        txn.kv_put("counter", Value::Int(n + 1))?;
-                        Ok(())
-                    });
+                for _ in 0..ops_per_thread {
+                    loop {
+                        let result = db.transaction(branch_id, |txn| {
+                            let current = txn.kv_get("counter")?.expect("counter must exist");
+                            let n = match current {
+                                Value::Int(v) => v,
+                                _ => panic!("counter must be Int"),
+                            };
+                            txn.kv_put("counter", Value::Int(n + 1))?;
+                            Ok(())
+                        });
 
-                    match result {
-                        Ok(()) => {
-                            success.fetch_add(1, Ordering::SeqCst);
-                            break;
+                        match result {
+                            Ok(()) => {
+                                success.fetch_add(1, Ordering::SeqCst);
+                                break;
+                            }
+                            Err(_) => continue,
                         }
-                        Err(_) => continue,
                     }
                 }
-            }
+            })
         })
-    }).collect();
+        .collect();
 
     for h in handles {
         h.join().unwrap();
@@ -377,8 +439,16 @@ fn durability_concurrent_transactions_survive_restart() {
     // Verify before restart
     {
         let kv = test_db.kv();
-        let counter_before = kv.get(&branch_id, "counter").unwrap().expect("counter must exist");
-        assert_eq!(counter_before, Value::Int(total_ops as i64), "Counter should be {} before restart", total_ops);
+        let counter_before = kv
+            .get(&branch_id, "counter")
+            .unwrap()
+            .expect("counter must exist");
+        assert_eq!(
+            counter_before,
+            Value::Int(total_ops as i64),
+            "Counter should be {} before restart",
+            total_ops
+        );
     }
 
     // Shutdown and reopen
@@ -387,7 +457,10 @@ fn durability_concurrent_transactions_survive_restart() {
 
     // Verify after restart
     let kv_after = test_db.kv();
-    let counter_after = kv_after.get(&branch_id, "counter").unwrap().expect("counter must exist after restart");
+    let counter_after = kv_after
+        .get(&branch_id, "counter")
+        .unwrap()
+        .expect("counter must exist after restart");
     assert_eq!(
         counter_after,
         Value::Int(total_ops as i64),

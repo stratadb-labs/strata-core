@@ -13,15 +13,15 @@
 //!
 //! Total: ~42 tests (6 primitives × 7 invariants)
 
+use std::collections::HashMap;
+use std::sync::Arc;
 use strata_core::contract::{EntityRef, PrimitiveType, Version};
 use strata_core::primitives::json::JsonPath;
 use strata_core::types::BranchId;
 use strata_core::value::Value;
-use strata_engine::Database;
 use strata_engine::extensions::*;
+use strata_engine::Database;
 use strata_engine::*;
-use std::collections::HashMap;
-use std::sync::Arc;
 
 /// Helper to create an empty object payload for EventLog
 fn empty_payload() -> Value {
@@ -30,7 +30,10 @@ fn empty_payload() -> Value {
 
 /// Helper to create an object payload with a string value
 fn string_payload(s: &str) -> Value {
-    Value::Object(HashMap::from([("data".to_string(), Value::String(s.into()))]))
+    Value::Object(HashMap::from([(
+        "data".to_string(),
+        Value::String(s.into()),
+    )]))
 }
 
 /// Helper to create an object payload with an integer value
@@ -130,7 +133,9 @@ mod invariant_1_addressable {
         let vectors = VectorStore::new(db);
         let config = VectorConfig::new(3, DistanceMetric::Cosine).unwrap();
 
-        vectors.create_collection(branch_id, "test-col", config).unwrap();
+        vectors
+            .create_collection(branch_id, "test-col", config)
+            .unwrap();
         vectors
             .insert(branch_id, "test-col", "vec-1", &[1.0, 2.0, 3.0], None)
             .unwrap();
@@ -316,7 +321,9 @@ mod invariant_2_versioned {
         let vectors = VectorStore::new(db);
         let config = VectorConfig::new(3, DistanceMetric::Cosine).unwrap();
 
-        vectors.create_collection(branch_id, "test", config).unwrap();
+        vectors
+            .create_collection(branch_id, "test", config)
+            .unwrap();
         vectors
             .insert(branch_id, "test", "v1", &[1.0, 2.0, 3.0], None)
             .unwrap();
@@ -331,7 +338,9 @@ mod invariant_2_versioned {
         let vectors = VectorStore::new(db);
         let config = VectorConfig::new(3, DistanceMetric::Cosine).unwrap();
 
-        vectors.create_collection(branch_id, "test", config).unwrap();
+        vectors
+            .create_collection(branch_id, "test", config)
+            .unwrap();
 
         let version = vectors
             .insert(branch_id, "test", "v1", &[1.0, 2.0, 3.0], None)
@@ -346,7 +355,9 @@ mod invariant_2_versioned {
         let vectors = VectorStore::new(db);
         let config = VectorConfig::new(3, DistanceMetric::Cosine).unwrap();
 
-        let versioned = vectors.create_collection(branch_id, "test", config).unwrap();
+        let versioned = vectors
+            .create_collection(branch_id, "test", config)
+            .unwrap();
         assert_eq!(versioned.value.name, "test");
     }
 
@@ -498,14 +509,16 @@ mod invariant_4_lifecycle {
         let kv = KVStore::new(db);
 
         // Create
-        kv.put(&branch_id, "key", Value::String("v1".into())).unwrap();
+        kv.put(&branch_id, "key", Value::String("v1".into()))
+            .unwrap();
 
         // Exist (read)
         let v = kv.get(&branch_id, "key").unwrap();
         assert!(v.is_some());
 
         // Evolve (update)
-        kv.put(&branch_id, "key", Value::String("v2".into())).unwrap();
+        kv.put(&branch_id, "key", Value::String("v2".into()))
+            .unwrap();
         let v = kv.get(&branch_id, "key").unwrap().unwrap();
         assert!(matches!(v, Value::String(s) if s == "v2"));
 
@@ -523,9 +536,7 @@ mod invariant_4_lifecycle {
         let events = EventLog::new(db);
 
         // Create (append)
-        events
-            .append(&branch_id, "e1", int_payload(1))
-            .unwrap();
+        events.append(&branch_id, "e1", int_payload(1)).unwrap();
 
         // Exist (read)
         let e = events.read(&branch_id, 0).unwrap();
@@ -533,9 +544,7 @@ mod invariant_4_lifecycle {
 
         // Events are immutable - no evolve, no destroy
         // Can only append more
-        events
-            .append(&branch_id, "e2", int_payload(2))
-            .unwrap();
+        events.append(&branch_id, "e2", int_payload(2)).unwrap();
 
         // Both events exist
         assert!(events.read(&branch_id, 0).unwrap().is_some());
@@ -1049,9 +1058,7 @@ mod version_monotonicity {
 
         let mut last_version = Version::counter(1);
         for i in 1..10 {
-            let versioned = state
-                .set(&branch_id, "cell", Value::Int(i as i64))
-                .unwrap();
+            let versioned = state.set(&branch_id, "cell", Value::Int(i as i64)).unwrap();
             assert!(versioned.value.as_u64() > last_version.as_u64());
             last_version = versioned.value;
         }

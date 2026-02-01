@@ -150,7 +150,10 @@ impl SnapshotSerializer {
     }
 
     /// Deserialize KV entries from bytes
-    pub fn deserialize_kv(&self, data: &[u8]) -> Result<Vec<KvSnapshotEntry>, PrimitiveSerializeError> {
+    pub fn deserialize_kv(
+        &self,
+        data: &[u8],
+    ) -> Result<Vec<KvSnapshotEntry>, PrimitiveSerializeError> {
         let mut cursor = 0;
 
         if data.len() < 4 {
@@ -181,7 +184,8 @@ impl SnapshotSerializer {
             if cursor + 4 > data.len() {
                 return Err(PrimitiveSerializeError::UnexpectedEof);
             }
-            let value_len = u32::from_le_bytes(data[cursor..cursor + 4].try_into().unwrap()) as usize;
+            let value_len =
+                u32::from_le_bytes(data[cursor..cursor + 4].try_into().unwrap()) as usize;
             cursor += 4;
 
             if cursor + value_len > data.len() {
@@ -231,7 +235,10 @@ impl SnapshotSerializer {
     }
 
     /// Deserialize Event entries from bytes
-    pub fn deserialize_events(&self, data: &[u8]) -> Result<Vec<EventSnapshotEntry>, PrimitiveSerializeError> {
+    pub fn deserialize_events(
+        &self,
+        data: &[u8],
+    ) -> Result<Vec<EventSnapshotEntry>, PrimitiveSerializeError> {
         let mut cursor = 0;
 
         if data.len() < 4 {
@@ -253,7 +260,8 @@ impl SnapshotSerializer {
             if cursor + 4 > data.len() {
                 return Err(PrimitiveSerializeError::UnexpectedEof);
             }
-            let payload_len = u32::from_le_bytes(data[cursor..cursor + 4].try_into().unwrap()) as usize;
+            let payload_len =
+                u32::from_le_bytes(data[cursor..cursor + 4].try_into().unwrap()) as usize;
             cursor += 4;
 
             if cursor + payload_len > data.len() {
@@ -302,7 +310,10 @@ impl SnapshotSerializer {
     }
 
     /// Deserialize State entries from bytes
-    pub fn deserialize_states(&self, data: &[u8]) -> Result<Vec<StateSnapshotEntry>, PrimitiveSerializeError> {
+    pub fn deserialize_states(
+        &self,
+        data: &[u8],
+    ) -> Result<Vec<StateSnapshotEntry>, PrimitiveSerializeError> {
         let mut cursor = 0;
 
         if data.len() < 4 {
@@ -318,7 +329,8 @@ impl SnapshotSerializer {
             if cursor + 4 > data.len() {
                 return Err(PrimitiveSerializeError::UnexpectedEof);
             }
-            let name_len = u32::from_le_bytes(data[cursor..cursor + 4].try_into().unwrap()) as usize;
+            let name_len =
+                u32::from_le_bytes(data[cursor..cursor + 4].try_into().unwrap()) as usize;
             cursor += 4;
 
             if cursor + name_len > data.len() {
@@ -331,7 +343,8 @@ impl SnapshotSerializer {
             if cursor + 4 > data.len() {
                 return Err(PrimitiveSerializeError::UnexpectedEof);
             }
-            let value_len = u32::from_le_bytes(data[cursor..cursor + 4].try_into().unwrap()) as usize;
+            let value_len =
+                u32::from_le_bytes(data[cursor..cursor + 4].try_into().unwrap()) as usize;
             cursor += 4;
 
             if cursor + value_len > data.len() {
@@ -383,7 +396,10 @@ impl SnapshotSerializer {
     }
 
     /// Deserialize Run entries from bytes
-    pub fn deserialize_branches(&self, data: &[u8]) -> Result<Vec<BranchSnapshotEntry>, PrimitiveSerializeError> {
+    pub fn deserialize_branches(
+        &self,
+        data: &[u8],
+    ) -> Result<Vec<BranchSnapshotEntry>, PrimitiveSerializeError> {
         let mut cursor = 0;
 
         if data.len() < 4 {
@@ -407,7 +423,8 @@ impl SnapshotSerializer {
             if cursor + 4 > data.len() {
                 return Err(PrimitiveSerializeError::UnexpectedEof);
             }
-            let name_len = u32::from_le_bytes(data[cursor..cursor + 4].try_into().unwrap()) as usize;
+            let name_len =
+                u32::from_le_bytes(data[cursor..cursor + 4].try_into().unwrap()) as usize;
             cursor += 4;
 
             if cursor + name_len > data.len() {
@@ -428,7 +445,8 @@ impl SnapshotSerializer {
             if cursor + 4 > data.len() {
                 return Err(PrimitiveSerializeError::UnexpectedEof);
             }
-            let metadata_len = u32::from_le_bytes(data[cursor..cursor + 4].try_into().unwrap()) as usize;
+            let metadata_len =
+                u32::from_le_bytes(data[cursor..cursor + 4].try_into().unwrap()) as usize;
             cursor += 4;
 
             if cursor + metadata_len > data.len() {
@@ -471,7 +489,10 @@ impl SnapshotSerializer {
     }
 
     /// Deserialize Json entries from bytes
-    pub fn deserialize_json(&self, data: &[u8]) -> Result<Vec<JsonSnapshotEntry>, PrimitiveSerializeError> {
+    pub fn deserialize_json(
+        &self,
+        data: &[u8],
+    ) -> Result<Vec<JsonSnapshotEntry>, PrimitiveSerializeError> {
         let mut cursor = 0;
 
         if data.len() < 4 {
@@ -488,7 +509,8 @@ impl SnapshotSerializer {
             if cursor + 4 > data.len() {
                 return Err(PrimitiveSerializeError::UnexpectedEof);
             }
-            let doc_id_len = u32::from_le_bytes(data[cursor..cursor + 4].try_into().unwrap()) as usize;
+            let doc_id_len =
+                u32::from_le_bytes(data[cursor..cursor + 4].try_into().unwrap()) as usize;
             cursor += 4;
 
             if cursor + doc_id_len > data.len() {
@@ -502,7 +524,8 @@ impl SnapshotSerializer {
             if cursor + 4 > data.len() {
                 return Err(PrimitiveSerializeError::UnexpectedEof);
             }
-            let content_len = u32::from_le_bytes(data[cursor..cursor + 4].try_into().unwrap()) as usize;
+            let content_len =
+                u32::from_le_bytes(data[cursor..cursor + 4].try_into().unwrap()) as usize;
             cursor += 4;
 
             if cursor + content_len > data.len() {
@@ -576,7 +599,10 @@ impl SnapshotSerializer {
     }
 
     /// Deserialize Vector collections from bytes
-    pub fn deserialize_vectors(&self, data: &[u8]) -> Result<Vec<VectorCollectionSnapshotEntry>, PrimitiveSerializeError> {
+    pub fn deserialize_vectors(
+        &self,
+        data: &[u8],
+    ) -> Result<Vec<VectorCollectionSnapshotEntry>, PrimitiveSerializeError> {
         let mut cursor = 0;
 
         if data.len() < 4 {
@@ -593,7 +619,8 @@ impl SnapshotSerializer {
             if cursor + 4 > data.len() {
                 return Err(PrimitiveSerializeError::UnexpectedEof);
             }
-            let name_len = u32::from_le_bytes(data[cursor..cursor + 4].try_into().unwrap()) as usize;
+            let name_len =
+                u32::from_le_bytes(data[cursor..cursor + 4].try_into().unwrap()) as usize;
             cursor += 4;
 
             if cursor + name_len > data.len() {
@@ -607,7 +634,8 @@ impl SnapshotSerializer {
             if cursor + 4 > data.len() {
                 return Err(PrimitiveSerializeError::UnexpectedEof);
             }
-            let config_len = u32::from_le_bytes(data[cursor..cursor + 4].try_into().unwrap()) as usize;
+            let config_len =
+                u32::from_le_bytes(data[cursor..cursor + 4].try_into().unwrap()) as usize;
             cursor += 4;
 
             if cursor + config_len > data.len() {
@@ -620,7 +648,8 @@ impl SnapshotSerializer {
             if cursor + 4 > data.len() {
                 return Err(PrimitiveSerializeError::UnexpectedEof);
             }
-            let vectors_count = u32::from_le_bytes(data[cursor..cursor + 4].try_into().unwrap()) as usize;
+            let vectors_count =
+                u32::from_le_bytes(data[cursor..cursor + 4].try_into().unwrap()) as usize;
             cursor += 4;
 
             let mut vectors = Vec::with_capacity(vectors_count);
@@ -629,7 +658,8 @@ impl SnapshotSerializer {
                 if cursor + 4 > data.len() {
                     return Err(PrimitiveSerializeError::UnexpectedEof);
                 }
-                let key_len = u32::from_le_bytes(data[cursor..cursor + 4].try_into().unwrap()) as usize;
+                let key_len =
+                    u32::from_le_bytes(data[cursor..cursor + 4].try_into().unwrap()) as usize;
                 cursor += 4;
 
                 if cursor + key_len > data.len() {
@@ -650,7 +680,8 @@ impl SnapshotSerializer {
                 if cursor + 4 > data.len() {
                     return Err(PrimitiveSerializeError::UnexpectedEof);
                 }
-                let dims = u32::from_le_bytes(data[cursor..cursor + 4].try_into().unwrap()) as usize;
+                let dims =
+                    u32::from_le_bytes(data[cursor..cursor + 4].try_into().unwrap()) as usize;
                 cursor += 4;
 
                 if cursor + dims * 4 > data.len() {
@@ -667,7 +698,8 @@ impl SnapshotSerializer {
                 if cursor + 4 > data.len() {
                     return Err(PrimitiveSerializeError::UnexpectedEof);
                 }
-                let metadata_len = u32::from_le_bytes(data[cursor..cursor + 4].try_into().unwrap()) as usize;
+                let metadata_len =
+                    u32::from_le_bytes(data[cursor..cursor + 4].try_into().unwrap()) as usize;
                 cursor += 4;
 
                 if cursor + metadata_len > data.len() {
@@ -921,10 +953,16 @@ mod tests {
 
         // Truncated KV data
         let result = serializer.deserialize_kv(&[0, 0, 0, 1]); // Says 1 entry but no data
-        assert!(matches!(result, Err(PrimitiveSerializeError::UnexpectedEof)));
+        assert!(matches!(
+            result,
+            Err(PrimitiveSerializeError::UnexpectedEof)
+        ));
 
         // Too short
         let result = serializer.deserialize_kv(&[0, 0]);
-        assert!(matches!(result, Err(PrimitiveSerializeError::UnexpectedEof)));
+        assert!(matches!(
+            result,
+            Err(PrimitiveSerializeError::UnexpectedEof)
+        ));
     }
 }

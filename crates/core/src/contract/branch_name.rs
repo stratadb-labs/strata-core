@@ -282,11 +282,17 @@ mod tests {
     fn test_branch_name_invalid_chars() {
         // Space
         let err = BranchName::new("has space").unwrap_err();
-        assert!(matches!(err, BranchNameError::InvalidChar { char: ' ', .. }));
+        assert!(matches!(
+            err,
+            BranchNameError::InvalidChar { char: ' ', .. }
+        ));
 
         // Special characters
         let err = BranchName::new("has@special").unwrap_err();
-        assert!(matches!(err, BranchNameError::InvalidChar { char: '@', .. }));
+        assert!(matches!(
+            err,
+            BranchNameError::InvalidChar { char: '@', .. }
+        ));
 
         // Unicode
         let err = BranchName::new("has\u{1F600}emoji").unwrap_err();
@@ -386,8 +392,22 @@ mod tests {
             format!("{}", BranchNameError::Empty),
             "branch name cannot be empty"
         );
-        assert!(format!("{}", BranchNameError::TooLong { length: 300, max: 256 }).contains("too long"));
-        assert!(format!("{}", BranchNameError::InvalidChar { char: '@', position: 5 }).contains("@"));
+        assert!(format!(
+            "{}",
+            BranchNameError::TooLong {
+                length: 300,
+                max: 256
+            }
+        )
+        .contains("too long"));
+        assert!(format!(
+            "{}",
+            BranchNameError::InvalidChar {
+                char: '@',
+                position: 5
+            }
+        )
+        .contains("@"));
         assert!(format!("{}", BranchNameError::InvalidStart { char: '-' }).contains("start"));
     }
 
@@ -428,7 +448,13 @@ mod tests {
         // A string of 257 ASCII chars should fail
         let name = "a".repeat(MAX_BRANCH_NAME_LENGTH + 1);
         let err = BranchName::new(name).unwrap_err();
-        assert!(matches!(err, BranchNameError::TooLong { length: 257, max: 256 }));
+        assert!(matches!(
+            err,
+            BranchNameError::TooLong {
+                length: 257,
+                max: 256
+            }
+        ));
     }
 
     #[test]

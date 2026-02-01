@@ -4,8 +4,8 @@
 //! - `index`: BranchIndex for creating, deleting, and managing runs
 //! - `handle`: BranchHandle facade for branch-scoped operations
 
-mod index;
 mod handle;
+mod index;
 
-pub use index::{BranchIndex, BranchMetadata, BranchStatus, resolve_branch_name};
 pub use handle::{BranchHandle, EventHandle, JsonHandle, KvHandle, StateHandle, VectorHandle};
+pub use index::{resolve_branch_name, BranchIndex, BranchMetadata, BranchStatus};

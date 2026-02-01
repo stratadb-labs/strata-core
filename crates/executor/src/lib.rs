@@ -46,6 +46,7 @@
 //! // Data from experiment-1 is not visible here
 //! ```
 
+mod api;
 pub(crate) mod bridge;
 mod command;
 mod convert;
@@ -54,7 +55,6 @@ mod executor;
 pub(crate) mod json;
 mod output;
 mod session;
-mod api;
 mod types;
 
 // Handler modules
@@ -69,12 +69,12 @@ mod tests;
 // =============================================================================
 
 // Core types
+pub use api::{BranchDiff, Branches, Strata};
 pub use command::Command;
 pub use error::Error;
 pub use executor::Executor;
 pub use output::Output;
 pub use session::Session;
-pub use api::{Strata, Branches, BranchDiff};
 pub use types::*;
 
 // Re-export Value from strata_core so users don't need to import it

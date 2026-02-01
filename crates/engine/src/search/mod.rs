@@ -6,18 +6,18 @@
 //! - `index`: Optional inverted index for fast keyword search
 //! - `tokenizer`: Basic text tokenization
 
-mod types;
-mod searchable;
 mod index;
+mod searchable;
 pub mod tokenizer;
+mod types;
 
-pub use types::{
-    EntityRef, PrimitiveType,
-    SearchBudget, SearchMode, SearchRequest, SearchResponse, SearchHit, SearchStats,
-};
-pub use searchable::{
-    Searchable, SearchCandidate, SearchDoc, Scorer, BM25LiteScorer, SimpleScorer, ScorerContext,
-    build_search_response, build_search_response_with_index,
-};
 pub use index::{InvertedIndex, PostingEntry, PostingList};
+pub use searchable::{
+    build_search_response, build_search_response_with_index, BM25LiteScorer, Scorer, ScorerContext,
+    SearchCandidate, SearchDoc, Searchable, SimpleScorer,
+};
 pub use tokenizer::{tokenize, tokenize_unique};
+pub use types::{
+    EntityRef, PrimitiveType, SearchBudget, SearchHit, SearchMode, SearchRequest, SearchResponse,
+    SearchStats,
+};

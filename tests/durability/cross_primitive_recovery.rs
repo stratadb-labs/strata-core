@@ -16,7 +16,9 @@ fn all_six_primitives_recover_together() {
     p.kv.put(&branch_id, "k1", Value::Int(1)).unwrap();
 
     let doc_id = new_doc_id();
-    p.json.create(&branch_id, &doc_id, test_json_value(1)).unwrap();
+    p.json
+        .create(&branch_id, &doc_id, test_json_value(1))
+        .unwrap();
 
     p.event
         .append(&branch_id, "stream", int_payload(42))
@@ -68,7 +70,8 @@ fn interleaved_writes_recover_correctly() {
 
     // Interleave KV and EventLog writes
     for i in 0..50 {
-        kv.put(&branch_id, &format!("k{}", i), Value::Int(i)).unwrap();
+        kv.put(&branch_id, &format!("k{}", i), Value::Int(i))
+            .unwrap();
         event
             .append(&branch_id, "interleaved", int_payload(i))
             .unwrap();
@@ -105,8 +108,16 @@ fn multiple_runs_recover_independently() {
     let kv = test_db.kv();
     let v1 = kv.get(&run1, "run1_key").unwrap();
     let v2 = kv.get(&run2, "run2_key").unwrap();
-    assert_eq!(v1, Some(Value::String("from_run1".into())), "Run1 data should recover");
-    assert_eq!(v2, Some(Value::String("from_run2".into())), "Run2 data should recover");
+    assert_eq!(
+        v1,
+        Some(Value::String("from_run1".into())),
+        "Run1 data should recover"
+    );
+    assert_eq!(
+        v2,
+        Some(Value::String("from_run2".into())),
+        "Run2 data should recover"
+    );
 
     // Cross-contamination check
     let cross = kv.get(&run1, "run2_key").unwrap();
@@ -148,7 +159,10 @@ fn vector_collection_config_recovers() {
         "Cosine collection should recover"
     );
     assert!(
-        vector.get(branch_id, "euclidean_col", "v1").unwrap().is_some(),
+        vector
+            .get(branch_id, "euclidean_col", "v1")
+            .unwrap()
+            .is_some(),
         "Euclidean collection should recover"
     );
 }

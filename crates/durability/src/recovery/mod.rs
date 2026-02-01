@@ -8,7 +8,6 @@ pub mod replayer;
 
 // Recovery coordinator types (primary API)
 pub use coordinator::{
-    RecoveryCoordinator, RecoveryError, RecoveryResult,
-    RecoverySnapshot, RecoveryPlan,
+    RecoveryCoordinator, RecoveryError, RecoveryPlan, RecoveryResult, RecoverySnapshot,
 };
-pub use replayer::{WalReplayer, WalReplayError};
+pub use replayer::{WalReplayError, WalReplayer};

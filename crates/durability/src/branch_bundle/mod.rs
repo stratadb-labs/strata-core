@@ -52,11 +52,11 @@ pub mod writer;
 
 // Re-export public types
 pub use error::{BranchBundleError, BranchBundleResult};
-pub use reader::{BundleContents as ReadBundleContents, BranchBundleReader};
+pub use reader::{BranchBundleReader, BundleContents as ReadBundleContents};
 pub use types::{
-    paths, xxh3_hex, BundleContents, BundleManifest, BundleBranchInfo, BundleVerifyInfo,
-    ExportOptions, ImportedBranchInfo, BranchExportInfo, BRANCHBUNDLE_EXTENSION, BRANCHBUNDLE_FORMAT_VERSION,
-    WAL_BRANCHLOG_MAGIC, WAL_BRANCHLOG_VERSION,
+    paths, xxh3_hex, BranchExportInfo, BundleBranchInfo, BundleContents, BundleManifest,
+    BundleVerifyInfo, ExportOptions, ImportedBranchInfo, BRANCHBUNDLE_EXTENSION,
+    BRANCHBUNDLE_FORMAT_VERSION, WAL_BRANCHLOG_MAGIC, WAL_BRANCHLOG_VERSION,
 };
 pub use wal_log::{BranchlogPayload, WalLogInfo, WalLogIterator, WalLogReader, WalLogWriter};
 pub use writer::BranchBundleWriter;

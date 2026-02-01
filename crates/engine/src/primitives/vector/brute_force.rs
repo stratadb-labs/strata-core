@@ -45,7 +45,6 @@ impl BruteForceBackend {
     pub fn heap(&self) -> &VectorHeap {
         &self.heap
     }
-
 }
 
 impl VectorIndexBackend for BruteForceBackend {

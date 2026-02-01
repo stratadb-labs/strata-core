@@ -986,10 +986,7 @@ mod tests {
         let path = temp_dir.path().join("multi_corrupt.snap");
 
         let header = SnapshotHeader::new(100, 10);
-        let sections = vec![PrimitiveSection::new(
-            primitive_ids::KV,
-            vec![0xAB; 100],
-        )];
+        let sections = vec![PrimitiveSection::new(primitive_ids::KV, vec![0xAB; 100])];
 
         let mut writer = SnapshotWriter::new();
         writer.write(&header, &sections, &path).unwrap();

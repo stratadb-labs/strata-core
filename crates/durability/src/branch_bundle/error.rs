@@ -38,7 +38,9 @@ pub enum BranchBundleError {
     BranchAlreadyExists(String),
 
     /// Unsupported bundle format version
-    #[error("Unsupported format version: {version}. Supported: 2 (v1 bundles must be re-exported)")]
+    #[error(
+        "Unsupported format version: {version}. Supported: 2 (v1 bundles must be re-exported)"
+    )]
     UnsupportedVersion {
         /// The unsupported version number
         version: u32,

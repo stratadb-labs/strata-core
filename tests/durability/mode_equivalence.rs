@@ -29,12 +29,8 @@ fn json_operations_equivalent_across_modes() {
         let json = JsonStore::new(db);
         let doc_id = "mode_test_doc";
 
-        json.create(
-            &branch_id,
-            doc_id,
-            json_value(serde_json::json!({"x": 1})),
-        )
-        .unwrap();
+        json.create(&branch_id, doc_id, json_value(serde_json::json!({"x": 1})))
+            .unwrap();
 
         let doc = json.get(&branch_id, doc_id, &root()).unwrap();
         doc.map(|v| v.as_inner().clone())
@@ -63,7 +59,9 @@ fn statecell_cas_equivalent_across_modes() {
         let state = StateCell::new(db);
 
         let v = state.init(&branch_id, "counter", Value::Int(0)).unwrap();
-        state.cas(&branch_id, "counter", v.value, Value::Int(1)).unwrap();
+        state
+            .cas(&branch_id, "counter", v.value, Value::Int(1))
+            .unwrap();
 
         let val = state.read(&branch_id, "counter").unwrap();
         val.map(|v| format!("{:?}", v))
@@ -104,7 +102,8 @@ fn buffered_mode_recovers_after_restart() {
 
     let kv = test_db.kv();
     for i in 0..20 {
-        kv.put(&branch_id, &format!("buf_{}", i), Value::Int(i)).unwrap();
+        kv.put(&branch_id, &format!("buf_{}", i), Value::Int(i))
+            .unwrap();
     }
 
     let state_before = CapturedState::capture(&test_db.db, &branch_id);

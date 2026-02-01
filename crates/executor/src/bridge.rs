@@ -13,12 +13,8 @@ use std::sync::Arc;
 use strata_core::primitives::json::{JsonPath, JsonValue};
 use strata_core::{StrataError, StrataResult, Value};
 use strata_engine::{
-    Database,
-    EventLog as PrimitiveEventLog,
-    JsonStore as PrimitiveJsonStore,
-    KVStore as PrimitiveKVStore,
-    BranchIndex as PrimitiveBranchIndex,
-    StateCell as PrimitiveStateCell,
+    BranchIndex as PrimitiveBranchIndex, Database, EventLog as PrimitiveEventLog,
+    JsonStore as PrimitiveJsonStore, KVStore as PrimitiveKVStore, StateCell as PrimitiveStateCell,
     VectorStore as PrimitiveVectorStore,
 };
 
@@ -72,8 +68,7 @@ impl Primitives {
 /// Namespace UUID for generating deterministic branch IDs.
 /// This is a fixed UUID used as the namespace for UUID v5 generation.
 const BRANCH_NAMESPACE: uuid::Uuid = uuid::Uuid::from_bytes([
-    0x6b, 0xa7, 0xb8, 0x10, 0x9d, 0xad, 0x11, 0xd1,
-    0x80, 0xb4, 0x00, 0xc0, 0x4f, 0xd4, 0x30, 0xc8,
+    0x6b, 0xa7, 0xb8, 0x10, 0x9d, 0xad, 0x11, 0xd1, 0x80, 0xb4, 0x00, 0xc0, 0x4f, 0xd4, 0x30, 0xc8,
 ]);
 
 /// Convert executor's string-based BranchId to core BranchId.
@@ -117,17 +112,19 @@ pub fn validate_key(key: &str) -> StrataResult<()> {
         return Err(StrataError::invalid_input("Key must not be empty"));
     }
     if key.len() > MAX_KEY_BYTES {
-        return Err(StrataError::invalid_input(
-            format!("Key exceeds maximum length of {} bytes", MAX_KEY_BYTES)
-        ));
+        return Err(StrataError::invalid_input(format!(
+            "Key exceeds maximum length of {} bytes",
+            MAX_KEY_BYTES
+        )));
     }
     if key.contains('\0') {
         return Err(StrataError::invalid_input("Key must not contain NUL bytes"));
     }
     if key.starts_with(RESERVED_KEY_PREFIX) {
-        return Err(StrataError::invalid_input(
-            format!("Key must not start with reserved prefix '{}'", RESERVED_KEY_PREFIX)
-        ));
+        return Err(StrataError::invalid_input(format!(
+            "Key must not start with reserved prefix '{}'",
+            RESERVED_KEY_PREFIX
+        )));
     }
     Ok(())
 }
@@ -139,9 +136,10 @@ pub fn is_internal_collection(name: &str) -> bool {
 /// Validate that a collection name is not internal.
 pub fn validate_not_internal_collection(name: &str) -> StrataResult<()> {
     if is_internal_collection(name) {
-        return Err(StrataError::invalid_input(
-            format!("Collection '{}' is internal and cannot be accessed directly", name)
-        ));
+        return Err(StrataError::invalid_input(format!(
+            "Collection '{}' is internal and cannot be accessed directly",
+            name
+        )));
     }
     Ok(())
 }
@@ -164,8 +162,8 @@ pub fn json_to_value(json: JsonValue) -> StrataResult<Value> {
 
 /// Convert a Value to serde_json::Value without serde's tagged enum format.
 fn value_to_serde_json(value: Value) -> StrataResult<serde_json::Value> {
-    use serde_json::Value as JV;
     use serde_json::Map;
+    use serde_json::Value as JV;
 
     match value {
         Value::Null => Ok(JV::Null),
@@ -173,15 +171,16 @@ fn value_to_serde_json(value: Value) -> StrataResult<serde_json::Value> {
         Value::Int(i) => Ok(JV::Number(i.into())),
         Value::Float(f) => {
             if f.is_infinite() || f.is_nan() {
-                return Err(StrataError::serialization(
-                    format!("Cannot convert {} to JSON: not a valid JSON number", f)
-                ));
+                return Err(StrataError::serialization(format!(
+                    "Cannot convert {} to JSON: not a valid JSON number",
+                    f
+                )));
             }
             serde_json::Number::from_f64(f)
                 .map(JV::Number)
-                .ok_or_else(|| StrataError::serialization(
-                    format!("Cannot convert {} to JSON number", f)
-                ))
+                .ok_or_else(|| {
+                    StrataError::serialization(format!("Cannot convert {} to JSON number", f))
+                })
         }
         Value::String(s) => Ok(JV::String(s)),
         Value::Bytes(b) => {
@@ -190,9 +189,7 @@ fn value_to_serde_json(value: Value) -> StrataResult<serde_json::Value> {
             Ok(JV::String(format!("__bytes__:{}", encoded)))
         }
         Value::Array(arr) => {
-            let converted: Result<Vec<_>, _> = arr.into_iter()
-                .map(value_to_serde_json)
-                .collect();
+            let converted: Result<Vec<_>, _> = arr.into_iter().map(value_to_serde_json).collect();
             Ok(JV::Array(converted?))
         }
         Value::Object(obj) => {
@@ -218,9 +215,10 @@ fn serde_json_to_value(json: serde_json::Value) -> StrataResult<Value> {
             } else if let Some(f) = n.as_f64() {
                 Ok(Value::Float(f))
             } else {
-                Err(StrataError::serialization(
-                    format!("Cannot convert JSON number {} to Value", n)
-                ))
+                Err(StrataError::serialization(format!(
+                    "Cannot convert JSON number {} to Value",
+                    n
+                )))
             }
         }
         JV::String(s) => {
@@ -228,18 +226,16 @@ fn serde_json_to_value(json: serde_json::Value) -> StrataResult<Value> {
                 use base64::Engine;
                 let bytes = base64::engine::general_purpose::STANDARD
                     .decode(encoded)
-                    .map_err(|e| StrataError::serialization(
-                        format!("Invalid base64 in bytes value: {}", e)
-                    ))?;
+                    .map_err(|e| {
+                        StrataError::serialization(format!("Invalid base64 in bytes value: {}", e))
+                    })?;
                 Ok(Value::Bytes(bytes))
             } else {
                 Ok(Value::String(s))
             }
         }
         JV::Array(arr) => {
-            let converted: Result<Vec<_>, _> = arr.into_iter()
-                .map(serde_json_to_value)
-                .collect();
+            let converted: Result<Vec<_>, _> = arr.into_iter().map(serde_json_to_value).collect();
             Ok(Value::Array(converted?))
         }
         JV::Object(obj) => {
@@ -265,10 +261,9 @@ pub fn parse_path(path: &str) -> StrataResult<JsonPath> {
     }
     // Strip leading "$" so "$.name" → ".name", "$[0]" → "[0]"
     let normalized = path.strip_prefix('$').unwrap_or(path);
-    normalized.parse()
-        .map_err(|e| StrataError::invalid_input(
-            format!("Invalid JSON path '{}': {:?}", path, e)
-        ))
+    normalized
+        .parse()
+        .map_err(|e| StrataError::invalid_input(format!("Invalid JSON path '{}': {:?}", path, e)))
 }
 
 // =============================================================================
@@ -320,7 +315,9 @@ pub fn from_engine_metric(metric: strata_engine::DistanceMetric) -> crate::types
 // =============================================================================
 
 /// Convert executor MetadataFilter list to engine MetadataFilter.
-pub fn to_engine_filter(filters: &[crate::types::MetadataFilter]) -> Option<strata_engine::MetadataFilter> {
+pub fn to_engine_filter(
+    filters: &[crate::types::MetadataFilter],
+) -> Option<strata_engine::MetadataFilter> {
     if filters.is_empty() {
         return None;
     }
@@ -358,7 +355,9 @@ fn value_to_json_scalar(value: &Value) -> strata_engine::JsonScalar {
 // =============================================================================
 
 /// Convert engine BranchStatus to executor BranchStatus.
-pub fn from_engine_branch_status(status: strata_engine::BranchStatus) -> crate::types::BranchStatus {
+pub fn from_engine_branch_status(
+    status: strata_engine::BranchStatus,
+) -> crate::types::BranchStatus {
     match status {
         strata_engine::BranchStatus::Active => crate::types::BranchStatus::Active,
     }
@@ -402,7 +401,10 @@ mod tests {
         // Non-UUID names generate a deterministic UUID v5
         let branch = BranchId::from("not-a-valid-id");
         let result = to_core_branch_id(&branch);
-        assert!(result.is_ok(), "Arbitrary names should generate valid v5 UUIDs");
+        assert!(
+            result.is_ok(),
+            "Arbitrary names should generate valid v5 UUIDs"
+        );
 
         // Same name should produce same UUID (deterministic)
         let branch2 = BranchId::from("not-a-valid-id");

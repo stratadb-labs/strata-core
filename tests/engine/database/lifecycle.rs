@@ -10,8 +10,7 @@ use crate::common::*;
 
 #[test]
 fn ephemeral_database_is_functional() {
-    let db = Database::ephemeral()
-        .expect("ephemeral database");
+    let db = Database::ephemeral().expect("ephemeral database");
 
     let branch_id = BranchId::new();
     let kv = KVStore::new(db);
@@ -30,15 +29,13 @@ fn ephemeral_database_data_is_lost_on_drop() {
 
     // Write data
     {
-        let db = Database::ephemeral()
-            .expect("ephemeral database");
+        let db = Database::ephemeral().expect("ephemeral database");
         let kv = KVStore::new(db);
         kv.put(&branch_id, &key, Value::Int(42)).unwrap();
     }
 
     // New ephemeral database has no data
-    let db = Database::ephemeral()
-        .expect("ephemeral database");
+    let db = Database::ephemeral().expect("ephemeral database");
     let kv = KVStore::new(db);
     let result = kv.get(&branch_id, &key).unwrap();
 
@@ -98,7 +95,8 @@ fn persistent_database_multiple_reopens() {
     for i in 0..5 {
         {
             let kv = test_db.kv();
-            kv.put(&branch_id, &format!("key_{}", i), Value::Int(i)).unwrap();
+            kv.put(&branch_id, &format!("key_{}", i), Value::Int(i))
+                .unwrap();
         }
         test_db.db.shutdown().unwrap();
         test_db.reopen();

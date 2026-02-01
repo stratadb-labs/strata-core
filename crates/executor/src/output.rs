@@ -127,10 +127,7 @@ pub enum Output {
     BranchInfoList(Vec<VersionedBranchInfo>),
 
     /// Branch creation result (info + version)
-    BranchWithVersion {
-        info: BranchInfo,
-        version: u64,
-    },
+    BranchWithVersion { info: BranchInfo, version: u64 },
 
     /// Optional branch ID (for parent lookup)
     MaybeBranchId(Option<BranchId>),
@@ -163,12 +160,9 @@ pub enum Output {
     DatabaseInfo(DatabaseInfo),
 
     /// Ping response
-    Pong {
-        version: String,
-    },
+    Pong { version: String },
 
     // ==================== Intelligence ====================
-
     /// Search results across primitives
     SearchResults(Vec<SearchResultHit>),
 

@@ -2,15 +2,13 @@
 //!
 //! Tests verifying that multiple primitives can participate in atomic transactions.
 
+use std::collections::HashMap;
+use std::sync::Arc;
 use strata_core::contract::Version;
 use strata_core::types::BranchId;
 use strata_core::value::Value;
 use strata_engine::Database;
-use strata_engine::{
-    EventLog, EventLogExt, KVStore, KVStoreExt, StateCell, StateCellExt,
-};
-use std::collections::HashMap;
-use std::sync::Arc;
+use strata_engine::{EventLog, EventLogExt, KVStore, KVStoreExt, StateCell, StateCellExt};
 use tempfile::TempDir;
 
 /// Helper to create an empty object payload for EventLog
@@ -20,7 +18,10 @@ fn empty_payload() -> Value {
 
 /// Helper to create an object payload with a string value
 fn string_payload(s: &str) -> Value {
-    Value::Object(HashMap::from([("data".to_string(), Value::String(s.into()))]))
+    Value::Object(HashMap::from([(
+        "data".to_string(),
+        Value::String(s.into()),
+    )]))
 }
 
 /// Helper to create an object payload with an integer value
@@ -42,7 +43,9 @@ fn test_kv_event_state_atomic() {
 
     // Initialize state cell first (needed for CAS)
     let state_cell = StateCell::new(db.clone());
-    state_cell.init(&branch_id, "workflow", Value::Int(0)).unwrap();
+    state_cell
+        .init(&branch_id, "workflow", Value::Int(0))
+        .unwrap();
 
     // Perform atomic transaction with all 3 primitives
     let result = db.transaction(branch_id, |txn| {
@@ -54,7 +57,11 @@ fn test_kv_event_state_atomic() {
         assert_eq!(seq, 0);
 
         // State operation (CAS from version 1 after init)
-        let new_version = txn.state_cas("workflow", Version::counter(1), Value::String("step1".into()))?;
+        let new_version = txn.state_cas(
+            "workflow",
+            Version::counter(1),
+            Value::String("step1".into()),
+        )?;
         assert_eq!(new_version, Version::counter(2));
 
         Ok(())
@@ -83,7 +90,9 @@ fn test_cross_primitive_rollback() {
 
     // Initialize state cell with version 1
     let state_cell = StateCell::new(db.clone());
-    state_cell.init(&branch_id, "cell", Value::Int(100)).unwrap();
+    state_cell
+        .init(&branch_id, "cell", Value::Int(100))
+        .unwrap();
 
     // Attempt transaction with wrong CAS version - should fail and rollback
     let result = db.transaction(branch_id, |txn| {
@@ -123,7 +132,9 @@ fn test_all_extension_traits_compose() {
 
     // Pre-initialize state cell
     let state_cell = StateCell::new(db.clone());
-    state_cell.init(&branch_id, "counter", Value::Int(0)).unwrap();
+    state_cell
+        .init(&branch_id, "counter", Value::Int(0))
+        .unwrap();
 
     // Use all 3 extension traits in single transaction
     let result = db.transaction(branch_id, |txn| {
@@ -246,7 +257,9 @@ fn test_multiple_transactions_consistency() {
 
     // Initialize state
     let state_cell = StateCell::new(db.clone());
-    state_cell.init(&branch_id, "counter", Value::Int(0)).unwrap();
+    state_cell
+        .init(&branch_id, "counter", Value::Int(0))
+        .unwrap();
 
     // Run 10 sequential transactions
     for i in 1..=10 {
@@ -332,7 +345,10 @@ fn test_read_only_transaction() {
     assert!(result.is_ok());
 
     // Data unchanged
-    assert_eq!(kv.get(&branch_id, "existing").unwrap(), Some(Value::Int(100)));
+    assert_eq!(
+        kv.get(&branch_id, "existing").unwrap(),
+        Some(Value::Int(100))
+    );
     let state = state_cell.read(&branch_id, "cell").unwrap().unwrap();
     assert_eq!(state, Value::Int(50));
 }

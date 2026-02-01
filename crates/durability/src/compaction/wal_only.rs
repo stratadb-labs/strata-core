@@ -20,7 +20,9 @@
 //! - Only removes segments fully covered by snapshot
 //! - Requires a valid snapshot to exist
 
-use crate::format::{ManifestManager, SegmentHeader, WalRecord, WalRecordError, SEGMENT_HEADER_SIZE};
+use crate::format::{
+    ManifestManager, SegmentHeader, WalRecord, WalRecordError, SEGMENT_HEADER_SIZE,
+};
 use parking_lot::Mutex;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -178,13 +180,11 @@ impl WalOnlyCompactor {
             )));
         }
 
-        let header_bytes: [u8; SEGMENT_HEADER_SIZE] =
-            file_data[..SEGMENT_HEADER_SIZE].try_into().map_err(|_| {
-                CompactionError::internal(format!(
-                    "Failed to read segment {} header",
-                    segment_number
-                ))
-            })?;
+        let header_bytes: [u8; SEGMENT_HEADER_SIZE] = file_data[..SEGMENT_HEADER_SIZE]
+            .try_into()
+            .map_err(|_| {
+            CompactionError::internal(format!("Failed to read segment {} header", segment_number))
+        })?;
 
         let header = SegmentHeader::from_bytes(&header_bytes).ok_or_else(|| {
             CompactionError::internal(format!("Invalid segment {} header", segment_number))

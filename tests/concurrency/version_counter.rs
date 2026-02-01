@@ -6,10 +6,10 @@
 //! - Wrap-around handling
 //! - Recovery restoration
 
-use strata_concurrency::manager::TransactionManager;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Barrier};
 use std::thread;
+use strata_concurrency::manager::TransactionManager;
 
 // ============================================================================
 // Monotonic Increment
@@ -44,7 +44,11 @@ fn version_starts_from_initial() {
     let manager = TransactionManager::new(1000);
 
     let v = manager.allocate_version();
-    assert!(v >= 1000, "First version should be >= initial (1000), got {}", v);
+    assert!(
+        v >= 1000,
+        "First version should be >= initial (1000), got {}",
+        v
+    );
 }
 
 // ============================================================================
@@ -112,7 +116,10 @@ fn concurrent_txn_id_allocation_unique() {
         })
         .collect();
 
-    let mut all_ids: Vec<u64> = handles.into_iter().flat_map(|h| h.join().unwrap()).collect();
+    let mut all_ids: Vec<u64> = handles
+        .into_iter()
+        .flat_map(|h| h.join().unwrap())
+        .collect();
 
     let total = all_ids.len();
     all_ids.sort();
@@ -186,7 +193,11 @@ fn manager_with_txn_id_continues_from_max() {
     let manager = TransactionManager::with_txn_id(100, 1000);
 
     let id = manager.next_txn_id();
-    assert!(id > 1000, "After recovery, txn_id should be > max (1000), got {}", id);
+    assert!(
+        id > 1000,
+        "After recovery, txn_id should be > max (1000), got {}",
+        id
+    );
 }
 
 #[test]
@@ -261,7 +272,10 @@ fn interleaved_version_and_txn_id_allocation() {
 
     // Both should be monotonic independently
     for i in 1..versions.len() {
-        assert!(versions[i] > versions[i - 1], "Versions should be monotonic");
+        assert!(
+            versions[i] > versions[i - 1],
+            "Versions should be monotonic"
+        );
     }
     for i in 1..txn_ids.len() {
         assert!(txn_ids[i] > txn_ids[i - 1], "Txn IDs should be monotonic");

@@ -23,12 +23,12 @@
 //! future implementations like `LazySnapshotView` that read from live
 //! storage with version bounds, avoiding the clone overhead.
 
-use strata_core::StrataResult;
-use strata_core::traits::SnapshotView;
-use strata_core::types::Key;
-use strata_core::VersionedValue;
 use std::collections::BTreeMap;
 use std::sync::Arc;
+use strata_core::traits::SnapshotView;
+use strata_core::types::Key;
+use strata_core::StrataResult;
+use strata_core::VersionedValue;
 
 /// M2 Implementation: Clone-based snapshot
 ///
@@ -146,7 +146,7 @@ mod tests {
     // Verify ClonedSnapshotView is Send + Sync (required by SnapshotView trait)
     static_assertions::assert_impl_all!(super::ClonedSnapshotView: Send, Sync);
     use super::*;
-    use strata_core::types::{Namespace, BranchId, TypeTag};
+    use strata_core::types::{BranchId, Namespace, TypeTag};
     use strata_core::value::Value;
     use strata_core::Version;
 

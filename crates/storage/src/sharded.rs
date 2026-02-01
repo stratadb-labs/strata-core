@@ -31,12 +31,12 @@
 //! 4. Performance: Avoiding enum matching on every comparison
 
 use dashmap::DashMap;
-use strata_core::types::{Key, BranchId};
-use strata_core::{Timestamp, Version, VersionedValue};
 use rustc_hash::FxHashMap;
 use std::collections::VecDeque;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
+use strata_core::types::{BranchId, Key};
+use strata_core::{Timestamp, Version, VersionedValue};
 
 use crate::stored_value::StoredValue;
 
@@ -146,9 +146,7 @@ impl VersionChain {
 
         // Filter by before_version if specified (only versions < before)
         let filtered: Vec<&StoredValue> = match before_version {
-            Some(before) => iter
-                .filter(|sv| sv.version().as_u64() < before)
-                .collect(),
+            Some(before) => iter.filter(|sv| sv.version().as_u64() < before).collect(),
             None => iter.collect(),
         };
 
@@ -357,27 +355,28 @@ impl ShardedStore {
     /// Adds a tombstone at the specified version. Old versions are preserved
     /// for MVCC snapshot isolation.
     #[inline]
-    pub fn delete_with_version(&self, key: &Key, version: u64) -> StrataResult<Option<VersionedValue>> {
+    pub fn delete_with_version(
+        &self,
+        key: &Key,
+        version: u64,
+    ) -> StrataResult<Option<VersionedValue>> {
         use strata_core::Version;
 
         let branch_id = key.namespace.branch_id;
 
         // Get the previous value before adding tombstone
-        let previous = self
-            .shards
-            .get(&branch_id)
-            .and_then(|shard| {
-                shard.data.get(key).and_then(|chain| {
-                    chain.latest().and_then(|sv| {
-                        // Don't return tombstones as "previous value"
-                        if sv.is_tombstone() {
-                            None
-                        } else {
-                            Some(sv.versioned().clone())
-                        }
-                    })
+        let previous = self.shards.get(&branch_id).and_then(|shard| {
+            shard.data.get(key).and_then(|chain| {
+                chain.latest().and_then(|sv| {
+                    // Don't return tombstones as "previous value"
+                    if sv.is_tombstone() {
+                        None
+                    } else {
+                        Some(sv.versioned().clone())
+                    }
                 })
-            });
+            })
+        });
 
         // Add tombstone to version chain
         let tombstone = StoredValue::tombstone(Version::txn(version));
@@ -435,23 +434,22 @@ impl ShardedStore {
         // Group writes and deletes by branch_id to apply atomically per branch.
         // This ensures concurrent readers never see partial transaction state
         // within a branch, since we hold the shard lock for the entire branch batch.
-        let mut branch_ops: FxHashMap<BranchId, (Vec<(Key, StoredValue)>, Vec<Key>)> = FxHashMap::default();
+        let mut branch_ops: FxHashMap<BranchId, (Vec<(Key, StoredValue)>, Vec<Key>)> =
+            FxHashMap::default();
 
         for (key, value) in writes {
-            let stored = StoredValue::with_timestamp(
-                value.clone(),
-                Version::txn(version),
-                timestamp,
-                None,
-            );
-            branch_ops.entry(key.namespace.branch_id)
+            let stored =
+                StoredValue::with_timestamp(value.clone(), Version::txn(version), timestamp, None);
+            branch_ops
+                .entry(key.namespace.branch_id)
                 .or_insert_with(|| (Vec::new(), Vec::new()))
                 .0
                 .push((key.clone(), stored));
         }
 
         for key in deletes {
-            branch_ops.entry(key.namespace.branch_id)
+            branch_ops
+                .entry(key.namespace.branch_id)
                 .or_insert_with(|| (Vec::new(), Vec::new()))
                 .1
                 .push(key.clone());
@@ -661,7 +659,11 @@ impl ShardedStore {
     }
 
     /// Count entries of a specific type for a branch (excludes tombstones)
-    pub fn count_by_type(&self, branch_id: &BranchId, type_tag: strata_core::types::TypeTag) -> usize {
+    pub fn count_by_type(
+        &self,
+        branch_id: &BranchId,
+        type_tag: strata_core::types::TypeTag,
+    ) -> usize {
         self.shards
             .get(branch_id)
             .map(|shard| {
@@ -987,10 +989,10 @@ impl std::fmt::Debug for ShardedSnapshot {
 // Storage Trait Implementation
 // ============================================================================
 
-use strata_core::StrataResult;
+use std::time::Duration;
 use strata_core::traits::Storage;
 use strata_core::value::Value;
-use std::time::Duration;
+use strata_core::StrataResult;
 
 impl Storage for ShardedStore {
     /// Get current value for key (latest version)
@@ -1082,7 +1084,11 @@ impl Storage for ShardedStore {
     /// Scan keys with given prefix at or before max_version
     ///
     /// Results are sorted by key order.
-    fn scan_prefix(&self, prefix: &Key, max_version: u64) -> StrataResult<Vec<(Key, VersionedValue)>> {
+    fn scan_prefix(
+        &self,
+        prefix: &Key,
+        max_version: u64,
+    ) -> StrataResult<Vec<(Key, VersionedValue)>> {
         let branch_id = prefix.namespace.branch_id;
         Ok(self
             .shards
@@ -1115,7 +1121,11 @@ impl Storage for ShardedStore {
     /// Scan all keys for a given branch_id at or before max_version
     ///
     /// Returns all entries for the branch, filtered by version.
-    fn scan_by_branch(&self, branch_id: BranchId, max_version: u64) -> StrataResult<Vec<(Key, VersionedValue)>> {
+    fn scan_by_branch(
+        &self,
+        branch_id: BranchId,
+        max_version: u64,
+    ) -> StrataResult<Vec<(Key, VersionedValue)>> {
         Ok(self
             .shards
             .get(&branch_id)
@@ -1482,8 +1492,8 @@ mod tests {
 
     #[test]
     fn test_concurrent_writes_different_branches() {
-        use strata_core::value::Value;
         use std::thread;
+        use strata_core::value::Value;
 
         let store = Arc::new(ShardedStore::new());
 
@@ -2626,10 +2636,7 @@ mod tests {
 
         // Snapshot should still see the cached value
         let after = SnapshotView::get(&snapshot, &key).unwrap();
-        assert!(
-            after.is_some(),
-            "Cached value should survive delete"
-        );
+        assert!(after.is_some(), "Cached value should survive delete");
         assert_eq!(after.unwrap().value, Value::Int(100));
     }
 
@@ -2702,10 +2709,10 @@ mod tests {
     /// actively modified by other threads.
     #[test]
     fn test_snapshot_isolation_under_concurrent_writes() {
-        use strata_core::traits::{SnapshotView, Storage};
-        use strata_core::value::Value;
         use std::sync::atomic::{AtomicBool, Ordering};
         use std::thread;
+        use strata_core::traits::{SnapshotView, Storage};
+        use strata_core::value::Value;
 
         let store = Arc::new(ShardedStore::new());
         let branch_id = BranchId::new();
@@ -2733,12 +2740,8 @@ mod tests {
                     while !stop.load(Ordering::Relaxed) {
                         for i in 0..10 {
                             let key = create_test_key(branch_id, &format!("key{}", i));
-                            let _ = Storage::put(
-                                &*store,
-                                key,
-                                Value::Int(t * 1000 + counter),
-                                None,
-                            );
+                            let _ =
+                                Storage::put(&*store, key, Value::Int(t * 1000 + counter), None);
                         }
                         counter += 1;
                         if counter > 100 {
@@ -2789,10 +2792,10 @@ mod tests {
     /// This is NOT atomic - two threads could both miss and both write.
     #[test]
     fn test_snapshot_cache_concurrent_access() {
-        use strata_core::traits::{SnapshotView, Storage};
-        use strata_core::value::Value;
         use std::sync::Barrier;
         use std::thread;
+        use strata_core::traits::{SnapshotView, Storage};
+        use strata_core::value::Value;
 
         let store = Arc::new(ShardedStore::new());
         let branch_id = BranchId::new();
@@ -2842,10 +2845,10 @@ mod tests {
     /// could we get inconsistent results?
     #[test]
     fn test_version_chain_gc_concurrent_reads() {
-        use strata_core::traits::Storage;
-        use strata_core::value::Value;
         use std::sync::atomic::{AtomicBool, Ordering};
         use std::thread;
+        use strata_core::traits::Storage;
+        use strata_core::value::Value;
 
         let store = Arc::new(ShardedStore::new());
         let branch_id = BranchId::new();
@@ -3054,11 +3057,7 @@ mod tests {
         let prefix = Key::new_kv(ns.clone(), "");
         let results = Storage::scan_prefix(&store, &prefix, u64::MAX).unwrap();
 
-        assert_eq!(
-            results.len(),
-            1,
-            "Scan should filter out expired values"
-        );
+        assert_eq!(results.len(), 1, "Scan should filter out expired values");
         assert!(
             results[0].0.user_key_string().unwrap().contains("fresh"),
             "Only fresh key should be returned"

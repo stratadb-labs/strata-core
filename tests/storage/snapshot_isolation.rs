@@ -5,15 +5,15 @@
 //! - Concurrent snapshots don't interfere
 //! - Snapshot ignores later modifications
 
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{Arc, Barrier};
+use std::thread;
+use std::time::Instant;
 use strata_core::traits::{SnapshotView, Storage};
 use strata_core::types::{Key, Namespace};
 use strata_core::value::Value;
 use strata_core::BranchId;
 use strata_storage::sharded::ShardedStore;
-use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{Arc, Barrier};
-use std::thread;
-use std::time::Instant;
 
 fn create_test_key(branch_id: BranchId, name: &str) -> Key {
     let ns = Namespace::for_branch(branch_id);
@@ -195,14 +195,8 @@ fn multi_key_consistency_within_snapshot() {
     Storage::put(&*store, key_b.clone(), Value::Int(250), None).unwrap();
 
     // Snapshot should see consistent pre-transfer state
-    let a = SnapshotView::get(&snapshot, &key_a)
-        .unwrap()
-        .unwrap()
-        .value;
-    let b = SnapshotView::get(&snapshot, &key_b)
-        .unwrap()
-        .unwrap()
-        .value;
+    let a = SnapshotView::get(&snapshot, &key_a).unwrap().unwrap().value;
+    let b = SnapshotView::get(&snapshot, &key_b).unwrap().unwrap().value;
 
     match (a, b) {
         (Value::Int(a_val), Value::Int(b_val)) => {
@@ -292,11 +286,7 @@ fn snapshot_survives_store_modifications() {
             // Should see original value (0-9)
             let value = result.unwrap().value;
             if let Value::Int(v) = value {
-                assert!(
-                    v < 10,
-                    "Snapshot should see original values, got {}",
-                    v
-                );
+                assert!(v < 10, "Snapshot should see original values, got {}", v);
             }
         }
     }

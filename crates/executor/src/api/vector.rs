@@ -3,8 +3,8 @@
 //! MVP: upsert, get, delete, search, create_collection, delete_collection, list_collections
 
 use super::Strata;
-use crate::{Command, Error, Output, Result, Value};
 use crate::types::*;
+use crate::{Command, Error, Output, Result, Value};
 
 impl Strata {
     // =========================================================================

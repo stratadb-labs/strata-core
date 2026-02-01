@@ -19,7 +19,7 @@ pub mod watermark;
 pub mod writeset;
 
 pub use snapshot::{
-    parse_snapshot_id, primitive_tags, snapshot_path, find_latest_snapshot, list_snapshots,
+    find_latest_snapshot, list_snapshots, parse_snapshot_id, primitive_tags, snapshot_path,
     SectionHeader, SnapshotHeader, SnapshotHeaderError, SNAPSHOT_FORMAT_VERSION,
     SNAPSHOT_HEADER_SIZE, SNAPSHOT_MAGIC,
 };
@@ -29,10 +29,12 @@ pub use wal_record::{
 };
 pub use writeset::{Mutation, Writeset, WritesetError};
 
+pub use manifest::{
+    Manifest, ManifestError, ManifestManager, MANIFEST_FORMAT_VERSION, MANIFEST_MAGIC,
+};
 pub use primitives::{
-    EventSnapshotEntry, JsonSnapshotEntry, KvSnapshotEntry, PrimitiveSerializeError,
-    BranchSnapshotEntry, SnapshotSerializer, StateSnapshotEntry,
-    VectorCollectionSnapshotEntry, VectorSnapshotEntry,
+    BranchSnapshotEntry, EventSnapshotEntry, JsonSnapshotEntry, KvSnapshotEntry,
+    PrimitiveSerializeError, SnapshotSerializer, StateSnapshotEntry, VectorCollectionSnapshotEntry,
+    VectorSnapshotEntry,
 };
 pub use watermark::{CheckpointInfo, SnapshotWatermark, WatermarkError};
-pub use manifest::{Manifest, ManifestError, ManifestManager, MANIFEST_FORMAT_VERSION, MANIFEST_MAGIC};

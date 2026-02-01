@@ -5,8 +5,8 @@
 
 use std::path::PathBuf;
 use std::sync::Arc;
-use strata_core::StrataResult;
 use strata_core::StrataError;
+use strata_core::StrataResult;
 use strata_durability::wal::DurabilityMode;
 
 use super::Database;
@@ -141,7 +141,7 @@ impl DatabaseBuilder {
     pub fn open(self) -> StrataResult<Arc<Database>> {
         let path = self.path.ok_or_else(|| {
             StrataError::invalid_input(
-                "DatabaseBuilder::open() requires a path. Use Database::ephemeral() for testing."
+                "DatabaseBuilder::open() requires a path. Use Database::ephemeral() for testing.",
             )
         })?;
 

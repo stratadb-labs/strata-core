@@ -36,16 +36,16 @@
 //! assert_eq!(db.kv_get("key")?, Some(Value::String("hello".into())));
 //! ```
 
+mod branch;
+mod branches;
 mod db;
 mod event;
 mod json;
 mod kv;
-mod branch;
-mod branches;
 mod state;
 mod vector;
 
-pub use branches::{Branches, BranchDiff};
+pub use branches::{BranchDiff, Branches};
 
 use std::path::Path;
 use std::sync::Arc;
@@ -126,10 +126,9 @@ impl Strata {
     /// ```
     pub fn open_temp() -> Result<Self> {
         ensure_vector_recovery();
-        let db = Database::ephemeral()
-            .map_err(|e| Error::Internal {
-                reason: format!("Failed to open ephemeral database: {}", e),
-            })?;
+        let db = Database::ephemeral().map_err(|e| Error::Internal {
+            reason: format!("Failed to open ephemeral database: {}", e),
+        })?;
         let executor = Executor::new(db);
 
         // Ensure the default branch exists
@@ -322,7 +321,8 @@ impl Strata {
         // Cannot delete the current branch
         if branch_name == self.current_branch.as_str() {
             return Err(Error::ConstraintViolation {
-                reason: "Cannot delete the current branch. Switch to a different branch first.".into(),
+                reason: "Cannot delete the current branch. Switch to a different branch first."
+                    .into(),
             });
         }
 
@@ -344,8 +344,8 @@ impl Strata {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::Value;
     use crate::types::*;
+    use crate::Value;
 
     fn create_strata() -> Strata {
         Strata::open_temp().unwrap()
@@ -422,12 +422,16 @@ mod tests {
         let db = create_strata();
 
         // Event payloads must be Objects
-        db.event_append("stream", Value::Object(
-            [("value".to_string(), Value::Int(1))].into_iter().collect()
-        )).unwrap();
-        db.event_append("stream", Value::Object(
-            [("value".to_string(), Value::Int(2))].into_iter().collect()
-        )).unwrap();
+        db.event_append(
+            "stream",
+            Value::Object([("value".to_string(), Value::Int(1))].into_iter().collect()),
+        )
+        .unwrap();
+        db.event_append(
+            "stream",
+            Value::Object([("value".to_string(), Value::Int(2))].into_iter().collect()),
+        )
+        .unwrap();
 
         let events = db.event_read_by_type("stream").unwrap();
         assert_eq!(events.len(), 2);
@@ -437,11 +441,16 @@ mod tests {
     fn test_vector_operations() {
         let db = create_strata();
 
-        db.vector_create_collection("vecs", 4u64, DistanceMetric::Cosine).unwrap();
-        db.vector_upsert("vecs", "v1", vec![1.0, 0.0, 0.0, 0.0], None).unwrap();
-        db.vector_upsert("vecs", "v2", vec![0.0, 1.0, 0.0, 0.0], None).unwrap();
+        db.vector_create_collection("vecs", 4u64, DistanceMetric::Cosine)
+            .unwrap();
+        db.vector_upsert("vecs", "v1", vec![1.0, 0.0, 0.0, 0.0], None)
+            .unwrap();
+        db.vector_upsert("vecs", "v2", vec![0.0, 1.0, 0.0, 0.0], None)
+            .unwrap();
 
-        let matches = db.vector_search("vecs", vec![1.0, 0.0, 0.0, 0.0], 10u64).unwrap();
+        let matches = db
+            .vector_search("vecs", vec![1.0, 0.0, 0.0, 0.0], 10u64)
+            .unwrap();
         assert_eq!(matches.len(), 2);
         assert_eq!(matches[0].key, "v1");
     }
@@ -450,10 +459,12 @@ mod tests {
     fn test_branch_create_list() {
         let db = create_strata();
 
-        let (info, _version) = db.branch_create(
-            Some("550e8400-e29b-41d4-a716-446655440099".to_string()),
-            None,
-        ).unwrap();
+        let (info, _version) = db
+            .branch_create(
+                Some("550e8400-e29b-41d4-a716-446655440099".to_string()),
+                None,
+            )
+            .unwrap();
         assert_eq!(info.id.as_str(), "550e8400-e29b-41d4-a716-446655440099");
 
         let branches = db.branch_list(None, None, None).unwrap();
@@ -587,9 +598,11 @@ mod tests {
         // Put data in default branch (simplified API)
         db.kv_put("kv-key", 1i64).unwrap();
         db.state_set("state-cell", 10i64).unwrap();
-        db.event_append("stream", Value::Object(
-            [("x".to_string(), Value::Int(100))].into_iter().collect()
-        )).unwrap();
+        db.event_append(
+            "stream",
+            Value::Object([("x".to_string(), Value::Int(100))].into_iter().collect()),
+        )
+        .unwrap();
 
         // Create and switch to another branch
         db.create_branch("isolated").unwrap();
