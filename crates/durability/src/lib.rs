@@ -138,7 +138,7 @@ pub use database::{
 };
 
 // WAL segmented types (new in Phase 2)
-pub use wal::{TruncateInfo, WalConfig, WalConfigError, WalReader, WalReaderError, WalWriter};
+pub use wal::{TruncateInfo, WalConfig, WalConfigError, WalCounters, WalReader, WalReaderError, WalWriter};
 
 // Recovery coordinator types (new in Phase 2)
 pub use recovery::{

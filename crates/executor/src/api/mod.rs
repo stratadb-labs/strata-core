@@ -184,6 +184,13 @@ impl Strata {
         &self.executor
     }
 
+    /// Get a reference to the underlying database.
+    ///
+    /// Useful for accessing database-level diagnostics like WAL counters.
+    pub fn database(&self) -> &Arc<Database> {
+        &self.executor.primitives().db
+    }
+
     /// Get a handle for branch management operations.
     ///
     /// The returned [`Branches`] handle provides the "power API" for branch

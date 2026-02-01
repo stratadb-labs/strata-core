@@ -82,7 +82,7 @@ These test critical cross-layer contracts. They need `tests/common/mod.rs` fixed
 | `durability/crash_recovery.rs` | 7 | Truncated WAL, corrupted WAL tail, completely corrupted WAL, missing WAL, rapid reopen cycles | `common/` fixes for file manipulation helpers |
 | `durability/cross_primitive_recovery.rs` | 5 | **All 6 primitives recover atomically**, interleaved writes, multi-run independence | `common/` fixes |
 | `durability/wal_lifecycle.rs` | 6 | WAL growth monotonicity, large value recovery, many small writes recovery | `common/` fixes |
-| `durability/mode_equivalence.rs` | 8 | **Semantic equivalence across InMemory/Batched/Strict modes** — prevents behavioral drift | `common/` fixes |
+| `durability/mode_equivalence.rs` | 8 | **Semantic equivalence across None/Batched/Strict modes** — prevents behavioral drift | `common/` fixes |
 | `durability/snapshot_lifecycle.rs` | 6 | Snapshot+WAL interaction, corrupted snapshot fallback | `common/` fixes |
 | `engine/acid_properties.rs` | 11 | **ACID properties**: atomicity (all-or-nothing), consistency (CAS prevents invalid state), isolation (concurrent counters), durability (survives restart) | Uses `KVStoreExt`, `EventLogExt`, `StateCellExt` — all exist |
 | `engine/cross_primitive.rs` | ~5 | Cross-primitive transaction atomicity | `common/` fixes |
@@ -272,7 +272,7 @@ Two separate DB instances with identical operations must recover to identical st
 `cross_primitive_recovery.rs` verifies that KV + EventLog + StateCell + JsonStore + VectorStore all recover together or not at all after crash.
 
 ### 7. Mode Equivalence
-`mode_equivalence.rs` ensures InMemory, Batched, and Strict durability modes produce identical observable behavior. Without this, behavioral drift between modes is invisible.
+`mode_equivalence.rs` ensures None, Batched, and Strict durability modes produce identical observable behavior. Without this, behavioral drift between modes is invisible.
 
 ### 8. High-Contention Correctness
 `concurrent_transactions.rs` runs 8 threads competing on a single key and verifies the commit/conflict rates are correct. Unit tests use single-threaded mocks.

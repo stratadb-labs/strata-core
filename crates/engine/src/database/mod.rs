@@ -59,14 +59,14 @@ use tracing::info;
 /// | PersistenceMode | DurabilityMode | Behavior |
 /// |-----------------|----------------|----------|
 /// | Ephemeral | (ignored) | No files, data lost on drop |
-/// | Disk | InMemory | Files created, no fsync |
+/// | Disk | None | Files created, no fsync |
 /// | Disk | Buffered | Files created, periodic fsync |
 /// | Disk | Strict | Files created, immediate fsync |
 ///
 /// # Use Cases
 ///
 /// - **Ephemeral**: Unit tests, caching, temporary computations
-/// - **Disk + InMemory**: Integration tests (fast, isolated, but files exist)
+/// - **Disk + None**: Integration tests (fast, isolated, but files exist)
 /// - **Disk + Buffered**: Production workloads
 /// - **Disk + Strict**: Audit logs, critical data
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -432,6 +432,14 @@ impl Database {
     /// Check if this is an ephemeral (no-disk) database
     pub fn is_ephemeral(&self) -> bool {
         self.persistence_mode == PersistenceMode::Ephemeral
+    }
+
+    /// Get current WAL counters snapshot.
+    ///
+    /// Returns `None` for ephemeral databases (no WAL).
+    /// Briefly locks the WAL mutex to read counter values.
+    pub fn durability_counters(&self) -> Option<strata_durability::WalCounters> {
+        self.wal_writer.as_ref().map(|w| w.lock().counters())
     }
 
     /// Check if the database is currently open and accepting transactions

@@ -12,7 +12,7 @@ Systematic benchmarks across all primitives and durability modes.
 
 Every cell in this matrix gets a benchmark:
 
-|                        | InMemory | Buffered | Strict |
+|                        | Ephemeral | Buffered | Strict |
 |------------------------|----------|----------|--------|
 | **KV put**             |          |          |        |
 | **KV get**             |          |          |        |
@@ -52,7 +52,7 @@ Every cell in this matrix gets a benchmark:
 
 ### Performance target
 
-**InMemory mode should achieve Redis-class throughput**: 100K+ ops/sec for KV get/put on commodity hardware. Redis single-threaded GET/SET benchmarks at ~100-150K ops/sec — StrataDB's InMemory mode should be in the same ballpark since both are in-process data structure operations with no I/O.
+**Ephemeral mode should achieve Redis-class throughput**: 100K+ ops/sec for KV get/put on commodity hardware. Redis single-threaded GET/SET benchmarks at ~100-150K ops/sec — StrataDB's Ephemeral mode should be in the same ballpark since both are in-process data structure operations with no I/O.
 
 ### Comparison baselines
 

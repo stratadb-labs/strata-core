@@ -10,6 +10,23 @@ use crate::wal::config::WalConfig;
 use std::path::{Path, PathBuf};
 use std::time::Instant;
 
+/// Cumulative WAL operation counters.
+///
+/// These counters accumulate over the lifetime of the WalWriter
+/// and are never reset. Use them to observe how many WAL operations
+/// a workload triggers.
+#[derive(Debug, Clone, Default)]
+pub struct WalCounters {
+    /// Total WAL record appends (calls to append() that did work)
+    pub wal_appends: u64,
+    /// Total durability barrier (sync/fsync) calls
+    pub sync_calls: u64,
+    /// Total bytes written to WAL segments
+    pub bytes_written: u64,
+    /// Total nanoseconds spent in sync/fsync calls
+    pub sync_nanos: u64,
+}
+
 /// WAL writer with configurable durability modes.
 ///
 /// The writer manages WAL segments and handles record appending with
@@ -58,6 +75,15 @@ pub struct WalWriter {
 
     /// Whether there is data written but not yet fsynced
     has_unsynced_data: bool,
+
+    /// Cumulative: total WAL record appends
+    total_wal_appends: u64,
+    /// Cumulative: total sync/fsync calls
+    total_sync_calls: u64,
+    /// Cumulative: total bytes written to WAL segments
+    total_bytes_written: u64,
+    /// Cumulative: total nanoseconds spent in sync/fsync calls
+    total_sync_nanos: u64,
 }
 
 impl WalWriter {
@@ -86,6 +112,10 @@ impl WalWriter {
                 last_sync_time: Instant::now(),
                 current_segment_number: 0,
                 has_unsynced_data: false,
+                total_wal_appends: 0,
+                total_sync_calls: 0,
+                total_bytes_written: 0,
+                total_sync_nanos: 0,
             });
         }
 
@@ -127,6 +157,10 @@ impl WalWriter {
             last_sync_time: Instant::now(),
             current_segment_number: segment_number,
             has_unsynced_data: false,
+            total_wal_appends: 0,
+            total_sync_calls: 0,
+            total_bytes_written: 0,
+            total_sync_nanos: 0,
         })
     }
 
@@ -162,6 +196,9 @@ impl WalWriter {
         let segment = self.segment.as_mut().unwrap();
         segment.write(&encoded)?;
 
+        self.total_wal_appends += 1;
+        self.total_bytes_written += encoded.len() as u64;
+
         self.bytes_since_sync += encoded.len() as u64;
         self.writes_since_sync += 1;
         self.has_unsynced_data = true;
@@ -178,7 +215,11 @@ impl WalWriter {
             DurabilityMode::Strict => {
                 // Always sync immediately
                 if let Some(ref mut segment) = self.segment {
+                    let start = Instant::now();
                     segment.sync()?;
+                    let elapsed = start.elapsed();
+                    self.total_sync_calls += 1;
+                    self.total_sync_nanos += elapsed.as_nanos() as u64;
                 }
                 self.reset_sync_counters();
             }
@@ -192,7 +233,11 @@ impl WalWriter {
 
                 if should_sync {
                     if let Some(ref mut segment) = self.segment {
+                        let start = Instant::now();
                         segment.sync()?;
+                        let elapsed = start.elapsed();
+                        self.total_sync_calls += 1;
+                        self.total_sync_nanos += elapsed.as_nanos() as u64;
                     }
                     self.reset_sync_counters();
                 }
@@ -242,7 +287,11 @@ impl WalWriter {
     /// durability mode settings.
     pub fn flush(&mut self) -> std::io::Result<()> {
         if let Some(ref mut segment) = self.segment {
+            let start = Instant::now();
             segment.sync()?;
+            let elapsed = start.elapsed();
+            self.total_sync_calls += 1;
+            self.total_sync_nanos += elapsed.as_nanos() as u64;
         }
         self.reset_sync_counters();
         Ok(())
@@ -261,7 +310,11 @@ impl WalWriter {
         if let DurabilityMode::Batched { interval_ms, .. } = self.durability {
             if self.last_sync_time.elapsed().as_millis() as u64 >= interval_ms {
                 if let Some(ref mut segment) = self.segment {
+                    let start = Instant::now();
                     segment.sync()?;
+                    let elapsed = start.elapsed();
+                    self.total_sync_calls += 1;
+                    self.total_sync_nanos += elapsed.as_nanos() as u64;
                 }
                 self.reset_sync_counters();
                 return Ok(true);
@@ -282,6 +335,16 @@ impl WalWriter {
             .as_ref()
             .map(|s: &WalSegment| s.size())
             .unwrap_or(SEGMENT_HEADER_SIZE_V2 as u64)
+    }
+
+    /// Get a snapshot of cumulative WAL counters.
+    pub fn counters(&self) -> WalCounters {
+        WalCounters {
+            wal_appends: self.total_wal_appends,
+            sync_calls: self.total_sync_calls,
+            bytes_written: self.total_bytes_written,
+            sync_nanos: self.total_sync_nanos,
+        }
     }
 
     /// Get the WAL directory path.

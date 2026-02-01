@@ -69,7 +69,7 @@ Choose your speed/safety trade-off:
 
 | Mode | Latency | Throughput | Data Loss on Crash |
 |------|---------|------------|-------------------|
-| **InMemory** | <3 us | 250K+ ops/sec | All |
+| **Ephemeral** | <3 us | 250K+ ops/sec | All |
 | **Buffered** | <30 us | 50K+ ops/sec | Last ~100ms |
 | **Strict** | ~2 ms | ~500 ops/sec | None |
 

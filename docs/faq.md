@@ -42,7 +42,7 @@ Not directly. Convert your struct to a `Value` (typically via `serde_json::json!
 
 | Mode | Throughput |
 |------|-----------|
-| InMemory | 250K+ ops/sec (single thread), 800K+ (4 threads) |
+| Ephemeral | 250K+ ops/sec (single thread), 800K+ (4 threads) |
 | Buffered | 50K+ ops/sec |
 | Strict | ~500 ops/sec |
 
@@ -72,7 +72,7 @@ Uncommitted transactions are automatically discarded during recovery. Only commi
 
 ### What durability mode should I use?
 
-- **Testing:** InMemory (`Strata::open_temp()`)
+- **Testing:** None (`Strata::open_temp()`)
 - **Production:** Buffered (default) — good balance of speed and safety
 - **Critical data:** Strict — zero data loss, but slower
 

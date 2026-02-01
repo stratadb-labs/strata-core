@@ -38,6 +38,7 @@ pub use recovery::{
     DiffEntry, ReadOnlyView, RecoveryFn, RecoveryParticipant, ReplayBranchIndex, ReplayError,
 };
 pub use strata_durability::wal::DurabilityMode;
+pub use strata_durability::WalCounters;
 // Note: Use strata_core::PrimitiveType for DiffEntry.primitive field
 pub use strata_concurrency::TransactionContext;
 pub use transaction::{Transaction, TransactionPool, MAX_POOL_SIZE};

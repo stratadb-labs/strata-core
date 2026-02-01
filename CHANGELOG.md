@@ -12,7 +12,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - **Value type system**: 8-variant `Value` enum (Null, Bool, Int, Float, String, Bytes, Array, Object) with strict typing rules
 - **Run-based data isolation**: git-like branches for isolating agent sessions and experiments
 - **OCC transactions**: optimistic concurrency control with snapshot isolation and read-your-writes semantics via the `Session` API
-- **Three durability modes**: InMemory, Buffered (default), and Strict
+- **Three durability modes**: None, Buffered (default), and Strict
 - **Write-ahead log (WAL)**: CRC32-checked entries for crash recovery
 - **Snapshots**: periodic full-state captures for bounded recovery time
 - **Run bundles**: export/import runs as portable `.runbundle.tar.zst` archives

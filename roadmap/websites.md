@@ -52,7 +52,7 @@ The database runs in the browser via WebAssembly. Not a mock, not a simulation, 
 
 The Rust codebase compiles to `wasm32-unknown-unknown` with some constraints:
 
-- **InMemory mode only** (no filesystem access in the browser)
+- **Ephemeral mode only** (no filesystem access in the browser)
 - **No std::fs, no WAL, no snapshots** — feature-gated out for the WASM target
 - **Intelligence layer**: MiniLM can run in WASM (ONNX Runtime has a WASM backend, or use candle's WASM support). Qwen3 in-browser is harder — may need to proxy to a lightweight backend or use a smaller model for the demo.
 - **Target size**: The WASM binary should be under 5MB (before gzip). The engine without intelligence features is likely well under this. With MiniLM, the model weights add ~80MB — loaded lazily after page load.
@@ -129,5 +129,5 @@ The right choice depends on what's available when we build it. WebGPU adoption i
 ## Ordering
 
 1. **stratadb.org first** — static doc site, can ship as soon as docs are stable
-2. **WASM build target** — get the engine compiling to WASM with InMemory mode
+2. **WASM build target** — get the engine compiling to WASM with Ephemeral mode
 3. **stratadb.ai** — build the interactive demos on top of the WASM build
