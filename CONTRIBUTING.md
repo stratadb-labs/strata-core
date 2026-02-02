@@ -67,7 +67,7 @@ cargo test -p strata-executor test_kv_put_get
 - Use `thiserror` for error types
 - Use `Into<Value>` ergonomics in public APIs
 - Document public types and methods with doc comments
-- Use `Strata::open_temp()` in test code
+- Use `Strata::cache()` in test code
 
 ## Making Changes
 

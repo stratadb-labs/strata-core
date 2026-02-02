@@ -58,7 +58,7 @@ Create a minimal program to verify everything works:
 use stratadb::Strata;
 
 fn main() -> stratadb::Result<()> {
-    let db = Strata::open_temp()?;
+    let db = Strata::cache()?;
     db.kv_put("hello", "world")?;
 
     let value = db.kv_get("hello")?;

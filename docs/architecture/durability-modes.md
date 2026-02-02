@@ -22,8 +22,7 @@ In-memory only. No disk persistence, no WAL. Data exists only for the lifetime o
 
 **API**:
 ```rust
-let db = Database::cache()?;
-let strata = Strata::from_database(db)?;
+let db = Strata::cache()?;
 ```
 
 **Prior art**: Redis without persistence, memcached, in-process HashMaps.
@@ -39,8 +38,7 @@ Disk-backed with background WAL flushing. Writes go to memory immediately and ar
 **API**:
 ```rust
 // Standard is the default — just open with a path
-let db = Database::open("/data/mydb")?;
-let strata = Strata::from_database(db)?;
+let db = Strata::open("/data/mydb")?;
 ```
 
 **Config file** (`/data/mydb/strata.toml`):
@@ -60,8 +58,7 @@ Disk-backed with per-write WAL sync. Every write is fsynced to disk before the c
 
 **API**:
 ```rust
-let db = Database::open("/data/mydb")?;
-let strata = Strata::from_database(db)?;
+let db = Strata::open("/data/mydb")?;
 ```
 
 **Config file** (`/data/mydb/strata.toml`):
@@ -155,9 +152,9 @@ Database::builder().path(p).no_durability().open()
 Database::builder().path(p).buffered().open()
 Database::builder().path(p).strict().open()
 
-// After (config file)
-Database::cache()           // in-memory, no config file
-Database::open(p)           // reads strata.toml, defaults to standard
+// After (unified API)
+Strata::cache()             // in-memory, no config file
+Strata::open(p)             // reads strata.toml, defaults to standard
 ```
 
 Durability is now configured via `strata.toml` in the data directory:

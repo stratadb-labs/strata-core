@@ -21,7 +21,7 @@ Before storing vectors, create a collection with a fixed dimension and distance 
 ```rust
 use stratadb::DistanceMetric;
 
-let db = Strata::open_temp()?;
+let db = Strata::cache()?;
 
 // 384-dimensional vectors with cosine similarity
 db.vector_create_collection("embeddings", 384, DistanceMetric::Cosine)?;
@@ -62,7 +62,7 @@ db.vector_delete_collection("old-collection")?;
 Use `vector_upsert` to insert or update a vector by key:
 
 ```rust
-let db = Strata::open_temp()?;
+let db = Strata::cache()?;
 db.vector_create_collection("docs", 4, DistanceMetric::Cosine)?;
 
 // Simple upsert (no metadata)
@@ -94,7 +94,7 @@ if let Some(versioned) = data {
 Search for the `k` most similar vectors to a query:
 
 ```rust
-let db = Strata::open_temp()?;
+let db = Strata::cache()?;
 db.vector_create_collection("items", 4, DistanceMetric::Cosine)?;
 
 db.vector_upsert("items", "a", vec![1.0, 0.0, 0.0, 0.0], None)?;
@@ -130,7 +130,7 @@ assert!(existed);
 ### RAG Context Store
 
 ```rust
-let db = Strata::open_temp()?;
+let db = Strata::cache()?;
 db.vector_create_collection("knowledge", 384, DistanceMetric::Cosine)?;
 
 // Index document chunks

@@ -9,7 +9,7 @@ This guide covers the different ways to open a StrataDB database and configure i
 For testing and development. No files are created on disk.
 
 ```rust
-let db = Strata::open_temp()?;
+let db = Strata::cache()?;
 ```
 
 ### Persistent
@@ -21,18 +21,6 @@ let db = Strata::open("/path/to/data")?;
 ```
 
 If the directory doesn't exist, it is created. If a database already exists at that path, it is opened and any WAL entries are replayed for recovery.
-
-### From Existing Database
-
-When you need more control over the database lifecycle (e.g., sharing between multiple `Strata` instances):
-
-```rust
-use std::sync::Arc;
-use stratadb::strata_engine::Database;
-
-let database = Arc::new(Database::open("/path/to/data")?);
-let db = Strata::from_database(database)?;
-```
 
 ## Database Operations
 
@@ -75,22 +63,12 @@ db.compact()?;
 
 ## Thread Safety
 
-The `Strata` struct is not `Sync`, but the underlying `Database` is thread-safe. To use StrataDB from multiple threads:
-
-1. Share the `Arc<Database>` between threads
-2. Create a separate `Strata` or `Session` per thread
+`Strata` is `Send` but not `Sync`. To use StrataDB from multiple threads, create a separate `Strata` instance per thread pointing to the same path:
 
 ```rust
-use std::sync::Arc;
-
-let database = Arc::new(Database::open("./data")?);
-
-let handle = std::thread::spawn({
-    let db = database.clone();
-    move || {
-        let strata = Strata::from_database(db).unwrap();
-        strata.kv_put("from-thread", "hello").unwrap();
-    }
+let handle = std::thread::spawn(move || {
+    let strata = Strata::open("./data").unwrap();
+    strata.kv_put("from-thread", "hello").unwrap();
 });
 
 handle.join().unwrap();

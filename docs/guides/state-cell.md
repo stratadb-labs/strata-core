@@ -16,7 +16,7 @@ State cells provide mutable, named values with **compare-and-swap (CAS)** for sa
 `state_set` overwrites the cell value regardless of its current state:
 
 ```rust
-let db = Strata::open_temp()?;
+let db = Strata::cache()?;
 
 db.state_set("status", "active")?;
 db.state_set("counter", 0i64)?;
@@ -30,7 +30,7 @@ assert_eq!(status, Some(Value::String("active".into())));
 `state_read` returns the current value, or `None` if the cell doesn't exist:
 
 ```rust
-let db = Strata::open_temp()?;
+let db = Strata::cache()?;
 
 assert_eq!(db.state_read("missing")?, None);
 
@@ -43,7 +43,7 @@ assert_eq!(db.state_read("cell")?, Some(Value::Int(42)));
 `state_init` sets the value only if the cell does not already exist. This is idempotent — calling it multiple times with different values has no effect after the first call:
 
 ```rust
-let db = Strata::open_temp()?;
+let db = Strata::cache()?;
 
 // First init creates the cell
 db.state_init("status", "idle")?;
@@ -59,7 +59,7 @@ assert_eq!(db.state_read("status")?, Some(Value::String("idle".into())));
 `state_cas` updates a cell only if the current version counter matches the expected value. This prevents lost updates when multiple writers are competing:
 
 ```rust
-let db = Strata::open_temp()?;
+let db = Strata::cache()?;
 
 // Create the cell (version 1)
 let v1 = db.state_set("lock", "free")?;
@@ -78,7 +78,7 @@ let failed = db.state_cas("lock", Some(v1), "stolen")?;
 Pass `None` as the expected counter to create a cell only if it doesn't exist:
 
 ```rust
-let db = Strata::open_temp()?;
+let db = Strata::cache()?;
 
 // Creates the cell because it doesn't exist
 let version = db.state_cas("new-cell", None, "initial")?;
@@ -90,7 +90,7 @@ assert!(version.is_some());
 ### State Machine
 
 ```rust
-let db = Strata::open_temp()?;
+let db = Strata::cache()?;
 
 // Initialize state
 let v = db.state_set("task:status", "pending")?;
@@ -107,7 +107,7 @@ if let Some(v) = v {
 ### Simple Lock
 
 ```rust
-let db = Strata::open_temp()?;
+let db = Strata::cache()?;
 
 // Try to acquire lock (create-if-absent)
 let result = db.state_cas("lock:resource", None, "owner-1")?;
@@ -122,7 +122,7 @@ if result.is_some() {
 ### Counter
 
 ```rust
-let db = Strata::open_temp()?;
+let db = Strata::cache()?;
 
 db.state_set("counter", 0i64)?;
 

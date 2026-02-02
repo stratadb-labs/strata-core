@@ -90,7 +90,7 @@ fn rag_query(db: &Strata, query: &str, embed_fn: impl Fn(&str) -> Vec<f32>) -> s
 Use branches to maintain different knowledge bases:
 
 ```rust
-let mut db = Strata::open_temp()?;
+let mut db = Strata::cache()?;
 
 // General knowledge base in default branch
 db.vector_create_collection("kb", 384, DistanceMetric::Cosine)?;

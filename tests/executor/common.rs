@@ -12,7 +12,7 @@ pub fn create_executor() -> Executor {
 
 /// Create a Strata API wrapper with an in-memory database
 pub fn create_strata() -> Strata {
-    Strata::open_temp().unwrap()
+    Strata::cache().unwrap()
 }
 
 /// Create a Session with an in-memory database
