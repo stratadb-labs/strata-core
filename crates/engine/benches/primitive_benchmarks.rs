@@ -101,17 +101,24 @@ fn bench_state_cas(c: &mut Criterion) {
     let mut group = c.benchmark_group("state_cell");
     group.throughput(Throughput::Elements(1));
 
-    // Use transition which handles version automatically
+    // Read current version, then CAS with incremented value
     group.bench_function("cas", |b| {
         b.iter(|| {
+            let current = state_cell
+                .read_versioned(&branch_id, "bench_cell")
+                .unwrap()
+                .unwrap();
+            let val = match current.value {
+                Value::Int(n) => n,
+                _ => 0,
+            };
             state_cell
-                .transition(&branch_id, "bench_cell", |state| {
-                    let val = match &state.value {
-                        Value::Int(n) => *n,
-                        _ => 0,
-                    };
-                    Ok((Value::Int(val + 1), val + 1))
-                })
+                .cas(
+                    &branch_id,
+                    "bench_cell",
+                    current.version,
+                    Value::Int(val + 1),
+                )
                 .unwrap()
         })
     });
