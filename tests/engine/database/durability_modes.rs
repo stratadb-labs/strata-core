@@ -108,39 +108,32 @@ fn json_create_get_same_across_modes() {
 fn cache_mode_is_cache() {
     // Database::cache() creates a truly in-memory database with no files
     let db = Database::cache().expect("cache database");
-    assert!(db.is_ephemeral());
+    assert!(db.is_cache());
 }
 
 #[test]
 fn cache_create_test_db_is_cache() {
     // create_test_db() uses Database::cache() which is truly in-memory
     let db = create_test_db();
-    assert!(db.is_ephemeral());
+    assert!(db.is_cache());
 }
 
 #[test]
 fn standard_mode_is_persistent() {
     let temp_dir = tempfile::tempdir().unwrap();
-    let db = Database::builder()
-        .path(temp_dir.path())
-        .standard()
-        .open()
-        .expect("standard database");
+    let db = Database::open(temp_dir.path()).expect("standard database");
 
-    // Standard mode is NOT ephemeral (has durability)
-    assert!(!db.is_ephemeral());
+    // Standard mode is NOT cache (has durability)
+    assert!(!db.is_cache());
 }
 
 #[test]
 fn always_mode_is_persistent() {
     let temp_dir = tempfile::tempdir().unwrap();
-    let db = Database::builder()
-        .path(temp_dir.path())
-        .always()
-        .open()
-        .expect("always database");
+    write_always_config(temp_dir.path());
+    let db = Database::open(temp_dir.path()).expect("always database");
 
-    assert!(!db.is_ephemeral());
+    assert!(!db.is_cache());
 }
 
 // ============================================================================
@@ -189,11 +182,8 @@ fn transaction_atomicity_standard() {
 #[test]
 fn transaction_atomicity_always() {
     let temp_dir = tempfile::tempdir().unwrap();
-    let db = Database::builder()
-        .path(temp_dir.path())
-        .always()
-        .open()
-        .expect("always database");
+    write_always_config(temp_dir.path());
+    let db = Database::open(temp_dir.path()).expect("always database");
     let branch_id = BranchId::new();
 
     db.transaction(branch_id, |txn| {

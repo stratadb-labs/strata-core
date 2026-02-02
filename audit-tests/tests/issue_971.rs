@@ -20,11 +20,8 @@ fn wal_appends(strata: &Strata) -> u64 {
 #[test]
 fn branch_switch_produces_no_wal_writes() {
     let dir = TempDir::new().expect("tempdir");
-    let db = Database::builder()
-        .path(dir.path())
-        .always()
-        .open()
-        .expect("open db");
+    std::fs::write(dir.path().join("strata.toml"), "durability = \"always\"\n").unwrap();
+    let db = Database::open(dir.path()).expect("open db");
 
     let mut strata = Strata::from_database(db).expect("strata");
 
@@ -47,11 +44,8 @@ fn branch_switch_produces_no_wal_writes() {
 #[test]
 fn repeated_branch_switches_produce_no_wal_writes() {
     let dir = TempDir::new().expect("tempdir");
-    let db = Database::builder()
-        .path(dir.path())
-        .always()
-        .open()
-        .expect("open db");
+    std::fs::write(dir.path().join("strata.toml"), "durability = \"always\"\n").unwrap();
+    let db = Database::open(dir.path()).expect("open db");
 
     let mut strata = Strata::from_database(db).expect("strata");
 
@@ -78,11 +72,8 @@ fn repeated_branch_switches_produce_no_wal_writes() {
 #[test]
 fn branch_exists_check_produces_no_wal_writes() {
     let dir = TempDir::new().expect("tempdir");
-    let db = Database::builder()
-        .path(dir.path())
-        .always()
-        .open()
-        .expect("open db");
+    std::fs::write(dir.path().join("strata.toml"), "durability = \"always\"\n").unwrap();
+    let db = Database::open(dir.path()).expect("open db");
 
     let strata = Strata::from_database(db).expect("strata");
 

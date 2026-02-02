@@ -48,6 +48,7 @@ tokio = { version = "1.35", features = ["full"] }
 # Serialization
 rmp-serde = "1.1"
 byteorder = "1.5"
+toml = "0.8"
 
 # Archive/Compression (RunBundle)
 tar = "0.4"

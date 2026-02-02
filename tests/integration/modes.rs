@@ -16,28 +16,13 @@ fn create_cache() -> Arc<Database> {
     Database::cache().expect("cache db")
 }
 
-fn create_persistent_cache(dir: &TempDir) -> Arc<Database> {
-    Database::builder()
-        .path(dir.path())
-        .cache()
-        .open()
-        .expect("cache db")
-}
-
 fn create_persistent_standard(dir: &TempDir) -> Arc<Database> {
-    Database::builder()
-        .path(dir.path())
-        .standard()
-        .open()
-        .expect("standard db")
+    Database::open(dir.path()).expect("standard db")
 }
 
 fn create_persistent_always(dir: &TempDir) -> Arc<Database> {
-    Database::builder()
-        .path(dir.path())
-        .always()
-        .open()
-        .expect("always db")
+    write_always_config(dir.path());
+    Database::open(dir.path()).expect("always db")
 }
 
 // ============================================================================
@@ -129,18 +114,6 @@ fn cache_data_is_lost_on_drop() {
 // ============================================================================
 // Persistent Mode Tests
 // ============================================================================
-
-#[test]
-fn persistent_cache_durability_basic() {
-    let dir = TempDir::new().unwrap();
-    let db = create_persistent_cache(&dir);
-    let branch_id = BranchId::new();
-    let kv = KVStore::new(db);
-
-    kv.put(&branch_id, "key", Value::Int(42)).unwrap();
-    let value = kv.get(&branch_id, "key").unwrap().unwrap();
-    assert_eq!(value, Value::Int(42));
-}
 
 #[test]
 fn persistent_standard_basic() {
@@ -303,9 +276,6 @@ fn all_modes_produce_same_results() {
     // Run workload on each mode
     let cache_result = workload(create_cache(), branch_id);
 
-    let dir1 = TempDir::new().unwrap();
-    let persistent_cache_result = workload(create_persistent_cache(&dir1), branch_id);
-
     let dir2 = TempDir::new().unwrap();
     let standard_result = workload(create_persistent_standard(&dir2), branch_id);
 
@@ -313,8 +283,7 @@ fn all_modes_produce_same_results() {
     let always_result = workload(create_persistent_always(&dir3), branch_id);
 
     // All should produce identical results
-    assert_eq!(cache_result, persistent_cache_result, "Cache != Persistent Cache");
-    assert_eq!(persistent_cache_result, standard_result, "Persistent Cache != Standard");
+    assert_eq!(cache_result, standard_result, "Cache != Standard");
     assert_eq!(standard_result, always_result, "Standard != Always");
 }
 

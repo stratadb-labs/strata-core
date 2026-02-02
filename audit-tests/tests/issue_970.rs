@@ -18,11 +18,8 @@ use tempfile::TempDir;
 /// Helper: create an always-mode database with WAL counters available.
 fn always_db() -> (Arc<Database>, BranchId, TempDir) {
     let dir = TempDir::new().expect("tempdir");
-    let db = Database::builder()
-        .path(dir.path())
-        .always()
-        .open()
-        .expect("open db");
+    std::fs::write(dir.path().join("strata.toml"), "durability = \"always\"\n").unwrap();
+    let db = Database::open(dir.path()).expect("open db");
     let branch = BranchId::new();
     (db, branch, dir)
 }

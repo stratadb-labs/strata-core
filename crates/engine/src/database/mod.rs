@@ -19,11 +19,11 @@
 //!
 //! Per spec Section 4: Implicit transactions wrap legacy-style operations.
 
-mod builder;
+pub mod config;
 mod registry;
 mod transactions;
 
-pub use builder::DatabaseBuilder;
+pub use config::StrataConfig;
 pub use registry::OPEN_DATABASES;
 pub use transactions::RetryConfig;
 
@@ -174,27 +174,10 @@ pub struct Database {
 }
 
 impl Database {
-    /// Create a new database builder
-    ///
-    /// Returns a `DatabaseBuilder` for configuring the database before opening.
-    /// Use this when you need custom durability settings.
-    ///
-    /// # Example
-    ///
-    /// ```ignore
-    /// let db = Database::builder()
-    ///     .path("/data/mydb")
-    ///     .always()
-    ///     .open()?;
-    /// ```
-    pub fn builder() -> DatabaseBuilder {
-        DatabaseBuilder::new()
-    }
-
     /// Open database at given path with automatic recovery
     ///
-    /// This is the simplest way to open a database. Uses standard durability
-    /// by default, which provides a good balance between performance and safety.
+    /// Reads `strata.toml` from the data directory to determine durability mode.
+    /// If no config file exists, creates one with defaults (standard durability).
     ///
     /// # Thread Safety
     ///
@@ -210,9 +193,12 @@ impl Database {
     ///
     /// # Flow
     ///
-    /// 1. Check registry for existing instance at this path
-    /// 2. If found, return the existing Arc<Database>
-    /// 3. Otherwise: create directory, open WAL, replay, register, return
+    /// 1. Create data directory if needed
+    /// 2. Read or create `strata.toml`
+    /// 3. Parse config to determine durability mode
+    /// 4. Check registry for existing instance at this path
+    /// 5. If found, return the existing Arc<Database>
+    /// 6. Otherwise: open WAL, replay, register, return
     ///
     /// # Arguments
     ///
@@ -221,7 +207,7 @@ impl Database {
     /// # Returns
     ///
     /// * `Ok(Arc<Database>)` - Ready-to-use database instance (shared if path was already open)
-    /// * `Err` - If directory creation, WAL opening, or recovery fails
+    /// * `Err` - If config is invalid, directory creation, WAL opening, or recovery fails
     ///
     /// # Example
     ///
@@ -231,7 +217,15 @@ impl Database {
     /// let db = Database::open("/path/to/data")?;
     /// ```
     pub fn open<P: AsRef<Path>>(path: P) -> StrataResult<Arc<Self>> {
-        Self::open_with_mode(path, DurabilityMode::standard_default())
+        let data_dir = path.as_ref().to_path_buf();
+        std::fs::create_dir_all(&data_dir).map_err(StrataError::from)?;
+
+        let config_path = data_dir.join(config::CONFIG_FILE_NAME);
+        config::StrataConfig::write_default_if_missing(&config_path)?;
+        let cfg = config::StrataConfig::from_file(&config_path)?;
+        let mode = cfg.durability_mode()?;
+
+        Self::open_with_mode(path, mode)
     }
 
     /// Open database with specific durability mode
@@ -412,8 +406,7 @@ impl Database {
     /// | Method | Disk Files | WAL | Recovery |
     /// |--------|------------|-----|----------|
     /// | `cache()` | None | None | No |
-    /// | `open(path)` | Yes | Yes (standard) | Yes |
-    /// | `builder().path(p).always().open()` | Yes | Yes (always) | Yes |
+    /// | `open(path)` | Yes | Yes (per config) | Yes |
     pub fn cache() -> StrataResult<Arc<Self>> {
         // Create fresh storage
         let storage = ShardedStore::new();
@@ -469,8 +462,8 @@ impl Database {
         self.storage.get_history(key, limit, before_version)
     }
 
-    /// Check if this is an ephemeral (no-disk) database
-    pub fn is_ephemeral(&self) -> bool {
+    /// Check if this is a cache (no-disk) database
+    pub fn is_cache(&self) -> bool {
         self.persistence_mode == PersistenceMode::Ephemeral
     }
 
@@ -1019,7 +1012,7 @@ mod tests {
         let db = Database::cache().unwrap();
 
         // Should work for operations
-        assert!(db.is_ephemeral());
+        assert!(db.is_cache());
     }
 
     #[test]
@@ -1188,7 +1181,7 @@ mod tests {
             let db =
                 Database::open_with_mode(temp_dir.path().join("strict"), DurabilityMode::Always)
                     .unwrap();
-            assert!(!db.is_ephemeral());
+            assert!(!db.is_cache());
         }
 
         // Standard mode
@@ -1201,14 +1194,14 @@ mod tests {
                 },
             )
             .unwrap();
-            assert!(!db.is_ephemeral());
+            assert!(!db.is_cache());
         }
 
         // Cache mode
         {
             let db = Database::open_with_mode(temp_dir.path().join("none"), DurabilityMode::Cache)
                 .unwrap();
-            assert!(!db.is_ephemeral());
+            assert!(!db.is_cache());
         }
     }
 
@@ -1502,18 +1495,12 @@ mod tests {
     }
 
     #[test]
-    fn test_builder_open_uses_registry() {
+    fn test_open_uses_registry() {
         let temp_dir = TempDir::new().unwrap();
-        let db_path = temp_dir.path().join("builder_singleton");
+        let db_path = temp_dir.path().join("singleton_via_open");
 
-        // Open via builder
-        let db1 = Database::builder()
-            .path(&db_path)
-            .cache()
-            .open()
-            .unwrap();
-
-        // Open via Database::open
+        // Open via Database::open twice
+        let db1 = Database::open(&db_path).unwrap();
         let db2 = Database::open(&db_path).unwrap();
 
         // Should be same instance
@@ -1521,20 +1508,48 @@ mod tests {
     }
 
     #[test]
-    fn test_database_builder_open_with_path() {
+    fn test_open_creates_config_file() {
         let temp_dir = TempDir::new().unwrap();
-        let db_path = temp_dir.path().join("builder_test");
+        let db_path = temp_dir.path().join("config_test");
 
-        let db = Database::builder().path(&db_path).always().open().unwrap();
+        let db = Database::open(&db_path).unwrap();
 
-        assert!(!db.is_ephemeral());
+        assert!(!db.is_cache());
         assert!(db_path.exists());
+        // Config file should have been created
+        assert!(db_path.join("strata.toml").exists());
     }
 
     #[test]
-    fn test_database_builder_open_requires_path() {
-        // Builder without path should fail
-        let result = Database::builder().open();
+    fn test_open_reads_always_config() {
+        let temp_dir = TempDir::new().unwrap();
+        let db_path = temp_dir.path().join("always_config");
+
+        // Create directory and write always config before opening
+        std::fs::create_dir_all(&db_path).unwrap();
+        std::fs::write(
+            db_path.join("strata.toml"),
+            "durability = \"always\"\n",
+        )
+        .unwrap();
+
+        let db = Database::open(&db_path).unwrap();
+        assert!(!db.is_cache());
+    }
+
+    #[test]
+    fn test_open_rejects_invalid_config() {
+        let temp_dir = TempDir::new().unwrap();
+        let db_path = temp_dir.path().join("bad_config");
+
+        std::fs::create_dir_all(&db_path).unwrap();
+        std::fs::write(
+            db_path.join("strata.toml"),
+            "durability = \"turbo\"\n",
+        )
+        .unwrap();
+
+        let result = Database::open(&db_path);
         assert!(result.is_err());
     }
 }

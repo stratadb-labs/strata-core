@@ -22,11 +22,8 @@ fn wal_appends(strata: &Strata) -> u64 {
 #[test]
 fn kv_delete_existing_key_produces_one_wal_write() {
     let dir = TempDir::new().expect("tempdir");
-    let db = Database::builder()
-        .path(dir.path())
-        .always()
-        .open()
-        .expect("open db");
+    std::fs::write(dir.path().join("strata.toml"), "durability = \"always\"\n").unwrap();
+    let db = Database::open(dir.path()).expect("open db");
     let strata = Strata::from_database(db).expect("strata");
 
     // Create a branch and put a key
@@ -63,11 +60,8 @@ fn kv_delete_existing_key_produces_one_wal_write() {
 #[test]
 fn kv_delete_nonexistent_key_produces_no_wal_writes() {
     let dir = TempDir::new().expect("tempdir");
-    let db = Database::builder()
-        .path(dir.path())
-        .always()
-        .open()
-        .expect("open db");
+    std::fs::write(dir.path().join("strata.toml"), "durability = \"always\"\n").unwrap();
+    let db = Database::open(dir.path()).expect("open db");
     let strata = Strata::from_database(db).expect("strata");
 
     // Create a branch but don't put any keys
@@ -97,11 +91,8 @@ fn kv_delete_nonexistent_key_produces_no_wal_writes() {
 #[test]
 fn kv_delete_default_branch_produces_one_wal_write() {
     let dir = TempDir::new().expect("tempdir");
-    let db = Database::builder()
-        .path(dir.path())
-        .always()
-        .open()
-        .expect("open db");
+    std::fs::write(dir.path().join("strata.toml"), "durability = \"always\"\n").unwrap();
+    let db = Database::open(dir.path()).expect("open db");
     let strata = Strata::from_database(db).expect("strata");
 
     // Put on default branch

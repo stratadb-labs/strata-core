@@ -22,11 +22,8 @@ fn wal_appends(strata: &Strata) -> u64 {
 #[test]
 fn branch_delete_empty_branch_produces_one_wal_write() {
     let dir = TempDir::new().expect("tempdir");
-    let db = Database::builder()
-        .path(dir.path())
-        .always()
-        .open()
-        .expect("open db");
+    std::fs::write(dir.path().join("strata.toml"), "durability = \"always\"\n").unwrap();
+    let db = Database::open(dir.path()).expect("open db");
     let strata = Strata::from_database(db).expect("strata");
 
     // Create a branch
@@ -54,11 +51,8 @@ fn branch_delete_empty_branch_produces_one_wal_write() {
 #[test]
 fn branch_delete_with_data_produces_one_wal_write() {
     let dir = TempDir::new().expect("tempdir");
-    let db = Database::builder()
-        .path(dir.path())
-        .always()
-        .open()
-        .expect("open db");
+    std::fs::write(dir.path().join("strata.toml"), "durability = \"always\"\n").unwrap();
+    let db = Database::open(dir.path()).expect("open db");
     let strata = Strata::from_database(db).expect("strata");
 
     // Create a branch and add data
@@ -102,11 +96,8 @@ fn branch_delete_with_data_produces_one_wal_write() {
 #[test]
 fn branch_delete_actually_removes_data() {
     let dir = TempDir::new().expect("tempdir");
-    let db = Database::builder()
-        .path(dir.path())
-        .always()
-        .open()
-        .expect("open db");
+    std::fs::write(dir.path().join("strata.toml"), "durability = \"always\"\n").unwrap();
+    let db = Database::open(dir.path()).expect("open db");
     let strata = Strata::from_database(db).expect("strata");
 
     // Create branch with data

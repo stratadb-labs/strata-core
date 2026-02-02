@@ -1,20 +1,46 @@
 # Configuration Reference
 
+## Config File: `strata.toml`
+
+StrataDB uses a config file in the data directory. On first `Database::open()`, a default `strata.toml` is created automatically. To change settings, edit the file and restart.
+
+```toml
+# Strata database configuration
+#
+# Durability mode: "standard" (default) or "always"
+#   "standard" = periodic fsync (~100ms), may lose last interval on crash
+#   "always"   = fsync every commit, zero data loss
+durability = "standard"
+```
+
+### Config Fields
+
+| Field | Type | Default | Values | Description |
+|-------|------|---------|--------|-------------|
+| `durability` | string | `"standard"` | `"standard"`, `"always"` | WAL sync policy |
+
+### Behavior
+
+- Created automatically with defaults on first `Database::open()` if not present
+- Parsed on every `open()` call
+- Invalid config returns an error (database does not open)
+- Cache mode (`Database::cache()`) has no config file (no data directory)
+
 ## Durability Modes
 
-| Mode | Enum Value | Description | Data Loss on Crash |
-|------|-----------|-------------|-------------------|
-| **Cache** | `DurabilityMode::Cache` | No persistence | All data |
-| **Standard** | `DurabilityMode::Standard` | Periodic fsync (~100ms / ~1000 writes) | Last ~100ms |
-| **Always** | `DurabilityMode::Always` | Immediate fsync per commit | None |
+| Mode | Config Value | Description | Data Loss on Crash |
+|------|-------------|-------------|-------------------|
+| **Cache** | *(in-memory only)* | No persistence | All data |
+| **Standard** | `"standard"` | Periodic fsync (~100ms / ~1000 writes) | Last ~100ms |
+| **Always** | `"always"` | Immediate fsync per commit | None |
 
-Default: `Standard`
+Default: `"standard"`
 
 ## Opening Methods
 
 | Method | Durability | Disk Files | Use Case |
 |--------|-----------|------------|----------|
-| `Strata::open(path)` | Configurable | Yes | Production |
+| `Strata::open(path)` | Per `strata.toml` | Yes | Production |
 | `Strata::open_temp()` | Cache (in-memory) | No | Testing |
 | `Strata::from_database(db)` | Inherited | Depends | Shared DB |
 

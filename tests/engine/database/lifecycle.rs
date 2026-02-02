@@ -53,11 +53,7 @@ fn persistent_database_creates_directory() {
 
     assert!(!db_path.exists());
 
-    let _db = Database::builder()
-        .path(&db_path)
-        .standard()
-        .open()
-        .expect("create database");
+    let _db = Database::open(&db_path).expect("create database");
 
     assert!(db_path.exists());
 }
@@ -112,52 +108,31 @@ fn persistent_database_multiple_reopens() {
 }
 
 // ============================================================================
-// Builder API
+// Config-Based Opening
 // ============================================================================
-
-#[test]
-fn builder_cache_durability_with_temp_path_uses_temp_files() {
-    // builder with a temp path and cache durability still creates files on disk
-    // It's NOT truly cache
-    let temp_dir = tempfile::tempdir().unwrap();
-    let db = Database::builder()
-        .path(temp_dir.path())
-        .cache()
-        .open()
-        .unwrap();
-
-    assert!(!db.is_ephemeral()); // Uses temp files, not purely in-memory
-}
 
 #[test]
 fn database_cache_is_truly_cache() {
     // Database::cache() creates a purely in-memory database
     let db = Database::cache().expect("cache database");
-    assert!(db.is_ephemeral());
+    assert!(db.is_cache());
 }
 
 #[test]
-fn builder_creates_persistent_with_path() {
+fn open_creates_persistent_database() {
     let temp_dir = tempfile::tempdir().unwrap();
 
-    let db = Database::builder()
-        .path(temp_dir.path())
-        .standard()
-        .open()
-        .unwrap();
+    let db = Database::open(temp_dir.path()).unwrap();
 
-    assert!(!db.is_ephemeral());
+    assert!(!db.is_cache());
 }
 
 #[test]
-fn builder_always_mode() {
+fn open_with_always_config() {
     let temp_dir = tempfile::tempdir().unwrap();
+    write_always_config(temp_dir.path());
 
-    let db = Database::builder()
-        .path(temp_dir.path())
-        .always()
-        .open()
-        .unwrap();
+    let db = Database::open(temp_dir.path()).unwrap();
 
     // Verify it works
     let branch_id = BranchId::new();
@@ -167,14 +142,10 @@ fn builder_always_mode() {
 }
 
 #[test]
-fn builder_standard_mode() {
+fn open_with_standard_config() {
     let temp_dir = tempfile::tempdir().unwrap();
 
-    let db = Database::builder()
-        .path(temp_dir.path())
-        .standard()
-        .open()
-        .unwrap();
+    let db = Database::open(temp_dir.path()).unwrap();
 
     // Verify it works
     let branch_id = BranchId::new();
@@ -201,11 +172,7 @@ fn shutdown_is_idempotent() {
 fn is_open_reflects_state() {
     let temp_dir = tempfile::tempdir().unwrap();
 
-    let db = Database::builder()
-        .path(temp_dir.path())
-        .standard()
-        .open()
-        .unwrap();
+    let db = Database::open(temp_dir.path()).unwrap();
 
     assert!(db.is_open());
 

@@ -22,8 +22,8 @@ In-memory only. No disk persistence, no WAL. Data exists only for the lifetime o
 
 **API**:
 ```rust
-let db = Database::cache();
-let strata = Strata::from_database(db);
+let db = Database::cache()?;
+let strata = Strata::from_database(db)?;
 ```
 
 **Prior art**: Redis without persistence, memcached, in-process HashMaps.
@@ -38,12 +38,14 @@ Disk-backed with background WAL flushing. Writes go to memory immediately and ar
 
 **API**:
 ```rust
-// Standard is the default when a path is provided
-let db = Database::builder().path("/data/mydb").open()?;
-let strata = Strata::from_database(db);
+// Standard is the default — just open with a path
+let db = Database::open("/data/mydb")?;
+let strata = Strata::from_database(db)?;
+```
 
-// Explicit
-let db = Database::builder().path("/data/mydb").standard().open()?;
+**Config file** (`/data/mydb/strata.toml`):
+```toml
+durability = "standard"
 ```
 
 **Prior art**: Redis `appendfsync everysec`, SQLite `PRAGMA synchronous = NORMAL`, MySQL `innodb_flush_log_at_trx_commit = 2`.
@@ -58,8 +60,13 @@ Disk-backed with per-write WAL sync. Every write is fsynced to disk before the c
 
 **API**:
 ```rust
-let db = Database::builder().path("/data/mydb").always().open()?;
-let strata = Strata::from_database(db);
+let db = Database::open("/data/mydb")?;
+let strata = Strata::from_database(db)?;
+```
+
+**Config file** (`/data/mydb/strata.toml`):
+```toml
+durability = "always"
 ```
 
 **Prior art**: Redis `appendfsync always`, SQLite `PRAGMA synchronous = FULL`, PostgreSQL `synchronous_commit = on`.
@@ -139,18 +146,23 @@ pub enum DurabilityMode {
 }
 ```
 
-### Builder changes
+### API changes
 
 ```rust
-// Before
+// Before (builder pattern)
 Database::ephemeral()
 Database::builder().path(p).no_durability().open()
 Database::builder().path(p).buffered().open()
 Database::builder().path(p).strict().open()
 
-// After
-Database::cache()
-Database::builder().path(p).open()              // standard is default
-Database::builder().path(p).standard().open()   // explicit standard
-Database::builder().path(p).always().open()
+// After (config file)
+Database::cache()           // in-memory, no config file
+Database::open(p)           // reads strata.toml, defaults to standard
+```
+
+Durability is now configured via `strata.toml` in the data directory:
+
+```toml
+# strata.toml
+durability = "standard"   # or "always"
 ```

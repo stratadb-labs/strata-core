@@ -34,6 +34,18 @@ fn ensure_recovery_registered() {
     });
 }
 
+/// Write an always-durability config to the given directory.
+///
+/// Used by test helpers that need to open databases in Always mode.
+pub fn write_always_config(path: &Path) {
+    std::fs::create_dir_all(path).expect("create dir for config");
+    std::fs::write(
+        path.join("strata.toml"),
+        "durability = \"always\"\n",
+    )
+    .expect("write always config");
+}
+
 static COUNTER: AtomicU64 = AtomicU64::new(0);
 
 // ============================================================================
@@ -52,11 +64,7 @@ impl TestDb {
     pub fn new() -> Self {
         ensure_recovery_registered();
         let dir = tempfile::tempdir().expect("Failed to create temp dir");
-        let db = Database::builder()
-            .path(dir.path())
-            .standard()
-            .open()
-            .expect("Failed to create test database");
+        let db = Database::open(dir.path()).expect("Failed to create test database");
         let branch_id = BranchId::new();
         TestDb { db, dir, branch_id }
     }
@@ -65,11 +73,8 @@ impl TestDb {
     pub fn new_strict() -> Self {
         ensure_recovery_registered();
         let dir = tempfile::tempdir().expect("Failed to create temp dir");
-        let db = Database::builder()
-            .path(dir.path())
-            .always()
-            .open()
-            .expect("Failed to create test database");
+        write_always_config(dir.path());
+        let db = Database::open(dir.path()).expect("Failed to create test database");
         let branch_id = BranchId::new();
         TestDb { db, dir, branch_id }
     }
@@ -146,12 +151,8 @@ impl TestDb {
             &mut self.db,
             Database::cache().expect("temporary cache for swap"),
         ));
-        // Now open fresh from the same path
-        self.db = Database::builder()
-            .path(&path)
-            .always()
-            .open()
-            .expect("Failed to reopen database");
+        // Now open fresh from the same path (reads strata.toml)
+        self.db = Database::open(&path).expect("Failed to reopen database");
     }
 
     /// Create a new branch ID for this test.
@@ -190,27 +191,16 @@ pub fn create_test_db() -> Arc<Database> {
 /// Create a persistent database at the given path.
 pub fn create_persistent_db(path: &Path) -> Arc<Database> {
     ensure_recovery_registered();
-    Database::builder()
-        .path(path)
-        .standard()
-        .open()
-        .expect("Failed to create persistent database")
+    Database::open(path).expect("Failed to create persistent database")
 }
 
 /// Create in-memory, standard, and always databases for cross-mode testing.
 fn all_mode_databases() -> Vec<(&'static str, Arc<Database>, Option<TempDir>)> {
     let standard_dir = tempfile::tempdir().expect("Failed to create temp dir for standard db");
-    let standard_db = Database::builder()
-        .path(standard_dir.path())
-        .standard()
-        .open()
-        .expect("standard db");
+    let standard_db = Database::open(standard_dir.path()).expect("standard db");
     let always_dir = tempfile::tempdir().expect("Failed to create temp dir for always db");
-    let always_db = Database::builder()
-        .path(always_dir.path())
-        .always()
-        .open()
-        .expect("always db");
+    write_always_config(always_dir.path());
+    let always_db = Database::open(always_dir.path()).expect("always db");
     vec![
         ("in_memory", create_test_db(), None),
         ("standard", standard_db, Some(standard_dir)),

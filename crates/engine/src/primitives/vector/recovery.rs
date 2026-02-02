@@ -36,8 +36,8 @@ fn recover_from_db(db: &Database) -> StrataResult<()> {
     use strata_core::types::{Key, Namespace};
     use strata_core::value::Value;
 
-    // Skip recovery for ephemeral databases
-    if db.is_ephemeral() {
+    // Skip recovery for cache databases
+    if db.is_cache() {
         return Ok(());
     }
 
