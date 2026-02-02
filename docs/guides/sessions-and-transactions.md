@@ -7,11 +7,10 @@ This guide covers the `Session` API for multi-operation atomic transactions. For
 A `Session` wraps a database and manages an optional open transaction. When no transaction is active, commands are executed directly. When a transaction is active, data commands route through the transaction with read-your-writes semantics.
 
 ```rust
-use stratadb::{Session, Command, Output, Value};
-use std::sync::Arc;
+use stratadb::{Strata, Command, Output, Value};
 
-let db = Arc::new(Database::open("./data")?);
-let mut session = Session::new(db);
+let db = Strata::open("./data")?;
+let mut session = db.session();
 ```
 
 ## Transaction Lifecycle

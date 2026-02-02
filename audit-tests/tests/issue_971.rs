@@ -11,7 +11,6 @@ use tempfile::TempDir;
 /// Helper: get current WAL append count from a Strata instance.
 fn wal_appends(strata: &Strata) -> u64 {
     strata
-        .database()
         .durability_counters()
         .map(|c| c.wal_appends)
         .unwrap_or(0)

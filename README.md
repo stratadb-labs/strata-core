@@ -5,7 +5,7 @@
 ```rust
 use stratadb::Strata;
 
-let db = Strata::open_temp()?;
+let db = Strata::cache()?;
 db.kv_put("agent:status", "thinking")?;
 db.event_append("tool_call", serde_json::json!({"tool": "search", "query": "docs"}))?;
 db.state_cas("lock", None, "acquired")?;

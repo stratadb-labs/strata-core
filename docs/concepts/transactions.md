@@ -21,11 +21,9 @@ Transactions are managed through the `Session` API:
 ```rust
 use stratadb::{Strata, Session, Command, Value};
 use std::sync::Arc;
-use stratadb::strata_engine::Database;
-
-// Create a session from a shared database
-let db = Arc::new(Database::open("./data")?);
-let mut session = Session::new(db);
+// Create a session from a Strata instance
+let db = Strata::open("./data")?;
+let mut session = db.session();
 
 // Begin a transaction
 session.execute(Command::TxnBegin { branch: None, options: None })?;

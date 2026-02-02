@@ -7,8 +7,7 @@ Every method on the `Strata` struct, grouped by category.
 | Method | Signature | Returns |
 |--------|-----------|---------|
 | `open` | `(path: impl AsRef<Path>) -> Result<Self>` | New Strata instance |
-| `open_temp` | `() -> Result<Self>` | Ephemeral Strata instance |
-| `from_database` | `(db: Arc<Database>) -> Result<Self>` | Strata from existing DB |
+| `cache` | `() -> Result<Self>` | Ephemeral in-memory instance |
 | `ping` | `() -> Result<String>` | Version string |
 | `info` | `() -> Result<DatabaseInfo>` | Database statistics |
 | `flush` | `() -> Result<()>` | Flushes pending writes |

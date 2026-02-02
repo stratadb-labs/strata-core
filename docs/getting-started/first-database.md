@@ -1,6 +1,6 @@
 # Your First Database
 
-This tutorial walks through all six StrataDB primitives. Every code block is a complete, runnable example using `Strata::open_temp()` so you can follow along without disk setup.
+This tutorial walks through all six StrataDB primitives. Every code block is a complete, runnable example using `Strata::cache()` so you can follow along without disk setup.
 
 ## Prerequisites
 
@@ -14,7 +14,7 @@ use stratadb::Strata;
 
 fn main() -> stratadb::Result<()> {
     // Ephemeral database — no files created
-    let db = Strata::open_temp()?;
+    let db = Strata::cache()?;
     println!("Database opened, current branch: {}", db.current_branch());
     // Output: Database opened, current branch: default
     Ok(())
@@ -31,7 +31,7 @@ The KV Store is the most general-purpose primitive. Store any value by key.
 use stratadb::{Strata, Value};
 
 fn main() -> stratadb::Result<()> {
-    let db = Strata::open_temp()?;
+    let db = Strata::cache()?;
 
     // Put values — accepts &str, i64, f64, bool directly via Into<Value>
     db.kv_put("agent:name", "Alice")?;
@@ -64,7 +64,7 @@ use stratadb::{Strata, Value};
 use std::collections::HashMap;
 
 fn main() -> stratadb::Result<()> {
-    let db = Strata::open_temp()?;
+    let db = Strata::cache()?;
 
     // Append events — payloads must be Value::Object
     let payload = Value::Object(
@@ -98,7 +98,7 @@ State cells provide mutable state with compare-and-swap (CAS) for safe concurren
 use stratadb::{Strata, Value};
 
 fn main() -> stratadb::Result<()> {
-    let db = Strata::open_temp()?;
+    let db = Strata::cache()?;
 
     // Initialize only if absent (idempotent)
     db.state_init("status", "idle")?;
@@ -130,7 +130,7 @@ Store JSON documents and mutate them at specific paths.
 use stratadb::{Strata, Value};
 
 fn main() -> stratadb::Result<()> {
-    let db = Strata::open_temp()?;
+    let db = Strata::cache()?;
 
     // Create a document at root path "$"
     let config: Value = serde_json::json!({
@@ -171,7 +171,7 @@ use stratadb::Strata;
 use stratadb::DistanceMetric;
 
 fn main() -> stratadb::Result<()> {
-    let db = Strata::open_temp()?;
+    let db = Strata::cache()?;
 
     // Create a collection with 4-dimensional vectors and cosine similarity
     db.vector_create_collection("embeddings", 4, DistanceMetric::Cosine)?;
@@ -202,7 +202,7 @@ Branches give you isolated namespaces for data, like git branches.
 use stratadb::{Strata, Value};
 
 fn main() -> stratadb::Result<()> {
-    let mut db = Strata::open_temp()?;
+    let mut db = Strata::cache()?;
 
     // You start on the "default" branch
     db.kv_put("shared-key", "default-value")?;
@@ -244,7 +244,7 @@ use stratadb::{Strata, Value};
 use std::collections::HashMap;
 
 fn main() -> stratadb::Result<()> {
-    let mut db = Strata::open_temp()?;
+    let mut db = Strata::cache()?;
 
     // Create a branch for this agent session
     db.create_branch("session-001")?;

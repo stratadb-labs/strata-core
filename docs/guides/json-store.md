@@ -16,7 +16,7 @@ The JSON Store holds structured documents that you can read and write at specifi
 Use `json_set` with the root path `"$"` to create a document:
 
 ```rust
-let db = Strata::open_temp()?;
+let db = Strata::cache()?;
 
 let doc: Value = serde_json::json!({
     "model": "gpt-4",
@@ -95,7 +95,7 @@ assert!(db.json_get("config", "$")?.is_none());
 List documents with cursor-based pagination:
 
 ```rust
-let db = Strata::open_temp()?;
+let db = Strata::cache()?;
 
 db.json_set("user:1", "$", serde_json::json!({"name": "Alice"}).into())?;
 db.json_set("user:2", "$", serde_json::json!({"name": "Bob"}).into())?;

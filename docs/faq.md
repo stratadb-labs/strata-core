@@ -72,7 +72,7 @@ Uncommitted transactions are automatically discarded during recovery. Only commi
 
 ### What durability mode should I use?
 
-- **Testing:** None (`Strata::open_temp()`)
+- **Testing:** None (`Strata::cache()`)
 - **Production:** Buffered (default) — good balance of speed and safety
 - **Critical data:** Strict — zero data loss, but slower
 

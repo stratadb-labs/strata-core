@@ -7,7 +7,7 @@ This guide covers the complete API for creating, switching, listing, and deletin
 When you open a database, a "default" run is automatically created and set as current:
 
 ```rust
-let db = Strata::open_temp()?;
+let db = Strata::cache()?;
 assert_eq!(db.current_run(), "default");
 ```
 
@@ -16,7 +16,7 @@ assert_eq!(db.current_run(), "default");
 `create_run` creates a new empty run. It does **not** switch to it:
 
 ```rust
-let db = Strata::open_temp()?;
+let db = Strata::cache()?;
 
 db.create_run("experiment-1")?;
 assert_eq!(db.current_run(), "default"); // Still on default
@@ -31,7 +31,7 @@ assert!(result.is_err()); // RunExists error
 `set_run` changes the current run. All subsequent data operations target the new run:
 
 ```rust
-let mut db = Strata::open_temp()?;
+let mut db = Strata::cache()?;
 
 db.create_run("my-run")?;
 db.set_run("my-run")?;
@@ -47,7 +47,7 @@ assert!(result.is_err()); // RunNotFound error
 `list_runs` returns all run names:
 
 ```rust
-let db = Strata::open_temp()?;
+let db = Strata::cache()?;
 
 db.create_run("run-a")?;
 db.create_run("run-b")?;
@@ -63,7 +63,7 @@ assert!(runs.contains(&"run-a".to_string()));
 `delete_run` removes a run and all its data (KV, Events, State, JSON, Vectors):
 
 ```rust
-let db = Strata::open_temp()?;
+let db = Strata::cache()?;
 
 db.create_run("temp")?;
 db.delete_run("temp")?;
@@ -72,7 +72,7 @@ db.delete_run("temp")?;
 ### Safety Rules
 
 ```rust
-let mut db = Strata::open_temp()?;
+let mut db = Strata::cache()?;
 
 // Cannot delete the current run
 db.create_run("my-run")?;
@@ -94,7 +94,7 @@ assert!(result.is_err()); // ConstraintViolation
 The `runs()` method returns a `Runs` handle for advanced operations:
 
 ```rust
-let db = Strata::open_temp()?;
+let db = Strata::cache()?;
 
 // Create
 db.runs().create("experiment")?;
@@ -115,7 +115,7 @@ assert!(!db.runs().exists("experiment")?);
 For more control, use the lower-level `run_*` methods that return full `RunInfo`:
 
 ```rust
-let db = Strata::open_temp()?;
+let db = Strata::cache()?;
 
 // Create with explicit ID
 let (info, version) = db.run_create(Some("my-run-id".to_string()), None)?;

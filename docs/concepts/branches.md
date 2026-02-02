@@ -21,7 +21,7 @@ Just as git branches isolate file changes, branches isolate data changes. Switch
 When you open a database, you start on the **default branch**:
 
 ```rust
-let db = Strata::open_temp()?;
+let db = Strata::cache()?;
 assert_eq!(db.current_branch(), "default");
 
 db.kv_put("key", "value")?; // Written to the "default" branch
@@ -30,7 +30,7 @@ db.kv_put("key", "value")?; // Written to the "default" branch
 You can create additional branches and switch between them:
 
 ```rust
-let mut db = Strata::open_temp()?;
+let mut db = Strata::cache()?;
 
 // Write to default
 db.kv_put("key", "default-value")?;
@@ -55,7 +55,7 @@ assert_eq!(db.kv_get("key")?, Some(Value::String("default-value".into())));
 Every primitive (KV, EventLog, StateCell, JSON, Vector) is isolated by branch. Data written in one branch is invisible from another:
 
 ```rust
-let mut db = Strata::open_temp()?;
+let mut db = Strata::cache()?;
 
 // Write data in default
 db.kv_put("kv-key", 1i64)?;

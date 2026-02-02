@@ -7,7 +7,7 @@ This guide covers the complete API for creating, switching, listing, and deletin
 When you open a database, a "default" branch is automatically created and set as current:
 
 ```rust
-let db = Strata::open_temp()?;
+let db = Strata::cache()?;
 assert_eq!(db.current_branch(), "default");
 ```
 
@@ -16,7 +16,7 @@ assert_eq!(db.current_branch(), "default");
 `create_branch` creates a new empty branch. It does **not** switch to it:
 
 ```rust
-let db = Strata::open_temp()?;
+let db = Strata::cache()?;
 
 db.create_branch("experiment-1")?;
 assert_eq!(db.current_branch(), "default"); // Still on default
@@ -31,7 +31,7 @@ assert!(result.is_err()); // BranchExists error
 `set_branch` changes the current branch. All subsequent data operations target the new branch:
 
 ```rust
-let mut db = Strata::open_temp()?;
+let mut db = Strata::cache()?;
 
 db.create_branch("my-branch")?;
 db.set_branch("my-branch")?;
@@ -47,7 +47,7 @@ assert!(result.is_err()); // BranchNotFound error
 `list_branches` returns all branch names:
 
 ```rust
-let db = Strata::open_temp()?;
+let db = Strata::cache()?;
 
 db.create_branch("branch-a")?;
 db.create_branch("branch-b")?;
@@ -63,7 +63,7 @@ assert!(branches.contains(&"branch-a".to_string()));
 `delete_branch` removes a branch and all its data (KV, Events, State, JSON, Vectors):
 
 ```rust
-let db = Strata::open_temp()?;
+let db = Strata::cache()?;
 
 db.create_branch("temp")?;
 db.delete_branch("temp")?;
@@ -72,7 +72,7 @@ db.delete_branch("temp")?;
 ### Safety Rules
 
 ```rust
-let mut db = Strata::open_temp()?;
+let mut db = Strata::cache()?;
 
 // Cannot delete the current branch
 db.create_branch("my-branch")?;
@@ -94,7 +94,7 @@ assert!(result.is_err()); // ConstraintViolation
 The `branches()` method returns a `Branches` handle for advanced operations:
 
 ```rust
-let db = Strata::open_temp()?;
+let db = Strata::cache()?;
 
 // Create
 db.branches().create("experiment")?;
@@ -115,7 +115,7 @@ assert!(!db.branches().exists("experiment")?);
 For more control, use the lower-level `run_*` methods that return full `RunInfo`:
 
 ```rust
-let db = Strata::open_temp()?;
+let db = Strata::cache()?;
 
 // Create with explicit ID
 let (info, version) = db.branch_create(Some("my-branch-id".to_string()), None)?;

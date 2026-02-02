@@ -2,7 +2,7 @@
 
 ## Config File: `strata.toml`
 
-StrataDB uses a config file in the data directory. On first `Database::open()`, a default `strata.toml` is created automatically. To change settings, edit the file and restart.
+StrataDB uses a config file in the data directory. On first `Strata::open()`, a default `strata.toml` is created automatically. To change settings, edit the file and restart.
 
 ```toml
 # Strata database configuration
@@ -21,10 +21,10 @@ durability = "standard"
 
 ### Behavior
 
-- Created automatically with defaults on first `Database::open()` if not present
+- Created automatically with defaults on first `Strata::open()` if not present
 - Parsed on every `open()` call
 - Invalid config returns an error (database does not open)
-- Cache mode (`Database::cache()`) has no config file (no data directory)
+- Cache mode (`Strata::cache()`) has no config file (no data directory)
 
 ## Durability Modes
 
@@ -41,8 +41,7 @@ Default: `"standard"`
 | Method | Durability | Disk Files | Use Case |
 |--------|-----------|------------|----------|
 | `Strata::open(path)` | Per `strata.toml` | Yes | Production |
-| `Strata::open_temp()` | Cache (in-memory) | No | Testing |
-| `Strata::from_database(db)` | Inherited | Depends | Shared DB |
+| `Strata::cache()` | Cache (in-memory) | No | Testing |
 
 ## Database Info
 

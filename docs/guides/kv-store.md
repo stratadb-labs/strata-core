@@ -16,7 +16,7 @@ The KV Store is StrataDB's most general-purpose primitive. It maps string keys t
 `kv_put` creates or overwrites a key. It returns the version number of the write.
 
 ```rust
-let db = Strata::open_temp()?;
+let db = Strata::cache()?;
 
 // Pass any type that implements Into<Value>
 db.kv_put("name", "Alice")?;           // &str
@@ -36,7 +36,7 @@ assert!(v2 > v1);
 `kv_get` returns the latest value for a key, or `None` if the key doesn't exist.
 
 ```rust
-let db = Strata::open_temp()?;
+let db = Strata::cache()?;
 db.kv_put("key", "value")?;
 
 let result = db.kv_get("key")?;
@@ -67,7 +67,7 @@ if let Some(value) = db.kv_get("age")? {
 `kv_delete` removes a key and returns whether it existed.
 
 ```rust
-let db = Strata::open_temp()?;
+let db = Strata::cache()?;
 
 db.kv_put("key", "value")?;
 assert!(db.kv_delete("key")?);   // true — existed
@@ -79,7 +79,7 @@ assert!(!db.kv_delete("key")?);  // false — already gone
 `kv_list` returns all keys, optionally filtered by prefix.
 
 ```rust
-let db = Strata::open_temp()?;
+let db = Strata::cache()?;
 
 db.kv_put("user:1", "Alice")?;
 db.kv_put("user:2", "Bob")?;
@@ -115,7 +115,7 @@ let config_keys = db.kv_list(Some("config:"))?;
 KV data is isolated by branch. See [Branches](../concepts/branches.md) for details.
 
 ```rust
-let mut db = Strata::open_temp()?;
+let mut db = Strata::cache()?;
 db.kv_put("key", "default-value")?;
 
 db.create_branch("other")?;

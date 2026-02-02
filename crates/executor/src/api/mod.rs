@@ -114,17 +114,17 @@ impl Strata {
         })
     }
 
-    /// Open an ephemeral in-memory database.
+    /// Create an ephemeral in-memory database.
     ///
     /// Useful for testing. Data is not persisted and no disk files are created.
     ///
     /// # Example
     ///
     /// ```ignore
-    /// let mut db = Strata::open_temp()?;
+    /// let mut db = Strata::cache()?;
     /// db.kv_put("key", Value::Int(42))?;
     /// ```
-    pub fn open_temp() -> Result<Self> {
+    pub fn cache() -> Result<Self> {
         ensure_vector_recovery();
         let db = Database::cache().map_err(|e| Error::Internal {
             reason: format!("Failed to open cache database: {}", e),
@@ -184,11 +184,11 @@ impl Strata {
         &self.executor
     }
 
-    /// Get a reference to the underlying database.
+    /// Get WAL durability counters for diagnostics.
     ///
-    /// Useful for accessing database-level diagnostics like WAL counters.
-    pub fn database(&self) -> &Arc<Database> {
-        &self.executor.primitives().db
+    /// Returns `None` for cache (in-memory) databases.
+    pub fn durability_counters(&self) -> Option<strata_engine::WalCounters> {
+        self.executor.primitives().db.durability_counters()
     }
 
     /// Get a handle for branch management operations.
@@ -219,8 +219,8 @@ impl Strata {
     ///
     /// The returned session wraps a fresh executor and can manage an
     /// optional open transaction across multiple `execute()` calls.
-    pub fn session(db: Arc<Database>) -> Session {
-        Session::new(db)
+    pub fn session(&self) -> Session {
+        Session::new(self.executor.primitives().db.clone())
     }
 
     // =========================================================================
@@ -355,7 +355,7 @@ mod tests {
     use crate::Value;
 
     fn create_strata() -> Strata {
-        Strata::open_temp().unwrap()
+        Strata::cache().unwrap()
     }
 
     #[test]

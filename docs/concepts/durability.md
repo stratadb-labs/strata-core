@@ -12,7 +12,7 @@ StrataDB offers three durability modes that trade off between speed and crash sa
 
 ### Ephemeral (None)
 
-No persistence at all. Data exists only in memory and is lost when the process exits. Use `Strata::open_temp()` for this mode.
+No persistence at all. Data exists only in memory and is lost when the process exits. Use `Strata::cache()` for this mode.
 
 - Fastest possible performance
 - No disk I/O
@@ -83,7 +83,7 @@ Recovery is:
 
 For most applications, **Buffered** is the right choice. It provides a good balance of performance and durability. Consider:
 
-- **Testing?** → No Durability (`Strata::open_temp()`)
+- **Testing?** → No Durability (`Strata::cache()`)
 - **Production agent workloads?** → Buffered (default)
 - **Cannot lose any data?** → Strict
 - **Unsure?** → Start with Buffered and switch to Strict if needed

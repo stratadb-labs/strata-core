@@ -9,7 +9,7 @@
 //! use stratadb::{Strata, Command, Output, Value};
 //!
 //! // Create an in-memory database
-//! let db = Strata::ephemeral()?;
+//! let db = Strata::cache()?;
 //!
 //! // Store a value (uses the default run)
 //! db.kv_put("user:123", Value::String("Alice".into()))?;

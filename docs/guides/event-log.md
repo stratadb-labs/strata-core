@@ -16,7 +16,7 @@ The Event Log is an append-only sequence of typed events. Events are immutable o
 Each event has a **type** (a string label) and a **payload** (must be `Value::Object`):
 
 ```rust
-let db = Strata::open_temp()?;
+let db = Strata::cache()?;
 
 // Append with serde_json for ergonomic Object construction
 let payload: Value = serde_json::json!({
@@ -53,7 +53,7 @@ db.event_append("auth", payload)?;
 Each event gets a unique sequence number (starting from 1):
 
 ```rust
-let db = Strata::open_temp()?;
+let db = Strata::cache()?;
 
 let seq = db.event_append("log", serde_json::json!({"msg": "hello"}).into())?;
 
@@ -69,7 +69,7 @@ if let Some(versioned) = event {
 Retrieve all events with a specific type label:
 
 ```rust
-let db = Strata::open_temp()?;
+let db = Strata::cache()?;
 
 db.event_append("tool_call", serde_json::json!({"tool": "search"}).into())?;
 db.event_append("decision", serde_json::json!({"choice": "A"}).into())?;
@@ -87,7 +87,7 @@ assert_eq!(decisions.len(), 1);
 Get the total number of events in the current branch:
 
 ```rust
-let db = Strata::open_temp()?;
+let db = Strata::cache()?;
 assert_eq!(db.event_len()?, 0);
 
 db.event_append("log", serde_json::json!({"msg": "one"}).into())?;
@@ -128,7 +128,7 @@ fn log_decision(db: &Strata, decision: &str, reason: &str, confidence: f64) -> s
 Events are isolated by branch. `event_len()` returns 0 in a new branch even if other branches have events:
 
 ```rust
-let mut db = Strata::open_temp()?;
+let mut db = Strata::cache()?;
 db.event_append("log", serde_json::json!({"msg": "in default"}).into())?;
 
 db.create_branch("other")?;
