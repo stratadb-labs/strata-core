@@ -11,7 +11,6 @@ use std::sync::Arc;
 use std::thread;
 use strata_core::types::{BranchId, Key, Namespace};
 use strata_core::value::Value;
-use strata_core::Storage;
 use strata_engine::Database;
 use tempfile::TempDir;
 
@@ -265,7 +264,7 @@ fn bench_direct_operations(c: &mut Criterion) {
 
     group.bench_function("direct_get", |b| {
         b.iter(|| {
-            let result = db.storage().get(&get_key);
+            let result = db.transaction(branch_id, |txn| txn.get(&get_key));
             black_box(result.unwrap());
         });
     });
