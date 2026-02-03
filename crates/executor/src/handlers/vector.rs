@@ -200,14 +200,85 @@ pub fn vector_list_collections(p: &Arc<Primitives>, branch: BranchId) -> Result<
     let infos: Vec<CollectionInfo> = collections
         .into_iter()
         .filter(|info| !is_internal_collection(&info.name))
-        .map(|info| CollectionInfo {
-            name: info.name,
-            dimension: info.config.dimension,
-            metric: from_engine_metric(info.config.metric),
-            count: info.count as u64,
+        .map(|info| {
+            let (index_type, memory_bytes) = p
+                .vector
+                .collection_backend_stats(branch_id, &info.name)
+                .map(|(it, mem)| (Some(it.to_string()), Some(mem as u64)))
+                .unwrap_or((None, None));
+            CollectionInfo {
+                name: info.name,
+                dimension: info.config.dimension,
+                metric: from_engine_metric(info.config.metric),
+                count: info.count as u64,
+                index_type,
+                memory_bytes,
+            }
         })
         .collect();
     Ok(Output::VectorCollectionList(infos))
+}
+
+/// Handle VectorCollectionStats command.
+pub fn vector_collection_stats(
+    p: &Arc<Primitives>,
+    branch: BranchId,
+    collection: String,
+) -> Result<Output> {
+    let branch_id = to_core_branch_id(&branch)?;
+    convert_result(validate_not_internal_collection(&collection))?;
+
+    let collections = convert_vector_result(p.vector.list_collections(branch_id))?;
+    let info = collections
+        .into_iter()
+        .find(|c| c.name == collection)
+        .ok_or_else(|| crate::Error::CollectionNotFound {
+            collection: collection.clone(),
+        })?;
+
+    let (index_type, memory_bytes) = p
+        .vector
+        .collection_backend_stats(branch_id, &info.name)
+        .map(|(it, mem)| (Some(it.to_string()), Some(mem as u64)))
+        .unwrap_or((None, None));
+
+    let stats = CollectionInfo {
+        name: info.name,
+        dimension: info.config.dimension,
+        metric: from_engine_metric(info.config.metric),
+        count: info.count as u64,
+        index_type,
+        memory_bytes,
+    };
+    Ok(Output::VectorCollectionList(vec![stats]))
+}
+
+/// Handle VectorBatchUpsert command.
+pub fn vector_batch_upsert(
+    p: &Arc<Primitives>,
+    branch: BranchId,
+    collection: String,
+    entries: Vec<crate::types::BatchVectorEntry>,
+) -> Result<Output> {
+    let branch_id = to_core_branch_id(&branch)?;
+    convert_result(validate_not_internal_collection(&collection))?;
+
+    let mut engine_entries = Vec::with_capacity(entries.len());
+    for entry in entries {
+        convert_result(validate_key(&entry.key))?;
+        let json_metadata = entry
+            .metadata
+            .map(value_to_serde_json_public)
+            .transpose()
+            .map_err(|e| crate::Error::from(e))?;
+        engine_entries.push((entry.key, entry.vector, json_metadata));
+    }
+
+    let versions =
+        convert_vector_result(p.vector.batch_insert(branch_id, &collection, engine_entries))?;
+
+    let version_nums: Vec<u64> = versions.iter().map(|v| extract_version(v)).collect();
+    Ok(Output::Versions(version_nums))
 }
 
 #[cfg(test)]

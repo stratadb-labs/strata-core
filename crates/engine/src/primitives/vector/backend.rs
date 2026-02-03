@@ -74,6 +74,20 @@ pub trait VectorIndexBackend: Send + Sync {
     /// Check if a vector exists
     fn contains(&self, id: VectorId) -> bool;
 
+    /// Return the index type name (e.g., "brute_force", "hnsw")
+    fn index_type_name(&self) -> &'static str;
+
+    /// Return approximate memory usage in bytes
+    fn memory_usage(&self) -> usize;
+
+    /// Rebuild derived index structures after recovery
+    ///
+    /// For BruteForce backend, this is a no-op.
+    /// For HNSW backend, this rebuilds the graph from the heap.
+    fn rebuild_index(&mut self) {
+        // Default: no-op (BruteForce has no derived structures)
+    }
+
     // ========================================================================
     // Snapshot Methods
     // ========================================================================
@@ -106,7 +120,8 @@ pub enum IndexBackendFactory {
     /// Brute-force O(n) search
     #[default]
     BruteForce,
-    // Hnsw(HnswConfig),  // Reserved for future use
+    /// HNSW O(log n) approximate nearest neighbor search
+    Hnsw(super::hnsw::HnswConfig),
 }
 
 impl IndexBackendFactory {
@@ -116,6 +131,17 @@ impl IndexBackendFactory {
             IndexBackendFactory::BruteForce => {
                 Box::new(super::brute_force::BruteForceBackend::new(config))
             }
+            IndexBackendFactory::Hnsw(hnsw_config) => {
+                Box::new(super::hnsw::HnswBackend::new(config, hnsw_config.clone()))
+            }
+        }
+    }
+
+    /// Get the index type name
+    pub fn index_type_name(&self) -> &'static str {
+        match self {
+            IndexBackendFactory::BruteForce => "brute_force",
+            IndexBackendFactory::Hnsw(_) => "hnsw",
         }
     }
 }

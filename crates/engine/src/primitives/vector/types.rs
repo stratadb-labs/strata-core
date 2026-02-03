@@ -7,8 +7,8 @@ use serde_json::Value as JsonValue;
 
 // Re-export canonical vector types from core
 pub use strata_core::primitives::{
-    CollectionId, CollectionInfo, DistanceMetric, JsonScalar, MetadataFilter, StorageDtype,
-    VectorConfig, VectorEntry, VectorId, VectorMatch,
+    CollectionId, CollectionInfo, DistanceMetric, FilterCondition, FilterOp, JsonScalar,
+    MetadataFilter, StorageDtype, VectorConfig, VectorEntry, VectorId, VectorMatch,
 };
 
 // Re-export EntityRef for source reference linking

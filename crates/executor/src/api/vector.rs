@@ -106,6 +106,41 @@ impl Strata {
         }
     }
 
+    /// Get detailed statistics for a single collection.
+    pub fn vector_collection_stats(&self, collection: &str) -> Result<CollectionInfo> {
+        match self.executor.execute(Command::VectorCollectionStats {
+            branch: self.branch_id(),
+            collection: collection.to_string(),
+        })? {
+            Output::VectorCollectionList(mut infos) => {
+                infos.pop().ok_or(Error::Internal {
+                    reason: "Empty response for VectorCollectionStats".into(),
+                })
+            }
+            _ => Err(Error::Internal {
+                reason: "Unexpected output for VectorCollectionStats".into(),
+            }),
+        }
+    }
+
+    /// Batch upsert multiple vectors.
+    pub fn vector_batch_upsert(
+        &self,
+        collection: &str,
+        entries: Vec<crate::types::BatchVectorEntry>,
+    ) -> Result<Vec<u64>> {
+        match self.executor.execute(Command::VectorBatchUpsert {
+            branch: self.branch_id(),
+            collection: collection.to_string(),
+            entries,
+        })? {
+            Output::Versions(versions) => Ok(versions),
+            _ => Err(Error::Internal {
+                reason: "Unexpected output for VectorBatchUpsert".into(),
+            }),
+        }
+    }
+
     /// Search for similar vectors.
     pub fn vector_search(
         &self,

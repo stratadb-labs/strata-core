@@ -166,6 +166,20 @@ pub struct CollectionInfo {
     pub dimension: usize,
     pub metric: DistanceMetric,
     pub count: u64,
+    /// Index type (e.g., "brute_force", "hnsw")
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub index_type: Option<String>,
+    /// Approximate memory usage in bytes
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub memory_bytes: Option<u64>,
+}
+
+/// Batch vector entry for bulk upsert
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct BatchVectorEntry {
+    pub key: String,
+    pub vector: Vec<f32>,
+    pub metadata: Option<Value>,
 }
 
 // =============================================================================

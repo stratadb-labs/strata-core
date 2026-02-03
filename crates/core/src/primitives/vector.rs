@@ -440,15 +440,52 @@ impl From<&str> for JsonScalar {
     }
 }
 
-/// Metadata filter for search (equality only)
+/// Filter operation for metadata conditions
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum FilterOp {
+    /// Equal
+    Eq,
+    /// Not equal
+    Ne,
+    /// Greater than (numeric only)
+    Gt,
+    /// Greater than or equal (numeric only)
+    Gte,
+    /// Less than (numeric only)
+    Lt,
+    /// Less than or equal (numeric only)
+    Lte,
+    /// Value is one of a list (value must be an array of scalars)
+    In,
+    /// String contains substring (string only)
+    Contains,
+}
+
+/// A single filter condition on a metadata field
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct FilterCondition {
+    /// Metadata field name
+    pub field: String,
+    /// Filter operation
+    pub op: FilterOp,
+    /// Value to compare against
+    pub value: JsonScalar,
+}
+
+/// Metadata filter for search
 ///
-/// Supports only top-level field equality filtering.
-/// Complex filters (ranges, nested paths, arrays) are deferred to future versions.
+/// Supports equality filtering via `equals` (backwards-compatible) and
+/// advanced filtering via `conditions` (Ne, Gt, Gte, Lt, Lte, In, Contains).
+/// All conditions use AND semantics.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct MetadataFilter {
     /// Top-level field equality (scalar values only)
     /// All conditions must match (AND semantics)
+    /// Kept for backwards compatibility.
     pub equals: HashMap<String, JsonScalar>,
+    /// Advanced filter conditions (AND semantics)
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub conditions: Vec<FilterCondition>,
 }
 
 impl MetadataFilter {
@@ -456,21 +493,99 @@ impl MetadataFilter {
     pub fn new() -> Self {
         MetadataFilter {
             equals: HashMap::new(),
+            conditions: Vec::new(),
         }
     }
 
-    /// Add an equality condition
+    /// Add an equality condition (legacy builder)
     pub fn eq(mut self, field: impl Into<String>, value: impl Into<JsonScalar>) -> Self {
         self.equals.insert(field.into(), value.into());
         self
     }
 
+    /// Add a not-equal condition
+    pub fn ne(mut self, field: impl Into<String>, value: impl Into<JsonScalar>) -> Self {
+        self.conditions.push(FilterCondition {
+            field: field.into(),
+            op: FilterOp::Ne,
+            value: value.into(),
+        });
+        self
+    }
+
+    /// Add a greater-than condition (numeric only)
+    pub fn gt(mut self, field: impl Into<String>, value: impl Into<JsonScalar>) -> Self {
+        self.conditions.push(FilterCondition {
+            field: field.into(),
+            op: FilterOp::Gt,
+            value: value.into(),
+        });
+        self
+    }
+
+    /// Add a greater-than-or-equal condition (numeric only)
+    pub fn gte(mut self, field: impl Into<String>, value: impl Into<JsonScalar>) -> Self {
+        self.conditions.push(FilterCondition {
+            field: field.into(),
+            op: FilterOp::Gte,
+            value: value.into(),
+        });
+        self
+    }
+
+    /// Add a less-than condition (numeric only)
+    pub fn lt(mut self, field: impl Into<String>, value: impl Into<JsonScalar>) -> Self {
+        self.conditions.push(FilterCondition {
+            field: field.into(),
+            op: FilterOp::Lt,
+            value: value.into(),
+        });
+        self
+    }
+
+    /// Add a less-than-or-equal condition (numeric only)
+    pub fn lte(mut self, field: impl Into<String>, value: impl Into<JsonScalar>) -> Self {
+        self.conditions.push(FilterCondition {
+            field: field.into(),
+            op: FilterOp::Lte,
+            value: value.into(),
+        });
+        self
+    }
+
+    /// Add an "in" condition (value must match one of the provided scalars)
+    pub fn in_values(
+        mut self,
+        field: impl Into<String>,
+        values: Vec<JsonScalar>,
+    ) -> Self {
+        let field_name: String = field.into();
+        for val in values {
+            self.conditions.push(FilterCondition {
+                field: field_name.clone(),
+                op: FilterOp::In,
+                value: val,
+            });
+        }
+        self
+    }
+
+    /// Add a string-contains condition (string only)
+    pub fn contains(mut self, field: impl Into<String>, substring: impl Into<String>) -> Self {
+        self.conditions.push(FilterCondition {
+            field: field.into(),
+            op: FilterOp::Contains,
+            value: JsonScalar::String(substring.into()),
+        });
+        self
+    }
+
     /// Check if metadata matches this filter
     ///
-    /// Returns true if all conditions match.
+    /// Returns true if all conditions match (AND semantics).
     /// Returns false if metadata is None and filter is non-empty.
     pub fn matches(&self, metadata: &Option<serde_json::Value>) -> bool {
-        if self.equals.is_empty() {
+        if self.equals.is_empty() && self.conditions.is_empty() {
             return true;
         }
 
@@ -482,6 +597,7 @@ impl MetadataFilter {
             return false;
         };
 
+        // Check legacy equality conditions
         for (key, expected) in &self.equals {
             let Some(actual) = obj.get(key) else {
                 return false;
@@ -491,18 +607,85 @@ impl MetadataFilter {
             }
         }
 
+        // Check advanced conditions
+        // For "In" ops, group by field: at least one In value must match
+        let mut in_groups: HashMap<String, Vec<&JsonScalar>> = HashMap::new();
+        for cond in &self.conditions {
+            if cond.op == FilterOp::In {
+                in_groups
+                    .entry(cond.field.clone())
+                    .or_default()
+                    .push(&cond.value);
+                continue;
+            }
+
+            let Some(actual) = obj.get(&cond.field) else {
+                return false;
+            };
+            if !eval_condition(&cond.op, &cond.value, actual) {
+                return false;
+            }
+        }
+
+        // Evaluate In groups: field value must match at least one value in the group
+        for (field, values) in &in_groups {
+            let Some(actual) = obj.get(field) else {
+                return false;
+            };
+            let any_match = values.iter().any(|v| v.matches_json(actual));
+            if !any_match {
+                return false;
+            }
+        }
+
         true
     }
 
     /// Check if filter is empty (matches all)
     pub fn is_empty(&self) -> bool {
-        self.equals.is_empty()
+        self.equals.is_empty() && self.conditions.is_empty()
     }
 
     /// Get the number of conditions in the filter
     pub fn len(&self) -> usize {
-        self.equals.len()
+        self.equals.len() + self.conditions.len()
     }
+}
+
+/// Evaluate a single filter condition against a JSON value
+fn eval_condition(op: &FilterOp, expected: &JsonScalar, actual: &serde_json::Value) -> bool {
+    match op {
+        FilterOp::Eq => expected.matches_json(actual),
+        FilterOp::Ne => !expected.matches_json(actual),
+        FilterOp::Gt => numeric_cmp(expected, actual).is_some_and(|ord| ord == std::cmp::Ordering::Less),
+        FilterOp::Gte => numeric_cmp(expected, actual).is_some_and(|ord| ord != std::cmp::Ordering::Greater),
+        FilterOp::Lt => numeric_cmp(expected, actual).is_some_and(|ord| ord == std::cmp::Ordering::Greater),
+        FilterOp::Lte => numeric_cmp(expected, actual).is_some_and(|ord| ord != std::cmp::Ordering::Less),
+        FilterOp::In => {
+            // Single value check (grouped evaluation is done in matches())
+            expected.matches_json(actual)
+        }
+        FilterOp::Contains => {
+            // String contains substring
+            match (expected, actual) {
+                (JsonScalar::String(substring), serde_json::Value::String(s)) => {
+                    s.contains(substring.as_str())
+                }
+                _ => false,
+            }
+        }
+    }
+}
+
+/// Compare expected scalar against actual JSON value numerically.
+/// Returns the ordering of expected relative to actual (expected.cmp(actual)).
+fn numeric_cmp(expected: &JsonScalar, actual: &serde_json::Value) -> Option<std::cmp::Ordering> {
+    let expected_num = match expected {
+        JsonScalar::Number(n) => *n,
+        _ => return None,
+    };
+    let actual_num = actual.as_f64()?;
+    expected_num.partial_cmp(&actual_num)
 }
 
 #[cfg(test)]

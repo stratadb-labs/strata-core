@@ -569,6 +569,94 @@ impl VectorStore {
         Ok(true)
     }
 
+    /// Batch insert multiple vectors (upsert semantics)
+    ///
+    /// Acquires the write lock once, validates all entries, commits all KV writes,
+    /// then updates the backend for each entry. Much more efficient than N individual inserts.
+    ///
+    /// # Errors
+    /// - `CollectionNotFound` if collection doesn't exist
+    /// - `DimensionMismatch` if any embedding has wrong dimension
+    /// - `InvalidEmbedding` if any embedding contains NaN or Infinity
+    /// - `InvalidKey` if any key is invalid
+    pub fn batch_insert(
+        &self,
+        branch_id: BranchId,
+        collection: &str,
+        entries: Vec<(String, Vec<f32>, Option<JsonValue>)>,
+    ) -> VectorResult<Vec<Version>> {
+        if entries.is_empty() {
+            return Ok(Vec::new());
+        }
+
+        // Validate all entries before acquiring locks
+        let config = self.get_collection_config_required(branch_id, collection)?;
+        for (key, embedding, _) in &entries {
+            validate_vector_key(key)?;
+            if embedding.iter().any(|v| v.is_nan() || v.is_infinite()) {
+                return Err(VectorError::InvalidEmbedding {
+                    reason: format!("embedding for key '{}' contains NaN or Infinity values", key),
+                });
+            }
+            if embedding.len() != config.dimension {
+                return Err(VectorError::DimensionMismatch {
+                    expected: config.dimension,
+                    got: embedding.len(),
+                });
+            }
+        }
+
+        // Ensure collection is loaded
+        self.ensure_collection_loaded(branch_id, collection)?;
+        let collection_id = CollectionId::new(branch_id, collection);
+
+        // Acquire write lock once for the entire batch
+        let state = self.state();
+        let mut backends = state.backends.write();
+        let backend =
+            backends
+                .get_mut(&collection_id)
+                .ok_or_else(|| VectorError::CollectionNotFound {
+                    name: collection.to_string(),
+                })?;
+
+        let mut versions = Vec::with_capacity(entries.len());
+
+        for (key, embedding, metadata) in entries {
+            let kv_key = Key::new_vector(Namespace::for_branch(branch_id), collection, &key);
+
+            // Check existence
+            let existing = self.get_vector_record_by_key(&kv_key)?;
+
+            let (vector_id, record) = if let Some(existing_record) = existing {
+                let mut updated = existing_record;
+                updated.update(embedding.clone(), metadata);
+                (VectorId(updated.vector_id), updated)
+            } else {
+                let vector_id = backend.allocate_id();
+                let record = VectorRecord::new(vector_id, embedding.clone(), metadata);
+                (vector_id, record)
+            };
+
+            // Commit to KV
+            let record_version = record.version;
+            let record_bytes = record.to_bytes()?;
+            self.db
+                .transaction(branch_id, |txn| {
+                    txn.put(kv_key.clone(), Value::Bytes(record_bytes.clone()))
+                })
+                .map_err(|e| VectorError::Storage(e.to_string()))?;
+
+            // Update backend
+            backend.insert(vector_id, &embedding)?;
+
+            versions.push(Version::counter(record_version));
+        }
+
+        drop(backends);
+        Ok(versions)
+    }
+
     /// Search for similar vectors
     ///
     /// Returns top-k vectors most similar to the query.
@@ -1072,6 +1160,108 @@ impl VectorStore {
         Ok(())
     }
 
+    // ========================================================================
+    // System Collection Methods (internal use only)
+    // ========================================================================
+
+    /// Create a system collection (internal use only, bypasses `_` prefix check)
+    ///
+    /// System collections must have names starting with `_system_`.
+    pub(crate) fn create_system_collection(
+        &self,
+        branch_id: BranchId,
+        name: &str,
+        config: VectorConfig,
+    ) -> VectorResult<Versioned<CollectionInfo>> {
+        use crate::primitives::vector::collection::validate_system_collection_name;
+
+        validate_system_collection_name(name)?;
+
+        const MAX_DIMENSION: usize = 65536;
+        if config.dimension == 0 || config.dimension > MAX_DIMENSION {
+            return Err(VectorError::InvalidDimension {
+                dimension: config.dimension,
+            });
+        }
+
+        let collection_id = CollectionId::new(branch_id, name);
+
+        if self.collection_exists(branch_id, name)? {
+            return Err(VectorError::CollectionAlreadyExists {
+                name: name.to_string(),
+            });
+        }
+
+        let now = now_micros();
+        let record = CollectionRecord::new(&config);
+        let config_key = Key::new_vector_config(Namespace::for_branch(branch_id), name);
+        let config_bytes = record.to_bytes()?;
+
+        self.db
+            .transaction(branch_id, |txn| {
+                txn.put(config_key.clone(), Value::Bytes(config_bytes.clone()))
+            })
+            .map_err(|e| VectorError::Storage(e.to_string()))?;
+
+        self.init_backend(&collection_id, &config);
+
+        let info = CollectionInfo {
+            name: name.to_string(),
+            config,
+            count: 0,
+            created_at: now,
+        };
+
+        Ok(Versioned::with_timestamp(
+            info,
+            Version::counter(1),
+            Timestamp::from_micros(now),
+        ))
+    }
+
+    /// Insert into a system collection (internal use only)
+    pub(crate) fn system_insert(
+        &self,
+        branch_id: BranchId,
+        collection: &str,
+        key: &str,
+        embedding: &[f32],
+        metadata: Option<JsonValue>,
+    ) -> VectorResult<Version> {
+        use crate::primitives::vector::collection::validate_system_collection_name;
+        validate_system_collection_name(collection)?;
+        // Delegate to the normal insert path (which doesn't re-check collection name)
+        self.insert(branch_id, collection, key, embedding, metadata)
+    }
+
+    /// Search a system collection (internal use only)
+    pub(crate) fn system_search(
+        &self,
+        branch_id: BranchId,
+        collection: &str,
+        query: &[f32],
+        k: usize,
+        filter: Option<MetadataFilter>,
+    ) -> VectorResult<Vec<VectorMatch>> {
+        use crate::primitives::vector::collection::validate_system_collection_name;
+        validate_system_collection_name(collection)?;
+        self.search(branch_id, collection, query, k, filter)
+    }
+
+    /// Get index type name and memory usage for a collection
+    pub fn collection_backend_stats(
+        &self,
+        branch_id: BranchId,
+        name: &str,
+    ) -> Option<(&'static str, usize)> {
+        let collection_id = CollectionId::new(branch_id, name);
+        let state = self.state();
+        let backends = state.backends.read();
+        backends
+            .get(&collection_id)
+            .map(|b| (b.index_type_name(), b.memory_usage()))
+    }
+
     /// Get access to the shared backend state (for recovery/snapshot)
     pub(crate) fn backends(&self) -> Arc<VectorBackendState> {
         self.state()
@@ -1213,10 +1403,15 @@ impl strata_storage::PrimitiveStorageExt for VectorStore {
     /// Rebuild indexes after recovery
     ///
     /// For BruteForce backend, no indexes need rebuilding.
-    /// HNSW backend may need to rebuild graph structure here.
+    /// HNSW backend rebuilds its graph structure here.
     fn rebuild_indexes(&mut self) -> Result<(), strata_storage::PrimitiveExtError> {
-        // BruteForce backend has no derived indexes to rebuild.
-        // HNSW would rebuild the graph here.
+        let state = self.state();
+        let mut backends = state.backends.write();
+
+        for (_collection_id, backend) in backends.iter_mut() {
+            backend.rebuild_index();
+        }
+
         Ok(())
     }
 }

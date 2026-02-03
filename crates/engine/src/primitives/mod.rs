@@ -56,10 +56,10 @@ pub use kv::KVStore;
 pub use state::{State, StateCell};
 pub use vector::{
     register_vector_recovery, validate_collection_name, validate_vector_key, BruteForceBackend,
-    CollectionId, CollectionInfo, CollectionRecord, DistanceMetric, IndexBackendFactory,
-    JsonScalar, MetadataFilter, StorageDtype, VectorBackendState, VectorConfig, VectorConfigSerde,
-    VectorEntry, VectorError, VectorHeap, VectorId, VectorIndexBackend, VectorMatch, VectorRecord,
-    VectorResult, VectorStore,
+    CollectionId, CollectionInfo, CollectionRecord, DistanceMetric, FilterCondition, FilterOp,
+    HnswBackend, HnswConfig, IndexBackendFactory, JsonScalar, MetadataFilter, StorageDtype,
+    VectorBackendState, VectorConfig, VectorConfigSerde, VectorEntry, VectorError, VectorHeap,
+    VectorId, VectorIndexBackend, VectorMatch, VectorRecord, VectorResult, VectorStore,
 };
 
 // Re-export search types for convenience (from search module)

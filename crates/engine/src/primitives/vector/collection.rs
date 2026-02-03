@@ -57,6 +57,50 @@ pub fn validate_collection_name(name: &str) -> Result<(), VectorError> {
     Ok(())
 }
 
+/// Validate a system collection name (must start with `_system_`)
+///
+/// System collections bypass the `_` prefix restriction but must follow
+/// the `_system_` prefix convention and all other naming rules.
+pub fn validate_system_collection_name(name: &str) -> Result<(), VectorError> {
+    if !name.starts_with("_system_") {
+        return Err(VectorError::InvalidCollectionName {
+            name: name.to_string(),
+            reason: "System collection name must start with '_system_'".to_string(),
+        });
+    }
+
+    if name.len() <= 8 {
+        // "_system_" is 8 chars, need at least one more
+        return Err(VectorError::InvalidCollectionName {
+            name: name.to_string(),
+            reason: "System collection name must have content after '_system_' prefix".to_string(),
+        });
+    }
+
+    if name.len() > 256 {
+        return Err(VectorError::InvalidCollectionName {
+            name: name.to_string(),
+            reason: "Collection name cannot exceed 256 characters".to_string(),
+        });
+    }
+
+    if name.contains('/') {
+        return Err(VectorError::InvalidCollectionName {
+            name: name.to_string(),
+            reason: "Collection name cannot contain '/'".to_string(),
+        });
+    }
+
+    if name.contains('\0') {
+        return Err(VectorError::InvalidCollectionName {
+            name: name.to_string(),
+            reason: "Collection name cannot contain null bytes".to_string(),
+        });
+    }
+
+    Ok(())
+}
+
 /// Validate a vector key
 ///
 /// # Validation Rules

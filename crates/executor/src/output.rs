@@ -80,6 +80,9 @@ pub enum Output {
     /// List of vector collections
     VectorCollectionList(Vec<CollectionInfo>),
 
+    /// Multiple version numbers (for batch operations)
+    Versions(Vec<u64>),
+
     // ==================== Branch-specific ====================
     /// Optional versioned branch info (for branch_get which may not find a branch)
     MaybeBranchInfo(Option<VersionedBranchInfo>),

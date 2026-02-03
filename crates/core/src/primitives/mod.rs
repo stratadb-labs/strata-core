@@ -25,6 +25,6 @@ pub use json::{
 };
 pub use state::State;
 pub use vector::{
-    CollectionId, CollectionInfo, DistanceMetric, JsonScalar, MetadataFilter, StorageDtype,
-    VectorConfig, VectorEntry, VectorId, VectorMatch,
+    CollectionId, CollectionInfo, DistanceMetric, FilterCondition, FilterOp, JsonScalar,
+    MetadataFilter, StorageDtype, VectorConfig, VectorEntry, VectorId, VectorMatch,
 };

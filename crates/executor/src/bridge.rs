@@ -325,13 +325,34 @@ pub fn to_engine_filter(
     let mut engine_filter = strata_engine::MetadataFilter::new();
 
     for f in filters {
-        if matches!(f.op, crate::types::FilterOp::Eq) {
-            let scalar = value_to_json_scalar(&f.value);
-            engine_filter.equals.insert(f.field.clone(), scalar);
+        let scalar = value_to_json_scalar(&f.value);
+        match f.op {
+            crate::types::FilterOp::Eq => {
+                engine_filter.equals.insert(f.field.clone(), scalar);
+            }
+            _ => {
+                let engine_op = match f.op {
+                    crate::types::FilterOp::Eq => strata_engine::FilterOp::Eq,
+                    crate::types::FilterOp::Ne => strata_engine::FilterOp::Ne,
+                    crate::types::FilterOp::Gt => strata_engine::FilterOp::Gt,
+                    crate::types::FilterOp::Gte => strata_engine::FilterOp::Gte,
+                    crate::types::FilterOp::Lt => strata_engine::FilterOp::Lt,
+                    crate::types::FilterOp::Lte => strata_engine::FilterOp::Lte,
+                    crate::types::FilterOp::In => strata_engine::FilterOp::In,
+                    crate::types::FilterOp::Contains => strata_engine::FilterOp::Contains,
+                };
+                engine_filter
+                    .conditions
+                    .push(strata_engine::FilterCondition {
+                        field: f.field.clone(),
+                        op: engine_op,
+                        value: scalar,
+                    });
+            }
         }
     }
 
-    if engine_filter.equals.is_empty() {
+    if engine_filter.is_empty() {
         None
     } else {
         Some(engine_filter)

@@ -9,6 +9,7 @@
 use std::cmp::Ordering;
 
 use crate::primitives::vector::backend::VectorIndexBackend;
+use crate::primitives::vector::distance::compute_similarity;
 use crate::primitives::vector::{DistanceMetric, VectorConfig, VectorError, VectorHeap, VectorId};
 
 /// Brute-force vector search backend
@@ -131,6 +132,19 @@ impl VectorIndexBackend for BruteForceBackend {
         self.heap.contains(id)
     }
 
+    fn index_type_name(&self) -> &'static str {
+        "brute_force"
+    }
+
+    fn memory_usage(&self) -> usize {
+        // Each active vector: dimension * 4 bytes (f32) for embedding data
+        // Plus overhead for BTreeMap entries and free_slots
+        let embedding_bytes = self.heap.raw_data().len() * std::mem::size_of::<f32>();
+        let map_overhead = self.heap.len() * (std::mem::size_of::<VectorId>() + std::mem::size_of::<usize>() + 64); // BTreeMap node overhead estimate
+        let free_slots_bytes = self.heap.free_slots().len() * std::mem::size_of::<usize>();
+        embedding_bytes + map_overhead + free_slots_bytes
+    }
+
     fn vector_ids(&self) -> Vec<VectorId> {
         self.heap.ids().collect()
     }
@@ -144,155 +158,11 @@ impl VectorIndexBackend for BruteForceBackend {
     }
 }
 
-// ============================================================================
-// Distance Metric Calculations
-// ============================================================================
-
-/// Compute similarity score between two vectors
-///
-/// All scores are normalized to "higher = more similar" (Invariant R2).
-/// This function is single-threaded for determinism (Invariant R8).
-///
-/// IMPORTANT: No implicit normalization of vectors (Invariant R9).
-/// Vectors are used as-is.
-fn compute_similarity(a: &[f32], b: &[f32], metric: DistanceMetric) -> f32 {
-    debug_assert_eq!(
-        a.len(),
-        b.len(),
-        "Dimension mismatch in similarity computation"
-    );
-
-    match metric {
-        DistanceMetric::Cosine => cosine_similarity(a, b),
-        DistanceMetric::Euclidean => euclidean_similarity(a, b),
-        DistanceMetric::DotProduct => dot_product(a, b),
-    }
-}
-
-/// Cosine similarity: dot(a,b) / (||a|| * ||b||)
-///
-/// Range: [-1, 1], higher = more similar
-/// Returns 0.0 if either vector has zero norm (avoids division by zero)
-fn cosine_similarity(a: &[f32], b: &[f32]) -> f32 {
-    let dot = dot_product(a, b);
-    let norm_a = l2_norm(a);
-    let norm_b = l2_norm(b);
-
-    if norm_a == 0.0 || norm_b == 0.0 {
-        // Zero vectors have undefined cosine similarity
-        // Return 0.0 as neutral value
-        0.0
-    } else {
-        dot / (norm_a * norm_b)
-    }
-}
-
-/// Euclidean similarity: 1 / (1 + l2_distance)
-///
-/// Range: (0, 1], higher = more similar
-/// Transforms distance to similarity (inversely related)
-fn euclidean_similarity(a: &[f32], b: &[f32]) -> f32 {
-    let dist = euclidean_distance(a, b);
-    // Transform to similarity: 1 / (1 + dist)
-    // When dist=0, similarity=1 (identical)
-    // As dist→∞, similarity→0
-    1.0 / (1.0 + dist)
-}
-
-/// Dot product (inner product)
-///
-/// Range: unbounded, higher = more similar
-/// Assumes vectors are pre-normalized for meaningful comparison
-fn dot_product(a: &[f32], b: &[f32]) -> f32 {
-    a.iter().zip(b.iter()).map(|(x, y)| x * y).sum()
-}
-
-/// L2 norm (Euclidean length)
-fn l2_norm(v: &[f32]) -> f32 {
-    v.iter().map(|x| x * x).sum::<f32>().sqrt()
-}
-
-/// Euclidean distance (L2 distance)
-fn euclidean_distance(a: &[f32], b: &[f32]) -> f32 {
-    a.iter()
-        .zip(b.iter())
-        .map(|(x, y)| (x - y).powi(2))
-        .sum::<f32>()
-        .sqrt()
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
 
-    // ========================================
-    // Distance Metric Tests
-    // ========================================
-
-    #[test]
-    fn test_cosine_identical_vectors() {
-        let v = vec![1.0, 2.0, 3.0];
-        let sim = cosine_similarity(&v, &v);
-        assert!((sim - 1.0).abs() < 1e-6);
-    }
-
-    #[test]
-    fn test_cosine_opposite_vectors() {
-        let v1 = vec![1.0, 0.0];
-        let v2 = vec![-1.0, 0.0];
-        let sim = cosine_similarity(&v1, &v2);
-        assert!((sim - (-1.0)).abs() < 1e-6);
-    }
-
-    #[test]
-    fn test_cosine_orthogonal_vectors() {
-        let v1 = vec![1.0, 0.0];
-        let v2 = vec![0.0, 1.0];
-        let sim = cosine_similarity(&v1, &v2);
-        assert!(sim.abs() < 1e-6);
-    }
-
-    #[test]
-    fn test_euclidean_identical_vectors() {
-        let v = vec![1.0, 2.0, 3.0];
-        let sim = euclidean_similarity(&v, &v);
-        assert!((sim - 1.0).abs() < 1e-6);
-    }
-
-    #[test]
-    fn test_euclidean_distant_vectors() {
-        let v1 = vec![0.0, 0.0];
-        let v2 = vec![100.0, 0.0];
-        let sim = euclidean_similarity(&v1, &v2);
-        assert!(sim < 0.01); // Very low similarity
-        assert!(sim > 0.0); // But still positive
-        assert!(sim <= 1.0);
-    }
-
-    #[test]
-    fn test_dot_product_unit_vectors() {
-        let v = vec![1.0, 0.0];
-        assert!((dot_product(&v, &v) - 1.0).abs() < 1e-6);
-
-        let v1 = vec![1.0, 0.0];
-        let v2 = vec![0.0, 1.0];
-        assert!(dot_product(&v1, &v2).abs() < 1e-6);
-    }
-
-    #[test]
-    fn test_zero_vector_handling() {
-        let zero = vec![0.0, 0.0, 0.0];
-        let nonzero = vec![1.0, 2.0, 3.0];
-
-        // Cosine with zero vector returns 0.0 (not NaN)
-        assert_eq!(cosine_similarity(&zero, &nonzero), 0.0);
-        assert_eq!(cosine_similarity(&nonzero, &zero), 0.0);
-        assert_eq!(cosine_similarity(&zero, &zero), 0.0);
-
-        // Euclidean with zero vector works normally
-        let sim = euclidean_similarity(&zero, &nonzero);
-        assert!(sim > 0.0 && sim <= 1.0);
-    }
+    // Distance metric tests are in distance.rs
 
     // ========================================
     // Backend Tests

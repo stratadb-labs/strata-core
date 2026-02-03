@@ -63,6 +63,12 @@ pub struct CollectionSnapshotHeader {
     pub free_slots: Vec<usize>,
     /// Number of vectors in this collection
     pub count: u32,
+    /// Index type: 0 = BruteForce (default), 1 = HNSW
+    #[serde(default)]
+    pub index_type: u8,
+    /// HNSW graph state (serialized bytes, only present for index_type=1)
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub hnsw_graph_state: Vec<u8>,
 }
 
 impl VectorStore {
@@ -116,6 +122,21 @@ impl VectorStore {
             // Get snapshot state from backend
             let (next_id, free_slots) = backend.snapshot_state();
 
+            // Determine index type and serialize graph state if HNSW
+            let (index_type, hnsw_graph_state) = {
+                let type_name = backend.index_type_name();
+                if type_name == "hnsw" {
+                    // Downcast to HnswBackend to serialize graph state
+                    // Since we can't downcast a dyn trait easily, we serialize via the
+                    // trait method snapshot_state which we already have
+                    // For HNSW, we need the graph state too
+                    // We'll store it in the header
+                    (1u8, Vec::new()) // Graph will be rebuilt on restore
+                } else {
+                    (0u8, Vec::new())
+                }
+            };
+
             // Create header
             let header = CollectionSnapshotHeader {
                 branch_id: collection_id.branch_id,
@@ -126,6 +147,8 @@ impl VectorStore {
                 next_id,
                 free_slots,
                 count: backend.len() as u32,
+                index_type,
+                hnsw_graph_state,
             };
 
             // Write header
@@ -254,8 +277,12 @@ impl VectorStore {
                 })
                 .map_err(|e| VectorError::Database(e.to_string()))?;
 
-            // Create backend using factory (hardcoded to BruteForce)
-            let factory = IndexBackendFactory::default();
+            // Create backend using factory based on snapshot index_type
+            let factory = if header.index_type == 1 {
+                IndexBackendFactory::Hnsw(crate::primitives::vector::hnsw::HnswConfig::default())
+            } else {
+                IndexBackendFactory::default()
+            };
             let mut backend = factory.create(&config);
 
             // Read and insert vectors

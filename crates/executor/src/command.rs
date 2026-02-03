@@ -326,6 +326,23 @@ pub enum Command {
         branch: Option<BranchId>,
     },
 
+    /// Get detailed statistics for a single collection.
+    /// Returns: `Output::VectorCollectionList` (with single entry)
+    VectorCollectionStats {
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        branch: Option<BranchId>,
+        collection: String,
+    },
+
+    /// Batch insert or update multiple vectors.
+    /// Returns: `Output::Versions`
+    VectorBatchUpsert {
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        branch: Option<BranchId>,
+        collection: String,
+        entries: Vec<BatchVectorEntry>,
+    },
+
     // ==================== Branch (5 MVP) ====================
     /// Create a new branch.
     /// Returns: `Output::BranchWithVersion`
@@ -464,6 +481,7 @@ impl Command {
                 | Command::VectorDelete { .. }
                 | Command::VectorCreateCollection { .. }
                 | Command::VectorDeleteCollection { .. }
+                | Command::VectorBatchUpsert { .. }
                 | Command::BranchCreate { .. }
                 | Command::BranchDelete { .. }
                 | Command::TxnBegin { .. }
@@ -511,6 +529,8 @@ impl Command {
             Command::VectorCreateCollection { .. } => "VectorCreateCollection",
             Command::VectorDeleteCollection { .. } => "VectorDeleteCollection",
             Command::VectorListCollections { .. } => "VectorListCollections",
+            Command::VectorCollectionStats { .. } => "VectorCollectionStats",
+            Command::VectorBatchUpsert { .. } => "VectorBatchUpsert",
             Command::BranchCreate { .. } => "BranchCreate",
             Command::BranchGet { .. } => "BranchGet",
             Command::BranchList { .. } => "BranchList",
@@ -582,6 +602,8 @@ impl Command {
             | Command::VectorCreateCollection { branch, .. }
             | Command::VectorDeleteCollection { branch, .. }
             | Command::VectorListCollections { branch, .. }
+            | Command::VectorCollectionStats { branch, .. }
+            | Command::VectorBatchUpsert { branch, .. }
             // Retention
             | Command::RetentionApply { branch, .. }
             | Command::RetentionStats { branch, .. }

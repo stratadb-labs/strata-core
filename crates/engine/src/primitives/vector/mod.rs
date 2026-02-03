@@ -22,9 +22,11 @@
 pub mod backend;
 pub mod brute_force;
 pub mod collection;
+pub mod distance;
 pub mod error;
 pub mod filter;
 pub mod heap;
+pub mod hnsw;
 pub mod recovery;
 pub mod snapshot;
 pub mod store;
@@ -33,9 +35,10 @@ pub mod wal;
 
 pub use backend::{IndexBackendFactory, VectorIndexBackend};
 pub use brute_force::BruteForceBackend;
-pub use collection::{validate_collection_name, validate_vector_key};
+pub use hnsw::{HnswBackend, HnswConfig};
+pub use collection::{validate_collection_name, validate_system_collection_name, validate_vector_key};
 pub use error::{VectorError, VectorResult};
-pub use filter::{JsonScalar, MetadataFilter};
+pub use filter::{FilterCondition, FilterOp, JsonScalar, MetadataFilter};
 pub use heap::VectorHeap;
 pub use recovery::register_vector_recovery;
 pub use snapshot::{CollectionSnapshotHeader, VECTOR_SNAPSHOT_VERSION};

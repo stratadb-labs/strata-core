@@ -387,6 +387,31 @@ impl Executor {
                 })?;
                 crate::handlers::vector::vector_list_collections(&self.primitives, branch)
             }
+            Command::VectorCollectionStats { branch, collection } => {
+                let branch = branch.ok_or(Error::InvalidInput {
+                    reason: "Branch must be specified or resolved to default".into(),
+                })?;
+                crate::handlers::vector::vector_collection_stats(
+                    &self.primitives,
+                    branch,
+                    collection,
+                )
+            }
+            Command::VectorBatchUpsert {
+                branch,
+                collection,
+                entries,
+            } => {
+                let branch = branch.ok_or(Error::InvalidInput {
+                    reason: "Branch must be specified or resolved to default".into(),
+                })?;
+                crate::handlers::vector::vector_batch_upsert(
+                    &self.primitives,
+                    branch,
+                    collection,
+                    entries,
+                )
+            }
 
             // Branch commands (5 MVP)
             Command::BranchCreate {
