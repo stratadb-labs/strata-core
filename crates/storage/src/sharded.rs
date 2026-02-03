@@ -32,6 +32,7 @@
 
 use dashmap::DashMap;
 use rustc_hash::FxHashMap;
+use std::collections::BTreeSet;
 use std::collections::VecDeque;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
@@ -175,6 +176,8 @@ impl VersionChain {
 pub struct Shard {
     /// HashMap with FxHash for O(1) lookups, storing version chains
     pub(crate) data: FxHashMap<Key, VersionChain>,
+    /// Sorted index of all keys for O(log n + k) prefix scans
+    pub(crate) ordered_keys: BTreeSet<Key>,
 }
 
 impl Shard {
@@ -182,6 +185,7 @@ impl Shard {
     pub fn new() -> Self {
         Self {
             data: FxHashMap::default(),
+            ordered_keys: BTreeSet::new(),
         }
     }
 
@@ -189,7 +193,17 @@ impl Shard {
     pub fn with_capacity(capacity: usize) -> Self {
         Self {
             data: FxHashMap::with_capacity_and_hasher(capacity, Default::default()),
+            ordered_keys: BTreeSet::new(),
         }
+    }
+
+    /// Iterate keys matching a prefix using BTreeSet range scan.
+    ///
+    /// O(log n) seek + O(k) iteration where k = number of matching keys.
+    fn keys_with_prefix<'a>(&'a self, prefix: &'a Key) -> impl Iterator<Item = &'a Key> {
+        self.ordered_keys
+            .range::<Key, _>(prefix..)
+            .take_while(move |k| k.starts_with(prefix))
     }
 
     /// Get number of keys in this shard
@@ -330,7 +344,8 @@ impl ShardedStore {
             // Add new version to existing chain
             chain.push(value);
         } else {
-            // Create new chain
+            // Create new chain — also add to BTreeSet index
+            shard.ordered_keys.insert(key.clone());
             shard.data.insert(key, VersionChain::new(value));
         }
     }
@@ -467,6 +482,7 @@ impl ShardedStore {
                 if let Some(chain) = shard.data.get_mut(&key) {
                     chain.push(stored);
                 } else {
+                    shard.ordered_keys.insert(key.clone());
                     shard.data.insert(key, VersionChain::new(stored));
                 }
             }
@@ -476,6 +492,7 @@ impl ShardedStore {
                 if let Some(chain) = shard.data.get_mut(&key) {
                     chain.push(tombstone);
                 } else {
+                    shard.ordered_keys.insert(key.clone());
                     shard.data.insert(key, VersionChain::new(tombstone));
                 }
             }
@@ -528,24 +545,30 @@ impl ShardedStore {
     ///
     /// Vector of (Key, VersionedValue) pairs, sorted by key
     pub fn list_branch(&self, branch_id: &BranchId) -> Vec<(Key, VersionedValue)> {
-        // Phase 1: Collect matching keys under shard lock (no value clones)
+        // Phase 1: Collect matching keys from BTreeSet (already sorted)
         let keys: Vec<Key> = self
             .shards
             .get(branch_id)
             .map(|shard| {
                 shard
-                    .data
+                    .ordered_keys
                     .iter()
-                    .filter(|(_, chain)| chain.latest().map_or(false, |sv| !sv.is_tombstone()))
-                    .map(|(k, _)| k.clone())
+                    .filter(|k| {
+                        shard
+                            .data
+                            .get(*k)
+                            .and_then(|chain| chain.latest())
+                            .map_or(false, |sv| !sv.is_tombstone())
+                    })
+                    .cloned()
                     .collect()
             })
             .unwrap_or_default();
         // Shard lock released here
 
         // Phase 2: Read values individually (brief lock per read)
-        let mut results: Vec<_> = keys
-            .into_iter()
+        // Results are already sorted — BTreeSet iteration order
+        keys.into_iter()
             .filter_map(|key| {
                 self.shards.get(branch_id).and_then(|shard| {
                     shard.data.get(&key).and_then(|chain| {
@@ -559,10 +582,7 @@ impl ShardedStore {
                     })
                 })
             })
-            .collect();
-
-        results.sort_by(|(a, _), (b, _)| a.cmp(b));
-        results
+            .collect()
     }
 
     /// List entries matching a key prefix
@@ -583,25 +603,29 @@ impl ShardedStore {
     pub fn list_by_prefix(&self, prefix: &Key) -> Vec<(Key, VersionedValue)> {
         let branch_id = prefix.namespace.branch_id;
 
-        // Phase 1: Collect matching keys under shard lock (no value clones)
+        // Phase 1: Collect matching keys via BTreeSet range scan (already sorted)
         let keys: Vec<Key> = self
             .shards
             .get(&branch_id)
             .map(|shard| {
                 shard
-                    .data
-                    .iter()
-                    .filter(|(k, _)| k.starts_with(prefix))
-                    .filter(|(_, chain)| chain.latest().map_or(false, |sv| !sv.is_tombstone()))
-                    .map(|(k, _)| k.clone())
+                    .keys_with_prefix(prefix)
+                    .filter(|k| {
+                        shard
+                            .data
+                            .get(*k)
+                            .and_then(|chain| chain.latest())
+                            .map_or(false, |sv| !sv.is_tombstone())
+                    })
+                    .cloned()
                     .collect()
             })
             .unwrap_or_default();
         // Shard lock released here
 
         // Phase 2: Read values individually (brief lock per read)
-        let mut results: Vec<_> = keys
-            .into_iter()
+        // Results are already sorted — BTreeSet iteration order
+        keys.into_iter()
             .filter_map(|key| {
                 self.shards.get(&branch_id).and_then(|shard| {
                     shard.data.get(&key).and_then(|chain| {
@@ -615,10 +639,7 @@ impl ShardedStore {
                     })
                 })
             })
-            .collect();
-
-        results.sort_by(|(a, _), (b, _)| a.cmp(b));
-        results
+            .collect()
     }
 
     /// List entries of a specific type for a branch
@@ -638,25 +659,31 @@ impl ShardedStore {
         branch_id: &BranchId,
         type_tag: strata_core::types::TypeTag,
     ) -> Vec<(Key, VersionedValue)> {
-        // Phase 1: Collect matching keys under shard lock (no value clones)
+        // Phase 1: Collect matching keys from BTreeSet (already sorted)
         let keys: Vec<Key> = self
             .shards
             .get(branch_id)
             .map(|shard| {
                 shard
-                    .data
+                    .ordered_keys
                     .iter()
-                    .filter(|(k, _)| k.type_tag == type_tag)
-                    .filter(|(_, chain)| chain.latest().map_or(false, |sv| !sv.is_tombstone()))
-                    .map(|(k, _)| k.clone())
+                    .filter(|k| k.type_tag == type_tag)
+                    .filter(|k| {
+                        shard
+                            .data
+                            .get(*k)
+                            .and_then(|chain| chain.latest())
+                            .map_or(false, |sv| !sv.is_tombstone())
+                    })
+                    .cloned()
                     .collect()
             })
             .unwrap_or_default();
         // Shard lock released here
 
         // Phase 2: Read values individually (brief lock per read)
-        let mut results: Vec<_> = keys
-            .into_iter()
+        // Results are already sorted — BTreeSet iteration order
+        keys.into_iter()
             .filter_map(|key| {
                 self.shards.get(branch_id).and_then(|shard| {
                     shard.data.get(&key).and_then(|chain| {
@@ -670,10 +697,7 @@ impl ShardedStore {
                     })
                 })
             })
-            .collect();
-
-        results.sort_by(|(a, _), (b, _)| a.cmp(b));
-        results
+            .collect()
     }
 
     /// Count entries of a specific type for a branch (excludes tombstones)
@@ -686,11 +710,15 @@ impl ShardedStore {
             .get(branch_id)
             .map(|shard| {
                 shard
-                    .data
+                    .ordered_keys
                     .iter()
-                    .filter(|(k, chain)| {
+                    .filter(|k| {
                         k.type_tag == type_tag
-                            && chain.latest().map_or(false, |sv| !sv.is_tombstone())
+                            && shard
+                                .data
+                                .get(*k)
+                                .and_then(|chain| chain.latest())
+                                .map_or(false, |sv| !sv.is_tombstone())
                     })
                     .count()
             })
@@ -855,26 +883,27 @@ impl ShardedSnapshot {
     ///
     /// Returns entries as they existed at the snapshot version,
     /// filtering out expired values and tombstones.
+    /// Results are sorted by key (BTreeSet iteration order).
     pub fn list_branch(&self, branch_id: &BranchId) -> Vec<(Key, VersionedValue)> {
         self.store
             .shards
             .get(branch_id)
             .map(|shard| {
-                let mut results: Vec<_> = shard
-                    .data
+                shard
+                    .ordered_keys
                     .iter()
-                    .filter_map(|(k, chain)| {
-                        chain.get_at_version(self.version).and_then(|sv| {
-                            if !sv.is_expired() && !sv.is_tombstone() {
-                                Some((k.clone(), sv.versioned().clone()))
-                            } else {
-                                None
-                            }
+                    .filter_map(|k| {
+                        shard.data.get(k).and_then(|chain| {
+                            chain.get_at_version(self.version).and_then(|sv| {
+                                if !sv.is_expired() && !sv.is_tombstone() {
+                                    Some((k.clone(), sv.versioned().clone()))
+                                } else {
+                                    None
+                                }
+                            })
                         })
                     })
-                    .collect();
-                results.sort_by(|(a, _), (b, _)| a.cmp(b));
-                results
+                    .collect()
             })
             .unwrap_or_default()
     }
@@ -883,28 +912,27 @@ impl ShardedSnapshot {
     ///
     /// Returns entries as they existed at the snapshot version,
     /// filtering out expired values and tombstones.
+    /// Uses BTreeSet range scan for O(log n + k) performance.
     pub fn list_by_prefix(&self, prefix: &Key) -> Vec<(Key, VersionedValue)> {
         let branch_id = prefix.namespace.branch_id;
         self.store
             .shards
             .get(&branch_id)
             .map(|shard| {
-                let mut results: Vec<_> = shard
-                    .data
-                    .iter()
-                    .filter(|(k, _)| k.starts_with(prefix))
-                    .filter_map(|(k, chain)| {
-                        chain.get_at_version(self.version).and_then(|sv| {
-                            if !sv.is_expired() && !sv.is_tombstone() {
-                                Some((k.clone(), sv.versioned().clone()))
-                            } else {
-                                None
-                            }
+                shard
+                    .keys_with_prefix(prefix)
+                    .filter_map(|k| {
+                        shard.data.get(k).and_then(|chain| {
+                            chain.get_at_version(self.version).and_then(|sv| {
+                                if !sv.is_expired() && !sv.is_tombstone() {
+                                    Some((k.clone(), sv.versioned().clone()))
+                                } else {
+                                    None
+                                }
+                            })
                         })
                     })
-                    .collect();
-                results.sort_by(|(a, _), (b, _)| a.cmp(b));
-                results
+                    .collect()
             })
             .unwrap_or_default()
     }
@@ -913,6 +941,7 @@ impl ShardedSnapshot {
     ///
     /// Returns entries as they existed at the snapshot version,
     /// filtering out expired values and tombstones.
+    /// Results are sorted by key (BTreeSet iteration order).
     pub fn list_by_type(
         &self,
         branch_id: &BranchId,
@@ -922,22 +951,22 @@ impl ShardedSnapshot {
             .shards
             .get(branch_id)
             .map(|shard| {
-                let mut results: Vec<_> = shard
-                    .data
+                shard
+                    .ordered_keys
                     .iter()
-                    .filter(|(k, _)| k.type_tag == type_tag)
-                    .filter_map(|(k, chain)| {
-                        chain.get_at_version(self.version).and_then(|sv| {
-                            if !sv.is_expired() && !sv.is_tombstone() {
-                                Some((k.clone(), sv.versioned().clone()))
-                            } else {
-                                None
-                            }
+                    .filter(|k| k.type_tag == type_tag)
+                    .filter_map(|k| {
+                        shard.data.get(k).and_then(|chain| {
+                            chain.get_at_version(self.version).and_then(|sv| {
+                                if !sv.is_expired() && !sv.is_tombstone() {
+                                    Some((k.clone(), sv.versioned().clone()))
+                                } else {
+                                    None
+                                }
+                            })
                         })
                     })
-                    .collect();
-                results.sort_by(|(a, _), (b, _)| a.cmp(b));
-                results
+                    .collect()
             })
             .unwrap_or_default()
     }
@@ -1101,7 +1130,8 @@ impl Storage for ShardedStore {
 
     /// Scan keys with given prefix at or before max_version
     ///
-    /// Results are sorted by key order.
+    /// Uses BTreeSet range scan for O(log n + k) performance.
+    /// Results are sorted by key order (BTreeSet iteration is ordered).
     fn scan_prefix(
         &self,
         prefix: &Key,
@@ -1112,26 +1142,20 @@ impl Storage for ShardedStore {
             .shards
             .get(&branch_id)
             .map(|shard| {
-                let mut results: Vec<_> = shard
-                    .data
-                    .iter()
-                    .filter_map(|(k, chain)| {
-                        if !k.starts_with(prefix) {
-                            return None;
-                        }
-                        chain.get_at_version(max_version).and_then(|sv| {
-                            // Filter out expired values and tombstones
-                            if !sv.is_expired() && !sv.is_tombstone() {
-                                Some((k.clone(), sv.versioned().clone()))
-                            } else {
-                                None
-                            }
+                shard
+                    .keys_with_prefix(prefix)
+                    .filter_map(|k| {
+                        shard.data.get(k).and_then(|chain| {
+                            chain.get_at_version(max_version).and_then(|sv| {
+                                if !sv.is_expired() && !sv.is_tombstone() {
+                                    Some((k.clone(), sv.versioned().clone()))
+                                } else {
+                                    None
+                                }
+                            })
                         })
                     })
-                    .collect();
-
-                results.sort_by(|(a, _), (b, _)| a.cmp(b));
-                results
+                    .collect()
             })
             .unwrap_or_default())
     }
@@ -1226,6 +1250,7 @@ impl SnapshotView for ShardedSnapshot {
 
     /// Scan keys with prefix from snapshot
     ///
+    /// Uses BTreeSet range scan for O(log n + k) performance.
     /// Returns all matching keys at or before snapshot version.
     fn scan_prefix(&self, prefix: &Key) -> StrataResult<Vec<(Key, VersionedValue)>> {
         let branch_id = prefix.namespace.branch_id;
@@ -1234,26 +1259,20 @@ impl SnapshotView for ShardedSnapshot {
             .shards
             .get(&branch_id)
             .map(|shard| {
-                let mut results: Vec<_> = shard
-                    .data
-                    .iter()
-                    .filter_map(|(k, chain)| {
-                        if !k.starts_with(prefix) {
-                            return None;
-                        }
-                        chain.get_at_version(self.version).and_then(|sv| {
-                            // Filter out expired values and tombstones
-                            if !sv.is_expired() && !sv.is_tombstone() {
-                                Some((k.clone(), sv.versioned().clone()))
-                            } else {
-                                None
-                            }
+                shard
+                    .keys_with_prefix(prefix)
+                    .filter_map(|k| {
+                        shard.data.get(k).and_then(|chain| {
+                            chain.get_at_version(self.version).and_then(|sv| {
+                                if !sv.is_expired() && !sv.is_tombstone() {
+                                    Some((k.clone(), sv.versioned().clone()))
+                                } else {
+                                    None
+                                }
+                            })
                         })
                     })
-                    .collect();
-
-                results.sort_by(|(a, _), (b, _)| a.cmp(b));
-                results
+                    .collect()
             })
             .unwrap_or_default())
     }
@@ -3080,5 +3099,171 @@ mod tests {
             results[0].0.user_key_string().unwrap().contains("fresh"),
             "Only fresh key should be returned"
         );
+    }
+
+    // ========================================================================
+    // BTreeSet Index Tests
+    // ========================================================================
+
+    #[test]
+    fn test_ordered_keys_consistent_with_data() {
+        use strata_core::traits::Storage;
+        use strata_core::value::Value;
+
+        let store = ShardedStore::new();
+        let branch_id = BranchId::new();
+
+        // Insert keys
+        for i in 0..20 {
+            let key = create_test_key(branch_id, &format!("key_{:03}", i));
+            Storage::put(&store, key, Value::Int(i), None).unwrap();
+        }
+
+        // Overwrite some keys (should not duplicate in BTreeSet)
+        for i in 0..10 {
+            let key = create_test_key(branch_id, &format!("key_{:03}", i));
+            Storage::put(&store, key, Value::Int(i + 100), None).unwrap();
+        }
+
+        // Delete some keys (tombstone — key stays in both structures)
+        for i in 15..20 {
+            let key = create_test_key(branch_id, &format!("key_{:03}", i));
+            Storage::delete(&store, &key).unwrap();
+        }
+
+        let shard = store.shards.get(&branch_id).unwrap();
+        assert_eq!(
+            shard.ordered_keys.len(),
+            shard.data.len(),
+            "ordered_keys and data must have the same number of keys"
+        );
+
+        // Every key in ordered_keys must exist in data
+        for k in shard.ordered_keys.iter() {
+            assert!(shard.data.contains_key(k), "ordered_keys has key not in data");
+        }
+        // Every key in data must exist in ordered_keys
+        for k in shard.data.keys() {
+            assert!(
+                shard.ordered_keys.contains(k),
+                "data has key not in ordered_keys"
+            );
+        }
+    }
+
+    #[test]
+    fn test_prefix_scan_sorted_without_explicit_sort() {
+        use strata_core::traits::Storage;
+        use strata_core::types::Namespace;
+        use strata_core::value::Value;
+
+        let store = ShardedStore::new();
+        let branch_id = BranchId::new();
+        let ns = Namespace::for_branch(branch_id);
+
+        // Insert keys in reverse order
+        let names = vec!["user:zara", "user:mike", "user:alice", "user:bob", "user:charlie"];
+        for name in &names {
+            Storage::put(&store, Key::new_kv(ns.clone(), name), Value::Int(1), None).unwrap();
+        }
+
+        let prefix = Key::new_kv(ns.clone(), "user:");
+        let results = Storage::scan_prefix(&store, &prefix, u64::MAX).unwrap();
+
+        assert_eq!(results.len(), 5);
+        // Verify sorted order
+        for i in 0..results.len() - 1 {
+            assert!(
+                results[i].0 < results[i + 1].0,
+                "Results must be sorted: {:?} should be < {:?}",
+                results[i].0.user_key_string(),
+                results[i + 1].0.user_key_string(),
+            );
+        }
+    }
+
+    #[test]
+    fn test_prefix_scan_with_tombstones() {
+        use strata_core::traits::{SnapshotView, Storage};
+        use strata_core::types::Namespace;
+        use strata_core::value::Value;
+
+        let store = Arc::new(ShardedStore::new());
+        let branch_id = BranchId::new();
+        let ns = Namespace::for_branch(branch_id);
+
+        // Insert 3 keys at version 1, 2, 3
+        Storage::put(&*store, Key::new_kv(ns.clone(), "item:a"), Value::Int(1), None).unwrap();
+        Storage::put(&*store, Key::new_kv(ns.clone(), "item:b"), Value::Int(2), None).unwrap();
+        Storage::put(&*store, Key::new_kv(ns.clone(), "item:c"), Value::Int(3), None).unwrap();
+
+        // Take snapshot before delete (version = 3)
+        let snap_before = store.snapshot();
+
+        // Delete item:b (tombstone at version 4)
+        Storage::delete(&*store, &Key::new_kv(ns.clone(), "item:b")).unwrap();
+
+        // Take snapshot after delete (version = 4)
+        let snap_after = store.snapshot();
+
+        let prefix = Key::new_kv(ns.clone(), "item:");
+
+        // Snapshot before delete should see all 3
+        let results_before = SnapshotView::scan_prefix(&snap_before, &prefix).unwrap();
+        assert_eq!(results_before.len(), 3, "Pre-delete snapshot sees all 3 items");
+
+        // Snapshot after delete should see 2 (item:b is tombstoned)
+        let results_after = SnapshotView::scan_prefix(&snap_after, &prefix).unwrap();
+        assert_eq!(results_after.len(), 2, "Post-delete snapshot sees 2 items");
+        let keys_after: Vec<_> = results_after
+            .iter()
+            .map(|(k, _)| k.user_key_string().unwrap())
+            .collect();
+        assert!(keys_after.contains(&"item:a".to_string()));
+        assert!(keys_after.contains(&"item:c".to_string()));
+    }
+
+    #[test]
+    fn test_prefix_scan_scales_with_matches() {
+        use strata_core::traits::Storage;
+        use strata_core::types::Namespace;
+        use strata_core::value::Value;
+
+        let store = ShardedStore::new();
+        let branch_id = BranchId::new();
+        let ns = Namespace::for_branch(branch_id);
+
+        // Insert 5000 keys with prefix "alpha:" and 5000 with prefix "beta:"
+        for i in 0..5000 {
+            Storage::put(
+                &store,
+                Key::new_kv(ns.clone(), &format!("alpha:{:05}", i)),
+                Value::Int(i),
+                None,
+            )
+            .unwrap();
+            Storage::put(
+                &store,
+                Key::new_kv(ns.clone(), &format!("beta:{:05}", i)),
+                Value::Int(i),
+                None,
+            )
+            .unwrap();
+        }
+
+        // Scan "alpha:" should return exactly 5000
+        let prefix_a = Key::new_kv(ns.clone(), "alpha:");
+        let results_a = Storage::scan_prefix(&store, &prefix_a, u64::MAX).unwrap();
+        assert_eq!(results_a.len(), 5000, "alpha: prefix should match 5000 keys");
+
+        // Scan "beta:" should return exactly 5000
+        let prefix_b = Key::new_kv(ns.clone(), "beta:");
+        let results_b = Storage::scan_prefix(&store, &prefix_b, u64::MAX).unwrap();
+        assert_eq!(results_b.len(), 5000, "beta: prefix should match 5000 keys");
+
+        // Scan non-existent prefix should return 0
+        let prefix_none = Key::new_kv(ns.clone(), "gamma:");
+        let results_none = Storage::scan_prefix(&store, &prefix_none, u64::MAX).unwrap();
+        assert_eq!(results_none.len(), 0, "gamma: prefix should match 0 keys");
     }
 }
