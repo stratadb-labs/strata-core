@@ -4,7 +4,7 @@
 
 use std::sync::Arc;
 
-use strata_core::{StrataError, Value};
+use strata_core::Value;
 
 use crate::bridge::{
     extract_version, from_engine_metric, is_internal_collection, serde_json_to_value_public,
@@ -19,8 +19,14 @@ use crate::types::{
 use crate::{Output, Result};
 
 /// Convert an engine `VectorResult<T>` to an executor `Result<T>`.
-fn convert_vector_result<T>(r: std::result::Result<T, strata_engine::VectorError>) -> Result<T> {
-    convert_result(r.map_err(StrataError::from))
+///
+/// Accepts the `branch_id` so that error messages reference the actual branch
+/// instead of a placeholder UUID.
+fn convert_vector_result<T>(
+    r: std::result::Result<T, strata_engine::VectorError>,
+    branch_id: strata_core::BranchId,
+) -> Result<T> {
+    convert_result(r.map_err(|e| e.into_strata_error(branch_id)))
 }
 
 /// Convert engine `VectorEntry` to executor `VersionedVectorData`.
@@ -82,14 +88,17 @@ pub fn vector_upsert(
         .map(value_to_serde_json_public)
         .transpose()
         .map_err(crate::Error::from)?;
-    let version = convert_vector_result(p.vector.insert(
+    let version = convert_vector_result(
+        p.vector.insert(
+            branch_id,
+            &space,
+            &collection,
+            &key,
+            &vector,
+            json_metadata,
+        ),
         branch_id,
-        &space,
-        &collection,
-        &key,
-        &vector,
-        json_metadata,
-    ))?;
+    )?;
     Ok(Output::Version(extract_version(&version)))
 }
 
@@ -105,7 +114,8 @@ pub fn vector_get(
     convert_result(validate_key(&key))?;
     convert_result(validate_not_internal_collection(&collection))?;
 
-    let result = convert_vector_result(p.vector.get(branch_id, &space, &collection, &key))?;
+    let result =
+        convert_vector_result(p.vector.get(branch_id, &space, &collection, &key), branch_id)?;
     match result {
         Some(versioned) => {
             let version = extract_version(&versioned.version);
@@ -128,7 +138,8 @@ pub fn vector_delete(
     let branch_id = to_core_branch_id(&branch)?;
     convert_result(validate_key(&key))?;
     convert_result(validate_not_internal_collection(&collection))?;
-    let existed = convert_vector_result(p.vector.delete(branch_id, &space, &collection, &key))?;
+    let existed =
+        convert_vector_result(p.vector.delete(branch_id, &space, &collection, &key), branch_id)?;
     Ok(Output::Bool(existed))
 }
 
@@ -148,14 +159,17 @@ pub fn vector_search(
     convert_result(validate_not_internal_collection(&collection))?;
 
     let engine_filter = filter.as_ref().and_then(|f| to_engine_filter(f));
-    let matches = convert_vector_result(p.vector.search(
+    let matches = convert_vector_result(
+        p.vector.search(
+            branch_id,
+            &space,
+            &collection,
+            &query,
+            k as usize,
+            engine_filter,
+        ),
         branch_id,
-        &space,
-        &collection,
-        &query,
-        k as usize,
-        engine_filter,
-    ))?;
+    )?;
 
     let results: Result<Vec<VectorMatch>> = matches.into_iter().map(to_vector_match).collect();
     Ok(Output::VectorMatches(results?))
@@ -177,11 +191,11 @@ pub fn vector_create_collection(
         dimension as usize,
         to_engine_metric(metric),
     ))?;
-    let versioned =
-        convert_vector_result(
-            p.vector
-                .create_collection(branch_id, &space, &collection, config),
-        )?;
+    let versioned = convert_vector_result(
+        p.vector
+            .create_collection(branch_id, &space, &collection, config),
+        branch_id,
+    )?;
     Ok(Output::Version(extract_version(&versioned.version)))
 }
 
@@ -199,7 +213,7 @@ pub fn vector_delete_collection(
     match p.vector.delete_collection(branch_id, &space, &collection) {
         Ok(()) => Ok(Output::Bool(true)),
         Err(strata_engine::VectorError::CollectionNotFound { .. }) => Ok(Output::Bool(false)),
-        Err(e) => Err(StrataError::from(e).into()),
+        Err(e) => Err(e.into_strata_error(branch_id).into()),
     }
 }
 
@@ -210,7 +224,8 @@ pub fn vector_list_collections(
     space: String,
 ) -> Result<Output> {
     let branch_id = to_core_branch_id(&branch)?;
-    let collections = convert_vector_result(p.vector.list_collections(branch_id, &space))?;
+    let collections =
+        convert_vector_result(p.vector.list_collections(branch_id, &space), branch_id)?;
 
     // Filter out internal collections (starting with '_')
     let infos: Vec<CollectionInfo> = collections
@@ -245,7 +260,8 @@ pub fn vector_collection_stats(
     let branch_id = to_core_branch_id(&branch)?;
     convert_result(validate_not_internal_collection(&collection))?;
 
-    let collections = convert_vector_result(p.vector.list_collections(branch_id, &space))?;
+    let collections =
+        convert_vector_result(p.vector.list_collections(branch_id, &space), branch_id)?;
     let info = collections
         .into_iter()
         .find(|c| c.name == collection)
@@ -292,12 +308,15 @@ pub fn vector_batch_upsert(
         engine_entries.push((entry.key, entry.vector, json_metadata));
     }
 
-    let versions = convert_vector_result(p.vector.batch_insert(
+    let versions = convert_vector_result(
+        p.vector.batch_insert(
+            branch_id,
+            &space,
+            &collection,
+            engine_entries,
+        ),
         branch_id,
-        &space,
-        &collection,
-        engine_entries,
-    ))?;
+    )?;
 
     let version_nums: Vec<u64> = versions.iter().map(extract_version).collect();
     Ok(Output::Versions(version_nums))

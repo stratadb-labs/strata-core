@@ -146,9 +146,37 @@ pub type VectorResult<T> = Result<T, VectorError>;
 // Conversion to StrataError
 // =============================================================================
 
+impl VectorError {
+    /// Convert to `StrataError` with the actual branch context.
+    ///
+    /// Prefer this over the `From` impl when `branch_id` is available,
+    /// so that `EntityRef` fields contain the real branch instead of a placeholder.
+    pub fn into_strata_error(self, branch_id: BranchId) -> StrataError {
+        match self {
+            VectorError::CollectionNotFound { name } => StrataError::NotFound {
+                entity_ref: EntityRef::vector(branch_id, name, ""),
+            },
+            VectorError::CollectionAlreadyExists { name } => StrataError::InvalidOperation {
+                entity_ref: EntityRef::vector(branch_id, name, ""),
+                reason: "Collection already exists".to_string(),
+            },
+            VectorError::VectorNotFound { key } => StrataError::NotFound {
+                entity_ref: EntityRef::vector(branch_id, "unknown", key),
+            },
+            VectorError::ConfigMismatch { collection, field } => StrataError::InvalidOperation {
+                entity_ref: EntityRef::vector(branch_id, collection, ""),
+                reason: format!("Config field '{}' cannot be changed", field),
+            },
+            // Remaining variants don't use branch context — delegate to From impl
+            other => StrataError::from(other),
+        }
+    }
+}
+
 impl From<VectorError> for StrataError {
     fn from(e: VectorError) -> Self {
-        // Use a placeholder branch_id since VectorError doesn't have branch context
+        // Fallback conversion without branch context.
+        // Prefer `VectorError::into_strata_error(branch_id)` when the branch is known.
         let placeholder_branch_id = BranchId::new();
 
         match e {
