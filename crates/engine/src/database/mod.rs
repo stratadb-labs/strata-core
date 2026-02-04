@@ -773,7 +773,11 @@ impl Database {
             }
         }
 
-        Err(last_error.unwrap_or_else(|| StrataError::conflict("Max retries exceeded".to_string())))
+        // Unreachable: the loop always returns — either Ok on success,
+        // Err on non-conflict or final attempt. This is a defensive fallback.
+        Err(last_error.unwrap_or_else(|| {
+            StrataError::internal("retry loop exited without returning a result".to_string())
+        }))
     }
 
     /// Begin a new transaction (for manual control)

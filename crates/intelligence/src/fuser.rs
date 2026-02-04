@@ -230,7 +230,11 @@ impl Fuser for RRFFuser {
             .take(k)
             .enumerate()
             .map(|(i, (doc_ref, rrf_score))| {
-                let mut hit = hit_data.remove(&doc_ref).unwrap();
+                // Invariant: every doc_ref in scored was inserted into hit_data
+                // in the same loop (lines 188-191), so this key always exists.
+                let mut hit = hit_data.remove(&doc_ref).expect(
+                    "invariant violation: scored doc_ref must exist in hit_data",
+                );
                 hit.score = rrf_score;
                 hit.rank = (i + 1) as u32;
                 hit
