@@ -107,7 +107,7 @@ These always execute directly, regardless of transaction state:
 | Category | Commands |
 |----------|----------|
 | **Vector** | All vector operations |
-| **Branch** | RunCreate, RunGet, RunList, BranchExists, RunDelete |
+| **Branch** | BranchCreate, BranchGet, BranchList, BranchExists, BranchDelete |
 | **Database** | Ping, Info, Flush, Compact |
 | **Retention** | RetentionApply, RetentionStats, RetentionPreview |
 

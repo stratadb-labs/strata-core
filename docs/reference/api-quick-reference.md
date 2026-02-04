@@ -102,9 +102,9 @@ Every method on the `Strata` struct, grouped by category.
 
 | Method | Signature | Returns |
 |--------|-----------|---------|
-| `branch_export` | `(branch_id: &str, path: &str) -> Result<RunExportResult>` | Export info |
-| `branch_import` | `(path: &str) -> Result<RunImportResult>` | Import info |
-| `run_validate_bundle` | `(path: &str) -> Result<BundleValidateResult>` | Validation info |
+| `branch_export` | `(branch_id: &str, path: &str) -> Result<BranchExportResult>` | Export info |
+| `branch_import` | `(path: &str) -> Result<BranchImportResult>` | Import info |
+| `branch_validate_bundle` | `(path: &str) -> Result<BundleValidateResult>` | Validation info |
 
 ## Branches Power API
 
@@ -117,7 +117,7 @@ Methods on the `Branches` handle returned by `db.branches()`:
 | `create` | `(name: &str) -> Result<()>` | Creates empty branch |
 | `delete` | `(name: &str) -> Result<()>` | Deletes branch |
 | `fork` | `(dest: &str) -> Result<()>` | **Not yet implemented** |
-| `diff` | `(run1: &str, run2: &str) -> Result<BranchDiff>` | **Not yet implemented** |
+| `diff` | `(branch1: &str, branch2: &str) -> Result<BranchDiff>` | **Not yet implemented** |
 
 ## Session
 

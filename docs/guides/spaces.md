@@ -41,7 +41,7 @@ db.kv_put("msg_001", "hello")?;     // creates "conversations" space
 
 // Switch to another space
 db.set_space("tool-results")?;
-db.kv_put("run_42", "done")?;       // creates "tool-results" space
+db.kv_put("task_42", "done")?;       // creates "tool-results" space
 
 // List all spaces
 let spaces = db.list_spaces()?;
@@ -155,7 +155,7 @@ std::thread::spawn(move || {
 
 std::thread::spawn(move || {
     handle_b.set_space("tool-results").unwrap();
-    handle_b.kv_put("run_42", "done").unwrap();
+    handle_b.kv_put("task_42", "done").unwrap();
 });
 // No interference — each handle has its own active space.
 ```
@@ -176,7 +176,7 @@ db.event_append("tool_call", serde_json::json!({"tool": "weather_api"}).into())?
 
 // Tool results
 db.set_space("tool-results")?;
-db.kv_put("weather_api:run_1", serde_json::json!({"temp": 72, "conditions": "sunny"}))?;
+db.kv_put("weather_api:call_1", serde_json::json!({"temp": 72, "conditions": "sunny"}))?;
 
 // User preferences
 db.set_space("user-context")?;
@@ -207,11 +207,11 @@ let mut db = Strata::open("/data/ml")?;
 db.set_space("hyperparams")?;
 db.kv_put("config", serde_json::json!({"lr": 0.001, "epochs": 10}))?;
 
-// Results per experiment run
-db.set_space("run-001")?;
+// Results per experiment
+db.set_space("experiment-001")?;
 db.kv_put("metrics", serde_json::json!({"loss": 0.42, "accuracy": 0.87}))?;
 
-db.set_space("run-002")?;
+db.set_space("experiment-002")?;
 db.kv_put("metrics", serde_json::json!({"loss": 0.38, "accuracy": 0.89}))?;
 ```
 

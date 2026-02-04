@@ -112,7 +112,7 @@ assert!(!db.branches().exists("experiment")?);
 
 ## Low-Level Branch API
 
-For more control, use the lower-level `run_*` methods that return full `RunInfo`:
+For more control, use the lower-level `branch_*` methods that return full `BranchInfo`:
 
 ```rust
 let db = Strata::cache()?;
@@ -146,7 +146,7 @@ db.branch_delete("my-branch-id")?;
 These operations are planned but not yet implemented:
 
 - **`fork_branch(destination)`** — Copy all data from the current branch to a new branch
-- **`branches().diff(run1, run2)`** — Compare two branches and return their differences
+- **`branches().diff(branch1, branch2)`** — Compare two branches and return their differences
 
 Both currently return `NotImplemented` errors:
 

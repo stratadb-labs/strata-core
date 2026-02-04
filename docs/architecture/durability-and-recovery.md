@@ -133,13 +133,13 @@ Branch bundles package a single branch's data into a portable archive.
 
 ```
 <branch_id>.branchbundle.tar.zst
-  runbundle/
+  branchbundle/
     MANIFEST.json     # Format version (1), xxh3 file checksums
     BRANCH.json          # Branch metadata (id, status, tags, timestamps)
-    WAL.runlog        # Binary WAL entries for this branch
+    WAL.branchlog     # Binary WAL entries for this branch
 ```
 
-### WAL.runlog Format
+### WAL.branchlog Format
 
 ```
 Header (16 bytes):
@@ -158,7 +158,7 @@ Per entry:
 1. Decompress and untar the archive
 2. Validate MANIFEST checksums
 3. Parse BRANCH.json for branch metadata
-4. Read WAL.runlog entries
+4. Read WAL.branchlog entries
 5. Replay entries into the target database (same as crash recovery)
 
 ## Design Principles

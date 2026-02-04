@@ -78,9 +78,9 @@ This reference is primarily for SDK builders and contributors. Most users should
 
 | Command | Fields | Output |
 |---------|--------|--------|
-| `RunCreate` | `branch_id?`, `metadata?` | `RunWithVersion { info, version }` |
+| `BranchCreate` | `branch_id?`, `metadata?` | `BranchWithVersion { info, version }` |
 | `BranchGet` | `branch` | `BranchInfoVersioned(info)` or `Maybe(None)` |
-| `RunList` | `state?`, `limit?`, `offset?` | `RunInfoList(Vec<VersionedBranchInfo>)` |
+| `BranchList` | `state?`, `limit?`, `offset?` | `BranchInfoList(Vec<VersionedBranchInfo>)` |
 | `BranchExists` | `branch` | `Bool(exists)` |
 | `BranchDelete` | `branch` | `Unit` |
 
@@ -116,9 +116,9 @@ This reference is primarily for SDK builders and contributors. Most users should
 
 | Command | Fields | Output |
 |---------|--------|--------|
-| `RunExport` | `branch_id`, `path` | `RunExported(result)` |
-| `RunImport` | `path` | `RunImported(result)` |
-| `RunBundleValidate` | `path` | `BundleValidated(result)` |
+| `BranchExport` | `branch_id`, `path` | `BranchExported(result)` |
+| `BranchImport` | `path` | `BranchImported(result)` |
+| `BranchBundleValidate` | `path` | `BundleValidated(result)` |
 
 ## Retention Commands
 

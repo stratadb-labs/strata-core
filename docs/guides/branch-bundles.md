@@ -23,7 +23,7 @@ println!("Size: {} bytes", result.bundle_size);
 The export creates a compressed tar archive containing:
 - `MANIFEST.json` — format version and file checksums
 - `BRANCH.json` — branch metadata (ID, status, tags, timestamps)
-- `WAL.runlog` — all WAL entries for that branch
+- `WAL.branchlog` — all WAL entries for that branch
 
 ## Import
 
@@ -43,7 +43,7 @@ The imported branch becomes available immediately. You can switch to it with `se
 Check a bundle's integrity without importing:
 
 ```rust
-let result = db.run_validate_bundle("./exports/my-branch.branchbundle.tar.zst")?;
+let result = db.branch_validate_bundle("./exports/my-branch.branchbundle.tar.zst")?;
 println!("Branch ID: {}", result.branch_id);
 println!("Format version: {}", result.format_version);
 println!("Entry count: {}", result.entry_count);
@@ -56,13 +56,13 @@ Bundles use the `.branchbundle.tar.zst` format — a zstd-compressed tar archive
 
 ```
 <branch_id>.branchbundle.tar.zst
-  runbundle/
+  branchbundle/
     MANIFEST.json     # Format version, xxh3 checksums
     BRANCH.json          # Branch metadata
-    WAL.runlog        # Binary WAL entries with per-entry CRC32
+    WAL.branchlog     # Binary WAL entries with per-entry CRC32
 ```
 
-### WAL.runlog Format
+### WAL.branchlog Format
 
 ```
 Header (16 bytes):
