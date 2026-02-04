@@ -10,6 +10,7 @@ Detailed walkthroughs for each StrataDB feature.
 - **[JSON Store](json-store.md)** — structured documents with path-level access
 - **[Vector Store](vector-store.md)** — collections, similarity search, metadata filtering
 - **[Branch Management](branch-management.md)** — creating, switching, listing, and deleting branches
+- **[Spaces](spaces.md)** — organizing data within branches using spaces
 
 ## Cross-Cutting Guides
 
@@ -18,3 +19,4 @@ Detailed walkthroughs for each StrataDB feature.
 - **[Database Configuration](database-configuration.md)** — opening methods, durability modes
 - **[Branch Bundles](branch-bundles.md)** — exporting and importing branches
 - **[Error Handling](error-handling.md)** — error categories and patterns
+- **[Observability](observability.md)** — structured logging with `tracing` subsystem targets

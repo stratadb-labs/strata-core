@@ -26,6 +26,18 @@ Every method on the `Strata` struct, grouped by category.
 | `fork_branch` | `(dest: &str) -> Result<()>` | **Not yet implemented** |
 | `branches` | `() -> Branches<'_>` | Power API handle |
 
+## Space Context
+
+| Method | Signature | Returns |
+|--------|-----------|---------|
+| `current_space` | `() -> &str` | Current space name |
+| `set_space` | `(name: &str) -> Result<()>` | Switches current space |
+| `list_spaces` | `() -> Result<Vec<String>>` | All space names in current branch |
+| `delete_space` | `(name: &str) -> Result<()>` | Deletes empty space |
+| `delete_space_force` | `(name: &str) -> Result<()>` | Deletes space and all its data |
+
+> **Note:** All data methods (KV, Event, State, JSON, Vector) operate on the current space set via `set_space`. The default space is `"default"`.
+
 ## KV Store
 
 | Method | Signature | Returns | Notes |

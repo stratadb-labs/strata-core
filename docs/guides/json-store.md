@@ -161,6 +161,21 @@ db.json_set("agent:001:config", "$.model", "gpt-4-turbo")?;
 
 JSON documents are isolated by branch, like all primitives.
 
+## Space Isolation
+
+Within a branch, JSON documents are scoped to the current space:
+
+```rust
+let mut db = Strata::cache()?;
+
+db.json_set("config", "$", serde_json::json!({"debug": true}).into())?;
+
+db.set_space("other")?;
+assert!(db.json_get("config", "$")?.is_none()); // separate documents per space
+```
+
+See [Spaces](spaces.md) for the full guide.
+
 ## Transactions
 
 JSON set, get, and delete operations participate in transactions. Path-level updates to different fields of the same document can be made by concurrent transactions — sibling paths don't conflict.

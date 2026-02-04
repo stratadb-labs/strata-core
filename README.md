@@ -22,6 +22,27 @@ db.state_cas("lock", None, "acquired")?;
 | **Vector Store** | Embeddings and similarity search (brute-force + HNSW) | `vector_upsert`, `vector_search`, `vector_batch_upsert` |
 | **Branch** | Data isolation (like git branches) | `create_branch`, `set_branch`, `list_branches`, `delete_branch` |
 
+## Spaces
+
+Spaces are organizational namespaces within branches. Each space has its own independent instance of every primitive:
+
+```rust
+let mut db = Strata::cache()?;
+
+// All operations go to the "default" space unless you switch
+db.kv_put("key", "value")?;
+
+// Switch to a named space
+db.set_space("conversations")?;
+db.kv_put("msg_001", "hello")?;    // isolated from default space
+
+// List and manage spaces
+let spaces = db.list_spaces()?;     // → ["conversations", "default"]
+db.set_space("default")?;           // switch back
+```
+
+Spaces are auto-created on first write. The `default` space always exists.
+
 ## Installation
 
 Add to your `Cargo.toml`:
@@ -110,7 +131,7 @@ Choose your speed/safety trade-off:
 
 ```
 +-----------------------------------------------------------+
-|  Strata API (KV, Event, State, JSON, Vector, Branch)      |
+|  Strata API (KV, Event, State, JSON, Vector, Branch, Space)|
 +-----------------------------------------------------------+
 |  Executor (Command dispatch) / Session (Transactions)     |
 +-----------------------------------------------------------+
@@ -135,6 +156,7 @@ Choose your speed/safety trade-off:
 - **Optimistic concurrency** — lock-free transactions via compare-and-swap; agents rarely conflict
 - **Batched durability** — fsync batched by default; losing 100ms of work is acceptable for most agents
 - **Pluggable vector indexing** — swap between brute-force O(n) and HNSW O(log n) per collection
+- **Space-scoped data** — within each branch, data is further organized into spaces, enabling logical separation without branch overhead
 
 ## Documentation
 

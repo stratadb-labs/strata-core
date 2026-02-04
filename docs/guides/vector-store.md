@@ -248,6 +248,23 @@ for m in &results {
 
 Vector collections and their data are isolated by branch.
 
+## Space Isolation
+
+Within a branch, vector collections are scoped to the current space. Each space has its own independent set of collections:
+
+```rust
+let mut db = Strata::cache()?;
+
+db.vector_create_collection("docs", 4, DistanceMetric::Cosine)?;
+db.vector_upsert("docs", "item-1", vec![1.0, 0.0, 0.0, 0.0], None)?;
+
+db.set_space("other")?;
+let collections = db.vector_list_collections()?;
+assert!(collections.is_empty()); // separate collections per space
+```
+
+See [Spaces](spaces.md) for the full guide.
+
 ## Transactions
 
 Vector operations **do not** participate in transactions. They are executed immediately and are always visible, even within a session that has an active transaction.

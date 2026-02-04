@@ -136,6 +136,21 @@ let count = current.as_int().unwrap();
 
 State cells are isolated by branch, like all primitives.
 
+## Space Isolation
+
+Within a branch, state cells are scoped to the current space:
+
+```rust
+let mut db = Strata::cache()?;
+
+db.state_set("status", "active")?;
+
+db.set_space("other")?;
+assert_eq!(db.state_read("status")?, None); // separate state per space
+```
+
+See [Spaces](spaces.md) for the full guide.
+
 ## Transactions
 
 State cell operations (read, init, CAS) participate in transactions.

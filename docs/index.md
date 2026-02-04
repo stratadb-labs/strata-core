@@ -8,6 +8,7 @@ Welcome to the StrataDB documentation. StrataDB is an embedded database for AI a
 |---|---|
 | Install StrataDB and run my first example | [Getting Started](getting-started/installation.md) |
 | Understand what branches are and how data isolation works | [Concepts: Branches](concepts/branches.md) |
+| Organize data within branches using spaces | [Guide: Spaces](guides/spaces.md) |
 | Learn how to use a specific primitive | [Guides](guides/index.md) |
 | See every method at a glance | [API Quick Reference](reference/api-quick-reference.md) |
 | Build a real-world pattern (agent state, RAG, etc.) | [Cookbook](cookbook/index.md) |
@@ -26,7 +27,7 @@ Core ideas you need to understand: [branches](concepts/branches.md), [primitives
 
 ### [Guides](guides/index.md)
 
-Per-primitive walkthroughs: [KV Store](guides/kv-store.md), [Event Log](guides/event-log.md), [State Cell](guides/state-cell.md), [JSON Store](guides/json-store.md), [Vector Store](guides/vector-store.md), [Branch Management](guides/branch-management.md). Plus cross-cutting guides on [search](guides/search.md), [sessions and transactions](guides/sessions-and-transactions.md), [branch bundles](guides/branch-bundles.md), [configuration](guides/database-configuration.md), and [error handling](guides/error-handling.md).
+Per-primitive walkthroughs: [KV Store](guides/kv-store.md), [Event Log](guides/event-log.md), [State Cell](guides/state-cell.md), [JSON Store](guides/json-store.md), [Vector Store](guides/vector-store.md), [Branch Management](guides/branch-management.md). Plus cross-cutting guides on [spaces](guides/spaces.md), [observability](guides/observability.md), [search](guides/search.md), [sessions and transactions](guides/sessions-and-transactions.md), [branch bundles](guides/branch-bundles.md), [configuration](guides/database-configuration.md), and [error handling](guides/error-handling.md).
 
 ### [Cookbook](cookbook/index.md)
 

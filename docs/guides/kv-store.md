@@ -123,6 +123,28 @@ db.set_branch("other")?;
 assert!(db.kv_get("key")?.is_none()); // Not visible in other branch
 ```
 
+## Space Isolation
+
+Within a branch, KV data is further organized by space. Each space has independent keys:
+
+```rust
+let mut db = Strata::cache()?;
+
+db.kv_put("config", "default-value")?;
+
+// Switch to a different space
+db.set_space("experiments")?;
+assert!(db.kv_get("config")?.is_none()); // not visible in this space
+
+db.kv_put("config", "experiment-value")?;
+
+// Switch back — original data is untouched
+db.set_space("default")?;
+assert_eq!(db.kv_get("config")?, Some(Value::String("default-value".into())));
+```
+
+See [Spaces](spaces.md) for the full guide.
+
 ## Transactions
 
 KV operations participate in transactions. Within a `Session`, reads and writes are atomic:

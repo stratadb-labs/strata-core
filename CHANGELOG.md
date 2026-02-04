@@ -4,6 +4,17 @@ All notable changes to StrataDB are documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.5.1] - 2026-02-04
+
+### Added
+
+- **Spaces**: organizational namespaces within branches. Each branch contains one or more spaces, each with independent instances of all primitives (KV, Event, State, JSON, Vector). API: `set_space`, `current_space`, `list_spaces`, `delete_space`, `delete_space_force`.
+- **Space auto-registration**: spaces are created on first write — no explicit `create_space` needed. The `default` space always exists and cannot be deleted.
+- **Space parameter on all data commands**: `KvPut`, `KvGet`, `KvDelete`, `KvList`, `KvGetv`, `JsonSet`, `JsonGet`, `JsonDelete`, `JsonGetv`, `JsonList`, `EventAppend`, `EventRead`, `EventReadByType`, `EventLen`, `StateSet`, `StateRead`, `StateCas`, `StateInit`, `StateReadv`, `VectorUpsert`, `VectorBatchUpsert`, `VectorGet`, `VectorDelete`, `VectorSearch`, `VectorCreateCollection`, `VectorDeleteCollection`, `VectorListCollections`, `VectorCollectionStats` all accept an optional `space` field. When `None`, defaults to the current space on the handle (initially `"default"`).
+- **Space commands**: `SpaceList`, `SpaceCreate`, `SpaceDelete` (with `force` flag), `SpaceExists` command variants for SDK builders.
+- **Structured logging**: `tracing` instrumentation across 10 subsystem targets — `strata::branch`, `strata::vector`, `strata::space`, `strata::db`, `strata::txn`, `strata::command`, `strata::wal`, `strata::snapshot`, `strata::recovery`, `strata::compaction`. Zero overhead unless a `tracing` subscriber is wired up by the caller. Configurable per-subsystem log levels via standard `RUST_LOG` filtering (e.g. `RUST_LOG=strata::txn=debug`).
+- **`tracing` dependency**: added to executor and engine crates for structured span and event instrumentation.
+
 ## [0.4.0] - 2026-02-03
 
 ### Added

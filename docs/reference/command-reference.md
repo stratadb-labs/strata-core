@@ -14,6 +14,7 @@ This reference is primarily for SDK builders and contributors. Most users should
 | State | 5 | State cell operations |
 | Vector | 9 | Vector store operations |
 | Branch | 5 | Branch lifecycle operations |
+| Space | 4 | Space management operations |
 | Transaction | 5 | Transaction control |
 | Retention | 3 | Retention policy |
 | Database | 4 | Database-level operations |
@@ -24,54 +25,54 @@ This reference is primarily for SDK builders and contributors. Most users should
 
 | Command | Fields | Output |
 |---------|--------|--------|
-| `KvPut` | `branch?`, `key`, `value` | `Version(u64)` |
-| `KvGet` | `branch?`, `key` | `Maybe(Option<Value>)` |
-| `KvDelete` | `branch?`, `key` | `Bool(existed)` |
-| `KvList` | `branch?`, `prefix?` | `Keys(Vec<String>)` |
-| `KvGetv` | `branch?`, `key` | `VersionHistory(Option<Vec<VersionedValue>>)` |
+| `KvPut` | `branch?`, `space?`, `key`, `value` | `Version(u64)` |
+| `KvGet` | `branch?`, `space?`, `key` | `Maybe(Option<Value>)` |
+| `KvDelete` | `branch?`, `space?`, `key` | `Bool(existed)` |
+| `KvList` | `branch?`, `space?`, `prefix?` | `Keys(Vec<String>)` |
+| `KvGetv` | `branch?`, `space?`, `key` | `VersionHistory(Option<Vec<VersionedValue>>)` |
 
 ## JSON Commands
 
 | Command | Fields | Output |
 |---------|--------|--------|
-| `JsonSet` | `branch?`, `key`, `path`, `value` | `Version(u64)` |
-| `JsonGet` | `branch?`, `key`, `path` | `Maybe(Option<Value>)` |
-| `JsonDelete` | `branch?`, `key`, `path` | `Uint(count)` |
-| `JsonGetv` | `branch?`, `key` | `VersionHistory(Option<Vec<VersionedValue>>)` |
-| `JsonList` | `branch?`, `prefix?`, `cursor?`, `limit` | `JsonListResult { keys, cursor }` |
+| `JsonSet` | `branch?`, `space?`, `key`, `path`, `value` | `Version(u64)` |
+| `JsonGet` | `branch?`, `space?`, `key`, `path` | `Maybe(Option<Value>)` |
+| `JsonDelete` | `branch?`, `space?`, `key`, `path` | `Uint(count)` |
+| `JsonGetv` | `branch?`, `space?`, `key` | `VersionHistory(Option<Vec<VersionedValue>>)` |
+| `JsonList` | `branch?`, `space?`, `prefix?`, `cursor?`, `limit` | `JsonListResult { keys, cursor }` |
 
 ## Event Commands
 
 | Command | Fields | Output |
 |---------|--------|--------|
-| `EventAppend` | `branch?`, `event_type`, `payload` | `Version(u64)` |
-| `EventRead` | `branch?`, `sequence` | `MaybeVersioned(Option<VersionedValue>)` |
-| `EventReadByType` | `branch?`, `event_type` | `VersionedValues(Vec<VersionedValue>)` |
-| `EventLen` | `branch?` | `Uint(count)` |
+| `EventAppend` | `branch?`, `space?`, `event_type`, `payload` | `Version(u64)` |
+| `EventRead` | `branch?`, `space?`, `sequence` | `MaybeVersioned(Option<VersionedValue>)` |
+| `EventReadByType` | `branch?`, `space?`, `event_type` | `VersionedValues(Vec<VersionedValue>)` |
+| `EventLen` | `branch?`, `space?` | `Uint(count)` |
 
 ## State Commands
 
 | Command | Fields | Output |
 |---------|--------|--------|
-| `StateSet` | `branch?`, `cell`, `value` | `Version(u64)` |
-| `StateRead` | `branch?`, `cell` | `Maybe(Option<Value>)` |
-| `StateCas` | `branch?`, `cell`, `expected_counter?`, `value` | `MaybeVersion(Option<u64>)` |
-| `StateInit` | `branch?`, `cell`, `value` | `Version(u64)` |
-| `StateReadv` | `branch?`, `cell` | `VersionHistory(Option<Vec<VersionedValue>>)` |
+| `StateSet` | `branch?`, `space?`, `cell`, `value` | `Version(u64)` |
+| `StateRead` | `branch?`, `space?`, `cell` | `Maybe(Option<Value>)` |
+| `StateCas` | `branch?`, `space?`, `cell`, `expected_counter?`, `value` | `MaybeVersion(Option<u64>)` |
+| `StateInit` | `branch?`, `space?`, `cell`, `value` | `Version(u64)` |
+| `StateReadv` | `branch?`, `space?`, `cell` | `VersionHistory(Option<Vec<VersionedValue>>)` |
 
 ## Vector Commands
 
 | Command | Fields | Output |
 |---------|--------|--------|
-| `VectorCreateCollection` | `branch?`, `collection`, `dimension`, `metric` | `Version(u64)` |
-| `VectorDeleteCollection` | `branch?`, `collection` | `Bool(existed)` |
-| `VectorListCollections` | `branch?` | `VectorCollectionList(Vec<CollectionInfo>)` |
-| `VectorCollectionStats` | `branch?`, `collection` | `VectorCollectionList(Vec<CollectionInfo>)` |
-| `VectorUpsert` | `branch?`, `collection`, `key`, `vector`, `metadata?` | `Version(u64)` |
-| `VectorBatchUpsert` | `branch?`, `collection`, `entries` | `Versions(Vec<u64>)` |
-| `VectorGet` | `branch?`, `collection`, `key` | `VectorData(Option<VersionedVectorData>)` |
-| `VectorDelete` | `branch?`, `collection`, `key` | `Bool(existed)` |
-| `VectorSearch` | `branch?`, `collection`, `query`, `k`, `filter?`, `metric?` | `VectorMatches(Vec<VectorMatch>)` |
+| `VectorCreateCollection` | `branch?`, `space?`, `collection`, `dimension`, `metric` | `Version(u64)` |
+| `VectorDeleteCollection` | `branch?`, `space?`, `collection` | `Bool(existed)` |
+| `VectorListCollections` | `branch?`, `space?` | `VectorCollectionList(Vec<CollectionInfo>)` |
+| `VectorCollectionStats` | `branch?`, `space?`, `collection` | `VectorCollectionList(Vec<CollectionInfo>)` |
+| `VectorUpsert` | `branch?`, `space?`, `collection`, `key`, `vector`, `metadata?` | `Version(u64)` |
+| `VectorBatchUpsert` | `branch?`, `space?`, `collection`, `entries` | `Versions(Vec<u64>)` |
+| `VectorGet` | `branch?`, `space?`, `collection`, `key` | `VectorData(Option<VersionedVectorData>)` |
+| `VectorDelete` | `branch?`, `space?`, `collection`, `key` | `Bool(existed)` |
+| `VectorSearch` | `branch?`, `space?`, `collection`, `query`, `k`, `filter?`, `metric?` | `VectorMatches(Vec<VectorMatch>)` |
 
 ## Branch Commands
 
@@ -82,6 +83,15 @@ This reference is primarily for SDK builders and contributors. Most users should
 | `RunList` | `state?`, `limit?`, `offset?` | `RunInfoList(Vec<VersionedBranchInfo>)` |
 | `BranchExists` | `branch` | `Bool(exists)` |
 | `BranchDelete` | `branch` | `Unit` |
+
+## Space Commands
+
+| Command | Fields | Output |
+|---------|--------|--------|
+| `SpaceList` | `branch?` | `SpaceList(Vec<String>)` |
+| `SpaceCreate` | `branch?`, `space` | `Unit` |
+| `SpaceDelete` | `branch?`, `space`, `force` | `Unit` |
+| `SpaceExists` | `branch?`, `space` | `Bool(exists)` |
 
 ## Transaction Commands
 
@@ -127,6 +137,10 @@ This reference is primarily for SDK builders and contributors. Most users should
 ## Branch Field Convention
 
 Data-scoped commands have an optional `branch` field. When `None`, it defaults to the "default" branch. Branch lifecycle commands (BranchGet, BranchDelete, etc.) have a required `branch` field.
+
+## Space Field Convention
+
+Data-scoped commands have an optional `space` field. When `None`, it defaults to the current space on the handle (initially `"default"`). Space lifecycle commands (`SpaceList`, `SpaceCreate`, `SpaceDelete`, `SpaceExists`) do not have a `space` field — they operate on spaces within the specified branch.
 
 ## Serialization
 

@@ -45,6 +45,23 @@ StrataDB provides **six data primitives** — purpose-built data structures that
 
 Every primitive is isolated by the current branch. Data written in one branch is invisible from another. See [Branches](branches.md) for details.
 
+### Space Organization Within Branches
+
+Within a branch, primitives are further organized by **space**. Each space has its own independent instance of every primitive. The `default` space is implicit — all operations target it unless you switch with `set_space`.
+
+```rust
+let mut db = Strata::cache()?;
+
+// Default space
+db.kv_put("key", "default-value")?;
+
+// Switch space — data is separate
+db.set_space("experiments")?;
+assert!(db.kv_get("key")?.is_none()); // not visible in this space
+```
+
+Spaces are organizational, not isolation boundaries. Transactions can span multiple spaces within the same branch. See [Spaces](../guides/spaces.md) for the full guide.
+
 ## All Primitives Use Value
 
 Every primitive stores data as [`Value`](value-types.md) — StrataDB's 8-variant type system. You pass Rust types directly (strings, integers, bools) and they convert automatically via `Into<Value>`.

@@ -136,6 +136,22 @@ db.set_branch("other")?;
 assert_eq!(db.event_len()?, 0); // Isolated
 ```
 
+## Space Isolation
+
+Within a branch, events are scoped to the current space:
+
+```rust
+let mut db = Strata::cache()?;
+
+db.event_append("log", serde_json::json!({"msg": "in default space"}).into())?;
+assert_eq!(db.event_len()?, 1);
+
+db.set_space("other")?;
+assert_eq!(db.event_len()?, 0); // separate event stream per space
+```
+
+See [Spaces](spaces.md) for the full guide.
+
 ## Transactions
 
 Event append operations participate in transactions. Within a session, appended events are only visible after commit.

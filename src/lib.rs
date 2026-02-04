@@ -1,30 +1,59 @@
-//! StrataDB - Production-grade embedded database for AI agents
+//! # StrataDB
 //!
-//! StrataDB is an embedded database designed for AI agents, providing six primitives
-//! for different data patterns: KV, State, Event, JSON, Vector, and Run.
+//! An embedded database for AI agents — six primitives, branch isolation,
+//! and deterministic replay.
+//!
+//! StrataDB provides purpose-built data structures for AI agent state management:
+//! KV Store, Event Log, State Cell, JSON Store, Vector Store, and Branches.
+//! Data is organized into branches (isolation) and spaces (organization within branches).
 //!
 //! # Quick Start
 //!
-//! ```ignore
-//! use stratadb::{Strata, Command, Output, Value};
+//! ```no_run
+//! use stratadb::{Strata, Value};
 //!
-//! // Create an in-memory database
-//! let db = Strata::cache()?;
+//! fn main() -> stratadb::Result<()> {
+//!     let mut db = Strata::open("./my-data")?;
 //!
-//! // Store a value (uses the default run)
-//! db.kv_put("user:123", Value::String("Alice".into()))?;
+//!     // Key-value storage
+//!     db.kv_put("user:name", "Alice")?;
+//!     assert_eq!(db.kv_get("user:name")?, Some(Value::String("Alice".into())));
 //!
-//! // Retrieve it
-//! let value = db.kv_get("user:123")?;
+//!     // Append-only event log
+//!     db.event_append("tool_call", serde_json::json!({"tool": "search"}).into())?;
+//!
+//!     // Branch isolation (like git branches)
+//!     db.create_branch("experiment")?;
+//!     db.set_branch("experiment")?;
+//!     assert!(db.kv_get("user:name")?.is_none()); // isolated
+//!
+//!     // Space organization (within branches)
+//!     db.set_space("conversations")?;
+//!     db.kv_put("msg_001", "hello")?;
+//!
+//!     Ok(())
+//! }
 //! ```
+//!
+//! # Data Primitives
+//!
+//! | Primitive | Purpose | Key Methods |
+//! |-----------|---------|-------------|
+//! | **KV Store** | Working memory, config | `kv_put`, `kv_get`, `kv_delete`, `kv_list` |
+//! | **Event Log** | Immutable audit trail | `event_append`, `event_read`, `event_read_by_type` |
+//! | **State Cell** | CAS-based coordination | `state_set`, `state_read`, `state_cas` |
+//! | **JSON Store** | Structured documents | `json_set`, `json_get`, `json_delete` |
+//! | **Vector Store** | Embeddings, similarity search | `vector_upsert`, `vector_search` |
+//! | **Branch** | Data isolation | `create_branch`, `set_branch`, `list_branches` |
 //!
 //! # Architecture
 //!
-//! All operations go through the [`Executor`] which provides a command-based API.
-//! The [`Strata`] struct provides a convenient high-level interface.
+//! The [`Strata`] struct is the main entry point. All operations go through it.
+//! For low-level or cross-language use, the [`Command`]/[`Output`] enum pair
+//! provides a serializable instruction set.
 //!
-//! Internal implementation details (storage, concurrency, durability, engine)
-//! are not exposed - only the executor API is public.
+//! Internal crates (storage, concurrency, durability, engine) are not exposed.
+//! Only the public API surface in this crate is stable.
 
 // Re-export the public API from strata-executor
 pub use strata_executor::*;
