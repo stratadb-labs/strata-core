@@ -69,7 +69,10 @@ mod tests;
 // =============================================================================
 
 // Core types
-pub use api::{BranchDiff, Branches, Strata};
+pub use api::{
+    BranchDiffResult, Branches, ConflictEntry, DiffSummary, ForkInfo, MergeInfo, MergeStrategy,
+    SpaceDiff, Strata,
+};
 pub use command::Command;
 pub use error::Error;
 pub use executor::Executor;

@@ -44,6 +44,7 @@ pub use strata_concurrency::TransactionContext;
 pub use transaction::{Transaction, TransactionPool, MAX_POOL_SIZE};
 pub use transaction_ops::TransactionOps;
 
+pub mod branch_ops;
 pub mod bundle;
 pub mod primitives;
 pub mod search;
@@ -130,6 +131,13 @@ pub use primitives::{
 
 // Re-export bundle types at crate root
 pub use bundle::{BundleInfo, ExportInfo, ImportInfo};
+
+// Re-export branch_ops types at crate root
+// Note: DiffEntry is not re-exported here to avoid clash with recovery::DiffEntry.
+// Use strata_engine::branch_ops::DiffEntry for branch diff entries.
+pub use branch_ops::{
+    BranchDiffResult, ConflictEntry, DiffSummary, ForkInfo, MergeInfo, MergeStrategy, SpaceDiff,
+};
 
 #[cfg(feature = "perf-trace")]
 pub use instrumentation::{PerfBreakdown, PerfStats};

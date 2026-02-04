@@ -1,6 +1,7 @@
 //! Branch management power API.
 //!
-//! Access via `db.branches()` for advanced branch operations like fork and diff.
+//! Access via `db.branches()` for advanced branch operations including
+//! fork, diff, and merge.
 //!
 //! # Example
 //!
@@ -17,17 +18,25 @@
 //! // Create a new branch
 //! db.branches().create("experiment-1")?;
 //!
-//! // Future: fork a branch (copies all data)
-//! // db.branches().fork("main", "experiment-2")?;
+//! // Fork a branch (copies all data)
+//! db.branches().fork("main", "experiment-2")?;
+//!
+//! // Diff two branches
+//! let diff = db.branches().diff("main", "experiment-2")?;
+//!
+//! // Merge branches
+//! use strata_engine::MergeStrategy;
+//! db.branches().merge("experiment-2", "main", MergeStrategy::LastWriterWins)?;
 //! ```
 
 use crate::types::BranchId;
 use crate::{Command, Error, Executor, Output, Result};
+use strata_engine::branch_ops::{BranchDiffResult, ForkInfo, MergeInfo, MergeStrategy};
 
 /// Handle for branch management operations.
 ///
 /// Obtained via [`Strata::branches()`]. Provides the "power API" for branch
-/// management including listing, creating, deleting, and (future) forking.
+/// management including listing, creating, deleting, forking, diffing, and merging.
 pub struct Branches<'a> {
     executor: &'a Executor,
 }
@@ -75,8 +84,8 @@ impl<'a> Branches<'a> {
 
     /// Create a new empty branch.
     ///
-    /// The branch starts with no data. Use `fork()` (when available) to
-    /// create a branch with copied data.
+    /// The branch starts with no data. Use `fork()` to create a branch
+    /// with copied data.
     ///
     /// # Errors
     ///
@@ -118,71 +127,81 @@ impl<'a> Branches<'a> {
         }
     }
 
-    /// Fork the current branch, creating a copy with all its data.
+    /// Fork a branch, creating a copy with all its data.
     ///
-    /// **NOT YET IMPLEMENTED** - This is a stub for future functionality.
-    ///
-    /// When implemented, this will:
-    /// 1. Create a new branch with the destination name
-    /// 2. Copy all data (KV, State, Events, JSON, Vectors) from current branch to destination
-    /// 3. Stay on the current branch (use `set_branch()` to switch after)
+    /// Creates a new branch named `destination` containing a complete copy
+    /// of all data (KV, State, Events, JSON, Vectors) from `source`.
     ///
     /// # Arguments
     ///
+    /// * `source` - Name of the branch to copy from
     /// * `destination` - Name for the new forked branch
     ///
-    /// # Example (future)
+    /// # Errors
+    ///
+    /// - Source branch does not exist
+    /// - Destination branch already exists
+    ///
+    /// # Example
     ///
     /// ```ignore
-    /// // Fork current branch to "experiment"
-    /// db.branches().fork("experiment")?;
-    ///
-    /// // Switch to the fork
-    /// db.set_branch("experiment")?;
-    /// // ... make changes without affecting original ...
+    /// db.branches().fork("main", "experiment")?;
     /// ```
-    pub fn fork(&self, _destination: &str) -> Result<()> {
-        Err(Error::NotImplemented {
-            feature: "fork_branch".into(),
-            reason: "Branch forking is planned for a future release. For now, create a new branch and manually copy data.".into(),
+    pub fn fork(&self, source: &str, destination: &str) -> Result<ForkInfo> {
+        let db = &self.executor.primitives().db;
+        strata_engine::branch_ops::fork_branch(db, source, destination).map_err(|e| {
+            Error::Internal {
+                reason: e.to_string(),
+            }
         })
     }
 
     /// Compare two branches and return their differences.
     ///
-    /// **NOT YET IMPLEMENTED** - This is a stub for future functionality.
+    /// Returns a structured diff showing per-space added, removed, and
+    /// modified entries between the two branches.
     ///
-    /// When implemented, this will compare all data between two branches and
-    /// return a structured diff showing:
-    /// - Keys that exist only in branch1
-    /// - Keys that exist only in branch2
-    /// - Keys that exist in both but have different values
-    ///
-    /// # Example (future)
+    /// # Example
     ///
     /// ```ignore
     /// let diff = db.branches().diff("main", "experiment")?;
-    /// println!("Added: {:?}", diff.added);
-    /// println!("Removed: {:?}", diff.removed);
-    /// println!("Changed: {:?}", diff.changed);
+    /// println!("Added: {}", diff.summary.total_added);
+    /// println!("Removed: {}", diff.summary.total_removed);
+    /// println!("Modified: {}", diff.summary.total_modified);
     /// ```
-    pub fn diff(&self, _branch1: &str, _branch2: &str) -> Result<BranchDiff> {
-        Err(Error::NotImplemented {
-            feature: "diff_branches".into(),
-            reason: "Branch diffing is planned for a future release.".into(),
+    pub fn diff(&self, branch_a: &str, branch_b: &str) -> Result<BranchDiffResult> {
+        let db = &self.executor.primitives().db;
+        strata_engine::branch_ops::diff_branches(db, branch_a, branch_b).map_err(|e| {
+            Error::Internal {
+                reason: e.to_string(),
+            }
         })
     }
-}
 
-/// Result of comparing two branches (future).
-///
-/// This is a placeholder for the diff result structure.
-#[derive(Debug, Clone, Default)]
-pub struct BranchDiff {
-    /// Keys that exist only in the first branch
-    pub only_in_first: Vec<String>,
-    /// Keys that exist only in the second branch
-    pub only_in_second: Vec<String>,
-    /// Keys that exist in both but have different values
-    pub different: Vec<String>,
+    /// Merge data from source branch into target branch.
+    ///
+    /// Applies changes from `source` into `target`:
+    /// - Added entries (in source but not target) are written to target
+    /// - Modified entries depend on strategy:
+    ///   - `LastWriterWins`: source value overwrites target
+    ///   - `Strict`: merge fails if any conflicts exist
+    /// - Removed entries (in target but not source) are left unchanged
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// use strata_engine::MergeStrategy;
+    ///
+    /// // Merge with last-writer-wins conflict resolution
+    /// let info = db.branches().merge("feature", "main", MergeStrategy::LastWriterWins)?;
+    /// println!("Applied {} keys", info.keys_applied);
+    /// ```
+    pub fn merge(&self, source: &str, target: &str, strategy: MergeStrategy) -> Result<MergeInfo> {
+        let db = &self.executor.primitives().db;
+        strata_engine::branch_ops::merge_branches(db, source, target, strategy).map_err(|e| {
+            Error::Internal {
+                reason: e.to_string(),
+            }
+        })
+    }
 }

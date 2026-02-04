@@ -1,9 +1,11 @@
 //! Branching and Branch Isolation Tests
 //!
-//! Tests branch isolation guarantees and branch management operations.
-//! Note: Branch forking (copying parent data) is not yet implemented - see issue #780.
+//! Tests branch isolation guarantees, branch management operations,
+//! and branch operations (fork, diff, merge).
 
 use crate::common::*;
+use strata_engine::branch_ops::{self, MergeStrategy};
+use strata_engine::SpaceIndex;
 
 // ============================================================================
 // Branch Isolation
@@ -351,11 +353,11 @@ fn json_documents_isolated_per_branch() {
 }
 
 // ============================================================================
-// Branch Forking Tests (Document Current Behavior)
+// Branch Create vs Fork Behavior
 // ============================================================================
 
-/// Note: Branch forking (parent_branch option) currently does NOT copy parent data.
-/// This is a known issue (#780). This test documents current behavior.
+/// create_branch creates a blank branch — it does NOT copy parent data.
+/// Use fork_branch to copy data from one branch to another.
 #[test]
 fn child_branch_does_not_inherit_parent_data_currently() {
     let test_db = TestDb::new();
@@ -374,17 +376,15 @@ fn child_branch_does_not_inherit_parent_data_currently() {
     )
     .unwrap();
 
-    // Create child branch (parent reference is not supported in current API)
+    // Create child branch (create_branch makes a blank branch, not a fork)
     let child_meta = branch_index.create_branch("child").unwrap();
     let child_branch_id = BranchId::from_string(&child_meta.value.branch_id).unwrap();
 
-    // Currently: child does NOT inherit parent's data (this is a bug/missing feature)
+    // create_branch does NOT inherit parent's data — use fork_branch for that
     let child_value = kv.get(&child_branch_id, "default", "parent_key").unwrap();
-
-    // Document current behavior: child doesn't see parent's data
     assert!(
         child_value.is_none(),
-        "CURRENT BEHAVIOR: Child branches do not inherit parent data. See issue #780."
+        "create_branch does not copy data. Use fork_branch to copy data."
     );
 
     // Parent data should still exist
@@ -393,6 +393,325 @@ fn child_branch_does_not_inherit_parent_data_currently() {
         parent_value,
         Some(Value::String("parent_value".into())),
         "Parent data should remain"
+    );
+}
+
+// ============================================================================
+// Branch Fork Tests
+// ============================================================================
+
+#[test]
+fn test_fork_branch() {
+    let test_db = TestDb::new();
+    let branch_index = test_db.branch_index();
+    let kv = test_db.kv();
+
+    // Create source branch with data
+    branch_index.create_branch("source").unwrap();
+    let source_id = strata_engine::primitives::branch::resolve_branch_name("source");
+    kv.put(&source_id, "default", "k1", Value::String("hello".into()))
+        .unwrap();
+    kv.put(&source_id, "default", "k2", Value::Int(42)).unwrap();
+
+    // Fork it
+    let info = branch_ops::fork_branch(&test_db.db, "source", "forked").unwrap();
+    assert_eq!(info.source, "source");
+    assert_eq!(info.destination, "forked");
+    assert!(info.keys_copied >= 2);
+
+    // Verify forked branch has the data
+    let dest_id = strata_engine::primitives::branch::resolve_branch_name("forked");
+    assert_eq!(
+        kv.get(&dest_id, "default", "k1").unwrap(),
+        Some(Value::String("hello".into()))
+    );
+    assert_eq!(
+        kv.get(&dest_id, "default", "k2").unwrap(),
+        Some(Value::Int(42))
+    );
+
+    // Verify source is unchanged
+    assert_eq!(
+        kv.get(&source_id, "default", "k1").unwrap(),
+        Some(Value::String("hello".into()))
+    );
+}
+
+#[test]
+fn test_fork_with_spaces() {
+    let test_db = TestDb::new();
+    let branch_index = test_db.branch_index();
+    let space_index = SpaceIndex::new(test_db.db.clone());
+    let kv = test_db.kv();
+
+    // Create source branch with multiple spaces
+    branch_index.create_branch("src").unwrap();
+    let src_id = strata_engine::primitives::branch::resolve_branch_name("src");
+    space_index.register(src_id, "alpha").unwrap();
+    space_index.register(src_id, "beta").unwrap();
+
+    kv.put(&src_id, "default", "d-key", Value::Int(1)).unwrap();
+    kv.put(&src_id, "alpha", "a-key", Value::Int(2)).unwrap();
+    kv.put(&src_id, "beta", "b-key", Value::Int(3)).unwrap();
+
+    // Fork
+    let info = branch_ops::fork_branch(&test_db.db, "src", "dst").unwrap();
+    assert!(info.spaces_copied >= 3);
+
+    let dst_id = strata_engine::primitives::branch::resolve_branch_name("dst");
+
+    // Verify all spaces and data
+    let dst_spaces = space_index.list(dst_id).unwrap();
+    assert!(dst_spaces.contains(&"alpha".to_string()));
+    assert!(dst_spaces.contains(&"beta".to_string()));
+
+    assert_eq!(
+        kv.get(&dst_id, "default", "d-key").unwrap(),
+        Some(Value::Int(1))
+    );
+    assert_eq!(
+        kv.get(&dst_id, "alpha", "a-key").unwrap(),
+        Some(Value::Int(2))
+    );
+    assert_eq!(
+        kv.get(&dst_id, "beta", "b-key").unwrap(),
+        Some(Value::Int(3))
+    );
+}
+
+// ============================================================================
+// Branch Diff Tests
+// ============================================================================
+
+#[test]
+fn test_diff_branches() {
+    let test_db = TestDb::new();
+    let branch_index = test_db.branch_index();
+    let kv = test_db.kv();
+
+    branch_index.create_branch("a").unwrap();
+    branch_index.create_branch("b").unwrap();
+    let id_a = strata_engine::primitives::branch::resolve_branch_name("a");
+    let id_b = strata_engine::primitives::branch::resolve_branch_name("b");
+
+    // Shared key with different values
+    kv.put(&id_a, "default", "shared", Value::Int(1)).unwrap();
+    kv.put(&id_b, "default", "shared", Value::Int(2)).unwrap();
+
+    // Keys unique to each branch
+    kv.put(&id_a, "default", "only-a", Value::String("a".into()))
+        .unwrap();
+    kv.put(&id_b, "default", "only-b", Value::String("b".into()))
+        .unwrap();
+
+    let diff = branch_ops::diff_branches(&test_db.db, "a", "b").unwrap();
+    assert_eq!(diff.branch_a, "a");
+    assert_eq!(diff.branch_b, "b");
+    assert_eq!(diff.summary.total_modified, 1, "shared key is modified");
+    assert_eq!(
+        diff.summary.total_removed, 1,
+        "only-a is removed (in A not B)"
+    );
+    assert_eq!(diff.summary.total_added, 1, "only-b is added (in B not A)");
+}
+
+#[test]
+fn test_diff_with_all_primitives() {
+    let test_db = TestDb::new();
+    let branch_index = test_db.branch_index();
+    let p = test_db.all_primitives();
+
+    branch_index.create_branch("x").unwrap();
+    branch_index.create_branch("y").unwrap();
+    let id_x = strata_engine::primitives::branch::resolve_branch_name("x");
+    let id_y = strata_engine::primitives::branch::resolve_branch_name("y");
+
+    // Write KV to x only
+    p.kv.put(&id_x, "default", "kv-key", Value::Int(1)).unwrap();
+
+    // Write JSON to y only
+    p.json
+        .create(
+            &id_y,
+            "default",
+            "doc",
+            json_value(serde_json::json!({"field": "value"})),
+        )
+        .unwrap();
+
+    // Write State to both with different values
+    p.state
+        .init(&id_x, "default", "cell", Value::Int(10))
+        .unwrap();
+    p.state
+        .init(&id_y, "default", "cell", Value::Int(20))
+        .unwrap();
+
+    let diff = branch_ops::diff_branches(&test_db.db, "x", "y").unwrap();
+
+    // kv-key is only in x → removed
+    // doc is only in y → added
+    // cell is in both with different values → modified
+    assert!(diff.summary.total_removed >= 1, "KV key should be removed");
+    assert!(diff.summary.total_added >= 1, "JSON doc should be added");
+    assert!(
+        diff.summary.total_modified >= 1,
+        "State cell should be modified"
+    );
+}
+
+// ============================================================================
+// Branch Merge Tests
+// ============================================================================
+
+#[test]
+fn test_merge_branches_lww() {
+    let test_db = TestDb::new();
+    let branch_index = test_db.branch_index();
+    let kv = test_db.kv();
+
+    branch_index.create_branch("target").unwrap();
+    branch_index.create_branch("source").unwrap();
+    let target_id = strata_engine::primitives::branch::resolve_branch_name("target");
+    let source_id = strata_engine::primitives::branch::resolve_branch_name("source");
+
+    // Write conflicting data
+    kv.put(&target_id, "default", "shared", Value::Int(1))
+        .unwrap();
+    kv.put(&source_id, "default", "shared", Value::Int(2))
+        .unwrap();
+    kv.put(
+        &source_id,
+        "default",
+        "new-key",
+        Value::String("new".into()),
+    )
+    .unwrap();
+
+    let info = branch_ops::merge_branches(
+        &test_db.db,
+        "source",
+        "target",
+        MergeStrategy::LastWriterWins,
+    )
+    .unwrap();
+    assert!(info.keys_applied >= 2);
+
+    // Target should have source's value for "shared"
+    assert_eq!(
+        kv.get(&target_id, "default", "shared").unwrap(),
+        Some(Value::Int(2))
+    );
+    // New key should be present
+    assert_eq!(
+        kv.get(&target_id, "default", "new-key").unwrap(),
+        Some(Value::String("new".into()))
+    );
+}
+
+#[test]
+fn test_merge_branches_strict() {
+    let test_db = TestDb::new();
+    let branch_index = test_db.branch_index();
+    let kv = test_db.kv();
+
+    branch_index.create_branch("target").unwrap();
+    branch_index.create_branch("source").unwrap();
+    let target_id = strata_engine::primitives::branch::resolve_branch_name("target");
+    let source_id = strata_engine::primitives::branch::resolve_branch_name("source");
+
+    // Write conflicting data
+    kv.put(&target_id, "default", "shared", Value::Int(1))
+        .unwrap();
+    kv.put(&source_id, "default", "shared", Value::Int(2))
+        .unwrap();
+
+    // Strict merge should fail with conflicts
+    let result = branch_ops::merge_branches(&test_db.db, "source", "target", MergeStrategy::Strict);
+    assert!(result.is_err());
+
+    // Target should be unchanged
+    assert_eq!(
+        kv.get(&target_id, "default", "shared").unwrap(),
+        Some(Value::Int(1))
+    );
+}
+
+#[test]
+fn test_fork_diff_merge_roundtrip() {
+    let test_db = TestDb::new();
+    let branch_index = test_db.branch_index();
+    let kv = test_db.kv();
+
+    // Create original branch with data
+    branch_index.create_branch("original").unwrap();
+    let original_id = strata_engine::primitives::branch::resolve_branch_name("original");
+    kv.put(&original_id, "default", "base", Value::Int(1))
+        .unwrap();
+    kv.put(&original_id, "default", "shared", Value::Int(10))
+        .unwrap();
+
+    // Fork it
+    branch_ops::fork_branch(&test_db.db, "original", "fork").unwrap();
+    let fork_id = strata_engine::primitives::branch::resolve_branch_name("fork");
+
+    // Diverge: modify both branches
+    kv.put(
+        &original_id,
+        "default",
+        "original-only",
+        Value::String("orig".into()),
+    )
+    .unwrap();
+    kv.put(
+        &fork_id,
+        "default",
+        "fork-only",
+        Value::String("fork".into()),
+    )
+    .unwrap();
+    kv.put(&fork_id, "default", "shared", Value::Int(20))
+        .unwrap();
+
+    // Diff: original vs fork
+    let diff = branch_ops::diff_branches(&test_db.db, "original", "fork").unwrap();
+    assert!(
+        diff.summary.total_modified >= 1,
+        "shared should be modified"
+    );
+    assert!(diff.summary.total_removed >= 1, "original-only in A not B");
+    assert!(diff.summary.total_added >= 1, "fork-only in B not A");
+
+    // Merge fork → original (LWW)
+    let info = branch_ops::merge_branches(
+        &test_db.db,
+        "fork",
+        "original",
+        MergeStrategy::LastWriterWins,
+    )
+    .unwrap();
+    assert!(info.keys_applied >= 2, "Should apply fork-only and shared");
+
+    // Verify merge results
+    assert_eq!(
+        kv.get(&original_id, "default", "base").unwrap(),
+        Some(Value::Int(1)),
+        "base should be unchanged"
+    );
+    assert_eq!(
+        kv.get(&original_id, "default", "shared").unwrap(),
+        Some(Value::Int(20)),
+        "shared should have fork's value"
+    );
+    assert_eq!(
+        kv.get(&original_id, "default", "fork-only").unwrap(),
+        Some(Value::String("fork".into())),
+        "fork-only should be merged in"
+    );
+    assert_eq!(
+        kv.get(&original_id, "default", "original-only").unwrap(),
+        Some(Value::String("orig".into())),
+        "original-only should still exist (merge doesn't delete)"
     );
 }
 

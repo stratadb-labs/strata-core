@@ -12,7 +12,7 @@
 //! - Use `set_branch(name)` to switch to an existing branch
 //! - Use `current_branch()` to get the current branch name
 //! - Use `list_branches()` to see all available branches
-//! - Use `fork_branch(dest)` to copy the current branch to a new branch (future)
+//! - Use `fork_branch(dest)` to copy the current branch to a new branch
 //!
 //! By default, Strata starts on the "default" branch.
 //!
@@ -45,7 +45,10 @@ mod kv;
 mod state;
 mod vector;
 
-pub use branches::{BranchDiff, Branches};
+pub use branches::Branches;
+pub use strata_engine::branch_ops::{
+    BranchDiffResult, ConflictEntry, DiffSummary, ForkInfo, MergeInfo, MergeStrategy, SpaceDiff,
+};
 
 use std::path::Path;
 use std::sync::Arc;
@@ -274,8 +277,8 @@ impl Strata {
     /// Get a handle for branch management operations.
     ///
     /// The returned [`Branches`] handle provides the "power API" for branch
-    /// management, including listing, creating, deleting, and (future)
-    /// forking branches.
+    /// management, including listing, creating, deleting, forking, diffing,
+    /// and merging branches.
     ///
     /// # Example
     ///
@@ -288,8 +291,8 @@ impl Strata {
     /// // Create a new branch
     /// db.branches().create("experiment")?;
     ///
-    /// // Future: fork the current branch to a new destination
-    /// // db.branches().fork("experiment-copy")?;
+    /// // Fork a branch
+    /// db.branches().fork("default", "experiment-copy")?;
     /// ```
     pub fn branches(&self) -> Branches<'_> {
         Branches::new(&self.executor)
@@ -370,13 +373,11 @@ impl Strata {
 
     /// Fork the current branch with all its data into a new branch.
     ///
-    /// **NOT YET IMPLEMENTED** - Returns `NotImplemented` error.
+    /// Copies all data (KV, State, Events, JSON, Vectors) from the current
+    /// branch to the new branch. Stays on the current branch after forking.
+    /// Use `set_branch()` to switch to the fork.
     ///
-    /// When implemented, this will copy all data (KV, State, Events, JSON,
-    /// Vectors) from the current branch to the new branch. Stays on the current
-    /// branch after forking. Use `set_branch()` to switch to the fork.
-    ///
-    /// # Example (future)
+    /// # Example
     ///
     /// ```ignore
     /// // Fork current branch to "experiment"
@@ -386,8 +387,28 @@ impl Strata {
     /// db.set_branch("experiment")?;
     /// // ... make changes without affecting original ...
     /// ```
-    pub fn fork_branch(&self, destination: &str) -> Result<()> {
-        self.branches().fork(destination)
+    pub fn fork_branch(&self, destination: &str) -> Result<ForkInfo> {
+        self.branches().fork(self.current_branch(), destination)
+    }
+
+    /// Compare two branches and return their differences.
+    ///
+    /// Returns a structured diff showing per-space added, removed, and
+    /// modified entries between the two branches.
+    pub fn diff_branches(&self, branch_a: &str, branch_b: &str) -> Result<BranchDiffResult> {
+        self.branches().diff(branch_a, branch_b)
+    }
+
+    /// Merge data from source branch into target branch.
+    ///
+    /// See [`Branches::merge`] for details on merge strategies.
+    pub fn merge_branches(
+        &self,
+        source: &str,
+        target: &str,
+        strategy: MergeStrategy,
+    ) -> Result<MergeInfo> {
+        self.branches().merge(source, target, strategy)
     }
 
     /// List all available branches.
@@ -844,34 +865,71 @@ mod tests {
     }
 
     #[test]
-    fn test_branches_fork_not_implemented() {
+    fn test_branches_fork() {
         let db = create_strata();
 
-        // fork() forks the current branch to a new destination
-        let result = db.branches().fork("destination");
-        assert!(result.is_err());
+        // Write some data to default branch
+        db.kv_put("key1", "value1").unwrap();
+        db.kv_put("key2", 42i64).unwrap();
 
-        // Check it's specifically a NotImplemented error
-        match result {
-            Err(crate::Error::NotImplemented { feature, .. }) => {
-                assert_eq!(feature, "fork_branch");
-            }
-            _ => panic!("Expected NotImplemented error"),
-        }
+        // Fork default branch to "forked"
+        let info = db.fork_branch("forked").unwrap();
+        assert_eq!(info.source, "default");
+        assert_eq!(info.destination, "forked");
+        assert!(info.keys_copied >= 2);
     }
 
     #[test]
-    fn test_branches_diff_not_implemented() {
-        let db = create_strata();
+    fn test_branches_diff() {
+        let mut db = create_strata();
 
-        let result = db.branches().diff("branch1", "branch2");
-        assert!(result.is_err());
+        // Write data to default branch
+        db.kv_put("shared", "value-a").unwrap();
+        db.kv_put("only-default", 1i64).unwrap();
 
-        match result {
-            Err(crate::Error::NotImplemented { feature, .. }) => {
-                assert_eq!(feature, "diff_branches");
-            }
-            _ => panic!("Expected NotImplemented error"),
-        }
+        // Create another branch with different data
+        db.create_branch("other").unwrap();
+        db.set_branch("other").unwrap();
+        db.kv_put("shared", "value-b").unwrap();
+        db.kv_put("only-other", 2i64).unwrap();
+
+        let diff = db.diff_branches("default", "other").unwrap();
+        assert_eq!(diff.branch_a, "default");
+        assert_eq!(diff.branch_b, "other");
+        // "shared" should be modified, "only-default" removed, "only-other" added
+        assert!(diff.summary.total_modified >= 1);
+        assert!(diff.summary.total_removed >= 1);
+        assert!(diff.summary.total_added >= 1);
+    }
+
+    #[test]
+    fn test_branches_merge() {
+        let mut db = create_strata();
+
+        // Write data to default
+        db.kv_put("base-key", "base-value").unwrap();
+
+        // Create and populate source branch
+        db.create_branch("source").unwrap();
+        db.set_branch("source").unwrap();
+        db.kv_put("new-key", "new-value").unwrap();
+
+        // Merge source into default
+        db.set_branch("default").unwrap();
+        let info = db
+            .merge_branches("source", "default", MergeStrategy::LastWriterWins)
+            .unwrap();
+        assert!(info.keys_applied >= 1);
+
+        // Verify merged data
+        assert_eq!(
+            db.kv_get("new-key").unwrap(),
+            Some(Value::String("new-value".into()))
+        );
+        // Original data should still be there
+        assert_eq!(
+            db.kv_get("base-key").unwrap(),
+            Some(Value::String("base-value".into()))
+        );
     }
 }
