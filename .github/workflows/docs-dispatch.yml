@@ -1,0 +1,19 @@
+name: Dispatch docs update
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'docs/**'
+
+jobs:
+  dispatch:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Trigger stratadb.org rebuild
+        uses: peter-evans/repository-dispatch@v3
+        with:
+          token: ${{ secrets.DOCS_DISPATCH_TOKEN }}
+          repository: strata-systems/stratadb.org
+          event-type: docs-update
+          client-payload: '{"source": "strata-core", "ref": "${{ github.sha }}"}'
