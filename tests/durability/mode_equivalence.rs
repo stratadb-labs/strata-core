@@ -11,13 +11,13 @@ fn kv_operations_equivalent_across_modes() {
         let branch_id = BranchId::new();
         let kv = KVStore::new(db);
 
-        kv.put(&branch_id, "a", Value::Int(1)).unwrap();
-        kv.put(&branch_id, "b", Value::Int(2)).unwrap();
-        kv.put(&branch_id, "c", Value::Int(3)).unwrap();
+        kv.put(&branch_id, "default", "a", Value::Int(1)).unwrap();
+        kv.put(&branch_id, "default", "b", Value::Int(2)).unwrap();
+        kv.put(&branch_id, "default", "c", Value::Int(3)).unwrap();
 
-        let a = kv.get(&branch_id, "a").unwrap();
-        let b = kv.get(&branch_id, "b").unwrap();
-        let c = kv.get(&branch_id, "c").unwrap();
+        let a = kv.get(&branch_id, "default", "a").unwrap();
+        let b = kv.get(&branch_id, "default", "b").unwrap();
+        let c = kv.get(&branch_id, "default", "c").unwrap();
         (a, b, c)
     });
 }
@@ -29,10 +29,10 @@ fn json_operations_equivalent_across_modes() {
         let json = JsonStore::new(db);
         let doc_id = "mode_test_doc";
 
-        json.create(&branch_id, doc_id, json_value(serde_json::json!({"x": 1})))
+        json.create(&branch_id, "default", doc_id, json_value(serde_json::json!({"x": 1})))
             .unwrap();
 
-        let doc = json.get(&branch_id, doc_id, &root()).unwrap();
+        let doc = json.get(&branch_id, "default", doc_id, &root()).unwrap();
         doc.map(|v| v.as_inner().clone())
     });
 }
@@ -43,11 +43,11 @@ fn event_operations_equivalent_across_modes() {
         let branch_id = BranchId::new();
         let event = EventLog::new(db);
 
-        event.append(&branch_id, "stream", int_payload(1)).unwrap();
-        event.append(&branch_id, "stream", int_payload(2)).unwrap();
-        event.append(&branch_id, "stream", int_payload(3)).unwrap();
+        event.append(&branch_id, "default", "stream", int_payload(1)).unwrap();
+        event.append(&branch_id, "default", "stream", int_payload(2)).unwrap();
+        event.append(&branch_id, "default", "stream", int_payload(3)).unwrap();
 
-        let events = event.read_by_type(&branch_id, "stream").unwrap();
+        let events = event.read_by_type(&branch_id, "default", "stream").unwrap();
         events.len() as u64
     });
 }
@@ -58,12 +58,12 @@ fn statecell_cas_equivalent_across_modes() {
         let branch_id = BranchId::new();
         let state = StateCell::new(db);
 
-        let v = state.init(&branch_id, "counter", Value::Int(0)).unwrap();
+        let v = state.init(&branch_id, "default", "counter", Value::Int(0)).unwrap();
         state
-            .cas(&branch_id, "counter", v.value, Value::Int(1))
+            .cas(&branch_id, "default", "counter", v.value, Value::Int(1))
             .unwrap();
 
-        let val = state.read(&branch_id, "counter").unwrap();
+        let val = state.read(&branch_id, "default", "counter").unwrap();
         val.map(|v| format!("{:?}", v))
     });
 }
@@ -74,11 +74,11 @@ fn overwrite_semantics_equivalent_across_modes() {
         let branch_id = BranchId::new();
         let kv = KVStore::new(db);
 
-        kv.put(&branch_id, "key", Value::Int(1)).unwrap();
-        kv.put(&branch_id, "key", Value::Int(2)).unwrap();
-        kv.put(&branch_id, "key", Value::Int(3)).unwrap();
+        kv.put(&branch_id, "default", "key", Value::Int(1)).unwrap();
+        kv.put(&branch_id, "default", "key", Value::Int(2)).unwrap();
+        kv.put(&branch_id, "default", "key", Value::Int(3)).unwrap();
 
-        kv.get(&branch_id, "key").unwrap()
+        kv.get(&branch_id, "default", "key").unwrap()
     });
 }
 
@@ -88,10 +88,10 @@ fn delete_semantics_equivalent_across_modes() {
         let branch_id = BranchId::new();
         let kv = KVStore::new(db);
 
-        kv.put(&branch_id, "ephemeral", Value::Int(1)).unwrap();
-        kv.delete(&branch_id, "ephemeral").unwrap();
+        kv.put(&branch_id, "default", "ephemeral", Value::Int(1)).unwrap();
+        kv.delete(&branch_id, "default", "ephemeral").unwrap();
 
-        kv.get(&branch_id, "ephemeral").unwrap().is_none()
+        kv.get(&branch_id, "default", "ephemeral").unwrap().is_none()
     });
 }
 
@@ -102,7 +102,7 @@ fn standard_mode_recovers_after_restart() {
 
     let kv = test_db.kv();
     for i in 0..20 {
-        kv.put(&branch_id, &format!("buf_{}", i), Value::Int(i))
+        kv.put(&branch_id, "default", &format!("buf_{}", i), Value::Int(i))
             .unwrap();
     }
 
@@ -126,7 +126,7 @@ fn always_mode_recovers_after_restart() {
 
     let kv = test_db.kv();
     for i in 0..20 {
-        kv.put(&branch_id, &format!("strict_{}", i), Value::Int(i))
+        kv.put(&branch_id, "default", &format!("strict_{}", i), Value::Int(i))
             .unwrap();
     }
 

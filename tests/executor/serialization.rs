@@ -14,6 +14,7 @@ use strata_executor::{BranchId, BranchStatus, Command, DistanceMetric, Output, V
 fn kv_put_roundtrip() {
     let cmd = Command::KvPut {
         branch: None,
+        space: None,
         key: "test_key".into(),
         value: Value::String("test_value".into()),
     };
@@ -28,6 +29,7 @@ fn kv_put_roundtrip() {
 fn kv_put_with_branch_roundtrip() {
     let cmd = Command::KvPut {
         branch: Some(BranchId::from("550e8400-e29b-41d4-a716-446655440401")),
+        space: None,
         key: "key".into(),
         value: Value::Int(42),
     };
@@ -42,6 +44,7 @@ fn kv_put_with_branch_roundtrip() {
 fn kv_get_roundtrip() {
     let cmd = Command::KvGet {
         branch: None,
+        space: None,
         key: "key".into(),
     };
 
@@ -55,6 +58,7 @@ fn kv_get_roundtrip() {
 fn event_append_roundtrip() {
     let cmd = Command::EventAppend {
         branch: None,
+        space: None,
         event_type: "events".into(),
         payload: Value::Object(
             [("data".to_string(), Value::Int(123))]
@@ -73,6 +77,7 @@ fn event_append_roundtrip() {
 fn vector_search_roundtrip() {
     let cmd = Command::VectorSearch {
         branch: None,
+        space: None,
         collection: "embeddings".into(),
         query: vec![1.0, 0.0, 0.0, 0.0],
         k: 10,
@@ -124,6 +129,7 @@ fn txn_begin_roundtrip() {
 fn kv_put_json_format() {
     let cmd = Command::KvPut {
         branch: None,
+        space: None,
         key: "k".into(),
         value: Value::Int(42),
     };
@@ -139,6 +145,7 @@ fn kv_put_json_format() {
 fn branch_field_omitted_when_none() {
     let cmd = Command::KvPut {
         branch: None,
+        space: None,
         key: "k".into(),
         value: Value::Int(1),
     };
@@ -153,6 +160,7 @@ fn branch_field_omitted_when_none() {
 fn branch_field_present_when_some() {
     let cmd = Command::KvPut {
         branch: Some(BranchId::from("550e8400-e29b-41d4-a716-446655440401")),
+        space: None,
         key: "k".into(),
         value: Value::Int(1),
     };
@@ -176,7 +184,7 @@ fn deserialize_kv_put_minimal() {
     let cmd: Command = serde_json::from_str(json).unwrap();
 
     match cmd {
-        Command::KvPut { branch, key, value } => {
+        Command::KvPut { branch, space: _, key, value } => {
             assert!(branch.is_none());
             assert_eq!(key, "k");
             assert_eq!(value, Value::Int(42));
@@ -193,7 +201,7 @@ fn deserialize_kv_put_with_branch() {
     let cmd: Command = serde_json::from_str(json).unwrap();
 
     match cmd {
-        Command::KvPut { branch, key, value } => {
+        Command::KvPut { branch, space: _, key, value } => {
             assert_eq!(
                 branch.unwrap().as_str(),
                 "550e8400-e29b-41d4-a716-446655440401"
@@ -216,7 +224,7 @@ fn deserialize_event_append() {
     match cmd {
         Command::EventAppend {
             branch,
-            event_type,
+            space: _, event_type,
             payload,
         } => {
             assert!(branch.is_none());
@@ -336,6 +344,7 @@ fn value_types_roundtrip() {
     // String
     let cmd = Command::KvPut {
         branch: None,
+        space: None,
         key: "k".into(),
         value: Value::String("hello".into()),
     };
@@ -346,6 +355,7 @@ fn value_types_roundtrip() {
     // Int
     let cmd = Command::KvPut {
         branch: None,
+        space: None,
         key: "k".into(),
         value: Value::Int(-42),
     };
@@ -356,6 +366,7 @@ fn value_types_roundtrip() {
     // Float
     let cmd = Command::KvPut {
         branch: None,
+        space: None,
         key: "k".into(),
         value: Value::Float(3.14),
     };
@@ -366,6 +377,7 @@ fn value_types_roundtrip() {
     // Bool
     let cmd = Command::KvPut {
         branch: None,
+        space: None,
         key: "k".into(),
         value: Value::Bool(true),
     };
@@ -376,6 +388,7 @@ fn value_types_roundtrip() {
     // Null
     let cmd = Command::KvPut {
         branch: None,
+        space: None,
         key: "k".into(),
         value: Value::Null,
     };
@@ -386,6 +399,7 @@ fn value_types_roundtrip() {
     // Array
     let cmd = Command::KvPut {
         branch: None,
+        space: None,
         key: "k".into(),
         value: Value::Array(vec![Value::Int(1), Value::Int(2)]),
     };
@@ -396,6 +410,7 @@ fn value_types_roundtrip() {
     // Object
     let cmd = Command::KvPut {
         branch: None,
+        space: None,
         key: "k".into(),
         value: Value::Object(
             [("nested".to_string(), Value::Int(1))]
@@ -423,6 +438,7 @@ fn distance_metric_roundtrip() {
     for metric in metrics {
         let cmd = Command::VectorCreateCollection {
             branch: None,
+            space: None,
             collection: "test".into(),
             dimension: 4,
             metric,

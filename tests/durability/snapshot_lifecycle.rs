@@ -11,7 +11,7 @@ fn snapshot_directory_exists_for_persistent_db() {
     let branch_id = test_db.branch_id;
 
     let kv = test_db.kv();
-    kv.put(&branch_id, "trigger", Value::Int(1)).unwrap();
+    kv.put(&branch_id, "default", "trigger", Value::Int(1)).unwrap();
 
     // Snapshot dir should exist (may or may not contain files yet)
     let snap_dir = test_db.snapshot_dir();
@@ -32,13 +32,13 @@ fn recovery_works_with_snapshot_plus_wal() {
 
     // Phase 1: Write data (may get snapshotted)
     for i in 0..100 {
-        kv.put(&branch_id, &format!("phase1_{}", i), Value::Int(i))
+        kv.put(&branch_id, "default", &format!("phase1_{}", i), Value::Int(i))
             .unwrap();
     }
 
     // Phase 2: More writes (likely in WAL after snapshot)
     for i in 0..50 {
-        kv.put(&branch_id, &format!("phase2_{}", i), Value::Int(i + 100))
+        kv.put(&branch_id, "default", &format!("phase2_{}", i), Value::Int(i + 100))
             .unwrap();
     }
 
@@ -61,7 +61,7 @@ fn corrupted_snapshot_falls_back_to_wal() {
 
     let kv = test_db.kv();
     for i in 0..50 {
-        kv.put(&branch_id, &format!("k{}", i), Value::Int(i))
+        kv.put(&branch_id, "default", &format!("k{}", i), Value::Int(i))
             .unwrap();
     }
 
@@ -87,7 +87,7 @@ fn deleted_snapshots_dont_prevent_recovery() {
 
     let kv = test_db.kv();
     for i in 0..20 {
-        kv.put(&branch_id, &format!("k{}", i), Value::Int(i))
+        kv.put(&branch_id, "default", &format!("k{}", i), Value::Int(i))
             .unwrap();
     }
 
@@ -99,7 +99,7 @@ fn deleted_snapshots_dont_prevent_recovery() {
 
     let kv = test_db.kv();
     for i in 0..20 {
-        let val = kv.get(&branch_id, &format!("k{}", i)).unwrap();
+        let val = kv.get(&branch_id, "default", &format!("k{}", i)).unwrap();
         assert_eq!(
             val,
             Some(Value::Int(i)),
@@ -115,7 +115,7 @@ fn recovery_handles_empty_snapshot_directory() {
     let branch_id = test_db.branch_id;
 
     let kv = test_db.kv();
-    kv.put(&branch_id, "test", Value::Int(1)).unwrap();
+    kv.put(&branch_id, "default", "test", Value::Int(1)).unwrap();
 
     // Ensure snapshot dir exists but is empty
     let snap_dir = test_db.snapshot_dir();
@@ -136,13 +136,13 @@ fn data_written_after_snapshot_recovers() {
 
     // Write enough to trigger a snapshot (if auto-snapshotting is enabled)
     for i in 0..200 {
-        kv.put(&branch_id, &format!("pre_{}", i), Value::Int(i))
+        kv.put(&branch_id, "default", &format!("pre_{}", i), Value::Int(i))
             .unwrap();
     }
 
     // Write more after potential snapshot
     for i in 0..50 {
-        kv.put(&branch_id, &format!("post_{}", i), Value::Int(i + 1000))
+        kv.put(&branch_id, "default", &format!("post_{}", i), Value::Int(i + 1000))
             .unwrap();
     }
 
@@ -150,8 +150,8 @@ fn data_written_after_snapshot_recovers() {
 
     // Both pre and post data should be present
     let kv = test_db.kv();
-    let pre = kv.get(&branch_id, "pre_0").unwrap();
-    let post = kv.get(&branch_id, "post_0").unwrap();
+    let pre = kv.get(&branch_id, "default", "pre_0").unwrap();
+    let post = kv.get(&branch_id, "default", "post_0").unwrap();
     assert_eq!(pre, Some(Value::Int(0)), "Pre-snapshot data should recover");
     assert!(post.is_some(), "Post-snapshot data should recover");
     assert_eq!(post.unwrap(), Value::Int(1000));

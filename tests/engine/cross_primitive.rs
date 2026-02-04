@@ -36,10 +36,10 @@ fn kv_and_eventlog_atomic() {
     let event = test_db.event();
 
     assert_eq!(
-        kv.get(&branch_id, "order_id").unwrap(),
+        kv.get(&branch_id, "default", "order_id").unwrap(),
         Some(Value::String("ORD-123".into()))
     );
-    assert_eq!(event.len(&branch_id).unwrap(), 1);
+    assert_eq!(event.len(&branch_id, "default").unwrap(), 1);
 }
 
 #[test]
@@ -50,7 +50,7 @@ fn kv_and_statecell_atomic() {
 
     // Init state first
     state
-        .init(&branch_id, "status", Value::String("pending".into()))
+        .init(&branch_id, "default", "status", Value::String("pending".into()))
         .unwrap();
 
     test_db
@@ -64,11 +64,11 @@ fn kv_and_statecell_atomic() {
 
     let kv = test_db.kv();
     assert_eq!(
-        kv.get(&branch_id, "processed_at").unwrap(),
+        kv.get(&branch_id, "default", "processed_at").unwrap(),
         Some(Value::Int(1234567890))
     );
 
-    let current = state.read(&branch_id, "status").unwrap().unwrap();
+    let current = state.read(&branch_id, "default", "status").unwrap().unwrap();
     assert_eq!(current, Value::String("completed".into()));
 }
 
@@ -78,7 +78,7 @@ fn three_primitives_atomic() {
     let branch_id = test_db.branch_id;
     let state = test_db.state();
 
-    state.init(&branch_id, "counter", Value::Int(0)).unwrap();
+    state.init(&branch_id, "default", "counter", Value::Int(0)).unwrap();
 
     test_db
         .db
@@ -100,12 +100,12 @@ fn three_primitives_atomic() {
     let event = test_db.event();
 
     assert_eq!(
-        kv.get(&branch_id, "data").unwrap(),
+        kv.get(&branch_id, "default", "data").unwrap(),
         Some(Value::String("value".into()))
     );
-    assert_eq!(event.len(&branch_id).unwrap(), 1);
+    assert_eq!(event.len(&branch_id, "default").unwrap(), 1);
 
-    let counter = state.read(&branch_id, "counter").unwrap().unwrap();
+    let counter = state.read(&branch_id, "default", "counter").unwrap().unwrap();
     assert_eq!(counter, Value::Int(1));
 }
 
@@ -132,8 +132,8 @@ fn cross_primitive_failure_rolls_back_all() {
     let kv = test_db.kv();
     let event = test_db.event();
 
-    assert!(kv.get(&branch_id, "rollback_key").unwrap().is_none());
-    assert_eq!(event.len(&branch_id).unwrap(), 0);
+    assert!(kv.get(&branch_id, "default", "rollback_key").unwrap().is_none());
+    assert_eq!(event.len(&branch_id, "default").unwrap(), 0);
 }
 
 #[test]
@@ -143,7 +143,7 @@ fn partial_writes_not_visible() {
     let kv = test_db.kv();
 
     // Pre-existing data
-    kv.put(&branch_id, "existing", Value::Int(100)).unwrap();
+    kv.put(&branch_id, "default", "existing", Value::Int(100)).unwrap();
 
     let result: Result<(), _> = test_db.db.transaction(branch_id, |txn| {
         // Multiple writes
@@ -158,12 +158,12 @@ fn partial_writes_not_visible() {
     assert!(result.is_err());
 
     // New keys don't exist
-    assert!(kv.get(&branch_id, "new_1").unwrap().is_none());
-    assert!(kv.get(&branch_id, "new_2").unwrap().is_none());
+    assert!(kv.get(&branch_id, "default", "new_1").unwrap().is_none());
+    assert!(kv.get(&branch_id, "default", "new_2").unwrap().is_none());
 
     // Existing key unchanged
     assert_eq!(
-        kv.get(&branch_id, "existing").unwrap().unwrap(),
+        kv.get(&branch_id, "default", "existing").unwrap().unwrap(),
         Value::Int(100)
     );
 }
@@ -178,7 +178,7 @@ fn read_modify_write_single_primitive() {
     let branch_id = test_db.branch_id;
     let kv = test_db.kv();
 
-    kv.put(&branch_id, "counter", Value::Int(10)).unwrap();
+    kv.put(&branch_id, "default", "counter", Value::Int(10)).unwrap();
 
     test_db
         .db
@@ -191,7 +191,7 @@ fn read_modify_write_single_primitive() {
         })
         .unwrap();
 
-    let result = kv.get(&branch_id, "counter").unwrap().unwrap();
+    let result = kv.get(&branch_id, "default", "counter").unwrap().unwrap();
     assert_eq!(result, Value::Int(15));
 }
 
@@ -203,7 +203,7 @@ fn read_from_one_write_to_another() {
     let state = test_db.state();
 
     // Source data
-    kv.put(&branch_id, "source", Value::Int(42)).unwrap();
+    kv.put(&branch_id, "default", "source", Value::Int(42)).unwrap();
 
     // Copy to state cell using transaction
     test_db
@@ -215,7 +215,7 @@ fn read_from_one_write_to_another() {
         })
         .unwrap();
 
-    let copied = state.read(&branch_id, "copied").unwrap().unwrap();
+    let copied = state.read(&branch_id, "default", "copied").unwrap().unwrap();
     assert_eq!(copied, Value::Int(42));
 }
 
@@ -256,16 +256,16 @@ fn saga_pattern_all_steps_complete() {
     let state = test_db.state();
 
     assert_eq!(
-        kv.get(&branch_id, "order:1").unwrap(),
+        kv.get(&branch_id, "default", "order:1").unwrap(),
         Some(Value::String("created".into()))
     );
     assert_eq!(
-        kv.get(&branch_id, "inventory:item1").unwrap(),
+        kv.get(&branch_id, "default", "inventory:item1").unwrap(),
         Some(Value::Int(99))
     );
-    assert_eq!(event.len(&branch_id).unwrap(), 1);
+    assert_eq!(event.len(&branch_id, "default").unwrap(), 1);
     assert_eq!(
-        state.read(&branch_id, "order:1:status").unwrap().unwrap(),
+        state.read(&branch_id, "default", "order:1:status").unwrap().unwrap(),
         Value::String("processing".into())
     );
 }
@@ -304,13 +304,13 @@ fn cross_primitive_branch_isolation() {
     let event = test_db.event();
 
     // Each branch sees only its own data
-    let a_key = kv.get(&branch_a, "shared_key").unwrap().unwrap();
-    let b_key = kv.get(&branch_b, "shared_key").unwrap().unwrap();
+    let a_key = kv.get(&branch_a, "default", "shared_key").unwrap().unwrap();
+    let b_key = kv.get(&branch_b, "default", "shared_key").unwrap().unwrap();
 
     assert_eq!(a_key, Value::String("branch_a".into()));
     assert_eq!(b_key, Value::String("branch_b".into()));
 
     // Each branch has its own event log
-    assert_eq!(event.len(&branch_a).unwrap(), 1);
-    assert_eq!(event.len(&branch_b).unwrap(), 1);
+    assert_eq!(event.len(&branch_a, "default").unwrap(), 1);
+    assert_eq!(event.len(&branch_b, "default").unwrap(), 1);
 }

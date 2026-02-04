@@ -31,8 +31,8 @@ fn concurrent_transfers_conserve_total() {
     let db = test_db.db.clone();
 
     let kv = KVStore::new(db.clone());
-    kv.put(&branch_id, "account_a", Value::Int(1000)).unwrap();
-    kv.put(&branch_id, "account_b", Value::Int(1000)).unwrap();
+    kv.put(&branch_id, "default", "account_a", Value::Int(1000)).unwrap();
+    kv.put(&branch_id, "default", "account_b", Value::Int(1000)).unwrap();
 
     let num_threads = 4;
     let transfers_per_thread = 25;
@@ -96,11 +96,11 @@ fn concurrent_transfers_conserve_total() {
     );
 
     let final_a = kv
-        .get(&branch_id, "account_a")
+        .get(&branch_id, "default", "account_a")
         .unwrap()
         .expect("account_a must exist");
     let final_b = kv
-        .get(&branch_id, "account_b")
+        .get(&branch_id, "default", "account_b")
         .unwrap()
         .expect("account_b must exist");
 
@@ -149,7 +149,7 @@ fn concurrent_cross_primitive_transactions() {
     let db = test_db.db.clone();
 
     let kv = KVStore::new(db.clone());
-    kv.put(&branch_id, "counter", Value::Int(0)).unwrap();
+    kv.put(&branch_id, "default", "counter", Value::Int(0)).unwrap();
 
     let num_threads = 4;
     let ops_per_thread = 25;
@@ -207,7 +207,7 @@ fn concurrent_cross_primitive_transactions() {
     );
 
     let final_counter = kv
-        .get(&branch_id, "counter")
+        .get(&branch_id, "default", "counter")
         .unwrap()
         .expect("counter must exist");
     assert_eq!(
@@ -218,7 +218,7 @@ fn concurrent_cross_primitive_transactions() {
     );
 
     let event = EventLog::new(db.clone());
-    let event_count = event.len(&branch_id).unwrap();
+    let event_count = event.len(&branch_id, "default").unwrap();
     assert_eq!(
         event_count, total_ops as u64,
         "Event count should be {}",
@@ -245,7 +245,7 @@ fn concurrent_cross_primitive_conflict_atomicity() {
     let db = test_db.db.clone();
 
     let kv = KVStore::new(db.clone());
-    kv.put(&branch_id, "shared", Value::Int(0)).unwrap();
+    kv.put(&branch_id, "default", "shared", Value::Int(0)).unwrap();
 
     let barrier = Arc::new(Barrier::new(2));
 
@@ -281,11 +281,11 @@ fn concurrent_cross_primitive_conflict_atomicity() {
     );
 
     let final_shared = kv
-        .get(&branch_id, "shared")
+        .get(&branch_id, "default", "shared")
         .unwrap()
         .expect("shared must exist");
     let event = EventLog::new(db.clone());
-    let event_count = event.len(&branch_id).unwrap();
+    let event_count = event.len(&branch_id, "default").unwrap();
 
     if winners == 1 {
         // Winner committed: all primitives must reflect the write
@@ -333,7 +333,7 @@ fn durability_under_concurrent_load() {
                 let kv = KVStore::new(db);
                 for i in 0..writes_per_thread {
                     let key = format!("t{}_{}", t, i);
-                    kv.put(&branch_id, &key, Value::Int((t * 1000 + i) as i64))
+                    kv.put(&branch_id, "default", &key, Value::Int((t * 1000 + i) as i64))
                         .unwrap();
                 }
             })
@@ -354,7 +354,7 @@ fn durability_under_concurrent_load() {
         for i in 0..writes_per_thread {
             let key = format!("t{}_{}", t, i);
             let expected = Value::Int((t * 1000 + i) as i64);
-            let actual = kv.get(&branch_id, &key).unwrap();
+            let actual = kv.get(&branch_id, "default", &key).unwrap();
             assert_eq!(
                 actual,
                 Some(expected.clone()),
@@ -381,7 +381,7 @@ fn durability_concurrent_transactions_survive_restart() {
 
     {
         let kv = KVStore::new(test_db.db.clone());
-        kv.put(&branch_id, "counter", Value::Int(0)).unwrap();
+        kv.put(&branch_id, "default", "counter", Value::Int(0)).unwrap();
     }
 
     let num_threads = 4;
@@ -440,7 +440,7 @@ fn durability_concurrent_transactions_survive_restart() {
     {
         let kv = test_db.kv();
         let counter_before = kv
-            .get(&branch_id, "counter")
+            .get(&branch_id, "default", "counter")
             .unwrap()
             .expect("counter must exist");
         assert_eq!(
@@ -458,7 +458,7 @@ fn durability_concurrent_transactions_survive_restart() {
     // Verify after restart
     let kv_after = test_db.kv();
     let counter_after = kv_after
-        .get(&branch_id, "counter")
+        .get(&branch_id, "default", "counter")
         .unwrap()
         .expect("counter must exist after restart");
     assert_eq!(

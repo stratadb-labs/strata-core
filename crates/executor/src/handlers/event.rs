@@ -35,19 +35,20 @@ fn require_branch_exists(p: &Arc<Primitives>, branch: &BranchId) -> Result<()> {
 pub fn event_append(
     p: &Arc<Primitives>,
     branch: BranchId,
+    space: String,
     event_type: String,
     payload: strata_core::Value,
 ) -> Result<Output> {
     require_branch_exists(p, &branch)?;
     let core_branch_id = bridge::to_core_branch_id(&branch)?;
-    let version = convert_result(p.event.append(&core_branch_id, &event_type, payload))?;
+    let version = convert_result(p.event.append(&core_branch_id, &space, &event_type, payload))?;
     Ok(Output::Version(bridge::extract_version(&version)))
 }
 
 /// Handle EventRead command.
-pub fn event_read(p: &Arc<Primitives>, branch: BranchId, sequence: u64) -> Result<Output> {
+pub fn event_read(p: &Arc<Primitives>, branch: BranchId, space: String, sequence: u64) -> Result<Output> {
     let core_branch_id = bridge::to_core_branch_id(&branch)?;
-    let event = convert_result(p.event.read(&core_branch_id, sequence))?;
+    let event = convert_result(p.event.read(&core_branch_id, &space, sequence))?;
 
     let result = event.map(|e| VersionedValue {
         value: e.value.payload,
@@ -62,12 +63,13 @@ pub fn event_read(p: &Arc<Primitives>, branch: BranchId, sequence: u64) -> Resul
 pub fn event_read_by_type(
     p: &Arc<Primitives>,
     branch: BranchId,
+    space: String,
     event_type: String,
     limit: Option<u64>,
     after_sequence: Option<u64>,
 ) -> Result<Output> {
     let core_branch_id = bridge::to_core_branch_id(&branch)?;
-    let events = convert_result(p.event.read_by_type(&core_branch_id, &event_type))?;
+    let events = convert_result(p.event.read_by_type(&core_branch_id, &space, &event_type))?;
 
     // Apply after_sequence filter
     let filtered: Vec<_> = if let Some(after_seq) = after_sequence {
@@ -105,9 +107,9 @@ pub fn event_read_by_type(
 }
 
 /// Handle EventLen command.
-pub fn event_len(p: &Arc<Primitives>, branch: BranchId) -> Result<Output> {
+pub fn event_len(p: &Arc<Primitives>, branch: BranchId, space: String) -> Result<Output> {
     let core_branch_id = bridge::to_core_branch_id(&branch)?;
-    let count = convert_result(p.event.len(&core_branch_id))?;
+    let count = convert_result(p.event.len(&core_branch_id, &space))?;
     Ok(Output::Uint(count))
 }
 

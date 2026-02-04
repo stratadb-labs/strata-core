@@ -56,16 +56,19 @@ fn test_execute_many_preserves_order() {
     let put_results = executor.execute_many(vec![
         Command::KvPut {
             branch: Some(BranchId::from("default")),
+            space: None,
             key: "key1".to_string(),
             value: Value::Int(1),
         },
         Command::KvPut {
             branch: Some(BranchId::from("default")),
+            space: None,
             key: "key2".to_string(),
             value: Value::Int(2),
         },
         Command::KvPut {
             branch: Some(BranchId::from("default")),
+            space: None,
             key: "key3".to_string(),
             value: Value::Int(3),
         },
@@ -77,14 +80,17 @@ fn test_execute_many_preserves_order() {
     let get_results = executor.execute_many(vec![
         Command::KvGet {
             branch: Some(BranchId::from("default")),
+            space: None,
             key: "key3".to_string(),
         },
         Command::KvGet {
             branch: Some(BranchId::from("default")),
+            space: None,
             key: "key1".to_string(),
         },
         Command::KvGet {
             branch: Some(BranchId::from("default")),
+            space: None,
             key: "key2".to_string(),
         },
     ]);
@@ -123,6 +129,7 @@ fn test_execute_many_continues_after_error() {
         Command::Ping, // Should succeed
         Command::KvGet {
             branch: Some(BranchId::from("default")),
+            space: None,
             key: "".to_string(), // Empty key should fail validation
         },
         Command::Ping, // Should succeed even after previous failure
@@ -145,22 +152,26 @@ fn test_execute_many_mixed_operations() {
         // Store a value
         Command::KvPut {
             branch: Some(BranchId::from("default")),
+            space: None,
             key: "counter".to_string(),
             value: Value::Int(10),
         },
         // Get it
         Command::KvGet {
             branch: Some(BranchId::from("default")),
+            space: None,
             key: "counter".to_string(),
         },
         // Delete it
         Command::KvDelete {
             branch: Some(BranchId::from("default")),
+            space: None,
             key: "counter".to_string(),
         },
         // Get again (should be None)
         Command::KvGet {
             branch: Some(BranchId::from("default")),
+            space: None,
             key: "counter".to_string(),
         },
     ]);
@@ -216,6 +227,7 @@ fn test_execute_many_large_batch() {
     let commands: Vec<Command> = (0..100)
         .map(|i| Command::KvPut {
             branch: Some(BranchId::from("default")),
+            space: None,
             key: format!("key_{}", i),
             value: Value::Int(i),
         })

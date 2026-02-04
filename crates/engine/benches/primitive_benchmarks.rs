@@ -187,14 +187,14 @@ fn bench_state_read(c: &mut Criterion) {
 
     // Initialize the cell
     state_cell
-        .init(&branch_id, "read_cell", Value::Int(42))
+        .init(&branch_id, "default", "read_cell", Value::Int(42))
         .unwrap();
 
     let mut group = c.benchmark_group("state_cell");
     group.throughput(Throughput::Elements(1));
 
     group.bench_function("read", |b| {
-        b.iter(|| state_cell.read(&branch_id, "read_cell").unwrap())
+        b.iter(|| state_cell.read(&branch_id, "default", "read_cell").unwrap())
     });
     group.finish();
 }

@@ -80,7 +80,7 @@ impl Executor {
             });
         }
 
-        cmd.resolve_default_branch();
+        cmd.resolve_defaults();
 
         match cmd {
             // Database commands
@@ -111,26 +111,30 @@ impl Executor {
             }
 
             // KV commands (MVP: 4 commands)
-            Command::KvPut { branch, key, value } => {
+            Command::KvPut { branch, space, key, value } => {
                 let branch = branch.ok_or(Error::InvalidInput {
                     reason: "Branch must be specified or resolved to default".into(),
                 })?;
-                crate::handlers::kv::kv_put(&self.primitives, branch, key, value)
+                let space = space.unwrap_or_else(|| "default".to_string());
+                crate::handlers::kv::kv_put(&self.primitives, branch, space, key, value)
             }
-            Command::KvGet { branch, key } => {
+            Command::KvGet { branch, space, key } => {
                 let branch = branch.ok_or(Error::InvalidInput {
                     reason: "Branch must be specified or resolved to default".into(),
                 })?;
-                crate::handlers::kv::kv_get(&self.primitives, branch, key)
+                let space = space.unwrap_or_else(|| "default".to_string());
+                crate::handlers::kv::kv_get(&self.primitives, branch, space, key)
             }
-            Command::KvDelete { branch, key } => {
+            Command::KvDelete { branch, space, key } => {
                 let branch = branch.ok_or(Error::InvalidInput {
                     reason: "Branch must be specified or resolved to default".into(),
                 })?;
-                crate::handlers::kv::kv_delete(&self.primitives, branch, key)
+                let space = space.unwrap_or_else(|| "default".to_string());
+                crate::handlers::kv::kv_delete(&self.primitives, branch, space, key)
             }
             Command::KvList {
                 branch,
+                space,
                 prefix,
                 cursor,
                 limit,
@@ -138,18 +142,21 @@ impl Executor {
                 let branch = branch.ok_or(Error::InvalidInput {
                     reason: "Branch must be specified or resolved to default".into(),
                 })?;
-                crate::handlers::kv::kv_list(&self.primitives, branch, prefix, cursor, limit)
+                let space = space.unwrap_or_else(|| "default".to_string());
+                crate::handlers::kv::kv_list(&self.primitives, branch, space, prefix, cursor, limit)
             }
-            Command::KvGetv { branch, key } => {
+            Command::KvGetv { branch, space, key } => {
                 let branch = branch.ok_or(Error::InvalidInput {
                     reason: "Branch must be specified or resolved to default".into(),
                 })?;
-                crate::handlers::kv::kv_getv(&self.primitives, branch, key)
+                let space = space.unwrap_or_else(|| "default".to_string());
+                crate::handlers::kv::kv_getv(&self.primitives, branch, space, key)
             }
 
             // JSON commands
             Command::JsonSet {
                 branch,
+                space,
                 key,
                 path,
                 value,
@@ -157,28 +164,33 @@ impl Executor {
                 let branch = branch.ok_or(Error::InvalidInput {
                     reason: "Branch must be specified or resolved to default".into(),
                 })?;
-                crate::handlers::json::json_set(&self.primitives, branch, key, path, value)
+                let space = space.unwrap_or_else(|| "default".to_string());
+                crate::handlers::json::json_set(&self.primitives, branch, space, key, path, value)
             }
-            Command::JsonGet { branch, key, path } => {
+            Command::JsonGet { branch, space, key, path } => {
                 let branch = branch.ok_or(Error::InvalidInput {
                     reason: "Branch must be specified or resolved to default".into(),
                 })?;
-                crate::handlers::json::json_get(&self.primitives, branch, key, path)
+                let space = space.unwrap_or_else(|| "default".to_string());
+                crate::handlers::json::json_get(&self.primitives, branch, space, key, path)
             }
-            Command::JsonGetv { branch, key } => {
+            Command::JsonGetv { branch, space, key } => {
                 let branch = branch.ok_or(Error::InvalidInput {
                     reason: "Branch must be specified or resolved to default".into(),
                 })?;
-                crate::handlers::json::json_getv(&self.primitives, branch, key)
+                let space = space.unwrap_or_else(|| "default".to_string());
+                crate::handlers::json::json_getv(&self.primitives, branch, space, key)
             }
-            Command::JsonDelete { branch, key, path } => {
+            Command::JsonDelete { branch, space, key, path } => {
                 let branch = branch.ok_or(Error::InvalidInput {
                     reason: "Branch must be specified or resolved to default".into(),
                 })?;
-                crate::handlers::json::json_delete(&self.primitives, branch, key, path)
+                let space = space.unwrap_or_else(|| "default".to_string());
+                crate::handlers::json::json_delete(&self.primitives, branch, space, key, path)
             }
             Command::JsonList {
                 branch,
+                space,
                 prefix,
                 cursor,
                 limit,
@@ -186,28 +198,33 @@ impl Executor {
                 let branch = branch.ok_or(Error::InvalidInput {
                     reason: "Branch must be specified or resolved to default".into(),
                 })?;
-                crate::handlers::json::json_list(&self.primitives, branch, prefix, cursor, limit)
+                let space = space.unwrap_or_else(|| "default".to_string());
+                crate::handlers::json::json_list(&self.primitives, branch, space, prefix, cursor, limit)
             }
 
             // Event commands (4 MVP)
             Command::EventAppend {
                 branch,
+                space,
                 event_type,
                 payload,
             } => {
                 let branch = branch.ok_or(Error::InvalidInput {
                     reason: "Branch must be specified or resolved to default".into(),
                 })?;
-                crate::handlers::event::event_append(&self.primitives, branch, event_type, payload)
+                let space = space.unwrap_or_else(|| "default".to_string());
+                crate::handlers::event::event_append(&self.primitives, branch, space, event_type, payload)
             }
-            Command::EventRead { branch, sequence } => {
+            Command::EventRead { branch, space, sequence } => {
                 let branch = branch.ok_or(Error::InvalidInput {
                     reason: "Branch must be specified or resolved to default".into(),
                 })?;
-                crate::handlers::event::event_read(&self.primitives, branch, sequence)
+                let space = space.unwrap_or_else(|| "default".to_string());
+                crate::handlers::event::event_read(&self.primitives, branch, space, sequence)
             }
             Command::EventReadByType {
                 branch,
+                space,
                 event_type,
                 limit,
                 after_sequence,
@@ -215,46 +232,54 @@ impl Executor {
                 let branch = branch.ok_or(Error::InvalidInput {
                     reason: "Branch must be specified or resolved to default".into(),
                 })?;
+                let space = space.unwrap_or_else(|| "default".to_string());
                 crate::handlers::event::event_read_by_type(
                     &self.primitives,
                     branch,
+                    space,
                     event_type,
                     limit,
                     after_sequence,
                 )
             }
-            Command::EventLen { branch } => {
+            Command::EventLen { branch, space } => {
                 let branch = branch.ok_or(Error::InvalidInput {
                     reason: "Branch must be specified or resolved to default".into(),
                 })?;
-                crate::handlers::event::event_len(&self.primitives, branch)
+                let space = space.unwrap_or_else(|| "default".to_string());
+                crate::handlers::event::event_len(&self.primitives, branch, space)
             }
 
             // State commands (4 MVP)
             Command::StateSet {
                 branch,
+                space,
                 cell,
                 value,
             } => {
                 let branch = branch.ok_or(Error::InvalidInput {
                     reason: "Branch must be specified or resolved to default".into(),
                 })?;
-                crate::handlers::state::state_set(&self.primitives, branch, cell, value)
+                let space = space.unwrap_or_else(|| "default".to_string());
+                crate::handlers::state::state_set(&self.primitives, branch, space, cell, value)
             }
-            Command::StateRead { branch, cell } => {
+            Command::StateRead { branch, space, cell } => {
                 let branch = branch.ok_or(Error::InvalidInput {
                     reason: "Branch must be specified or resolved to default".into(),
                 })?;
-                crate::handlers::state::state_read(&self.primitives, branch, cell)
+                let space = space.unwrap_or_else(|| "default".to_string());
+                crate::handlers::state::state_read(&self.primitives, branch, space, cell)
             }
-            Command::StateReadv { branch, cell } => {
+            Command::StateReadv { branch, space, cell } => {
                 let branch = branch.ok_or(Error::InvalidInput {
                     reason: "Branch must be specified or resolved to default".into(),
                 })?;
-                crate::handlers::state::state_readv(&self.primitives, branch, cell)
+                let space = space.unwrap_or_else(|| "default".to_string());
+                crate::handlers::state::state_readv(&self.primitives, branch, space, cell)
             }
             Command::StateCas {
                 branch,
+                space,
                 cell,
                 expected_counter,
                 value,
@@ -262,9 +287,11 @@ impl Executor {
                 let branch = branch.ok_or(Error::InvalidInput {
                     reason: "Branch must be specified or resolved to default".into(),
                 })?;
+                let space = space.unwrap_or_else(|| "default".to_string());
                 crate::handlers::state::state_cas(
                     &self.primitives,
                     branch,
+                    space,
                     cell,
                     expected_counter,
                     value,
@@ -272,30 +299,35 @@ impl Executor {
             }
             Command::StateInit {
                 branch,
+                space,
                 cell,
                 value,
             } => {
                 let branch = branch.ok_or(Error::InvalidInput {
                     reason: "Branch must be specified or resolved to default".into(),
                 })?;
-                crate::handlers::state::state_init(&self.primitives, branch, cell, value)
+                let space = space.unwrap_or_else(|| "default".to_string());
+                crate::handlers::state::state_init(&self.primitives, branch, space, cell, value)
             }
-            Command::StateDelete { branch, cell } => {
+            Command::StateDelete { branch, space, cell } => {
                 let branch = branch.ok_or(Error::InvalidInput {
                     reason: "Branch must be specified or resolved to default".into(),
                 })?;
-                crate::handlers::state::state_delete(&self.primitives, branch, cell)
+                let space = space.unwrap_or_else(|| "default".to_string());
+                crate::handlers::state::state_delete(&self.primitives, branch, space, cell)
             }
-            Command::StateList { branch, prefix } => {
+            Command::StateList { branch, space, prefix } => {
                 let branch = branch.ok_or(Error::InvalidInput {
                     reason: "Branch must be specified or resolved to default".into(),
                 })?;
-                crate::handlers::state::state_list(&self.primitives, branch, prefix)
+                let space = space.unwrap_or_else(|| "default".to_string());
+                crate::handlers::state::state_list(&self.primitives, branch, space, prefix)
             }
 
             // Vector commands
             Command::VectorUpsert {
                 branch,
+                space,
                 collection,
                 key,
                 vector,
@@ -304,9 +336,11 @@ impl Executor {
                 let branch = branch.ok_or(Error::InvalidInput {
                     reason: "Branch must be specified or resolved to default".into(),
                 })?;
+                let space = space.unwrap_or_else(|| "default".to_string());
                 crate::handlers::vector::vector_upsert(
                     &self.primitives,
                     branch,
+                    space,
                     collection,
                     key,
                     vector,
@@ -315,26 +349,31 @@ impl Executor {
             }
             Command::VectorGet {
                 branch,
+                space,
                 collection,
                 key,
             } => {
                 let branch = branch.ok_or(Error::InvalidInput {
                     reason: "Branch must be specified or resolved to default".into(),
                 })?;
-                crate::handlers::vector::vector_get(&self.primitives, branch, collection, key)
+                let space = space.unwrap_or_else(|| "default".to_string());
+                crate::handlers::vector::vector_get(&self.primitives, branch, space, collection, key)
             }
             Command::VectorDelete {
                 branch,
+                space,
                 collection,
                 key,
             } => {
                 let branch = branch.ok_or(Error::InvalidInput {
                     reason: "Branch must be specified or resolved to default".into(),
                 })?;
-                crate::handlers::vector::vector_delete(&self.primitives, branch, collection, key)
+                let space = space.unwrap_or_else(|| "default".to_string());
+                crate::handlers::vector::vector_delete(&self.primitives, branch, space, collection, key)
             }
             Command::VectorSearch {
                 branch,
+                space,
                 collection,
                 query,
                 k,
@@ -344,9 +383,11 @@ impl Executor {
                 let branch = branch.ok_or(Error::InvalidInput {
                     reason: "Branch must be specified or resolved to default".into(),
                 })?;
+                let space = space.unwrap_or_else(|| "default".to_string());
                 crate::handlers::vector::vector_search(
                     &self.primitives,
                     branch,
+                    space,
                     collection,
                     query,
                     k,
@@ -356,6 +397,7 @@ impl Executor {
             }
             Command::VectorCreateCollection {
                 branch,
+                space,
                 collection,
                 dimension,
                 metric,
@@ -363,51 +405,61 @@ impl Executor {
                 let branch = branch.ok_or(Error::InvalidInput {
                     reason: "Branch must be specified or resolved to default".into(),
                 })?;
+                let space = space.unwrap_or_else(|| "default".to_string());
                 crate::handlers::vector::vector_create_collection(
                     &self.primitives,
                     branch,
+                    space,
                     collection,
                     dimension,
                     metric,
                 )
             }
-            Command::VectorDeleteCollection { branch, collection } => {
+            Command::VectorDeleteCollection { branch, space, collection } => {
                 let branch = branch.ok_or(Error::InvalidInput {
                     reason: "Branch must be specified or resolved to default".into(),
                 })?;
+                let space = space.unwrap_or_else(|| "default".to_string());
                 crate::handlers::vector::vector_delete_collection(
                     &self.primitives,
                     branch,
+                    space,
                     collection,
                 )
             }
-            Command::VectorListCollections { branch } => {
+            Command::VectorListCollections { branch, space } => {
                 let branch = branch.ok_or(Error::InvalidInput {
                     reason: "Branch must be specified or resolved to default".into(),
                 })?;
-                crate::handlers::vector::vector_list_collections(&self.primitives, branch)
+                let space = space.unwrap_or_else(|| "default".to_string());
+                crate::handlers::vector::vector_list_collections(&self.primitives, branch, space)
             }
-            Command::VectorCollectionStats { branch, collection } => {
+            Command::VectorCollectionStats { branch, space, collection } => {
                 let branch = branch.ok_or(Error::InvalidInput {
                     reason: "Branch must be specified or resolved to default".into(),
                 })?;
+                let space = space.unwrap_or_else(|| "default".to_string());
                 crate::handlers::vector::vector_collection_stats(
                     &self.primitives,
                     branch,
+                    space,
                     collection,
                 )
             }
             Command::VectorBatchUpsert {
                 branch,
+                space,
                 collection,
                 entries,
             } => {
                 let branch = branch.ok_or(Error::InvalidInput {
                     reason: "Branch must be specified or resolved to default".into(),
                 })?;
+                let space = space.unwrap_or_else(|| "default".to_string());
                 crate::handlers::vector::vector_batch_upsert(
                     &self.primitives,
                     branch,
+                    space,
                     collection,
                     entries,
                 )
@@ -475,6 +527,7 @@ impl Executor {
             // Intelligence commands
             Command::Search {
                 branch,
+                space,
                 query,
                 k,
                 primitives,
@@ -482,7 +535,34 @@ impl Executor {
                 let branch = branch.ok_or(Error::InvalidInput {
                     reason: "Branch must be specified or resolved to default".into(),
                 })?;
-                crate::handlers::search::search(&self.primitives, branch, query, k, primitives)
+                let space = space.unwrap_or_else(|| "default".to_string());
+                crate::handlers::search::search(&self.primitives, branch, space, query, k, primitives)
+            }
+
+            // Space commands
+            Command::SpaceList { branch } => {
+                let branch = branch.ok_or(Error::InvalidInput {
+                    reason: "Branch must be specified or resolved to default".into(),
+                })?;
+                crate::handlers::space::space_list(&self.primitives, branch)
+            }
+            Command::SpaceCreate { branch, space } => {
+                let branch = branch.ok_or(Error::InvalidInput {
+                    reason: "Branch must be specified or resolved to default".into(),
+                })?;
+                crate::handlers::space::space_create(&self.primitives, branch, space)
+            }
+            Command::SpaceDelete { branch, space, force } => {
+                let branch = branch.ok_or(Error::InvalidInput {
+                    reason: "Branch must be specified or resolved to default".into(),
+                })?;
+                crate::handlers::space::space_delete(&self.primitives, branch, space, force)
+            }
+            Command::SpaceExists { branch, space } => {
+                let branch = branch.ok_or(Error::InvalidInput {
+                    reason: "Branch must be specified or resolved to default".into(),
+                })?;
+                crate::handlers::space::space_exists(&self.primitives, branch, space)
             }
         }
     }

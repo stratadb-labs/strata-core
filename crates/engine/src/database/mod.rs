@@ -1029,6 +1029,7 @@ mod tests {
             "app".to_string(),
             "agent".to_string(),
             branch_id,
+            "default".to_string(),
         );
 
         // Write directly to segmented WAL (simulating a crash recovery scenario)
@@ -1073,6 +1074,7 @@ mod tests {
             "app".to_string(),
             "agent".to_string(),
             branch_id,
+            "default".to_string(),
         );
 
         // Open database, write via transaction, close
@@ -1121,6 +1123,7 @@ mod tests {
             "app".to_string(),
             "agent".to_string(),
             branch_id,
+            "default".to_string(),
         );
 
         // Write one valid record, then append garbage to simulate crash
@@ -1229,6 +1232,7 @@ mod tests {
             "app".to_string(),
             "agent".to_string(),
             branch_id,
+            "default".to_string(),
         )
     }
 

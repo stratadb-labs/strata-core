@@ -25,6 +25,7 @@ fn test_namespace(branch_id: BranchId) -> Namespace {
         "app".to_string(),
         "agent".to_string(),
         branch_id,
+        "default".to_string(),
     )
 }
 

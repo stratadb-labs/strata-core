@@ -161,8 +161,8 @@ impl JsonDoc {
 /// let branch_id = BranchId::new();
 ///
 /// // Create and read document
-/// json.create(&branch_id, "my-doc", JsonValue::object())?;
-/// let value = json.get(&branch_id, "my-doc", &JsonPath::root())?;
+/// json.create(&branch_id, "default", "my-doc", JsonValue::object())?;
+/// let value = json.get(&branch_id, "default", "my-doc", &JsonPath::root())?;
 /// ```
 #[derive(Clone)]
 pub struct JsonStore {
@@ -180,14 +180,14 @@ impl JsonStore {
         &self.db
     }
 
-    /// Build namespace for branch-scoped operations
-    fn namespace_for_branch(&self, branch_id: &BranchId) -> Namespace {
-        Namespace::for_branch(*branch_id)
+    /// Build namespace for branch+space-scoped operations
+    fn namespace_for(&self, branch_id: &BranchId, space: &str) -> Namespace {
+        Namespace::for_branch_space(*branch_id, space)
     }
 
     /// Build key for JSON document
-    fn key_for(&self, branch_id: &BranchId, doc_id: &str) -> Key {
-        Key::new_json(self.namespace_for_branch(branch_id), doc_id)
+    fn key_for(&self, branch_id: &BranchId, space: &str, doc_id: &str) -> Key {
+        Key::new_json(self.namespace_for(branch_id, space), doc_id)
     }
 
     // ========================================================================
@@ -227,6 +227,7 @@ impl JsonStore {
     /// # Arguments
     ///
     /// * `branch_id` - BranchId for namespace isolation
+    /// * `space` - Logical space within the branch
     /// * `doc_id` - Unique document identifier
     /// * `value` - Initial JSON value for the document
     ///
@@ -238,19 +239,20 @@ impl JsonStore {
     /// # Example
     ///
     /// ```ignore
-    /// let version = json.create(&branch_id, &doc_id, JsonValue::object())?;
+    /// let version = json.create(&branch_id, "default", &doc_id, JsonValue::object())?;
     /// assert_eq!(version, Version::counter(1));
     /// ```
     pub fn create(
         &self,
         branch_id: &BranchId,
+        space: &str,
         doc_id: &str,
         value: JsonValue,
     ) -> StrataResult<Version> {
         // Validate document limits (Issue #440)
         value.validate().map_err(limit_error_to_error)?;
 
-        let key = self.key_for(branch_id, doc_id);
+        let key = self.key_for(branch_id, space, doc_id);
         let doc = JsonDoc::new(doc_id, value.clone());
 
         self.db.transaction(*branch_id, |txn| {
@@ -277,6 +279,7 @@ impl JsonStore {
     /// # Arguments
     ///
     /// * `branch_id` - BranchId for namespace isolation
+    /// * `space` - Logical space within the branch
     /// * `doc_id` - Document to read from
     /// * `path` - Path within the document (use JsonPath::root() for whole doc)
     ///
@@ -290,13 +293,14 @@ impl JsonStore {
     pub fn get(
         &self,
         branch_id: &BranchId,
+        space: &str,
         doc_id: &str,
         path: &JsonPath,
     ) -> StrataResult<Option<JsonValue>> {
         // Validate path limits (Issue #440)
         path.validate().map_err(limit_error_to_error)?;
 
-        let key = self.key_for(branch_id, doc_id);
+        let key = self.key_for(branch_id, space, doc_id);
 
         self.db.transaction(*branch_id, |txn| match txn.get(&key)? {
             Some(value) => {
@@ -315,12 +319,13 @@ impl JsonStore {
     pub fn get_versioned(
         &self,
         branch_id: &BranchId,
+        space: &str,
         doc_id: &str,
         path: &JsonPath,
     ) -> StrataResult<Option<Versioned<JsonValue>>> {
         use strata_core::contract::Versioned;
 
-        let key = self.key_for(branch_id, doc_id);
+        let key = self.key_for(branch_id, space, doc_id);
         use strata_core::Storage;
         match self.db.storage().get(&key)? {
             Some(vv) => {
@@ -348,9 +353,10 @@ impl JsonStore {
     pub fn getv(
         &self,
         branch_id: &BranchId,
+        space: &str,
         doc_id: &str,
     ) -> StrataResult<Option<VersionedHistory<JsonValue>>> {
-        let key = self.key_for(branch_id, doc_id);
+        let key = self.key_for(branch_id, space, doc_id);
         let history = self.db.get_history(&key, None, None)?;
         let versions: Vec<Versioned<JsonValue>> = history
             .iter()
@@ -377,6 +383,7 @@ impl JsonStore {
     pub fn set_or_create(
         &self,
         branch_id: &BranchId,
+        space: &str,
         doc_id: &str,
         path: &JsonPath,
         value: JsonValue,
@@ -384,7 +391,7 @@ impl JsonStore {
         path.validate().map_err(limit_error_to_error)?;
         value.validate().map_err(limit_error_to_error)?;
 
-        let key = self.key_for(branch_id, doc_id);
+        let key = self.key_for(branch_id, space, doc_id);
 
         self.db.transaction(*branch_id, |txn| {
             match txn.get(&key)? {
@@ -418,8 +425,8 @@ impl JsonStore {
     }
 
     /// Check if document exists.
-    pub fn exists(&self, branch_id: &BranchId, doc_id: &str) -> StrataResult<bool> {
-        let key = self.key_for(branch_id, doc_id);
+    pub fn exists(&self, branch_id: &BranchId, space: &str, doc_id: &str) -> StrataResult<bool> {
+        let key = self.key_for(branch_id, space, doc_id);
         self.db
             .transaction(*branch_id, |txn| Ok(txn.get(&key)?.is_some()))
     }
@@ -436,6 +443,7 @@ impl JsonStore {
     /// # Arguments
     ///
     /// * `branch_id` - BranchId for namespace isolation
+    /// * `space` - Logical space within the branch
     /// * `doc_id` - Document to modify
     /// * `path` - Path to set value at (creates intermediate objects/arrays)
     /// * `value` - New value to set
@@ -448,6 +456,7 @@ impl JsonStore {
     pub fn set(
         &self,
         branch_id: &BranchId,
+        space: &str,
         doc_id: &str,
         path: &JsonPath,
         value: JsonValue,
@@ -456,7 +465,7 @@ impl JsonStore {
         path.validate().map_err(limit_error_to_error)?;
         value.validate().map_err(limit_error_to_error)?;
 
-        let key = self.key_for(branch_id, doc_id);
+        let key = self.key_for(branch_id, space, doc_id);
 
         self.db.transaction(*branch_id, |txn| {
             // Load existing document
@@ -486,6 +495,7 @@ impl JsonStore {
     /// # Arguments
     ///
     /// * `branch_id` - BranchId for namespace isolation
+    /// * `space` - Logical space within the branch
     /// * `doc_id` - Document to modify
     /// * `path` - Path to delete (must not be root)
     ///
@@ -498,18 +508,19 @@ impl JsonStore {
     ///
     /// ```ignore
     /// // Remove a field from an object
-    /// json.delete_at_path(&branch_id, &doc_id, &"user.temp".parse().unwrap())?;
+    /// json.delete_at_path(&branch_id, "default", &doc_id, &"user.temp".parse().unwrap())?;
     /// ```
     pub fn delete_at_path(
         &self,
         branch_id: &BranchId,
+        space: &str,
         doc_id: &str,
         path: &JsonPath,
     ) -> StrataResult<Version> {
         // Validate path limits (Issue #440)
         path.validate().map_err(limit_error_to_error)?;
 
-        let key = self.key_for(branch_id, doc_id);
+        let key = self.key_for(branch_id, space, doc_id);
 
         self.db.transaction(*branch_id, |txn| {
             // Load existing document
@@ -538,6 +549,7 @@ impl JsonStore {
     /// # Arguments
     ///
     /// * `branch_id` - BranchId for namespace isolation
+    /// * `space` - Logical space within the branch
     /// * `doc_id` - Document to destroy
     ///
     /// # Returns
@@ -548,11 +560,11 @@ impl JsonStore {
     /// # Example
     ///
     /// ```ignore
-    /// let existed = json.destroy(&branch_id, &doc_id)?;
+    /// let existed = json.destroy(&branch_id, "default", &doc_id)?;
     /// assert!(existed);
     /// ```
-    pub fn destroy(&self, branch_id: &BranchId, doc_id: &str) -> StrataResult<bool> {
-        let key = self.key_for(branch_id, doc_id);
+    pub fn destroy(&self, branch_id: &BranchId, space: &str, doc_id: &str) -> StrataResult<bool> {
+        let key = self.key_for(branch_id, space, doc_id);
 
         self.db.transaction(*branch_id, |txn| {
             // Check if document exists
@@ -578,6 +590,7 @@ impl JsonStore {
     /// # Arguments
     ///
     /// * `branch_id` - BranchId for namespace isolation
+    /// * `space` - Logical space within the branch
     /// * `prefix` - Optional prefix to filter document IDs (compared as strings)
     /// * `cursor` - Resume pagination from this cursor (doc_id to start after)
     /// * `limit` - Maximum number of results to return
@@ -590,25 +603,26 @@ impl JsonStore {
     ///
     /// ```ignore
     /// // List first 10 documents
-    /// let result = json.list(&branch_id, None, None, 10)?;
+    /// let result = json.list(&branch_id, "default", None, None, 10)?;
     ///
     /// // List documents with prefix "user:"
-    /// let result = json.list(&branch_id, Some("user:"), None, 10)?;
+    /// let result = json.list(&branch_id, "default", Some("user:"), None, 10)?;
     ///
     /// // Paginate through results
-    /// let page1 = json.list(&branch_id, None, None, 10)?;
+    /// let page1 = json.list(&branch_id, "default", None, None, 10)?;
     /// if let Some(cursor) = page1.next_cursor {
-    ///     let page2 = json.list(&branch_id, None, Some(&cursor), 10)?;
+    ///     let page2 = json.list(&branch_id, "default", None, Some(&cursor), 10)?;
     /// }
     /// ```
     pub fn list(
         &self,
         branch_id: &BranchId,
+        space: &str,
         prefix: Option<&str>,
         cursor: Option<&str>,
         limit: usize,
     ) -> StrataResult<JsonListResult> {
-        let ns = self.namespace_for_branch(branch_id);
+        let ns = self.namespace_for(branch_id, space);
         let scan_prefix = Key::new_json_prefix(ns);
 
         self.db.transaction(*branch_id, |txn| {
@@ -794,8 +808,8 @@ mod tests {
         let branch2 = BranchId::new();
         let doc_id = "test-doc";
 
-        let key1 = store.key_for(&branch1, &doc_id);
-        let key2 = store.key_for(&branch2, &doc_id);
+        let key1 = store.key_for(&branch1, "default", &doc_id);
+        let key2 = store.key_for(&branch2, "default", &doc_id);
 
         // Keys for different branches should be different even for same doc_id
         assert_ne!(key1, key2);
@@ -809,8 +823,8 @@ mod tests {
         let branch_id = BranchId::new();
         let doc_id = "test-doc";
 
-        let key1 = store.key_for(&branch_id, &doc_id);
-        let key2 = store.key_for(&branch_id, &doc_id);
+        let key1 = store.key_for(&branch_id, "default", &doc_id);
+        let key2 = store.key_for(&branch_id, "default", &doc_id);
 
         // Same branch and doc_id should produce same key
         assert_eq!(key1, key2);
@@ -966,7 +980,7 @@ mod tests {
         let doc_id = "test-doc";
 
         let version = store
-            .create(&branch_id, &doc_id, JsonValue::from(42i64))
+            .create(&branch_id, "default", &doc_id, JsonValue::from(42i64))
             .unwrap();
         assert_eq!(version, Version::counter(1));
     }
@@ -984,7 +998,7 @@ mod tests {
         })
         .into();
 
-        let version = store.create(&branch_id, &doc_id, value).unwrap();
+        let version = store.create(&branch_id, "default", &doc_id, value).unwrap();
         assert_eq!(version, Version::counter(1));
     }
 
@@ -997,11 +1011,11 @@ mod tests {
 
         // First create succeeds
         store
-            .create(&branch_id, &doc_id, JsonValue::from(1i64))
+            .create(&branch_id, "default", &doc_id, JsonValue::from(1i64))
             .unwrap();
 
         // Second create with same ID fails
-        let result = store.create(&branch_id, &doc_id, JsonValue::from(2i64));
+        let result = store.create(&branch_id, "default", &doc_id, JsonValue::from(2i64));
         assert!(result.is_err());
     }
 
@@ -1015,10 +1029,10 @@ mod tests {
         let doc2 = "doc-2";
 
         let v1 = store
-            .create(&branch_id, &doc1, JsonValue::from(1i64))
+            .create(&branch_id, "default", &doc1, JsonValue::from(1i64))
             .unwrap();
         let v2 = store
-            .create(&branch_id, &doc2, JsonValue::from(2i64))
+            .create(&branch_id, "default", &doc2, JsonValue::from(2i64))
             .unwrap();
 
         assert_eq!(v1, Version::counter(1));
@@ -1036,10 +1050,10 @@ mod tests {
 
         // Same doc_id can be created in different branches
         let v1 = store
-            .create(&branch1, &doc_id, JsonValue::from(1i64))
+            .create(&branch1, "default", &doc_id, JsonValue::from(1i64))
             .unwrap();
         let v2 = store
-            .create(&branch2, &doc_id, JsonValue::from(2i64))
+            .create(&branch2, "default", &doc_id, JsonValue::from(2i64))
             .unwrap();
 
         assert_eq!(v1, Version::counter(1));
@@ -1054,7 +1068,7 @@ mod tests {
         let doc_id = "test-doc";
 
         let version = store
-            .create(&branch_id, &doc_id, JsonValue::null())
+            .create(&branch_id, "default", &doc_id, JsonValue::null())
             .unwrap();
         assert_eq!(version, Version::counter(1));
     }
@@ -1067,7 +1081,7 @@ mod tests {
         let doc_id = "test-doc";
 
         let version = store
-            .create(&branch_id, &doc_id, JsonValue::object())
+            .create(&branch_id, "default", &doc_id, JsonValue::object())
             .unwrap();
         assert_eq!(version, Version::counter(1));
     }
@@ -1080,7 +1094,7 @@ mod tests {
         let doc_id = "test-doc";
 
         let version = store
-            .create(&branch_id, &doc_id, JsonValue::array())
+            .create(&branch_id, "default", &doc_id, JsonValue::array())
             .unwrap();
         assert_eq!(version, Version::counter(1));
     }
@@ -1097,10 +1111,10 @@ mod tests {
         let doc_id = "test-doc";
 
         store
-            .create(&branch_id, &doc_id, JsonValue::from(42i64))
+            .create(&branch_id, "default", &doc_id, JsonValue::from(42i64))
             .unwrap();
 
-        let value = store.get(&branch_id, &doc_id, &JsonPath::root()).unwrap();
+        let value = store.get(&branch_id, "default", &doc_id, &JsonPath::root()).unwrap();
         assert_eq!(value.and_then(|v| v.as_i64()), Some(42));
     }
 
@@ -1117,10 +1131,10 @@ mod tests {
         })
         .into();
 
-        store.create(&branch_id, &doc_id, value).unwrap();
+        store.create(&branch_id, "default", &doc_id, value).unwrap();
 
         let name = store
-            .get(&branch_id, &doc_id, &"name".parse().unwrap())
+            .get(&branch_id, "default", &doc_id, &"name".parse().unwrap())
             .unwrap();
         assert_eq!(
             name.and_then(|v| v.as_str().map(String::from)),
@@ -1128,7 +1142,7 @@ mod tests {
         );
 
         let age = store
-            .get(&branch_id, &doc_id, &"age".parse().unwrap())
+            .get(&branch_id, "default", &doc_id, &"age".parse().unwrap())
             .unwrap();
         assert_eq!(age.and_then(|v| v.as_i64()), Some(30));
     }
@@ -1149,10 +1163,10 @@ mod tests {
         })
         .into();
 
-        store.create(&branch_id, &doc_id, value).unwrap();
+        store.create(&branch_id, "default", &doc_id, value).unwrap();
 
         let name = store
-            .get(&branch_id, &doc_id, &"user.profile.name".parse().unwrap())
+            .get(&branch_id, "default", &doc_id, &"user.profile.name".parse().unwrap())
             .unwrap();
         assert_eq!(
             name.and_then(|v| v.as_str().map(String::from)),
@@ -1172,10 +1186,10 @@ mod tests {
         })
         .into();
 
-        store.create(&branch_id, &doc_id, value).unwrap();
+        store.create(&branch_id, "default", &doc_id, value).unwrap();
 
         let item = store
-            .get(&branch_id, &doc_id, &"items[1]".parse().unwrap())
+            .get(&branch_id, "default", &doc_id, &"items[1]".parse().unwrap())
             .unwrap();
         assert_eq!(
             item.and_then(|v| v.as_str().map(String::from)),
@@ -1190,7 +1204,7 @@ mod tests {
         let branch_id = BranchId::new();
         let doc_id = "test-doc";
 
-        let result = store.get(&branch_id, &doc_id, &JsonPath::root()).unwrap();
+        let result = store.get(&branch_id, "default", &doc_id, &JsonPath::root()).unwrap();
         assert!(result.is_none());
     }
 
@@ -1202,11 +1216,11 @@ mod tests {
         let doc_id = "test-doc";
 
         store
-            .create(&branch_id, &doc_id, JsonValue::object())
+            .create(&branch_id, "default", &doc_id, JsonValue::object())
             .unwrap();
 
         let result = store
-            .get(&branch_id, &doc_id, &"nonexistent".parse().unwrap())
+            .get(&branch_id, "default", &doc_id, &"nonexistent".parse().unwrap())
             .unwrap();
         assert!(result.is_none());
     }
@@ -1218,13 +1232,13 @@ mod tests {
         let branch_id = BranchId::new();
         let doc_id = "test-doc";
 
-        assert!(!store.exists(&branch_id, &doc_id).unwrap());
+        assert!(!store.exists(&branch_id, "default", &doc_id).unwrap());
 
         store
-            .create(&branch_id, &doc_id, JsonValue::from(42i64))
+            .create(&branch_id, "default", &doc_id, JsonValue::from(42i64))
             .unwrap();
 
-        assert!(store.exists(&branch_id, &doc_id).unwrap());
+        assert!(store.exists(&branch_id, "default", &doc_id).unwrap());
     }
 
     #[test]
@@ -1237,12 +1251,12 @@ mod tests {
         let doc_id = "test-doc";
 
         store
-            .create(&branch1, &doc_id, JsonValue::from(42i64))
+            .create(&branch1, "default", &doc_id, JsonValue::from(42i64))
             .unwrap();
 
         // Document exists in branch1 but not in branch2
-        assert!(store.exists(&branch1, &doc_id).unwrap());
-        assert!(!store.exists(&branch2, &doc_id).unwrap());
+        assert!(store.exists(&branch1, "default", &doc_id).unwrap());
+        assert!(!store.exists(&branch2, "default", &doc_id).unwrap());
     }
 
     // ========================================
@@ -1257,12 +1271,13 @@ mod tests {
         let doc_id = "test-doc";
 
         store
-            .create(&branch_id, &doc_id, JsonValue::from(42i64))
+            .create(&branch_id, "default", &doc_id, JsonValue::from(42i64))
             .unwrap();
 
         let v2 = store
             .set(
                 &branch_id,
+                "default",
                 &doc_id,
                 &JsonPath::root(),
                 JsonValue::from(100i64),
@@ -1270,7 +1285,7 @@ mod tests {
             .unwrap();
         assert_eq!(v2, Version::counter(2));
 
-        let value = store.get(&branch_id, &doc_id, &JsonPath::root()).unwrap();
+        let value = store.get(&branch_id, "default", &doc_id, &JsonPath::root()).unwrap();
         assert_eq!(value.and_then(|v| v.as_i64()), Some(100));
     }
 
@@ -1282,12 +1297,13 @@ mod tests {
         let doc_id = "test-doc";
 
         store
-            .create(&branch_id, &doc_id, JsonValue::object())
+            .create(&branch_id, "default", &doc_id, JsonValue::object())
             .unwrap();
 
         let v2 = store
             .set(
                 &branch_id,
+                "default",
                 &doc_id,
                 &"name".parse().unwrap(),
                 JsonValue::from("Alice"),
@@ -1296,7 +1312,7 @@ mod tests {
         assert_eq!(v2, Version::counter(2));
 
         let name = store
-            .get(&branch_id, &doc_id, &"name".parse().unwrap())
+            .get(&branch_id, "default", &doc_id, &"name".parse().unwrap())
             .unwrap();
         assert_eq!(
             name.and_then(|v| v.as_str().map(String::from)),
@@ -1312,13 +1328,14 @@ mod tests {
         let doc_id = "test-doc";
 
         store
-            .create(&branch_id, &doc_id, JsonValue::object())
+            .create(&branch_id, "default", &doc_id, JsonValue::object())
             .unwrap();
 
         // Creates intermediate objects automatically
         let v2 = store
             .set(
                 &branch_id,
+                "default",
                 &doc_id,
                 &"user.profile.name".parse().unwrap(),
                 JsonValue::from("Bob"),
@@ -1327,7 +1344,7 @@ mod tests {
         assert_eq!(v2, Version::counter(2));
 
         let name = store
-            .get(&branch_id, &doc_id, &"user.profile.name".parse().unwrap())
+            .get(&branch_id, "default", &doc_id, &"user.profile.name".parse().unwrap())
             .unwrap();
         assert_eq!(
             name.and_then(|v| v.as_str().map(String::from)),
@@ -1343,13 +1360,14 @@ mod tests {
         let doc_id = "test-doc";
 
         let v1 = store
-            .create(&branch_id, &doc_id, JsonValue::object())
+            .create(&branch_id, "default", &doc_id, JsonValue::object())
             .unwrap();
         assert_eq!(v1, Version::counter(1));
 
         let v2 = store
             .set(
                 &branch_id,
+                "default",
                 &doc_id,
                 &"a".parse().unwrap(),
                 JsonValue::from(1i64),
@@ -1360,6 +1378,7 @@ mod tests {
         let v3 = store
             .set(
                 &branch_id,
+                "default",
                 &doc_id,
                 &"b".parse().unwrap(),
                 JsonValue::from(2i64),
@@ -1377,6 +1396,7 @@ mod tests {
 
         let result = store.set(
             &branch_id,
+            "default",
             &doc_id,
             &"name".parse().unwrap(),
             JsonValue::from("test"),
@@ -1392,11 +1412,12 @@ mod tests {
         let doc_id = "test-doc";
 
         let value: JsonValue = serde_json::json!({ "name": "Alice" }).into();
-        store.create(&branch_id, &doc_id, value).unwrap();
+        store.create(&branch_id, "default", &doc_id, value).unwrap();
 
         store
             .set(
                 &branch_id,
+                "default",
                 &doc_id,
                 &"name".parse().unwrap(),
                 JsonValue::from("Bob"),
@@ -1404,7 +1425,7 @@ mod tests {
             .unwrap();
 
         let name = store
-            .get(&branch_id, &doc_id, &"name".parse().unwrap())
+            .get(&branch_id, "default", &doc_id, &"name".parse().unwrap())
             .unwrap();
         assert_eq!(
             name.and_then(|v| v.as_str().map(String::from)),
@@ -1420,11 +1441,12 @@ mod tests {
         let doc_id = "test-doc";
 
         let value: JsonValue = serde_json::json!({ "items": [1, 2, 3] }).into();
-        store.create(&branch_id, &doc_id, value).unwrap();
+        store.create(&branch_id, "default", &doc_id, value).unwrap();
 
         store
             .set(
                 &branch_id,
+                "default",
                 &doc_id,
                 &"items[1]".parse().unwrap(),
                 JsonValue::from(999i64),
@@ -1432,7 +1454,7 @@ mod tests {
             .unwrap();
 
         let item = store
-            .get(&branch_id, &doc_id, &"items[1]".parse().unwrap())
+            .get(&branch_id, "default", &doc_id, &"items[1]".parse().unwrap())
             .unwrap();
         assert_eq!(item.and_then(|v| v.as_i64()), Some(999));
     }
@@ -1453,22 +1475,22 @@ mod tests {
             "age": 30
         })
         .into();
-        store.create(&branch_id, &doc_id, value).unwrap();
+        store.create(&branch_id, "default", &doc_id, value).unwrap();
 
         // Delete the "age" field
         let v2 = store
-            .delete_at_path(&branch_id, &doc_id, &"age".parse().unwrap())
+            .delete_at_path(&branch_id, "default", &doc_id, &"age".parse().unwrap())
             .unwrap();
         assert_eq!(v2, Version::counter(2));
 
         // Verify "age" is gone but "name" remains
         assert!(store
-            .get(&branch_id, &doc_id, &"age".parse().unwrap())
+            .get(&branch_id, "default", &doc_id, &"age".parse().unwrap())
             .unwrap()
             .is_none());
         assert_eq!(
             store
-                .get(&branch_id, &doc_id, &"name".parse().unwrap())
+                .get(&branch_id, "default", &doc_id, &"name".parse().unwrap())
                 .unwrap()
                 .and_then(|v| v.as_str().map(String::from)),
             Some("Alice".to_string())
@@ -1491,24 +1513,24 @@ mod tests {
             }
         })
         .into();
-        store.create(&branch_id, &doc_id, value).unwrap();
+        store.create(&branch_id, "default", &doc_id, value).unwrap();
 
         // Delete nested field
         let v2 = store
-            .delete_at_path(&branch_id, &doc_id, &"user.profile.temp".parse().unwrap())
+            .delete_at_path(&branch_id, "default", &doc_id, &"user.profile.temp".parse().unwrap())
             .unwrap();
         assert_eq!(v2, Version::counter(2));
 
         // Verify "temp" is gone
         assert!(store
-            .get(&branch_id, &doc_id, &"user.profile.temp".parse().unwrap())
+            .get(&branch_id, "default", &doc_id, &"user.profile.temp".parse().unwrap())
             .unwrap()
             .is_none());
 
         // Verify "name" remains
         assert_eq!(
             store
-                .get(&branch_id, &doc_id, &"user.profile.name".parse().unwrap())
+                .get(&branch_id, "default", &doc_id, &"user.profile.name".parse().unwrap())
                 .unwrap()
                 .and_then(|v| v.as_str().map(String::from)),
             Some("Bob".to_string())
@@ -1526,17 +1548,17 @@ mod tests {
             "items": ["a", "b", "c"]
         })
         .into();
-        store.create(&branch_id, &doc_id, value).unwrap();
+        store.create(&branch_id, "default", &doc_id, value).unwrap();
 
         // Delete middle element
         let v2 = store
-            .delete_at_path(&branch_id, &doc_id, &"items[1]".parse().unwrap())
+            .delete_at_path(&branch_id, "default", &doc_id, &"items[1]".parse().unwrap())
             .unwrap();
         assert_eq!(v2, Version::counter(2));
 
         // Array should now be ["a", "c"]
         let items = store
-            .get(&branch_id, &doc_id, &"items".parse().unwrap())
+            .get(&branch_id, "default", &doc_id, &"items".parse().unwrap())
             .unwrap()
             .unwrap();
         let arr = items.as_array().unwrap();
@@ -1558,16 +1580,16 @@ mod tests {
             "c": 3
         })
         .into();
-        let v1 = store.create(&branch_id, &doc_id, value).unwrap();
+        let v1 = store.create(&branch_id, "default", &doc_id, value).unwrap();
         assert_eq!(v1, Version::counter(1));
 
         let v2 = store
-            .delete_at_path(&branch_id, &doc_id, &"a".parse().unwrap())
+            .delete_at_path(&branch_id, "default", &doc_id, &"a".parse().unwrap())
             .unwrap();
         assert_eq!(v2, Version::counter(2));
 
         let v3 = store
-            .delete_at_path(&branch_id, &doc_id, &"b".parse().unwrap())
+            .delete_at_path(&branch_id, "default", &doc_id, &"b".parse().unwrap())
             .unwrap();
         assert_eq!(v3, Version::counter(3));
     }
@@ -1579,7 +1601,7 @@ mod tests {
         let branch_id = BranchId::new();
         let doc_id = "test-doc";
 
-        let result = store.delete_at_path(&branch_id, &doc_id, &"field".parse().unwrap());
+        let result = store.delete_at_path(&branch_id, "default", &doc_id, &"field".parse().unwrap());
         assert!(result.is_err());
     }
 
@@ -1591,12 +1613,12 @@ mod tests {
         let doc_id = "test-doc";
 
         store
-            .create(&branch_id, &doc_id, JsonValue::object())
+            .create(&branch_id, "default", &doc_id, JsonValue::object())
             .unwrap();
 
         // Deleting a nonexistent path is idempotent (succeeds, increments version)
         let v2 = store
-            .delete_at_path(&branch_id, &doc_id, &"nonexistent".parse().unwrap())
+            .delete_at_path(&branch_id, "default", &doc_id, &"nonexistent".parse().unwrap())
             .unwrap();
         assert_eq!(v2, Version::counter(2)); // Version still increments even though nothing was removed
     }
@@ -1613,13 +1635,13 @@ mod tests {
         let doc_id = "test-doc";
 
         store
-            .create(&branch_id, &doc_id, JsonValue::from(42i64))
+            .create(&branch_id, "default", &doc_id, JsonValue::from(42i64))
             .unwrap();
-        assert!(store.exists(&branch_id, &doc_id).unwrap());
+        assert!(store.exists(&branch_id, "default", &doc_id).unwrap());
 
-        let existed = store.destroy(&branch_id, &doc_id).unwrap();
+        let existed = store.destroy(&branch_id, "default", &doc_id).unwrap();
         assert!(existed);
-        assert!(!store.exists(&branch_id, &doc_id).unwrap());
+        assert!(!store.exists(&branch_id, "default", &doc_id).unwrap());
     }
 
     #[test]
@@ -1629,7 +1651,7 @@ mod tests {
         let branch_id = BranchId::new();
         let doc_id = "test-doc";
 
-        let existed = store.destroy(&branch_id, &doc_id).unwrap();
+        let existed = store.destroy(&branch_id, "default", &doc_id).unwrap();
         assert!(!existed);
     }
 
@@ -1644,18 +1666,18 @@ mod tests {
 
         // Create document in both branches
         store
-            .create(&branch1, &doc_id, JsonValue::from(1i64))
+            .create(&branch1, "default", &doc_id, JsonValue::from(1i64))
             .unwrap();
         store
-            .create(&branch2, &doc_id, JsonValue::from(2i64))
+            .create(&branch2, "default", &doc_id, JsonValue::from(2i64))
             .unwrap();
 
         // Destroy in branch1
-        store.destroy(&branch1, &doc_id).unwrap();
+        store.destroy(&branch1, "default", &doc_id).unwrap();
 
         // Document should be gone from branch1 but still exist in branch2
-        assert!(!store.exists(&branch1, &doc_id).unwrap());
-        assert!(store.exists(&branch2, &doc_id).unwrap());
+        assert!(!store.exists(&branch1, "default", &doc_id).unwrap());
+        assert!(store.exists(&branch2, "default", &doc_id).unwrap());
     }
 
     #[test]
@@ -1667,17 +1689,17 @@ mod tests {
 
         // Create, destroy, recreate
         store
-            .create(&branch_id, &doc_id, JsonValue::from(1i64))
+            .create(&branch_id, "default", &doc_id, JsonValue::from(1i64))
             .unwrap();
-        store.destroy(&branch_id, &doc_id).unwrap();
+        store.destroy(&branch_id, "default", &doc_id).unwrap();
 
         // Should be able to recreate with new value
         let version = store
-            .create(&branch_id, &doc_id, JsonValue::from(2i64))
+            .create(&branch_id, "default", &doc_id, JsonValue::from(2i64))
             .unwrap();
         assert_eq!(version, Version::counter(1)); // Fresh document starts at version 1
 
-        let value = store.get(&branch_id, &doc_id, &JsonPath::root()).unwrap();
+        let value = store.get(&branch_id, "default", &doc_id, &JsonPath::root()).unwrap();
         assert_eq!(value.and_then(|v| v.as_i64()), Some(2));
     }
 
@@ -1700,11 +1722,11 @@ mod tests {
             }
         })
         .into();
-        store.create(&branch_id, &doc_id, value).unwrap();
+        store.create(&branch_id, "default", &doc_id, value).unwrap();
 
-        let existed = store.destroy(&branch_id, &doc_id).unwrap();
+        let existed = store.destroy(&branch_id, "default", &doc_id).unwrap();
         assert!(existed);
-        assert!(!store.exists(&branch_id, &doc_id).unwrap());
+        assert!(!store.exists(&branch_id, "default", &doc_id).unwrap());
     }
 
     #[test]
@@ -1715,14 +1737,14 @@ mod tests {
         let doc_id = "test-doc";
 
         store
-            .create(&branch_id, &doc_id, JsonValue::from(42i64))
+            .create(&branch_id, "default", &doc_id, JsonValue::from(42i64))
             .unwrap();
 
         // First destroy returns true
-        assert!(store.destroy(&branch_id, &doc_id).unwrap());
+        assert!(store.destroy(&branch_id, "default", &doc_id).unwrap());
 
         // Subsequent destroys return false
-        assert!(!store.destroy(&branch_id, &doc_id).unwrap());
-        assert!(!store.destroy(&branch_id, &doc_id).unwrap());
+        assert!(!store.destroy(&branch_id, "default", &doc_id).unwrap());
+        assert!(!store.destroy(&branch_id, "default", &doc_id).unwrap());
     }
 }

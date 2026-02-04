@@ -84,6 +84,7 @@ fn test_crash_after_begin_and_write() {
         "app".to_string(),
         "agent".to_string(),
         branch_id,
+        "default".to_string(),
     );
 
     // Simulate crash: write BeginTxn + Write, then "crash"
@@ -136,6 +137,7 @@ fn test_crash_after_commit_always_mode() {
         "app".to_string(),
         "agent".to_string(),
         branch_id,
+        "default".to_string(),
     );
 
     // Write committed transaction with always mode (should be durable)
@@ -199,6 +201,7 @@ fn test_crash_standard_mode_may_lose_recent() {
         "app".to_string(),
         "agent".to_string(),
         branch_id,
+        "default".to_string(),
     );
 
     // Write with standard mode (recent writes may not be fsynced)
@@ -266,6 +269,7 @@ fn test_multiple_incomplete_transactions() {
         "app".to_string(),
         "agent".to_string(),
         branch_id,
+        "default".to_string(),
     );
 
     // Write 5 incomplete transactions
@@ -329,6 +333,7 @@ fn test_mixed_committed_and_incomplete() {
         "app".to_string(),
         "agent".to_string(),
         branch_id,
+        "default".to_string(),
     );
 
     // Write: committed, incomplete, committed, incomplete
@@ -466,6 +471,7 @@ fn test_recovery_after_clean_shutdown() {
         "app".to_string(),
         "agent".to_string(),
         branch_id,
+        "default".to_string(),
     );
 
     // Normal operation: write and close cleanly
@@ -536,6 +542,7 @@ fn test_recovery_with_large_wal() {
         "app".to_string(),
         "agent".to_string(),
         branch_id,
+        "default".to_string(),
     );
 
     const NUM_TRANSACTIONS: u64 = 100;
@@ -609,6 +616,7 @@ fn test_crash_with_aborted_transaction() {
         "app".to_string(),
         "agent".to_string(),
         branch_id,
+        "default".to_string(),
     );
 
     // Write an aborted transaction
@@ -663,6 +671,7 @@ fn test_crash_multi_write_transaction() {
         "app".to_string(),
         "agent".to_string(),
         branch_id,
+        "default".to_string(),
     );
 
     // Write multiple keys in one incomplete transaction
@@ -723,6 +732,7 @@ fn test_crash_with_delete_operation() {
         "app".to_string(),
         "agent".to_string(),
         branch_id,
+        "default".to_string(),
     );
 
     // First: write and commit a key
@@ -812,12 +822,14 @@ fn test_crash_interleaved_branch_ids() {
         "app".to_string(),
         "agent".to_string(),
         branch_id1,
+        "default".to_string(),
     );
     let ns2 = Namespace::new(
         "tenant".to_string(),
         "app".to_string(),
         "agent".to_string(),
         branch_id2,
+        "default".to_string(),
     );
 
     // Write interleaved transactions

@@ -12,7 +12,7 @@ fn truncated_wal_recovers_prefix() {
 
     let kv = test_db.kv();
     for i in 0..100 {
-        kv.put(&branch_id, &format!("k{}", i), Value::Int(i))
+        kv.put(&branch_id, "default", &format!("k{}", i), Value::Int(i))
             .unwrap();
     }
 
@@ -29,7 +29,7 @@ fn truncated_wal_recovers_prefix() {
     let kv = test_db.kv();
     // Early keys are more likely to survive truncation
     let recovered = (0..100)
-        .filter(|i| kv.get(&branch_id, &format!("k{}", i)).unwrap().is_some())
+        .filter(|i| kv.get(&branch_id, "default", &format!("k{}", i)).unwrap().is_some())
         .count();
 
     // At minimum, some prefix should survive
@@ -47,7 +47,7 @@ fn corrupted_wal_tail_recovers_valid_prefix() {
 
     let kv = test_db.kv();
     for i in 0..50 {
-        kv.put(&branch_id, &format!("k{}", i), Value::Int(i))
+        kv.put(&branch_id, "default", &format!("k{}", i), Value::Int(i))
             .unwrap();
     }
 
@@ -73,7 +73,7 @@ fn completely_corrupted_wal_still_boots() {
     let branch_id = test_db.branch_id;
 
     let kv = test_db.kv();
-    kv.put(&branch_id, "before_corruption", Value::Int(1))
+    kv.put(&branch_id, "default", "before_corruption", Value::Int(1))
         .unwrap();
 
     // Completely trash the WAL file
@@ -90,9 +90,9 @@ fn completely_corrupted_wal_still_boots() {
 
     // Should be functional for new writes
     let kv = test_db.kv();
-    kv.put(&branch_id, "after_corruption", Value::Int(2))
+    kv.put(&branch_id, "default", "after_corruption", Value::Int(2))
         .unwrap();
-    let val = kv.get(&branch_id, "after_corruption").unwrap();
+    let val = kv.get(&branch_id, "default", "after_corruption").unwrap();
     assert_eq!(
         val,
         Some(Value::Int(2)),
@@ -106,7 +106,7 @@ fn missing_wal_file_starts_fresh() {
     let branch_id = test_db.branch_id;
 
     let kv = test_db.kv();
-    kv.put(&branch_id, "will_be_lost", Value::Int(1)).unwrap();
+    kv.put(&branch_id, "default", "will_be_lost", Value::Int(1)).unwrap();
 
     // Delete WAL and snapshots
     let wal_path = test_db.wal_path();
@@ -142,7 +142,7 @@ fn rapid_reopen_cycles_are_stable() {
         let kv = test_db.kv();
         kv.put(
             &branch_id,
-            &format!("cycle_{}", cycle),
+            "default", &format!("cycle_{}", cycle),
             Value::Int(cycle as i64),
         )
         .unwrap();
@@ -152,7 +152,7 @@ fn rapid_reopen_cycles_are_stable() {
     // All cycle keys should exist
     let kv = test_db.kv();
     for cycle in 0..5 {
-        let val = kv.get(&branch_id, &format!("cycle_{}", cycle)).unwrap();
+        let val = kv.get(&branch_id, "default", &format!("cycle_{}", cycle)).unwrap();
         assert_eq!(
             val,
             Some(Value::Int(cycle as i64)),
@@ -173,7 +173,7 @@ fn recovery_after_high_churn_on_same_keys() {
         for key_idx in 0..10 {
             kv.put(
                 &branch_id,
-                &format!("churn_{}", key_idx),
+                "default", &format!("churn_{}", key_idx),
                 Value::Int(round * 10 + key_idx),
             )
             .unwrap();
@@ -186,7 +186,7 @@ fn recovery_after_high_churn_on_same_keys() {
     let kv = test_db.kv();
     for key_idx in 0..10i64 {
         let val = kv
-            .get(&branch_id, &format!("churn_{}", key_idx))
+            .get(&branch_id, "default", &format!("churn_{}", key_idx))
             .unwrap()
             .unwrap();
         assert_eq!(

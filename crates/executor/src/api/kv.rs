@@ -31,6 +31,7 @@ impl Strata {
     pub fn kv_put(&self, key: &str, value: impl Into<Value>) -> Result<u64> {
         match self.executor.execute(Command::KvPut {
             branch: self.branch_id(),
+            space: self.space_id(),
             key: key.to_string(),
             value: value.into(),
         })? {
@@ -49,6 +50,7 @@ impl Strata {
     pub fn kv_get(&self, key: &str) -> Result<Option<Value>> {
         match self.executor.execute(Command::KvGet {
             branch: self.branch_id(),
+            space: self.space_id(),
             key: key.to_string(),
         })? {
             Output::MaybeVersioned(v) => Ok(v.map(|vv| vv.value)),
@@ -67,6 +69,7 @@ impl Strata {
     pub fn kv_delete(&self, key: &str) -> Result<bool> {
         match self.executor.execute(Command::KvDelete {
             branch: self.branch_id(),
+            space: self.space_id(),
             key: key.to_string(),
         })? {
             Output::Bool(deleted) => Ok(deleted),
@@ -94,6 +97,7 @@ impl Strata {
     pub fn kv_getv(&self, key: &str) -> Result<Option<Vec<crate::types::VersionedValue>>> {
         match self.executor.execute(Command::KvGetv {
             branch: self.branch_id(),
+            space: self.space_id(),
             key: key.to_string(),
         })? {
             Output::VersionHistory(h) => Ok(h),
@@ -111,6 +115,7 @@ impl Strata {
     pub fn kv_list(&self, prefix: Option<&str>) -> Result<Vec<String>> {
         match self.executor.execute(Command::KvList {
             branch: self.branch_id(),
+            space: self.space_id(),
             prefix: prefix.map(|s| s.to_string()),
             cursor: None,
             limit: None,

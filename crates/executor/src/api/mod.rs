@@ -83,6 +83,7 @@ fn ensure_vector_recovery() {
 pub struct Strata {
     executor: Executor,
     current_branch: BranchId,
+    current_space: String,
     access_mode: AccessMode,
 }
 
@@ -132,6 +133,7 @@ impl Strata {
         Ok(Self {
             executor,
             current_branch: BranchId::default(),
+            current_space: "default".to_string(),
             access_mode,
         })
     }
@@ -159,6 +161,7 @@ impl Strata {
         Ok(Self {
             executor,
             current_branch: BranchId::default(),
+            current_space: "default".to_string(),
             access_mode: AccessMode::ReadWrite,
         })
     }
@@ -205,6 +208,7 @@ impl Strata {
         Ok(Self {
             executor,
             current_branch: BranchId::default(),
+            current_space: "default".to_string(),
             access_mode,
         })
     }
@@ -418,6 +422,85 @@ impl Strata {
     /// This is used internally by the data operation methods.
     pub(crate) fn branch_id(&self) -> Option<BranchId> {
         Some(self.current_branch.clone())
+    }
+
+    /// Get the space for use in commands.
+    pub(crate) fn space_id(&self) -> Option<String> {
+        Some(self.current_space.clone())
+    }
+
+    // =========================================================================
+    // Space Context
+    // =========================================================================
+
+    /// Get the current space name.
+    pub fn current_space(&self) -> &str {
+        &self.current_space
+    }
+
+    /// Switch to a different space.
+    ///
+    /// All subsequent data operations will use this space.
+    /// The "default" space always exists. Other spaces are created on first use.
+    pub fn set_space(&mut self, space: &str) -> Result<()> {
+        strata_core::validate_space_name(space)
+            .map_err(|reason| Error::InvalidInput { reason })?;
+        self.current_space = space.to_string();
+        Ok(())
+    }
+
+    /// List all spaces in the current branch.
+    pub fn list_spaces(&self) -> Result<Vec<String>> {
+        match self.executor.execute(Command::SpaceList {
+            branch: self.branch_id(),
+        })? {
+            Output::SpaceList(spaces) => Ok(spaces),
+            _ => Err(Error::Internal {
+                reason: "Unexpected output for SpaceList".into(),
+            }),
+        }
+    }
+
+    /// Delete a space from the current branch.
+    ///
+    /// # Errors
+    /// - Returns error if trying to delete the "default" space
+    /// - Returns error if space is non-empty (unless force is true)
+    pub fn delete_space(&self, space: &str) -> Result<()> {
+        if space == "default" {
+            return Err(Error::ConstraintViolation {
+                reason: "Cannot delete the default space".into(),
+            });
+        }
+        match self.executor.execute(Command::SpaceDelete {
+            branch: self.branch_id(),
+            space: space.to_string(),
+            force: false,
+        })? {
+            Output::Unit => Ok(()),
+            _ => Err(Error::Internal {
+                reason: "Unexpected output for SpaceDelete".into(),
+            }),
+        }
+    }
+
+    /// Delete a space forcefully (even if non-empty).
+    pub fn delete_space_force(&self, space: &str) -> Result<()> {
+        if space == "default" {
+            return Err(Error::ConstraintViolation {
+                reason: "Cannot delete the default space".into(),
+            });
+        }
+        match self.executor.execute(Command::SpaceDelete {
+            branch: self.branch_id(),
+            space: space.to_string(),
+            force: true,
+        })? {
+            Output::Unit => Ok(()),
+            _ => Err(Error::Internal {
+                reason: "Unexpected output for SpaceDelete".into(),
+            }),
+        }
     }
 }
 

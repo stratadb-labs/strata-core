@@ -31,6 +31,7 @@ fn test_read_only_blocks_kv_put() {
 
     let result = executor.execute(Command::KvPut {
         branch: None,
+        space: None,
         key: "k".into(),
         value: Value::Int(1),
     });
@@ -52,6 +53,7 @@ fn test_read_only_allows_kv_get() {
     let executor = Executor::new_with_mode(db, AccessMode::ReadOnly);
     let result = executor.execute(Command::KvGet {
         branch: None,
+        space: None,
         key: "k".into(),
     });
 
@@ -66,51 +68,61 @@ fn test_read_only_blocks_all_writes() {
     let write_commands: Vec<Command> = vec![
         Command::KvPut {
             branch: None,
+            space: None,
             key: "k".into(),
             value: Value::Int(1),
         },
         Command::KvDelete {
             branch: None,
+            space: None,
             key: "k".into(),
         },
         Command::JsonSet {
             branch: None,
+            space: None,
             key: "k".into(),
             path: "$".into(),
             value: Value::Int(1),
         },
         Command::JsonDelete {
             branch: None,
+            space: None,
             key: "k".into(),
             path: "$".into(),
         },
         Command::EventAppend {
             branch: None,
+            space: None,
             event_type: "t".into(),
             payload: Value::Object(Default::default()),
         },
         Command::StateSet {
             branch: None,
+            space: None,
             cell: "c".into(),
             value: Value::Int(1),
         },
         Command::StateCas {
             branch: None,
+            space: None,
             cell: "c".into(),
             expected_counter: None,
             value: Value::Int(1),
         },
         Command::StateInit {
             branch: None,
+            space: None,
             cell: "c".into(),
             value: Value::Int(1),
         },
         Command::StateDelete {
             branch: None,
+            space: None,
             cell: "c".into(),
         },
         Command::VectorUpsert {
             branch: None,
+            space: None,
             collection: "c".into(),
             key: "k".into(),
             vector: vec![1.0],
@@ -118,17 +130,20 @@ fn test_read_only_blocks_all_writes() {
         },
         Command::VectorDelete {
             branch: None,
+            space: None,
             collection: "c".into(),
             key: "k".into(),
         },
         Command::VectorCreateCollection {
             branch: None,
+            space: None,
             collection: "c".into(),
             dimension: 4,
             metric: DistanceMetric::Cosine,
         },
         Command::VectorDeleteCollection {
             branch: None,
+            space: None,
             collection: "c".into(),
         },
         Command::BranchCreate {
@@ -167,57 +182,68 @@ fn test_read_only_allows_all_reads() {
     let read_commands: Vec<Command> = vec![
         Command::KvGet {
             branch: None,
+            space: None,
             key: "k".into(),
         },
         Command::KvList {
             branch: None,
+            space: None,
             prefix: None,
             cursor: None,
             limit: None,
         },
         Command::KvGetv {
             branch: None,
+            space: None,
             key: "k".into(),
         },
         Command::JsonGet {
             branch: None,
+            space: None,
             key: "k".into(),
             path: "$".into(),
         },
         Command::JsonGetv {
             branch: None,
+            space: None,
             key: "k".into(),
         },
         Command::JsonList {
             branch: None,
+            space: None,
             prefix: None,
             cursor: None,
             limit: 10,
         },
         Command::EventRead {
             branch: None,
+            space: None,
             sequence: 0,
         },
         Command::EventReadByType {
             branch: None,
+            space: None,
             event_type: "t".into(),
             limit: None,
             after_sequence: None,
         },
-        Command::EventLen { branch: None },
+        Command::EventLen { branch: None, space: None },
         Command::StateRead {
             branch: None,
+            space: None,
             cell: "c".into(),
         },
         Command::StateReadv {
             branch: None,
+            space: None,
             cell: "c".into(),
         },
         Command::StateList {
             branch: None,
+            space: None,
             prefix: None,
         },
-        Command::VectorListCollections { branch: None },
+        Command::VectorListCollections { branch: None, space: None },
         Command::BranchGet {
             branch: crate::types::BranchId::default(),
         },
@@ -235,6 +261,7 @@ fn test_read_only_allows_all_reads() {
         Command::TxnIsActive,
         Command::Search {
             branch: None,
+            space: None,
             query: "test".into(),
             k: None,
             primitives: None,
@@ -301,6 +328,7 @@ fn test_read_only_session_allows_reads() {
     let mut session = Session::new_with_mode(db, AccessMode::ReadOnly);
     let result = session.execute(Command::KvGet {
         branch: None,
+        space: None,
         key: "k".into(),
     });
 
@@ -317,51 +345,61 @@ fn test_is_write_classification() {
     let writes = vec![
         Command::KvPut {
             branch: None,
+            space: None,
             key: "".into(),
             value: Value::Null,
         },
         Command::KvDelete {
             branch: None,
+            space: None,
             key: "".into(),
         },
         Command::JsonSet {
             branch: None,
+            space: None,
             key: "".into(),
             path: "".into(),
             value: Value::Null,
         },
         Command::JsonDelete {
             branch: None,
+            space: None,
             key: "".into(),
             path: "".into(),
         },
         Command::EventAppend {
             branch: None,
+            space: None,
             event_type: "".into(),
             payload: Value::Null,
         },
         Command::StateSet {
             branch: None,
+            space: None,
             cell: "".into(),
             value: Value::Null,
         },
         Command::StateCas {
             branch: None,
+            space: None,
             cell: "".into(),
             expected_counter: None,
             value: Value::Null,
         },
         Command::StateInit {
             branch: None,
+            space: None,
             cell: "".into(),
             value: Value::Null,
         },
         Command::StateDelete {
             branch: None,
+            space: None,
             cell: "".into(),
         },
         Command::VectorUpsert {
             branch: None,
+            space: None,
             collection: "".into(),
             key: "".into(),
             vector: vec![],
@@ -369,17 +407,20 @@ fn test_is_write_classification() {
         },
         Command::VectorDelete {
             branch: None,
+            space: None,
             collection: "".into(),
             key: "".into(),
         },
         Command::VectorCreateCollection {
             branch: None,
+            space: None,
             collection: "".into(),
             dimension: 0,
             metric: DistanceMetric::Cosine,
         },
         Command::VectorDeleteCollection {
             branch: None,
+            space: None,
             collection: "".into(),
         },
         Command::BranchCreate {
@@ -417,70 +458,83 @@ fn test_is_write_classification() {
     let reads = vec![
         Command::KvGet {
             branch: None,
+            space: None,
             key: "".into(),
         },
         Command::KvList {
             branch: None,
+            space: None,
             prefix: None,
             cursor: None,
             limit: None,
         },
         Command::KvGetv {
             branch: None,
+            space: None,
             key: "".into(),
         },
         Command::JsonGet {
             branch: None,
+            space: None,
             key: "".into(),
             path: "".into(),
         },
         Command::JsonGetv {
             branch: None,
+            space: None,
             key: "".into(),
         },
         Command::JsonList {
             branch: None,
+            space: None,
             prefix: None,
             cursor: None,
             limit: 10,
         },
         Command::EventRead {
             branch: None,
+            space: None,
             sequence: 0,
         },
         Command::EventReadByType {
             branch: None,
+            space: None,
             event_type: "".into(),
             limit: None,
             after_sequence: None,
         },
-        Command::EventLen { branch: None },
+        Command::EventLen { branch: None, space: None },
         Command::StateRead {
             branch: None,
+            space: None,
             cell: "".into(),
         },
         Command::StateReadv {
             branch: None,
+            space: None,
             cell: "".into(),
         },
         Command::StateList {
             branch: None,
+            space: None,
             prefix: None,
         },
         Command::VectorGet {
             branch: None,
+            space: None,
             collection: "".into(),
             key: "".into(),
         },
         Command::VectorSearch {
             branch: None,
+            space: None,
             collection: "".into(),
             query: vec![],
             k: 0,
             filter: None,
             metric: None,
         },
-        Command::VectorListCollections { branch: None },
+        Command::VectorListCollections { branch: None, space: None },
         Command::BranchGet {
             branch: crate::types::BranchId::default(),
         },
@@ -501,6 +555,7 @@ fn test_is_write_classification() {
         Command::BranchBundleValidate { path: "".into() },
         Command::Search {
             branch: None,
+            space: None,
             query: "".into(),
             k: None,
             primitives: None,

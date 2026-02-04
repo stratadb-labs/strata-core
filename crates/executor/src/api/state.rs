@@ -14,6 +14,7 @@ impl Strata {
     pub fn state_set(&self, cell: &str, value: impl Into<Value>) -> Result<u64> {
         match self.executor.execute(Command::StateSet {
             branch: self.branch_id(),
+            space: self.space_id(),
             cell: cell.to_string(),
             value: value.into(),
         })? {
@@ -28,6 +29,7 @@ impl Strata {
     pub fn state_read(&self, cell: &str) -> Result<Option<Value>> {
         match self.executor.execute(Command::StateRead {
             branch: self.branch_id(),
+            space: self.space_id(),
             cell: cell.to_string(),
         })? {
             Output::MaybeVersioned(v) => Ok(v.map(|vv| vv.value)),
@@ -45,6 +47,7 @@ impl Strata {
     pub fn state_readv(&self, cell: &str) -> Result<Option<Vec<crate::types::VersionedValue>>> {
         match self.executor.execute(Command::StateReadv {
             branch: self.branch_id(),
+            space: self.space_id(),
             cell: cell.to_string(),
         })? {
             Output::VersionHistory(h) => Ok(h),
@@ -63,6 +66,7 @@ impl Strata {
     ) -> Result<Option<u64>> {
         match self.executor.execute(Command::StateCas {
             branch: self.branch_id(),
+            space: self.space_id(),
             cell: cell.to_string(),
             expected_counter,
             value: value.into(),
@@ -78,6 +82,7 @@ impl Strata {
     pub fn state_init(&self, cell: &str, value: impl Into<Value>) -> Result<u64> {
         match self.executor.execute(Command::StateInit {
             branch: self.branch_id(),
+            space: self.space_id(),
             cell: cell.to_string(),
             value: value.into(),
         })? {

@@ -86,14 +86,14 @@ impl StateCell {
         Self { db }
     }
 
-    /// Build namespace for branch-scoped operations
-    fn namespace_for_branch(&self, branch_id: &BranchId) -> Namespace {
-        Namespace::for_branch(*branch_id)
+    /// Build namespace for branch+space-scoped operations
+    fn namespace_for(&self, branch_id: &BranchId, space: &str) -> Namespace {
+        Namespace::for_branch_space(*branch_id, space)
     }
 
     /// Build key for state cell
-    fn key_for(&self, branch_id: &BranchId, name: &str) -> Key {
-        Key::new_state(self.namespace_for_branch(branch_id), name)
+    fn key_for(&self, branch_id: &BranchId, space: &str, name: &str) -> Key {
+        Key::new_state(self.namespace_for(branch_id, space), name)
     }
 
     // ========== Read/Init Operations ==========
@@ -107,11 +107,12 @@ impl StateCell {
     pub fn init(
         &self,
         branch_id: &BranchId,
+        space: &str,
         name: &str,
         value: Value,
     ) -> StrataResult<Versioned<Version>> {
         self.db.transaction(*branch_id, |txn| {
-            let key = self.key_for(branch_id, name);
+            let key = self.key_for(branch_id, space, name);
 
             // Idempotent: if cell already exists, return existing version
             if let Some(existing) = txn.get(&key)? {
@@ -130,8 +131,8 @@ impl StateCell {
     ///
     /// Returns the user value, or `None` if the cell doesn't exist.
     /// Use `readv()` to access version metadata and history.
-    pub fn read(&self, branch_id: &BranchId, name: &str) -> StrataResult<Option<Value>> {
-        let key = self.key_for(branch_id, name);
+    pub fn read(&self, branch_id: &BranchId, space: &str, name: &str) -> StrataResult<Option<Value>> {
+        let key = self.key_for(branch_id, space, name);
 
         self.db.transaction(*branch_id, |txn| match txn.get(&key)? {
             Some(v) => {
@@ -151,9 +152,10 @@ impl StateCell {
     pub fn read_versioned(
         &self,
         branch_id: &BranchId,
+        space: &str,
         name: &str,
     ) -> StrataResult<Option<Versioned<Value>>> {
-        let key = self.key_for(branch_id, name);
+        let key = self.key_for(branch_id, space, name);
         use strata_core::Storage;
         match self.db.storage().get(&key)? {
             Some(vv) => {
@@ -179,9 +181,10 @@ impl StateCell {
     pub fn readv(
         &self,
         branch_id: &BranchId,
+        space: &str,
         name: &str,
     ) -> StrataResult<Option<VersionedHistory<Value>>> {
-        let key = self.key_for(branch_id, name);
+        let key = self.key_for(branch_id, space, name);
         let history = self.db.get_history(&key, None, None)?;
         let versions: Vec<Versioned<Value>> = history
             .iter()
@@ -208,6 +211,7 @@ impl StateCell {
     pub fn cas(
         &self,
         branch_id: &BranchId,
+        space: &str,
         name: &str,
         expected_version: Version,
         new_value: Value,
@@ -218,7 +222,7 @@ impl StateCell {
             .with_max_delay_ms(50);
         self.db
             .transaction_with_retry(*branch_id, retry_config, |txn| {
-                let key = self.key_for(branch_id, name);
+                let key = self.key_for(branch_id, space, name);
 
                 let current: State = match txn.get(&key)? {
                     Some(v) => from_stored_value(&v)
@@ -259,6 +263,7 @@ impl StateCell {
     pub fn set(
         &self,
         branch_id: &BranchId,
+        space: &str,
         name: &str,
         value: Value,
     ) -> StrataResult<Versioned<Version>> {
@@ -270,7 +275,7 @@ impl StateCell {
         let result = self
             .db
             .transaction_with_retry(*branch_id, retry_config, |txn| {
-                let key = self.key_for(branch_id, name);
+                let key = self.key_for(branch_id, space, name);
 
                 let new_version = match txn.get(&key)? {
                     Some(v) => {
@@ -314,9 +319,9 @@ impl StateCell {
     /// Delete a state cell.
     ///
     /// Returns `true` if the cell existed and was deleted, `false` if it didn't exist.
-    pub fn delete(&self, branch_id: &BranchId, name: &str) -> StrataResult<bool> {
+    pub fn delete(&self, branch_id: &BranchId, space: &str, name: &str) -> StrataResult<bool> {
         self.db.transaction(*branch_id, |txn| {
-            let key = self.key_for(branch_id, name);
+            let key = self.key_for(branch_id, space, name);
             let exists = txn.get(&key)?.is_some();
             if exists {
                 txn.delete(key)?;
@@ -328,9 +333,9 @@ impl StateCell {
     /// List state cell names with optional prefix filter.
     ///
     /// Returns all cell names matching the prefix (or all cells if prefix is None).
-    pub fn list(&self, branch_id: &BranchId, prefix: Option<&str>) -> StrataResult<Vec<String>> {
+    pub fn list(&self, branch_id: &BranchId, space: &str, prefix: Option<&str>) -> StrataResult<Vec<String>> {
         self.db.transaction(*branch_id, |txn| {
-            let ns = self.namespace_for_branch(branch_id);
+            let ns = self.namespace_for(branch_id, space);
             let scan_prefix = Key::new_state(ns, prefix.unwrap_or(""));
 
             let results = txn.scan_prefix(&scan_prefix)?;
@@ -488,11 +493,11 @@ mod tests {
         let (_temp, _db, sc) = setup();
         let branch_id = BranchId::new();
 
-        let versioned = sc.init(&branch_id, "counter", Value::Int(0)).unwrap();
+        let versioned = sc.init(&branch_id, "default", "counter", Value::Int(0)).unwrap();
         assert_eq!(versioned.value, Version::counter(1));
         assert!(versioned.version.is_counter());
 
-        let value = sc.read(&branch_id, "counter").unwrap().unwrap();
+        let value = sc.read(&branch_id, "default", "counter").unwrap().unwrap();
         assert_eq!(value, Value::Int(0));
     }
 
@@ -501,9 +506,9 @@ mod tests {
         let (_temp, _db, sc) = setup();
         let branch_id = BranchId::new();
 
-        let v1 = sc.init(&branch_id, "cell", Value::Int(42)).unwrap();
+        let v1 = sc.init(&branch_id, "default", "cell", Value::Int(42)).unwrap();
         // Second init with different value should succeed but return existing version
-        let v2 = sc.init(&branch_id, "cell", Value::Int(99)).unwrap();
+        let v2 = sc.init(&branch_id, "default", "cell", Value::Int(99)).unwrap();
         assert_eq!(
             v1.version, v2.version,
             "Idempotent init should return same version"
@@ -515,7 +520,7 @@ mod tests {
         let (_temp, _db, sc) = setup();
         let branch_id = BranchId::new();
 
-        let result = sc.read(&branch_id, "nonexistent").unwrap();
+        let result = sc.read(&branch_id, "default", "nonexistent").unwrap();
         assert!(result.is_none());
     }
 
@@ -525,11 +530,11 @@ mod tests {
         let branch1 = BranchId::new();
         let branch2 = BranchId::new();
 
-        sc.init(&branch1, "shared", Value::Int(1)).unwrap();
-        sc.init(&branch2, "shared", Value::Int(2)).unwrap();
+        sc.init(&branch1, "default", "shared", Value::Int(1)).unwrap();
+        sc.init(&branch2, "default", "shared", Value::Int(2)).unwrap();
 
-        let value1 = sc.read(&branch1, "shared").unwrap().unwrap();
-        let value2 = sc.read(&branch2, "shared").unwrap().unwrap();
+        let value1 = sc.read(&branch1, "default", "shared").unwrap().unwrap();
+        let value2 = sc.read(&branch2, "default", "shared").unwrap().unwrap();
 
         assert_eq!(value1, Value::Int(1));
         assert_eq!(value2, Value::Int(2));
@@ -542,16 +547,16 @@ mod tests {
         let (_temp, _db, sc) = setup();
         let branch_id = BranchId::new();
 
-        sc.init(&branch_id, "counter", Value::Int(0)).unwrap();
+        sc.init(&branch_id, "default", "counter", Value::Int(0)).unwrap();
 
         // CAS with correct version
         let new_versioned = sc
-            .cas(&branch_id, "counter", Version::counter(1), Value::Int(1))
+            .cas(&branch_id, "default", "counter", Version::counter(1), Value::Int(1))
             .unwrap();
         assert_eq!(new_versioned.value, Version::counter(2));
         assert!(new_versioned.version.is_counter());
 
-        let value = sc.read(&branch_id, "counter").unwrap().unwrap();
+        let value = sc.read(&branch_id, "default", "counter").unwrap().unwrap();
         assert_eq!(value, Value::Int(1));
     }
 
@@ -560,10 +565,10 @@ mod tests {
         let (_temp, _db, sc) = setup();
         let branch_id = BranchId::new();
 
-        sc.init(&branch_id, "counter", Value::Int(0)).unwrap();
+        sc.init(&branch_id, "default", "counter", Value::Int(0)).unwrap();
 
         // CAS with wrong version
-        let result = sc.cas(&branch_id, "counter", Version::counter(999), Value::Int(1));
+        let result = sc.cas(&branch_id, "default", "counter", Version::counter(999), Value::Int(1));
         assert!(matches!(
             result,
             Err(strata_core::StrataError::Conflict { .. })
@@ -577,6 +582,7 @@ mod tests {
 
         let result = sc.cas(
             &branch_id,
+            "default",
             "nonexistent",
             Version::counter(1),
             Value::Int(1),
@@ -589,10 +595,10 @@ mod tests {
         let (_temp, _db, sc) = setup();
         let branch_id = BranchId::new();
 
-        let versioned = sc.set(&branch_id, "new-cell", Value::Int(42)).unwrap();
+        let versioned = sc.set(&branch_id, "default", "new-cell", Value::Int(42)).unwrap();
         assert_eq!(versioned.value, Version::counter(1));
 
-        let value = sc.read(&branch_id, "new-cell").unwrap().unwrap();
+        let value = sc.read(&branch_id, "default", "new-cell").unwrap().unwrap();
         assert_eq!(value, Value::Int(42));
     }
 
@@ -601,11 +607,11 @@ mod tests {
         let (_temp, _db, sc) = setup();
         let branch_id = BranchId::new();
 
-        sc.init(&branch_id, "cell", Value::Int(1)).unwrap();
-        let versioned = sc.set(&branch_id, "cell", Value::Int(100)).unwrap();
+        sc.init(&branch_id, "default", "cell", Value::Int(1)).unwrap();
+        let versioned = sc.set(&branch_id, "default", "cell", Value::Int(100)).unwrap();
         assert_eq!(versioned.value, Version::counter(2));
 
-        let value = sc.read(&branch_id, "cell").unwrap().unwrap();
+        let value = sc.read(&branch_id, "default", "cell").unwrap().unwrap();
         assert_eq!(value, Value::Int(100));
     }
 
@@ -614,14 +620,14 @@ mod tests {
         let (_temp, _db, sc) = setup();
         let branch_id = BranchId::new();
 
-        sc.init(&branch_id, "cell", Value::Int(0)).unwrap();
+        sc.init(&branch_id, "default", "cell", Value::Int(0)).unwrap();
 
         for i in 1..=10 {
-            let v = sc.set(&branch_id, "cell", Value::Int(i)).unwrap();
+            let v = sc.set(&branch_id, "default", "cell", Value::Int(i)).unwrap();
             assert_eq!(v.value, Version::counter((i + 1) as u64));
         }
 
-        let value = sc.read(&branch_id, "cell").unwrap().unwrap();
+        let value = sc.read(&branch_id, "default", "cell").unwrap().unwrap();
         assert_eq!(value, Value::Int(10));
     }
 
@@ -632,7 +638,7 @@ mod tests {
         let (_temp, db, sc) = setup();
         let branch_id = BranchId::new();
 
-        sc.init(&branch_id, "cell", Value::String("hello".into()))
+        sc.init(&branch_id, "default", "cell", Value::String("hello".into()))
             .unwrap();
 
         let result = db
@@ -665,7 +671,7 @@ mod tests {
         let (_temp, db, sc) = setup();
         let branch_id = BranchId::new();
 
-        sc.init(&branch_id, "cell", Value::Int(1)).unwrap();
+        sc.init(&branch_id, "default", "cell", Value::Int(1)).unwrap();
 
         let new_version = db
             .transaction(branch_id, |txn| {
@@ -675,7 +681,7 @@ mod tests {
 
         assert_eq!(new_version, Version::counter(2));
 
-        let value = sc.read(&branch_id, "cell").unwrap().unwrap();
+        let value = sc.read(&branch_id, "default", "cell").unwrap().unwrap();
         assert_eq!(value, Value::Int(2));
     }
 
@@ -690,7 +696,7 @@ mod tests {
 
         assert_eq!(version, Version::counter(1));
 
-        let value = sc.read(&branch_id, "new-cell").unwrap().unwrap();
+        let value = sc.read(&branch_id, "default", "new-cell").unwrap().unwrap();
         assert_eq!(value, Value::Int(42));
     }
 
@@ -701,7 +707,7 @@ mod tests {
         let (_temp, db, sc) = setup();
         let branch_id = BranchId::new();
 
-        sc.init(&branch_id, "counter", Value::Int(0)).unwrap();
+        sc.init(&branch_id, "default", "counter", Value::Int(0)).unwrap();
 
         // Combine KV and StateCell in single transaction
         db.transaction(branch_id, |txn| {
@@ -712,7 +718,7 @@ mod tests {
         .unwrap();
 
         // Verify both were written
-        let value = sc.read(&branch_id, "counter").unwrap().unwrap();
+        let value = sc.read(&branch_id, "default", "counter").unwrap().unwrap();
         assert_eq!(value, Value::Int(1));
     }
 
@@ -723,9 +729,9 @@ mod tests {
         let (_temp, _db, sc) = setup();
         let branch_id = BranchId::new();
 
-        sc.init(&branch_id, "cell", Value::Int(42)).unwrap();
+        sc.init(&branch_id, "default", "cell", Value::Int(42)).unwrap();
 
-        let value = sc.read(&branch_id, "cell").unwrap().unwrap();
+        let value = sc.read(&branch_id, "default", "cell").unwrap().unwrap();
         assert_eq!(value, Value::Int(42));
     }
 
@@ -734,7 +740,7 @@ mod tests {
         let (_temp, _db, sc) = setup();
         let branch_id = BranchId::new();
 
-        let value = sc.read(&branch_id, "nonexistent").unwrap();
+        let value = sc.read(&branch_id, "default", "nonexistent").unwrap();
         assert!(value.is_none());
     }
 
@@ -744,11 +750,11 @@ mod tests {
         let branch1 = BranchId::new();
         let branch2 = BranchId::new();
 
-        sc.init(&branch1, "shared", Value::Int(1)).unwrap();
-        sc.init(&branch2, "shared", Value::Int(2)).unwrap();
+        sc.init(&branch1, "default", "shared", Value::Int(1)).unwrap();
+        sc.init(&branch2, "default", "shared", Value::Int(2)).unwrap();
 
-        let value1 = sc.read(&branch1, "shared").unwrap().unwrap();
-        let value2 = sc.read(&branch2, "shared").unwrap().unwrap();
+        let value1 = sc.read(&branch1, "default", "shared").unwrap().unwrap();
+        let value2 = sc.read(&branch2, "default", "shared").unwrap().unwrap();
 
         assert_eq!(value1, Value::Int(1));
         assert_eq!(value2, Value::Int(2));
@@ -761,7 +767,7 @@ mod tests {
         let (_temp, _db, sc) = setup();
         let branch_id = BranchId::new();
 
-        let versioned = sc.init(&branch_id, "cell", Value::Int(0)).unwrap();
+        let versioned = sc.init(&branch_id, "default", "cell", Value::Int(0)).unwrap();
         assert_eq!(versioned.value, Version::counter(1));
         assert!(versioned.version.is_counter());
         assert_eq!(versioned.version, Version::counter(1));
@@ -772,8 +778,8 @@ mod tests {
         let (_temp, _db, sc) = setup();
         let branch_id = BranchId::new();
 
-        sc.init(&branch_id, "cell", Value::Int(42)).unwrap();
-        let history = sc.readv(&branch_id, "cell").unwrap().unwrap();
+        sc.init(&branch_id, "default", "cell", Value::Int(42)).unwrap();
+        let history = sc.readv(&branch_id, "default", "cell").unwrap().unwrap();
 
         assert!(history.version().is_counter());
         assert_eq!(history.version(), Version::counter(1));
@@ -786,9 +792,9 @@ mod tests {
         let (_temp, _db, sc) = setup();
         let branch_id = BranchId::new();
 
-        sc.init(&branch_id, "cell", Value::Int(0)).unwrap();
+        sc.init(&branch_id, "default", "cell", Value::Int(0)).unwrap();
         let versioned = sc
-            .cas(&branch_id, "cell", Version::counter(1), Value::Int(1))
+            .cas(&branch_id, "default", "cell", Version::counter(1), Value::Int(1))
             .unwrap();
 
         assert!(versioned.version.is_counter());

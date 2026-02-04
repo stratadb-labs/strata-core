@@ -36,6 +36,7 @@ fn test_database_lifecycle() {
         "app".to_string(),
         "agent".to_string(),
         branch_id,
+        "default".to_string(),
     );
 
     // Phase 1: Create database and write data
@@ -167,6 +168,7 @@ fn test_crash_recovery() {
         "app".to_string(),
         "agent".to_string(),
         branch_id,
+        "default".to_string(),
     );
 
     // Write some committed and some uncommitted transactions
@@ -256,12 +258,14 @@ fn test_multiple_branch_ids() {
         "app".to_string(),
         "agent".to_string(),
         branch_id1,
+        "default".to_string(),
     );
     let ns2 = Namespace::new(
         "tenant".to_string(),
         "app".to_string(),
         "agent".to_string(),
         branch_id2,
+        "default".to_string(),
     );
 
     // Write data from two different branches
@@ -358,6 +362,7 @@ fn test_delete_operations() {
         "app".to_string(),
         "agent".to_string(),
         branch_id,
+        "default".to_string(),
     );
 
     // Write then delete
@@ -436,6 +441,7 @@ fn test_durability_modes() {
         "app".to_string(),
         "agent".to_string(),
         branch_id,
+        "default".to_string(),
     );
 
     // Test with Always mode
@@ -541,6 +547,7 @@ fn test_large_transaction() {
         "app".to_string(),
         "agent".to_string(),
         branch_id,
+        "default".to_string(),
     );
 
     const NUM_ENTRIES: usize = 100;
@@ -608,6 +615,7 @@ fn test_aborted_transaction_discarded() {
         "app".to_string(),
         "agent".to_string(),
         branch_id,
+        "default".to_string(),
     );
 
     // Write committed and aborted transactions
@@ -723,6 +731,7 @@ fn test_multiple_crash_cycles_with_high_level_api() {
         "app".to_string(),
         "agent".to_string(),
         branch_id,
+        "default".to_string(),
     );
 
     const NUM_CYCLES: usize = 5;
@@ -787,6 +796,7 @@ fn test_twenty_sequential_puts_recover() {
         "app".to_string(),
         "agent".to_string(),
         branch_id,
+        "default".to_string(),
     );
 
     const NUM_PUTS: usize = 20;

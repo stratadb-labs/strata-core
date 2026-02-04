@@ -15,6 +15,7 @@ impl Strata {
     pub fn event_append(&self, event_type: &str, payload: Value) -> Result<u64> {
         match self.executor.execute(Command::EventAppend {
             branch: self.branch_id(),
+            space: self.space_id(),
             event_type: event_type.to_string(),
             payload,
         })? {
@@ -29,6 +30,7 @@ impl Strata {
     pub fn event_read(&self, sequence: u64) -> Result<Option<VersionedValue>> {
         match self.executor.execute(Command::EventRead {
             branch: self.branch_id(),
+            space: self.space_id(),
             sequence,
         })? {
             Output::MaybeVersioned(v) => Ok(v),
@@ -42,6 +44,7 @@ impl Strata {
     pub fn event_read_by_type(&self, event_type: &str) -> Result<Vec<VersionedValue>> {
         match self.executor.execute(Command::EventReadByType {
             branch: self.branch_id(),
+            space: self.space_id(),
             event_type: event_type.to_string(),
             limit: None,
             after_sequence: None,
@@ -57,6 +60,7 @@ impl Strata {
     pub fn event_len(&self) -> Result<u64> {
         match self.executor.execute(Command::EventLen {
             branch: self.branch_id(),
+            space: self.space_id(),
         })? {
             Output::Uint(len) => Ok(len),
             _ => Err(Error::Internal {

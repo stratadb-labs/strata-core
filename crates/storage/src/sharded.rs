@@ -1371,6 +1371,7 @@ mod tests {
             "app".to_string(),
             "agent".to_string(),
             branch_id,
+            "default".to_string(),
         );
         Key::new_kv(ns, name)
     }
@@ -1607,6 +1608,7 @@ mod tests {
             "app".to_string(),
             "agent".to_string(),
             branch_id,
+            "default".to_string(),
         );
 
         // Insert keys with different prefixes
@@ -1645,6 +1647,7 @@ mod tests {
             "app".to_string(),
             "agent".to_string(),
             branch_id,
+            "default".to_string(),
         );
 
         store.put(
@@ -1671,6 +1674,7 @@ mod tests {
             "app".to_string(),
             "agent".to_string(),
             branch_id,
+            "default".to_string(),
         );
 
         // Insert KV entries
@@ -1718,6 +1722,7 @@ mod tests {
             "app".to_string(),
             "agent".to_string(),
             branch_id,
+            "default".to_string(),
         );
 
         // Insert mixed types
@@ -1813,6 +1818,7 @@ mod tests {
             "app".to_string(),
             "agent".to_string(),
             branch_id,
+            "default".to_string(),
         );
 
         // Insert in random order

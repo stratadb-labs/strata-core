@@ -518,7 +518,7 @@ fn test_statecell_concurrent_cas_conflict_detection() {
     let state_cell = StateCell::new(db.clone());
 
     // Initialize cell
-    state_cell.init(&branch_id, "cell", Value::Int(0)).unwrap();
+    state_cell.init(&branch_id, "default", "cell", Value::Int(0)).unwrap();
 
     let num_threads = 8;
     let barrier = Arc::new(Barrier::new(num_threads));
@@ -536,7 +536,7 @@ fn test_statecell_concurrent_cas_conflict_detection() {
             thread::spawn(move || {
                 barrier.wait();
                 // All threads try to CAS from version 1 to their value
-                let result = state_cell.cas(&branch_id, "cell", Version::counter(1), Value::Int(thread_id as i64));
+                let result = state_cell.cas(&branch_id, "default", "cell", Version::counter(1), Value::Int(thread_id as i64));
                 match result {
                     Ok(_) => {
                         success_count.fetch_add(1, Ordering::Relaxed);
@@ -573,7 +573,7 @@ fn test_statecell_transition_retries_under_contention() {
     let state_cell = StateCell::new(db.clone());
 
     // Initialize counter
-    state_cell.init(&branch_id, "counter", Value::Int(0)).unwrap();
+    state_cell.init(&branch_id, "default", "counter", Value::Int(0)).unwrap();
 
     let num_threads = 4;
     let increments_per_thread = 25;
@@ -605,7 +605,7 @@ fn test_statecell_transition_retries_under_contention() {
     }
 
     // All increments should have been applied
-    let final_state = state_cell.read(&branch_id, "counter").unwrap().unwrap();
+    let final_state = state_cell.read(&branch_id, "default", "counter").unwrap().unwrap();
     let expected = (num_threads * increments_per_thread) as i64;
     assert_eq!(
         final_state.value.value,
@@ -622,7 +622,7 @@ fn test_statecell_version_monotonicity_under_transitions() {
 
     // Initialize
     let init_version = state_cell
-        .init(&branch_id, "mono", Value::Int(0))
+        .init(&branch_id, "default", "mono", Value::Int(0))
         .unwrap();
     assert_eq!(init_version.value, Version::counter(1), "Init should return version 1");
 
@@ -690,10 +690,10 @@ fn test_statecell_init_existing_fails() {
     let state_cell = StateCell::new(db.clone());
 
     // First init succeeds
-    state_cell.init(&branch_id, "cell", Value::Int(0)).unwrap();
+    state_cell.init(&branch_id, "default", "cell", Value::Int(0)).unwrap();
 
     // Second init should fail
-    let result = state_cell.init(&branch_id, "cell", Value::Int(1));
+    let result = state_cell.init(&branch_id, "default", "cell", Value::Int(1));
     assert!(result.is_err(), "Init on existing cell should fail");
 }
 
@@ -704,7 +704,7 @@ fn test_statecell_cas_nonexistent_fails() {
     let state_cell = StateCell::new(db.clone());
 
     // CAS on nonexistent cell should fail
-    let result = state_cell.cas(&branch_id, "nonexistent", Version::counter(1), Value::Int(42));
+    let result = state_cell.cas(&branch_id, "default", "nonexistent", Version::counter(1), Value::Int(42));
     assert!(result.is_err(), "CAS on nonexistent cell should fail");
 }
 
@@ -1037,12 +1037,12 @@ fn test_branch_isolation_comprehensive() {
     // Write to branch A
     kv.put(&branch_a, "key", Value::Int(1)).unwrap();
     event_log.append(&branch_a, "event", empty_payload()).unwrap();
-    state_cell.init(&branch_a, "cell", Value::Int(100)).unwrap();
+    state_cell.init(&branch_a, "default", "cell", Value::Int(100)).unwrap();
 
     // Write to branch B
     kv.put(&branch_b, "key", Value::Int(2)).unwrap();
     event_log.append(&branch_b, "event", empty_payload()).unwrap();
-    state_cell.init(&branch_b, "cell", Value::Int(200)).unwrap();
+    state_cell.init(&branch_b, "default", "cell", Value::Int(200)).unwrap();
 
     // Verify isolation
     assert_eq!(
@@ -1068,12 +1068,12 @@ fn test_branch_isolation_comprehensive() {
     );
 
     assert_eq!(
-        state_cell.read(&branch_a, "cell").unwrap().unwrap().value,
+        state_cell.read(&branch_a, "default", "cell").unwrap().unwrap().value,
         Value::Int(100),
         "Branch A should see its own state"
     );
     assert_eq!(
-        state_cell.read(&branch_b, "cell").unwrap().unwrap().value,
+        state_cell.read(&branch_b, "default", "cell").unwrap().unwrap().value,
         Value::Int(200),
         "Branch B should see its own state"
     );
@@ -1105,7 +1105,7 @@ fn test_persistence_across_reopen() {
             .append(&branch_id, "persistent_event", int_payload(42))
             .unwrap();
         state_cell
-            .init(&branch_id, "persistent_cell", Value::Int(999))
+            .init(&branch_id, "default", "persistent_cell", Value::Int(999))
             .unwrap();
 
         db.flush().unwrap();
@@ -1131,7 +1131,7 @@ fn test_persistence_across_reopen() {
         assert_eq!(event_count, 1, "Event should persist across reopen");
 
         // StateCell should persist
-        let state = state_cell.read(&branch_id, "persistent_cell").unwrap().unwrap();
+        let state = state_cell.read(&branch_id, "default", "persistent_cell").unwrap().unwrap();
         assert_eq!(
             state.value.value,
             Value::Int(999),

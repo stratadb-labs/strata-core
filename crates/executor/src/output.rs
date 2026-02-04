@@ -117,6 +117,10 @@ pub enum Output {
     /// Search results across primitives
     SearchResults(Vec<SearchResultHit>),
 
+    // ==================== Space ====================
+    /// List of space names
+    SpaceList(Vec<String>),
+
     // ==================== Bundle ====================
     /// Branch export result
     BranchExported(BranchExportResult),

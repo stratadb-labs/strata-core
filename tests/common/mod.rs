@@ -490,7 +490,7 @@ pub fn empty_array() -> JsonValue {
 pub fn create_doc(store: &JsonStore, branch_id: &BranchId, value: JsonValue) -> String {
     let doc_id = new_doc_id();
     store
-        .create(branch_id, &doc_id, value)
+        .create(branch_id, "default", &doc_id, value)
         .expect("Failed to create document");
     doc_id
 }
@@ -717,9 +717,9 @@ impl CapturedState {
         let kv = KVStore::new(db.clone());
         let mut kv_entries = HashMap::new();
 
-        if let Ok(keys) = kv.list(branch_id, None) {
+        if let Ok(keys) = kv.list(branch_id, "default", None) {
             for key in keys {
-                if let Ok(Some(value)) = kv.get(branch_id, &key) {
+                if let Ok(Some(value)) = kv.get(branch_id, "default", &key) {
                     kv_entries.insert(key.to_string(), format!("{:?}", value));
                 }
             }
@@ -758,7 +758,7 @@ impl CapturedVectorState {
 
         for i in 0..1000 {
             for key in [format!("key_{}", i), format!("key_{:02}", i)] {
-                if let Ok(Some(entry)) = vector_store.get(branch_id, collection, &key) {
+                if let Ok(Some(entry)) = vector_store.get(branch_id, "default", collection, &key) {
                     let vid = entry.value.vector_id();
                     if vid.as_u64() > max_id {
                         max_id = vid.as_u64();
@@ -794,7 +794,7 @@ impl CapturedVectorState {
         let mut max_id = 0u64;
 
         for key in keys {
-            if let Ok(Some(entry)) = vector_store.get(branch_id, collection, key) {
+            if let Ok(Some(entry)) = vector_store.get(branch_id, "default", collection, key) {
                 let vid = entry.value.vector_id();
                 if vid.as_u64() > max_id {
                     max_id = vid.as_u64();
@@ -827,10 +827,10 @@ impl CapturedVectorState {
 pub fn assert_db_healthy(db: &Arc<Database>, branch_id: &BranchId) {
     let kv = KVStore::new(db.clone());
     let key = unique_key();
-    kv.put(branch_id, &key, Value::String("test".into()))
+    kv.put(branch_id, "default", &key, Value::String("test".into()))
         .expect("Database should be able to write");
     let value = kv
-        .get(branch_id, &key)
+        .get(branch_id, "default", &key)
         .expect("Database should be able to read");
     assert_eq!(
         value,
@@ -846,43 +846,43 @@ pub fn assert_all_primitives_healthy(test_db: &TestDb) {
 
     // KV
     let key = unique_key();
-    p.kv.put(&branch_id, &key, Value::String("kv_test".into()))
+    p.kv.put(&branch_id, "default", &key, Value::String("kv_test".into()))
         .expect("KV should write");
     assert_eq!(
-        p.kv.get(&branch_id, &key).expect("KV read"),
+        p.kv.get(&branch_id, "default", &key).expect("KV read"),
         Some(Value::String("kv_test".into()))
     );
 
     // JSON
     let doc_id = new_doc_id();
     p.json
-        .create(&branch_id, &doc_id, test_json_value(0))
+        .create(&branch_id, "default", &doc_id, test_json_value(0))
         .expect("JSON should create");
     assert!(p
         .json
-        .get(&branch_id, &doc_id, &JsonPath::root())
+        .get(&branch_id, "default", &doc_id, &JsonPath::root())
         .expect("JSON read")
         .is_some());
 
     // Event
     p.event
-        .append(&branch_id, "test_event", empty_payload())
+        .append(&branch_id, "default", "test_event", empty_payload())
         .expect("Event should append");
 
     // State
     let state_key = unique_key();
     p.state
-        .init(&branch_id, &state_key, Value::String("initial".into()))
+        .init(&branch_id, "default", &state_key, Value::String("initial".into()))
         .expect("State should init");
 
     // Vector
     let collection = unique_key();
     p.vector
-        .create_collection(branch_id, &collection, config_small())
+        .create_collection(branch_id, "default", &collection, config_small())
         .expect("Vector should create collection");
     let vec_key = unique_key();
     p.vector
-        .insert(branch_id, &collection, &vec_key, &[1.0, 0.0, 0.0], None)
+        .insert(branch_id, "default", &collection, &vec_key, &[1.0, 0.0, 0.0], None)
         .expect("Vector should insert");
 }
 
@@ -950,16 +950,16 @@ pub fn assert_vector_collection_healthy(
     let test_embedding = random_vector(dimension);
 
     vector_store
-        .insert(branch_id, collection, &test_key, &test_embedding, None)
+        .insert(branch_id, "default", collection, &test_key, &test_embedding, None)
         .expect("Vector store should be able to insert");
 
     let entry = vector_store
-        .get(branch_id, collection, &test_key)
+        .get(branch_id, "default", collection, &test_key)
         .expect("Vector store should be able to get");
     assert!(entry.is_some(), "Vector store should return inserted entry");
 
     let results = vector_store
-        .search(branch_id, collection, &test_embedding, 1, None)
+        .search(branch_id, "default", collection, &test_embedding, 1, None)
         .expect("Vector store should be able to search");
     assert!(!results.is_empty(), "Search should return results");
 }
@@ -1241,7 +1241,7 @@ pub fn populate_vector_collection(
         let key = format!("key_{}", i);
         let embedding = seeded_vector(dimension, i as u64);
         vector_store
-            .insert(branch_id, collection, &key, &embedding, None)
+            .insert(branch_id, "default", collection, &key, &embedding, None)
             .expect("Failed to insert vector");
         entries.push((key, embedding));
     }
@@ -1267,7 +1267,7 @@ pub fn populate_vector_collection_with_metadata(
         });
         vector_store
             .insert(
-                branch_id,
+                branch_id, "default",
                 collection,
                 &key,
                 &embedding,
@@ -1285,6 +1285,7 @@ pub fn populate_test_data(db: &Arc<Database>, branch_id: &BranchId, count: usize
     for i in 0..count {
         kv.put(
             branch_id,
+            "default",
             &format!("key_{}", i),
             Value::String(format!("value_{}", i)),
         )
@@ -1296,7 +1297,7 @@ pub fn populate_test_data(db: &Arc<Database>, branch_id: &BranchId, count: usize
 pub fn verify_keys_exist(db: &Arc<Database>, branch_id: &BranchId, keys: &[&str]) {
     let kv = KVStore::new(db.clone());
     for key in keys {
-        let value = kv.get(branch_id, key).expect("Failed to read key");
+        let value = kv.get(branch_id, "default", key).expect("Failed to read key");
         assert!(value.is_some(), "Key {} should exist", key);
     }
 }
@@ -1305,7 +1306,7 @@ pub fn verify_keys_exist(db: &Arc<Database>, branch_id: &BranchId, keys: &[&str]
 pub fn verify_keys_absent(db: &Arc<Database>, branch_id: &BranchId, keys: &[&str]) {
     let kv = KVStore::new(db.clone());
     for key in keys {
-        let value = kv.get(branch_id, key).expect("Failed to read key");
+        let value = kv.get(branch_id, "default", key).expect("Failed to read key");
         assert!(value.is_none(), "Key {} should NOT exist", key);
     }
 }

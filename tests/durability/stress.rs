@@ -16,7 +16,7 @@ fn stress_large_wal_recovery() {
 
     let kv = test_db.kv();
     for i in 0..10_000 {
-        kv.put(&branch_id, &format!("key_{}", i), Value::Int(i))
+        kv.put(&branch_id, "default", &format!("key_{}", i), Value::Int(i))
             .unwrap();
     }
 
@@ -27,7 +27,7 @@ fn stress_large_wal_recovery() {
 
     let kv = test_db.kv();
     for i in (0..10_000).step_by(100) {
-        let val = kv.get(&branch_id, &format!("key_{}", i)).unwrap();
+        let val = kv.get(&branch_id, "default", &format!("key_{}", i)).unwrap();
         assert_eq!(
             val,
             Some(Value::Int(i)),
@@ -52,7 +52,7 @@ fn stress_concurrent_writes() {
                 let branch_id = BranchId::new();
                 let kv = KVStore::new(db);
                 for i in 0..1000 {
-                    kv.put(&branch_id, &format!("t{}_k{}", thread_id, i), Value::Int(i))
+                    kv.put(&branch_id, "default", &format!("t{}_k{}", thread_id, i), Value::Int(i))
                         .unwrap();
                 }
             })
@@ -75,7 +75,7 @@ fn stress_concurrent_read_write() {
     // Pre-populate
     let kv = KVStore::new(db.clone());
     for i in 0..500 {
-        kv.put(&branch_id, &format!("rw_{}", i), Value::Int(i))
+        kv.put(&branch_id, "default", &format!("rw_{}", i), Value::Int(i))
             .unwrap();
     }
 
@@ -83,7 +83,7 @@ fn stress_concurrent_read_write() {
     let writer = thread::spawn(move || {
         let kv = KVStore::new(writer_db);
         for i in 500..1000 {
-            kv.put(&branch_id, &format!("rw_{}", i), Value::Int(i))
+            kv.put(&branch_id, "default", &format!("rw_{}", i), Value::Int(i))
                 .unwrap();
         }
     });
@@ -96,7 +96,7 @@ fn stress_concurrent_read_write() {
                 let mut reads = 0u64;
                 for _ in 0..1000 {
                     for i in 0..500 {
-                        let _ = kv.get(&branch_id, &format!("rw_{}", i));
+                        let _ = kv.get(&branch_id, "default", &format!("rw_{}", i));
                         reads += 1;
                     }
                 }
@@ -122,7 +122,7 @@ fn stress_many_small_writes() {
     let kv = test_db.kv();
     let start = Instant::now();
     for i in 0..100_000 {
-        kv.put(&branch_id, &format!("k{}", i), Value::Int(i))
+        kv.put(&branch_id, "default", &format!("k{}", i), Value::Int(i))
             .unwrap();
     }
     let elapsed = start.elapsed();
@@ -135,7 +135,7 @@ fn stress_many_small_writes() {
 
     // Verify sampling
     for i in (0..100_000).step_by(10_000) {
-        let val = kv.get(&branch_id, &format!("k{}", i)).unwrap();
+        let val = kv.get(&branch_id, "default", &format!("k{}", i)).unwrap();
         assert_eq!(val, Some(Value::Int(i)));
     }
 }
@@ -151,12 +151,12 @@ fn stress_large_values() {
     let large = Value::String("x".repeat(1_000_000)); // 1MB
 
     for i in 0..50 {
-        kv.put(&branch_id, &format!("large_{}", i), large.clone())
+        kv.put(&branch_id, "default", &format!("large_{}", i), large.clone())
             .unwrap();
     }
 
     for i in 0..50 {
-        let val = kv.get(&branch_id, &format!("large_{}", i)).unwrap();
+        let val = kv.get(&branch_id, "default", &format!("large_{}", i)).unwrap();
         assert_eq!(
             val,
             Some(large.clone()),
@@ -177,17 +177,17 @@ fn stress_mixed_operations() {
     for i in 0..10_000 {
         match i % 4 {
             0 => {
-                kv.put(&branch_id, &format!("k{}", i % 500), Value::Int(i))
+                kv.put(&branch_id, "default", &format!("k{}", i % 500), Value::Int(i))
                     .unwrap();
             }
             1 => {
-                let _ = kv.get(&branch_id, &format!("k{}", i % 500));
+                let _ = kv.get(&branch_id, "default", &format!("k{}", i % 500));
             }
             2 => {
-                kv.delete(&branch_id, &format!("k{}", (i + 250) % 500)).ok();
+                kv.delete(&branch_id, "default", &format!("k{}", (i + 250) % 500)).ok();
             }
             3 => {
-                let _ = kv.list(&branch_id, None);
+                let _ = kv.list(&branch_id, "default", None);
             }
             _ => {}
         }
@@ -203,7 +203,7 @@ fn stress_recovery_after_churn() {
 
     let kv = test_db.kv();
     for i in 0..10_000 {
-        kv.put(&branch_id, &format!("churn_{}", i % 100), Value::Int(i))
+        kv.put(&branch_id, "default", &format!("churn_{}", i % 100), Value::Int(i))
             .unwrap();
     }
 
@@ -227,7 +227,7 @@ fn stress_repeated_reopen() {
         for i in 0..100 {
             kv.put(
                 &branch_id,
-                &format!("c{}_k{}", cycle, i),
+                "default", &format!("c{}_k{}", cycle, i),
                 Value::Int((cycle * 100 + i) as i64),
             )
             .unwrap();
@@ -238,7 +238,7 @@ fn stress_repeated_reopen() {
     // Verify data from all cycles
     let kv = test_db.kv();
     for cycle in 0..20 {
-        let val = kv.get(&branch_id, &format!("c{}_k0", cycle)).unwrap();
+        let val = kv.get(&branch_id, "default", &format!("c{}_k0", cycle)).unwrap();
         assert_eq!(
             val,
             Some(Value::Int((cycle * 100) as i64)),
@@ -262,17 +262,17 @@ fn stress_all_primitives_sustained() {
 
     while start.elapsed() < duration {
         let key = format!("k{}", ops);
-        p.kv.put(&branch_id, &key, Value::Int(ops as i64)).unwrap();
+        p.kv.put(&branch_id, "default", &key, Value::Int(ops as i64)).unwrap();
 
         if ops % 10 == 0 {
             p.event
-                .append(&branch_id, "load_stream", int_payload(ops as i64))
+                .append(&branch_id, "default", "load_stream", int_payload(ops as i64))
                 .unwrap();
         }
         if ops % 50 == 0 {
             let doc = format!("doc_{}", ops);
             p.json
-                .create(&branch_id, &doc, test_json_value(ops as usize))
+                .create(&branch_id, "default", &doc, test_json_value(ops as usize))
                 .unwrap();
         }
 

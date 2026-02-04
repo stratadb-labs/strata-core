@@ -32,9 +32,9 @@ fn cross_primitive_rollback_leaves_no_trace() {
     let state = test_db.state();
 
     // Pre-populate with known values
-    kv.put(&branch_id, "existing_key", Value::Int(100)).unwrap();
+    kv.put(&branch_id, "default", "existing_key", Value::Int(100)).unwrap();
     state
-        .init(&branch_id, "existing_cell", Value::Int(200))
+        .init(&branch_id, "default", "existing_cell", Value::Int(200))
         .unwrap();
 
     // Attempt a transaction that touches all primitives then fails
@@ -58,27 +58,27 @@ fn cross_primitive_rollback_leaves_no_trace() {
     // Verify NO partial writes leaked:
     // - new_key should not exist
     assert!(
-        kv.get(&branch_id, "new_key").unwrap().is_none(),
+        kv.get(&branch_id, "default", "new_key").unwrap().is_none(),
         "new_key should not exist after rollback"
     );
 
     // - existing_key should have original value
     assert_eq!(
-        kv.get(&branch_id, "existing_key").unwrap().unwrap(),
+        kv.get(&branch_id, "default", "existing_key").unwrap().unwrap(),
         Value::Int(100),
         "existing_key should retain original value after rollback"
     );
 
     // - EventLog should be empty (no events committed)
     assert_eq!(
-        event.len(&branch_id).unwrap(),
+        event.len(&branch_id, "default").unwrap(),
         0,
         "EventLog should be empty after rollback"
     );
 
     // - existing_cell should be unchanged
     assert_eq!(
-        state.read(&branch_id, "existing_cell").unwrap().unwrap(),
+        state.read(&branch_id, "default", "existing_cell").unwrap().unwrap(),
         Value::Int(200),
         "existing_cell should retain original value after rollback"
     );
@@ -96,7 +96,7 @@ fn cross_primitive_isolation_no_dirty_reads() {
     let kv = KVStore::new(db.clone());
 
     // Seed initial value
-    kv.put(&branch_id, "shared_key", Value::Int(0)).unwrap();
+    kv.put(&branch_id, "default", "shared_key", Value::Int(0)).unwrap();
 
     let barrier = Arc::new(Barrier::new(2));
     let dirty_read_detected = Arc::new(AtomicBool::new(false));
@@ -131,7 +131,7 @@ fn cross_primitive_isolation_no_dirty_reads() {
 
         // Read outside any transaction - should NOT see uncommitted write
         let kv_reader = KVStore::new(db2);
-        let val = kv_reader.get(&branch_id, "shared_key").unwrap().unwrap();
+        let val = kv_reader.get(&branch_id, "default", "shared_key").unwrap().unwrap();
 
         if val == Value::Int(42) {
             dirty_flag.store(true, Ordering::SeqCst);
@@ -169,11 +169,11 @@ fn committed_writes_are_visible() {
     // Read outside transaction - should see committed values
     let kv = test_db.kv();
     assert_eq!(
-        kv.get(&branch_id, "key1").unwrap().unwrap(),
+        kv.get(&branch_id, "default", "key1").unwrap().unwrap(),
         Value::Int(100)
     );
     assert_eq!(
-        kv.get(&branch_id, "key2").unwrap().unwrap(),
+        kv.get(&branch_id, "default", "key2").unwrap().unwrap(),
         Value::Int(200)
     );
 }
@@ -191,7 +191,7 @@ fn occ_first_committer_wins() {
     let db = test_db.db.clone();
 
     let kv = KVStore::new(db.clone());
-    kv.put(&branch_id, "contested_key", Value::Int(0)).unwrap();
+    kv.put(&branch_id, "default", "contested_key", Value::Int(0)).unwrap();
 
     let barrier = Arc::new(Barrier::new(2));
     let success_count = Arc::new(AtomicU64::new(0));
@@ -239,7 +239,7 @@ fn occ_first_committer_wins() {
     );
 
     // Final value should be from the winner
-    let final_val = kv.get(&branch_id, "contested_key").unwrap().unwrap();
+    let final_val = kv.get(&branch_id, "default", "contested_key").unwrap().unwrap();
     assert!(
         final_val == Value::Int(1) || final_val == Value::Int(2),
         "Final value should be from one of the writers"
@@ -299,7 +299,7 @@ fn read_only_transactions_never_conflict() {
     let db = test_db.db.clone();
 
     let kv = KVStore::new(db.clone());
-    kv.put(&branch_id, "key", Value::Int(42)).unwrap();
+    kv.put(&branch_id, "default", "key", Value::Int(42)).unwrap();
 
     let barrier = Arc::new(Barrier::new(4));
     let success_count = Arc::new(AtomicU64::new(0));
@@ -349,7 +349,7 @@ fn primitive_error_propagates() {
     // Try to CAS on non-existent cell - should fail
     let state = test_db.state();
     let result = state.cas(
-        &branch_id,
+        &branch_id, "default",
         "nonexistent",
         Version::from(1u64),
         Value::Int(1),
@@ -365,7 +365,7 @@ fn transaction_error_recovery() {
     let branch_id = test_db.branch_id;
 
     let kv = test_db.kv();
-    kv.put(&branch_id, "key", Value::Int(1)).unwrap();
+    kv.put(&branch_id, "default", "key", Value::Int(1)).unwrap();
 
     // Multiple failed transactions shouldn't corrupt state
     for _ in 0..5 {
@@ -378,7 +378,7 @@ fn transaction_error_recovery() {
     }
 
     // Original value should be intact
-    assert_eq!(kv.get(&branch_id, "key").unwrap().unwrap(), Value::Int(1));
+    assert_eq!(kv.get(&branch_id, "default", "key").unwrap().unwrap(), Value::Int(1));
 }
 
 // ============================================================================
@@ -394,14 +394,14 @@ fn versions_monotonically_increase() {
 
     let state = test_db.state();
 
-    state.init(&branch_id, "key", Value::Int(0)).unwrap();
+    state.init(&branch_id, "default", "key", Value::Int(0)).unwrap();
 
     let mut last_version = 0u64;
     for i in 1..=10 {
-        let current = state.readv(&branch_id, "key").unwrap().unwrap();
+        let current = state.readv(&branch_id, "default", "key").unwrap().unwrap();
         let current_version = current.version().as_u64();
         state
-            .cas(&branch_id, "key", current.version(), Value::Int(i))
+            .cas(&branch_id, "default", "key", current.version(), Value::Int(i))
             .unwrap();
 
         assert!(
@@ -424,7 +424,7 @@ fn eventlog_sequence_monotonic() {
     let mut last_seq = 0u64;
     for i in 0..10i64 {
         let seq = event
-            .append(&branch_id, "test", event_payload(Value::Int(i)))
+            .append(&branch_id, "default", "test", event_payload(Value::Int(i)))
             .unwrap();
         let seq_u64 = seq.as_u64();
 
@@ -447,21 +447,21 @@ fn statecell_cas_version_ordering() {
     let branch_id = test_db.branch_id;
     let state = test_db.state();
 
-    state.init(&branch_id, "cell", Value::Int(0)).unwrap();
+    state.init(&branch_id, "default", "cell", Value::Int(0)).unwrap();
 
     // Get initial version
-    let v1 = state.readv(&branch_id, "cell").unwrap().unwrap().version();
+    let v1 = state.readv(&branch_id, "default", "cell").unwrap().unwrap().version();
 
     // CAS should work with current version
-    state.cas(&branch_id, "cell", v1, Value::Int(1)).unwrap();
+    state.cas(&branch_id, "default", "cell", v1, Value::Int(1)).unwrap();
 
     // CAS with old version should fail
-    let result = state.cas(&branch_id, "cell", v1, Value::Int(2));
+    let result = state.cas(&branch_id, "default", "cell", v1, Value::Int(2));
     assert!(result.is_err(), "CAS with stale version should fail");
 
     // Value should be 1 (from successful CAS), not 2
     assert_eq!(
-        state.read(&branch_id, "cell").unwrap().unwrap(),
+        state.read(&branch_id, "default", "cell").unwrap().unwrap(),
         Value::Int(1)
     );
 }
@@ -496,7 +496,7 @@ fn branch_isolation_under_contention() {
                 // Each branch writes to "key" with its own value
                 for j in 0..50 {
                     if kv
-                        .put(&branch_id, "key", Value::Int((i * 100 + j) as i64))
+                        .put(&branch_id, "default", "key", Value::Int((i * 100 + j) as i64))
                         .is_err()
                     {
                         err_count.fetch_add(1, Ordering::Relaxed);
@@ -504,7 +504,7 @@ fn branch_isolation_under_contention() {
                 }
 
                 // Verify our final value is ours
-                let val = kv.get(&branch_id, "key").unwrap().unwrap();
+                let val = kv.get(&branch_id, "default", "key").unwrap().unwrap();
                 if let Value::Int(n) = val {
                     if n / 100 != i as i64 {
                         err_count.fetch_add(1, Ordering::Relaxed);
@@ -552,7 +552,7 @@ fn read_only_transaction_succeeds() {
     let branch_id = test_db.branch_id;
 
     let kv = test_db.kv();
-    kv.put(&branch_id, "key", Value::Int(42)).unwrap();
+    kv.put(&branch_id, "default", "key", Value::Int(42)).unwrap();
 
     let result = test_db.db.transaction(branch_id, |txn| {
         let val = txn.kv_get("key")?;
@@ -581,7 +581,7 @@ fn large_transaction() {
     // Verify all writes committed
     let kv = test_db.kv();
     for i in 0..100 {
-        let val = kv.get(&branch_id, &format!("key_{}", i)).unwrap();
+        let val = kv.get(&branch_id, "default", &format!("key_{}", i)).unwrap();
         assert_eq!(val, Some(Value::Int(i)), "key_{} should be {}", i, i);
     }
 }

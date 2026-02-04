@@ -66,6 +66,7 @@ fn kv_put_returns_version() {
     let output = executor
         .execute(Command::KvPut {
             branch: None,
+            space: None,
             key: "test_key".into(),
             value: Value::String("test_value".into()),
         })
@@ -85,6 +86,7 @@ fn kv_get_returns_maybe_versioned() {
     executor
         .execute(Command::KvPut {
             branch: None,
+            space: None,
             key: "k".into(),
             value: Value::Int(42),
         })
@@ -94,6 +96,7 @@ fn kv_get_returns_maybe_versioned() {
     let output = executor
         .execute(Command::KvGet {
             branch: None,
+            space: None,
             key: "k".into(),
         })
         .unwrap();
@@ -114,6 +117,7 @@ fn kv_get_missing_returns_none() {
     let output = executor
         .execute(Command::KvGet {
             branch: None,
+            space: None,
             key: "nonexistent".into(),
         })
         .unwrap();
@@ -131,6 +135,7 @@ fn kv_delete_returns_bool() {
     executor
         .execute(Command::KvPut {
             branch: None,
+            space: None,
             key: "k".into(),
             value: Value::Int(1),
         })
@@ -139,6 +144,7 @@ fn kv_delete_returns_bool() {
     let output = executor
         .execute(Command::KvDelete {
             branch: None,
+            space: None,
             key: "k".into(),
         })
         .unwrap();
@@ -149,6 +155,7 @@ fn kv_delete_returns_bool() {
     let output = executor
         .execute(Command::KvDelete {
             branch: None,
+            space: None,
             key: "k".into(),
         })
         .unwrap();
@@ -167,6 +174,7 @@ fn event_append_returns_version() {
     let output = executor
         .execute(Command::EventAppend {
             branch: None,
+            space: None,
             event_type: "test_stream".into(),
             payload: event_payload("data", Value::String("event1".into())),
         })
@@ -183,6 +191,7 @@ fn event_len_returns_count() {
         executor
             .execute(Command::EventAppend {
                 branch: None,
+                space: None,
                 event_type: "counting".into(),
                 payload: event_payload("i", Value::Int(i)),
             })
@@ -190,7 +199,7 @@ fn event_len_returns_count() {
     }
 
     let output = executor
-        .execute(Command::EventLen { branch: None })
+        .execute(Command::EventLen { branch: None , space: None })
         .unwrap();
 
     match output {
@@ -210,6 +219,7 @@ fn state_set_read_cycle() {
     let output = executor
         .execute(Command::StateSet {
             branch: None,
+            space: None,
             cell: "status".into(),
             value: Value::String("active".into()),
         })
@@ -220,6 +230,7 @@ fn state_set_read_cycle() {
     let output = executor
         .execute(Command::StateRead {
             branch: None,
+            space: None,
             cell: "status".into(),
         })
         .unwrap();
@@ -245,6 +256,7 @@ fn vector_create_collection_and_upsert() {
     let output = executor
         .execute(Command::VectorCreateCollection {
             branch: None,
+            space: None,
             collection: "embeddings".into(),
             dimension: 4,
             metric: DistanceMetric::Cosine,
@@ -257,6 +269,7 @@ fn vector_create_collection_and_upsert() {
     let output = executor
         .execute(Command::VectorUpsert {
             branch: None,
+            space: None,
             collection: "embeddings".into(),
             key: "v1".into(),
             vector: vec![1.0, 0.0, 0.0, 0.0],
@@ -274,6 +287,7 @@ fn vector_search_returns_matches() {
     executor
         .execute(Command::VectorCreateCollection {
             branch: None,
+            space: None,
             collection: "search_test".into(),
             dimension: 4,
             metric: DistanceMetric::Cosine,
@@ -283,6 +297,7 @@ fn vector_search_returns_matches() {
     executor
         .execute(Command::VectorUpsert {
             branch: None,
+            space: None,
             collection: "search_test".into(),
             key: "v1".into(),
             vector: vec![1.0, 0.0, 0.0, 0.0],
@@ -293,6 +308,7 @@ fn vector_search_returns_matches() {
     executor
         .execute(Command::VectorUpsert {
             branch: None,
+            space: None,
             collection: "search_test".into(),
             key: "v2".into(),
             vector: vec![0.0, 1.0, 0.0, 0.0],
@@ -303,6 +319,7 @@ fn vector_search_returns_matches() {
     let output = executor
         .execute(Command::VectorSearch {
             branch: None,
+            space: None,
             collection: "search_test".into(),
             query: vec![1.0, 0.0, 0.0, 0.0],
             k: 10,
@@ -327,6 +344,7 @@ fn vector_list_collections() {
     executor
         .execute(Command::VectorCreateCollection {
             branch: None,
+            space: None,
             collection: "coll_a".into(),
             dimension: 4,
             metric: DistanceMetric::Cosine,
@@ -336,6 +354,7 @@ fn vector_list_collections() {
     executor
         .execute(Command::VectorCreateCollection {
             branch: None,
+            space: None,
             collection: "coll_b".into(),
             dimension: 8,
             metric: DistanceMetric::Euclidean,
@@ -343,7 +362,7 @@ fn vector_list_collections() {
         .unwrap();
 
     let output = executor
-        .execute(Command::VectorListCollections { branch: None })
+        .execute(Command::VectorListCollections { branch: None , space: None })
         .unwrap();
 
     match output {
@@ -531,6 +550,7 @@ fn commands_with_none_branch_use_default() {
     executor
         .execute(Command::KvPut {
             branch: None,
+            space: None,
             key: "default_test".into(),
             value: Value::String("value".into()),
         })
@@ -540,6 +560,7 @@ fn commands_with_none_branch_use_default() {
     let output = executor
         .execute(Command::KvGet {
             branch: Some(BranchId::default()),
+            space: None,
             key: "default_test".into(),
         })
         .unwrap();
@@ -585,6 +606,7 @@ fn different_branches_are_isolated() {
     executor
         .execute(Command::KvPut {
             branch: Some(branch_a.clone()),
+            space: None,
             key: "shared_key".into(),
             value: Value::String("branch_a_value".into()),
         })
@@ -594,6 +616,7 @@ fn different_branches_are_isolated() {
     executor
         .execute(Command::KvPut {
             branch: Some(branch_b.clone()),
+            space: None,
             key: "shared_key".into(),
             value: Value::String("branch_b_value".into()),
         })
@@ -603,6 +626,7 @@ fn different_branches_are_isolated() {
     let output = executor
         .execute(Command::KvGet {
             branch: Some(branch_a),
+            space: None,
             key: "shared_key".into(),
         })
         .unwrap();
@@ -619,6 +643,7 @@ fn different_branches_are_isolated() {
     let output = executor
         .execute(Command::KvGet {
             branch: Some(branch_b),
+            space: None,
             key: "shared_key".into(),
         })
         .unwrap();

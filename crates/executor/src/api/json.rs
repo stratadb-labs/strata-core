@@ -57,6 +57,7 @@ impl Strata {
     pub fn json_set(&self, key: &str, path: &str, value: impl Into<Value>) -> Result<u64> {
         match self.executor.execute(Command::JsonSet {
             branch: self.branch_id(),
+            space: self.space_id(),
             key: key.to_string(),
             path: path.to_string(),
             value: value.into(),
@@ -91,6 +92,7 @@ impl Strata {
     pub fn json_get(&self, key: &str, path: &str) -> Result<Option<Value>> {
         match self.executor.execute(Command::JsonGet {
             branch: self.branch_id(),
+            space: self.space_id(),
             key: key.to_string(),
             path: path.to_string(),
         })? {
@@ -109,6 +111,7 @@ impl Strata {
     pub fn json_getv(&self, key: &str) -> Result<Option<Vec<crate::types::VersionedValue>>> {
         match self.executor.execute(Command::JsonGetv {
             branch: self.branch_id(),
+            space: self.space_id(),
             key: key.to_string(),
         })? {
             Output::VersionHistory(h) => Ok(h),
@@ -143,6 +146,7 @@ impl Strata {
     pub fn json_delete(&self, key: &str, path: &str) -> Result<u64> {
         match self.executor.execute(Command::JsonDelete {
             branch: self.branch_id(),
+            space: self.space_id(),
             key: key.to_string(),
             path: path.to_string(),
         })? {
@@ -184,6 +188,7 @@ impl Strata {
     ) -> Result<(Vec<String>, Option<String>)> {
         match self.executor.execute(Command::JsonList {
             branch: self.branch_id(),
+            space: self.space_id(),
             prefix,
             cursor,
             limit,

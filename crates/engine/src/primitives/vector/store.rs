@@ -136,6 +136,11 @@ impl VectorStore {
         self.db.extension::<VectorBackendState>()
     }
 
+    /// Build namespace for branch+space-scoped operations
+    fn namespace_for(&self, branch_id: BranchId, space: &str) -> Namespace {
+        Namespace::for_branch_space(branch_id, space)
+    }
+
     /// Get the backend factory (hardcoded currently, configurable in future versions)
     fn backend_factory(&self) -> IndexBackendFactory {
         // Hardcoded to BruteForce. future versions may make this configurable.
@@ -158,6 +163,7 @@ impl VectorStore {
     pub fn create_collection(
         &self,
         branch_id: BranchId,
+        space: &str,
         name: &str,
         config: VectorConfig,
     ) -> VectorResult<Versioned<CollectionInfo>> {
@@ -180,7 +186,7 @@ impl VectorStore {
         let collection_id = CollectionId::new(branch_id, name);
 
         // Check if collection already exists
-        if self.collection_exists(branch_id, name)? {
+        if self.collection_exists(branch_id, space, name)? {
             return Err(VectorError::CollectionAlreadyExists {
                 name: name.to_string(),
             });
@@ -192,7 +198,7 @@ impl VectorStore {
         let record = CollectionRecord::new(&config);
 
         // Store config in KV
-        let config_key = Key::new_vector_config(Namespace::for_branch(branch_id), name);
+        let config_key = Key::new_vector_config(self.namespace_for(branch_id, space), name);
         let config_bytes = record.to_bytes()?;
 
         // Use transaction for atomic storage
@@ -228,21 +234,21 @@ impl VectorStore {
     ///
     /// # Errors
     /// - `CollectionNotFound` if collection doesn't exist
-    pub fn delete_collection(&self, branch_id: BranchId, name: &str) -> VectorResult<()> {
+    pub fn delete_collection(&self, branch_id: BranchId, space: &str, name: &str) -> VectorResult<()> {
         let collection_id = CollectionId::new(branch_id, name);
 
         // Check if collection exists
-        if !self.collection_exists(branch_id, name)? {
+        if !self.collection_exists(branch_id, space, name)? {
             return Err(VectorError::CollectionNotFound {
                 name: name.to_string(),
             });
         }
 
         // Delete all vectors in the collection
-        self.delete_all_vectors(branch_id, name)?;
+        self.delete_all_vectors(branch_id, space, name)?;
 
         // Delete config from KV
-        let config_key = Key::new_vector_config(Namespace::for_branch(branch_id), name);
+        let config_key = Key::new_vector_config(self.namespace_for(branch_id, space), name);
         self.db
             .transaction(branch_id, |txn| txn.delete(config_key.clone()))
             .map_err(|e| VectorError::Storage(e.to_string()))?;
@@ -260,10 +266,10 @@ impl VectorStore {
     ///
     /// Returns CollectionInfo for each collection, including current vector count.
     /// Results are sorted by name for determinism (Invariant R4).
-    pub fn list_collections(&self, branch_id: BranchId) -> VectorResult<Vec<CollectionInfo>> {
+    pub fn list_collections(&self, branch_id: BranchId, space: &str) -> VectorResult<Vec<CollectionInfo>> {
         use strata_core::traits::SnapshotView;
 
-        let namespace = Namespace::for_branch(branch_id);
+        let namespace = self.namespace_for(branch_id, space);
         let prefix = Key::new_vector_config_prefix(namespace);
 
         // Read from snapshot for consistency
@@ -293,7 +299,7 @@ impl VectorStore {
 
             // Get current count from backend
             let collection_id = CollectionId::new(branch_id, &name);
-            let count = self.get_collection_count(&collection_id, branch_id, &name)?;
+            let count = self.get_collection_count(&collection_id, branch_id, space, &name)?;
 
             collections.push(CollectionInfo {
                 name,
@@ -310,10 +316,10 @@ impl VectorStore {
     }
 
     /// Check if a collection exists (internal)
-    fn collection_exists(&self, branch_id: BranchId, name: &str) -> VectorResult<bool> {
+    fn collection_exists(&self, branch_id: BranchId, space: &str, name: &str) -> VectorResult<bool> {
         use strata_core::traits::SnapshotView;
 
-        let config_key = Key::new_vector_config(Namespace::for_branch(branch_id), name);
+        let config_key = Key::new_vector_config(self.namespace_for(branch_id, space), name);
         let snapshot = self.db.storage().create_snapshot();
 
         Ok(snapshot
@@ -326,9 +332,10 @@ impl VectorStore {
     pub(crate) fn get_collection(
         &self,
         branch_id: BranchId,
+        space: &str,
         name: &str,
     ) -> VectorResult<Option<Versioned<CollectionInfo>>> {
-        let config_key = Key::new_vector_config(Namespace::for_branch(branch_id), name);
+        let config_key = Key::new_vector_config(self.namespace_for(branch_id, space), name);
 
         use strata_core::traits::SnapshotView;
         let snapshot = self.db.storage().create_snapshot();
@@ -352,7 +359,7 @@ impl VectorStore {
         let config = VectorConfig::try_from(record.config)?;
 
         let collection_id = CollectionId::new(branch_id, name);
-        let count = self.get_collection_count(&collection_id, branch_id, name)?;
+        let count = self.get_collection_count(&collection_id, branch_id, space, name)?;
 
         let info = CollectionInfo {
             name: name.to_string(),
@@ -384,6 +391,7 @@ impl VectorStore {
     pub fn insert(
         &self,
         branch_id: BranchId,
+        space: &str,
         collection: &str,
         key: &str,
         embedding: &[f32],
@@ -400,12 +408,12 @@ impl VectorStore {
         }
 
         // Ensure collection is loaded
-        self.ensure_collection_loaded(branch_id, collection)?;
+        self.ensure_collection_loaded(branch_id, space, collection)?;
 
         let collection_id = CollectionId::new(branch_id, collection);
 
         // Validate dimension
-        let config = self.get_collection_config_required(branch_id, collection)?;
+        let config = self.get_collection_config_required(branch_id, space, collection)?;
         if embedding.len() != config.dimension {
             return Err(VectorError::DimensionMismatch {
                 expected: config.dimension,
@@ -420,7 +428,7 @@ impl VectorStore {
             .transpose()
             .map_err(|e| VectorError::Serialization(e.to_string()))?;
 
-        let kv_key = Key::new_vector(Namespace::for_branch(branch_id), collection, key);
+        let kv_key = Key::new_vector(self.namespace_for(branch_id, space), collection, key);
 
         // Hold write lock for the entire check-then-insert sequence to prevent
         // TOCTOU race (fixes #936). Also commit KV before updating backend so
@@ -474,14 +482,15 @@ impl VectorStore {
     pub fn get(
         &self,
         branch_id: BranchId,
+        space: &str,
         collection: &str,
         key: &str,
     ) -> VectorResult<Option<Versioned<VectorEntry>>> {
         // Ensure collection is loaded
-        self.ensure_collection_loaded(branch_id, collection)?;
+        self.ensure_collection_loaded(branch_id, space, collection)?;
 
         let collection_id = CollectionId::new(branch_id, collection);
-        let kv_key = Key::new_vector(Namespace::for_branch(branch_id), collection, key);
+        let kv_key = Key::new_vector(self.namespace_for(branch_id, space), collection, key);
 
         // Get record from KV with version info
         use strata_core::traits::SnapshotView;
@@ -538,12 +547,12 @@ impl VectorStore {
     /// Delete a vector by key
     ///
     /// Returns true if the vector existed and was deleted.
-    pub fn delete(&self, branch_id: BranchId, collection: &str, key: &str) -> VectorResult<bool> {
+    pub fn delete(&self, branch_id: BranchId, space: &str, collection: &str, key: &str) -> VectorResult<bool> {
         // Ensure collection is loaded
-        self.ensure_collection_loaded(branch_id, collection)?;
+        self.ensure_collection_loaded(branch_id, space, collection)?;
 
         let collection_id = CollectionId::new(branch_id, collection);
-        let kv_key = Key::new_vector(Namespace::for_branch(branch_id), collection, key);
+        let kv_key = Key::new_vector(self.namespace_for(branch_id, space), collection, key);
 
         // Get existing record
         let Some(record) = self.get_vector_record_by_key(&kv_key)? else {
@@ -582,6 +591,7 @@ impl VectorStore {
     pub fn batch_insert(
         &self,
         branch_id: BranchId,
+        space: &str,
         collection: &str,
         entries: Vec<(String, Vec<f32>, Option<JsonValue>)>,
     ) -> VectorResult<Vec<Version>> {
@@ -590,7 +600,7 @@ impl VectorStore {
         }
 
         // Validate all entries before acquiring locks
-        let config = self.get_collection_config_required(branch_id, collection)?;
+        let config = self.get_collection_config_required(branch_id, space, collection)?;
         for (key, embedding, _) in &entries {
             validate_vector_key(key)?;
             if embedding.iter().any(|v| v.is_nan() || v.is_infinite()) {
@@ -607,7 +617,7 @@ impl VectorStore {
         }
 
         // Ensure collection is loaded
-        self.ensure_collection_loaded(branch_id, collection)?;
+        self.ensure_collection_loaded(branch_id, space, collection)?;
         let collection_id = CollectionId::new(branch_id, collection);
 
         // Acquire write lock once for the entire batch
@@ -623,7 +633,7 @@ impl VectorStore {
         let mut versions = Vec::with_capacity(entries.len());
 
         for (key, embedding, metadata) in entries {
-            let kv_key = Key::new_vector(Namespace::for_branch(branch_id), collection, &key);
+            let kv_key = Key::new_vector(self.namespace_for(branch_id, space), collection, &key);
 
             // Check existence
             let existing = self.get_vector_record_by_key(&kv_key)?;
@@ -671,6 +681,7 @@ impl VectorStore {
     pub fn search(
         &self,
         branch_id: BranchId,
+        space: &str,
         collection: &str,
         query: &[f32],
         k: usize,
@@ -682,12 +693,12 @@ impl VectorStore {
         }
 
         // Ensure collection is loaded
-        self.ensure_collection_loaded(branch_id, collection)?;
+        self.ensure_collection_loaded(branch_id, space, collection)?;
 
         let collection_id = CollectionId::new(branch_id, collection);
 
         // Validate query dimension
-        let config = self.get_collection_config_required(branch_id, collection)?;
+        let config = self.get_collection_config_required(branch_id, space, collection)?;
         if query.len() != config.dimension {
             return Err(VectorError::DimensionMismatch {
                 expected: config.dimension,
@@ -719,7 +730,7 @@ impl VectorStore {
 
             for (vector_id, score) in candidates {
                 let (key, metadata) =
-                    self.get_key_and_metadata(branch_id, collection, vector_id)?;
+                    self.get_key_and_metadata(branch_id, space, collection, vector_id)?;
                 matches.push(VectorMatch {
                     key,
                     score,
@@ -755,7 +766,7 @@ impl VectorStore {
                 matches.clear();
                 for (vector_id, score) in candidates {
                     let (key, metadata) =
-                        self.get_key_and_metadata(branch_id, collection, vector_id)?;
+                        self.get_key_and_metadata(branch_id, space, collection, vector_id)?;
 
                     // Apply filter
                     if let Some(ref f) = filter {
@@ -811,9 +822,10 @@ impl VectorStore {
     fn get_collection_config_required(
         &self,
         branch_id: BranchId,
+        space: &str,
         name: &str,
     ) -> VectorResult<VectorConfig> {
-        self.load_collection_config(branch_id, name)?
+        self.load_collection_config(branch_id, space, name)?
             .ok_or_else(|| VectorError::CollectionNotFound {
                 name: name.to_string(),
             })
@@ -848,12 +860,13 @@ impl VectorStore {
     pub(crate) fn get_key_and_metadata(
         &self,
         branch_id: BranchId,
+        space: &str,
         collection: &str,
         target_id: VectorId,
     ) -> VectorResult<(String, Option<JsonValue>)> {
         use strata_core::traits::SnapshotView;
 
-        let namespace = Namespace::for_branch(branch_id);
+        let namespace = self.namespace_for(branch_id, space);
         let prefix = Key::vector_collection_prefix(namespace, collection);
 
         let snapshot = self.db.storage().create_snapshot();
@@ -899,6 +912,7 @@ impl VectorStore {
         &self,
         id: &CollectionId,
         branch_id: BranchId,
+        space: &str,
         name: &str,
     ) -> VectorResult<usize> {
         // Check in-memory backend first
@@ -911,7 +925,7 @@ impl VectorStore {
 
         // Backend not loaded - count from KV
         use strata_core::traits::SnapshotView;
-        let namespace = Namespace::for_branch(branch_id);
+        let namespace = self.namespace_for(branch_id, space);
         let prefix = Key::vector_collection_prefix(namespace, name);
 
         let snapshot = self.db.storage().create_snapshot();
@@ -923,10 +937,10 @@ impl VectorStore {
     }
 
     /// Delete all vectors in a collection
-    fn delete_all_vectors(&self, branch_id: BranchId, name: &str) -> VectorResult<()> {
+    fn delete_all_vectors(&self, branch_id: BranchId, space: &str, name: &str) -> VectorResult<()> {
         use strata_core::traits::SnapshotView;
 
-        let namespace = Namespace::for_branch(branch_id);
+        let namespace = self.namespace_for(branch_id, space);
         let prefix = Key::vector_collection_prefix(namespace, name);
 
         // Scan all vector keys in this collection
@@ -957,11 +971,12 @@ impl VectorStore {
     fn load_collection_config(
         &self,
         branch_id: BranchId,
+        space: &str,
         name: &str,
     ) -> VectorResult<Option<VectorConfig>> {
         use strata_core::traits::SnapshotView;
 
-        let config_key = Key::new_vector_config(Namespace::for_branch(branch_id), name);
+        let config_key = Key::new_vector_config(self.namespace_for(branch_id, space), name);
         let snapshot = self.db.storage().create_snapshot();
 
         let Some(versioned_value) = snapshot
@@ -992,6 +1007,7 @@ impl VectorStore {
     pub(crate) fn ensure_collection_loaded(
         &self,
         branch_id: BranchId,
+        space: &str,
         name: &str,
     ) -> VectorResult<()> {
         let collection_id = CollectionId::new(branch_id, name);
@@ -1006,7 +1022,7 @@ impl VectorStore {
 
         // Load from KV
         let config = self
-            .load_collection_config(branch_id, name)?
+            .load_collection_config(branch_id, space, name)?
             .ok_or_else(|| VectorError::CollectionNotFound {
                 name: name.to_string(),
             })?;
@@ -1186,7 +1202,7 @@ impl VectorStore {
 
         let collection_id = CollectionId::new(branch_id, name);
 
-        if self.collection_exists(branch_id, name)? {
+        if self.collection_exists(branch_id, "default", name)? {
             return Err(VectorError::CollectionAlreadyExists {
                 name: name.to_string(),
             });
@@ -1231,7 +1247,7 @@ impl VectorStore {
         use crate::primitives::vector::collection::validate_system_collection_name;
         validate_system_collection_name(collection)?;
         // Delegate to the normal insert path (which doesn't re-check collection name)
-        self.insert(branch_id, collection, key, embedding, metadata)
+        self.insert(branch_id, "default", collection, key, embedding, metadata)
     }
 
     /// Search a system collection (internal use only)
@@ -1245,13 +1261,14 @@ impl VectorStore {
     ) -> VectorResult<Vec<VectorMatch>> {
         use crate::primitives::vector::collection::validate_system_collection_name;
         validate_system_collection_name(collection)?;
-        self.search(branch_id, collection, query, k, filter)
+        self.search(branch_id, "default", collection, query, k, filter)
     }
 
     /// Get index type name and memory usage for a collection
     pub fn collection_backend_stats(
         &self,
         branch_id: BranchId,
+        _space: &str,
         name: &str,
     ) -> Option<(&'static str, usize)> {
         let collection_id = CollectionId::new(branch_id, name);
@@ -1276,10 +1293,11 @@ impl VectorStore {
     pub(crate) fn vector_key_internal(
         &self,
         branch_id: BranchId,
+        space: &str,
         collection: &str,
         key: &str,
     ) -> Key {
-        Key::new_vector(Namespace::for_branch(branch_id), collection, key)
+        Key::new_vector(self.namespace_for(branch_id, space), collection, key)
     }
 }
 
@@ -1512,7 +1530,7 @@ mod tests {
 
         let config = VectorConfig::for_minilm();
         let versioned = store
-            .create_collection(branch_id, "test", config.clone())
+            .create_collection(branch_id, "default", "test", config.clone())
             .unwrap();
         let info = versioned.value;
 
@@ -1529,11 +1547,11 @@ mod tests {
 
         let config = VectorConfig::for_minilm();
         store
-            .create_collection(branch_id, "test", config.clone())
+            .create_collection(branch_id, "default", "test", config.clone())
             .unwrap();
 
         // Second create should fail
-        let result = store.create_collection(branch_id, "test", config);
+        let result = store.create_collection(branch_id, "default", "test", config);
         assert!(matches!(
             result,
             Err(VectorError::CollectionAlreadyExists { .. })
@@ -1547,14 +1565,14 @@ mod tests {
 
         let config = VectorConfig::for_minilm();
         store
-            .create_collection(branch_id, "test", config.clone())
+            .create_collection(branch_id, "default", "test", config.clone())
             .unwrap();
 
         // Delete should succeed
-        store.delete_collection(branch_id, "test").unwrap();
+        store.delete_collection(branch_id, "default", "test").unwrap();
 
         // Collection should no longer exist
-        assert!(!store.collection_exists(branch_id, "test").unwrap());
+        assert!(!store.collection_exists(branch_id, "default", "test").unwrap());
     }
 
     #[test]
@@ -1562,7 +1580,7 @@ mod tests {
         let (_temp, _db, store) = setup();
         let branch_id = BranchId::new();
 
-        let result = store.delete_collection(branch_id, "nonexistent");
+        let result = store.delete_collection(branch_id, "default", "nonexistent");
         assert!(matches!(
             result,
             Err(VectorError::CollectionNotFound { .. })
@@ -1580,16 +1598,16 @@ mod tests {
 
         // Create multiple collections
         store
-            .create_collection(branch_id, "zeta", VectorConfig::for_minilm())
+            .create_collection(branch_id, "default", "zeta", VectorConfig::for_minilm())
             .unwrap();
         store
-            .create_collection(branch_id, "alpha", VectorConfig::for_mpnet())
+            .create_collection(branch_id, "default", "alpha", VectorConfig::for_mpnet())
             .unwrap();
         store
-            .create_collection(branch_id, "beta", VectorConfig::for_openai_ada())
+            .create_collection(branch_id, "default", "beta", VectorConfig::for_openai_ada())
             .unwrap();
 
-        let collections = store.list_collections(branch_id).unwrap();
+        let collections = store.list_collections(branch_id, "default").unwrap();
 
         // Should be sorted by name
         assert_eq!(collections.len(), 3);
@@ -1603,7 +1621,7 @@ mod tests {
         let (_temp, _db, store) = setup();
         let branch_id = BranchId::new();
 
-        let collections = store.list_collections(branch_id).unwrap();
+        let collections = store.list_collections(branch_id, "default").unwrap();
         assert!(collections.is_empty());
     }
 
@@ -1614,11 +1632,11 @@ mod tests {
 
         let config = VectorConfig::new(768, DistanceMetric::Euclidean).unwrap();
         store
-            .create_collection(branch_id, "embeddings", config)
+            .create_collection(branch_id, "default", "embeddings", config)
             .unwrap();
 
         let info = store
-            .get_collection(branch_id, "embeddings")
+            .get_collection(branch_id, "default", "embeddings")
             .unwrap()
             .unwrap()
             .value;
@@ -1632,7 +1650,7 @@ mod tests {
         let (_temp, _db, store) = setup();
         let branch_id = BranchId::new();
 
-        let info = store.get_collection(branch_id, "nonexistent").unwrap();
+        let info = store.get_collection(branch_id, "default", "nonexistent").unwrap();
         assert!(info.is_none());
     }
 
@@ -1650,23 +1668,23 @@ mod tests {
 
         // Create same-named collection in different branches
         store
-            .create_collection(branch1, "shared_name", config.clone())
+            .create_collection(branch1, "default", "shared_name", config.clone())
             .unwrap();
         store
-            .create_collection(branch2, "shared_name", config)
+            .create_collection(branch2, "default", "shared_name", config)
             .unwrap();
 
         // Each branch sees only its own collection
-        let list1 = store.list_collections(branch1).unwrap();
-        let list2 = store.list_collections(branch2).unwrap();
+        let list1 = store.list_collections(branch1, "default").unwrap();
+        let list2 = store.list_collections(branch2, "default").unwrap();
 
         assert_eq!(list1.len(), 1);
         assert_eq!(list2.len(), 1);
 
         // Deleting from one branch doesn't affect the other
-        store.delete_collection(branch1, "shared_name").unwrap();
+        store.delete_collection(branch1, "default", "shared_name").unwrap();
         assert!(store
-            .get_collection(branch2, "shared_name")
+            .get_collection(branch2, "default", "shared_name")
             .unwrap()
             .is_some());
     }
@@ -1682,12 +1700,12 @@ mod tests {
 
         let config = VectorConfig::new(768, DistanceMetric::Euclidean).unwrap();
         store
-            .create_collection(branch_id, "test", config.clone())
+            .create_collection(branch_id, "default", "test", config.clone())
             .unwrap();
 
         // Get collection and verify config
         let info = store
-            .get_collection(branch_id, "test")
+            .get_collection(branch_id, "default", "test")
             .unwrap()
             .unwrap()
             .value;
@@ -1707,7 +1725,7 @@ mod tests {
 
             let config = VectorConfig::new(512, DistanceMetric::DotProduct).unwrap();
             store
-                .create_collection(branch_id, "persistent", config)
+                .create_collection(branch_id, "default", "persistent", config)
                 .unwrap();
         }
 
@@ -1717,7 +1735,7 @@ mod tests {
             let store = VectorStore::new(db);
 
             let info = store
-                .get_collection(branch_id, "persistent")
+                .get_collection(branch_id, "default", "persistent")
                 .unwrap()
                 .unwrap()
                 .value;
@@ -1738,21 +1756,21 @@ mod tests {
         let config = VectorConfig::for_minilm();
 
         // Empty name
-        let result = store.create_collection(branch_id, "", config.clone());
+        let result = store.create_collection(branch_id, "default", "", config.clone());
         assert!(matches!(
             result,
             Err(VectorError::InvalidCollectionName { .. })
         ));
 
         // Reserved name
-        let result = store.create_collection(branch_id, "_reserved", config.clone());
+        let result = store.create_collection(branch_id, "default", "_reserved", config.clone());
         assert!(matches!(
             result,
             Err(VectorError::InvalidCollectionName { .. })
         ));
 
         // Contains slash
-        let result = store.create_collection(branch_id, "has/slash", config);
+        let result = store.create_collection(branch_id, "default", "has/slash", config);
         assert!(matches!(
             result,
             Err(VectorError::InvalidCollectionName { .. })
@@ -1771,7 +1789,7 @@ mod tests {
             storage_dtype: crate::primitives::vector::StorageDtype::F32,
         };
 
-        let result = store.create_collection(branch_id, "test", config);
+        let result = store.create_collection(branch_id, "default", "test", config);
         assert!(matches!(
             result,
             Err(VectorError::InvalidDimension { dimension: 0 })
@@ -1808,16 +1826,16 @@ mod tests {
 
         // Create collection
         let config = VectorConfig::new(3, DistanceMetric::Cosine).unwrap();
-        store.create_collection(branch_id, "test", config).unwrap();
+        store.create_collection(branch_id, "default", "test", config).unwrap();
 
         // Insert vector
         let embedding = vec![1.0, 0.0, 0.0];
         store
-            .insert(branch_id, "test", "doc1", &embedding, None)
+            .insert(branch_id, "default", "test", "doc1", &embedding, None)
             .unwrap();
 
         // Get vector
-        let entry = store.get(branch_id, "test", "doc1").unwrap().unwrap().value;
+        let entry = store.get(branch_id, "default", "test", "doc1").unwrap().unwrap().value;
         assert_eq!(entry.key, "doc1");
         assert_eq!(entry.embedding, embedding);
         assert!(entry.metadata.is_none());
@@ -1829,12 +1847,13 @@ mod tests {
         let branch_id = BranchId::new();
 
         let config = VectorConfig::new(3, DistanceMetric::Cosine).unwrap();
-        store.create_collection(branch_id, "test", config).unwrap();
+        store.create_collection(branch_id, "default", "test", config).unwrap();
 
         let metadata = serde_json::json!({"type": "document", "author": "test"});
         store
             .insert(
                 branch_id,
+                "default",
                 "test",
                 "doc1",
                 &[1.0, 0.0, 0.0],
@@ -1842,7 +1861,7 @@ mod tests {
             )
             .unwrap();
 
-        let entry = store.get(branch_id, "test", "doc1").unwrap().unwrap().value;
+        let entry = store.get(branch_id, "default", "test", "doc1").unwrap().unwrap().value;
         assert_eq!(entry.metadata, Some(metadata));
     }
 
@@ -1852,19 +1871,19 @@ mod tests {
         let branch_id = BranchId::new();
 
         let config = VectorConfig::new(3, DistanceMetric::Cosine).unwrap();
-        store.create_collection(branch_id, "test", config).unwrap();
+        store.create_collection(branch_id, "default", "test", config).unwrap();
 
         // Insert original
         store
-            .insert(branch_id, "test", "doc1", &[1.0, 0.0, 0.0], None)
+            .insert(branch_id, "default", "test", "doc1", &[1.0, 0.0, 0.0], None)
             .unwrap();
 
         // Upsert with new embedding
         store
-            .insert(branch_id, "test", "doc1", &[0.0, 1.0, 0.0], None)
+            .insert(branch_id, "default", "test", "doc1", &[0.0, 1.0, 0.0], None)
             .unwrap();
 
-        let entry = store.get(branch_id, "test", "doc1").unwrap().unwrap().value;
+        let entry = store.get(branch_id, "default", "test", "doc1").unwrap().unwrap().value;
         assert_eq!(entry.embedding, vec![0.0, 1.0, 0.0]);
     }
 
@@ -1874,22 +1893,22 @@ mod tests {
         let branch_id = BranchId::new();
 
         let config = VectorConfig::new(3, DistanceMetric::Cosine).unwrap();
-        store.create_collection(branch_id, "test", config).unwrap();
+        store.create_collection(branch_id, "default", "test", config).unwrap();
 
         store
-            .insert(branch_id, "test", "doc1", &[1.0, 0.0, 0.0], None)
+            .insert(branch_id, "default", "test", "doc1", &[1.0, 0.0, 0.0], None)
             .unwrap();
 
         // Delete
-        let deleted = store.delete(branch_id, "test", "doc1").unwrap();
+        let deleted = store.delete(branch_id, "default", "test", "doc1").unwrap();
         assert!(deleted);
 
         // Should not exist
-        let entry = store.get(branch_id, "test", "doc1").unwrap();
+        let entry = store.get(branch_id, "default", "test", "doc1").unwrap();
         assert!(entry.is_none());
 
         // Delete again returns false
-        let deleted = store.delete(branch_id, "test", "doc1").unwrap();
+        let deleted = store.delete(branch_id, "default", "test", "doc1").unwrap();
         assert!(!deleted);
     }
 
@@ -1899,10 +1918,10 @@ mod tests {
         let branch_id = BranchId::new();
 
         let config = VectorConfig::new(3, DistanceMetric::Cosine).unwrap();
-        store.create_collection(branch_id, "test", config).unwrap();
+        store.create_collection(branch_id, "default", "test", config).unwrap();
 
         // Wrong dimension
-        let result = store.insert(branch_id, "test", "doc1", &[1.0, 0.0], None);
+        let result = store.insert(branch_id, "default", "test", "doc1", &[1.0, 0.0], None);
         assert!(matches!(
             result,
             Err(VectorError::DimensionMismatch {
@@ -1922,22 +1941,22 @@ mod tests {
         let branch_id = BranchId::new();
 
         let config = VectorConfig::new(3, DistanceMetric::Cosine).unwrap();
-        store.create_collection(branch_id, "test", config).unwrap();
+        store.create_collection(branch_id, "default", "test", config).unwrap();
 
         // Insert vectors
         store
-            .insert(branch_id, "test", "a", &[1.0, 0.0, 0.0], None)
+            .insert(branch_id, "default", "test", "a", &[1.0, 0.0, 0.0], None)
             .unwrap();
         store
-            .insert(branch_id, "test", "b", &[0.0, 1.0, 0.0], None)
+            .insert(branch_id, "default", "test", "b", &[0.0, 1.0, 0.0], None)
             .unwrap();
         store
-            .insert(branch_id, "test", "c", &[0.9, 0.1, 0.0], None)
+            .insert(branch_id, "default", "test", "c", &[0.9, 0.1, 0.0], None)
             .unwrap();
 
         // Search
         let query = [1.0, 0.0, 0.0];
-        let results = store.search(branch_id, "test", &query, 2, None).unwrap();
+        let results = store.search(branch_id, "default", "test", &query, 2, None).unwrap();
 
         assert_eq!(results.len(), 2);
         assert_eq!(results[0].key, "a"); // Most similar
@@ -1950,14 +1969,14 @@ mod tests {
         let branch_id = BranchId::new();
 
         let config = VectorConfig::new(3, DistanceMetric::Cosine).unwrap();
-        store.create_collection(branch_id, "test", config).unwrap();
+        store.create_collection(branch_id, "default", "test", config).unwrap();
 
         store
-            .insert(branch_id, "test", "a", &[1.0, 0.0, 0.0], None)
+            .insert(branch_id, "default", "test", "a", &[1.0, 0.0, 0.0], None)
             .unwrap();
 
         let results = store
-            .search(branch_id, "test", &[1.0, 0.0, 0.0], 0, None)
+            .search(branch_id, "default", "test", &[1.0, 0.0, 0.0], 0, None)
             .unwrap();
         assert!(results.is_empty());
     }
@@ -1968,11 +1987,12 @@ mod tests {
         let branch_id = BranchId::new();
 
         let config = VectorConfig::new(3, DistanceMetric::Cosine).unwrap();
-        store.create_collection(branch_id, "test", config).unwrap();
+        store.create_collection(branch_id, "default", "test", config).unwrap();
 
         store
             .insert(
                 branch_id,
+                "default",
                 "test",
                 "a",
                 &[1.0, 0.0, 0.0],
@@ -1982,6 +2002,7 @@ mod tests {
         store
             .insert(
                 branch_id,
+                "default",
                 "test",
                 "b",
                 &[0.9, 0.1, 0.0],
@@ -1991,6 +2012,7 @@ mod tests {
         store
             .insert(
                 branch_id,
+                "default",
                 "test",
                 "c",
                 &[0.8, 0.2, 0.0],
@@ -2001,7 +2023,7 @@ mod tests {
         // Filter by type
         let filter = MetadataFilter::new().eq("type", "document");
         let results = store
-            .search(branch_id, "test", &[1.0, 0.0, 0.0], 10, Some(filter))
+            .search(branch_id, "default", "test", &[1.0, 0.0, 0.0], 10, Some(filter))
             .unwrap();
 
         assert_eq!(results.len(), 2);
@@ -2017,23 +2039,23 @@ mod tests {
         let branch_id = BranchId::new();
 
         let config = VectorConfig::new(3, DistanceMetric::Cosine).unwrap();
-        store.create_collection(branch_id, "test", config).unwrap();
+        store.create_collection(branch_id, "default", "test", config).unwrap();
 
         // Insert vectors with same similarity
         store
-            .insert(branch_id, "test", "b", &[1.0, 0.0, 0.0], None)
+            .insert(branch_id, "default", "test", "b", &[1.0, 0.0, 0.0], None)
             .unwrap();
         store
-            .insert(branch_id, "test", "a", &[1.0, 0.0, 0.0], None)
+            .insert(branch_id, "default", "test", "a", &[1.0, 0.0, 0.0], None)
             .unwrap();
         store
-            .insert(branch_id, "test", "c", &[1.0, 0.0, 0.0], None)
+            .insert(branch_id, "default", "test", "c", &[1.0, 0.0, 0.0], None)
             .unwrap();
 
         // Search multiple times - order should be consistent
         for _ in 0..5 {
             let results = store
-                .search(branch_id, "test", &[1.0, 0.0, 0.0], 3, None)
+                .search(branch_id, "default", "test", &[1.0, 0.0, 0.0], 3, None)
                 .unwrap();
 
             // Should be sorted by key (tie-breaker) since scores are equal
@@ -2270,7 +2292,7 @@ mod tests {
         let branch_id = BranchId::new();
 
         let config = VectorConfig::new(3, DistanceMetric::Cosine).unwrap();
-        store.create_collection(branch_id, "test", config).unwrap();
+        store.create_collection(branch_id, "default", "test", config).unwrap();
 
         // Use backends accessor
         let state = store.backends();

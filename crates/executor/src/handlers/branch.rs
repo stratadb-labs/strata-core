@@ -167,9 +167,9 @@ pub fn branch_delete(p: &Arc<Primitives>, branch: BranchId) -> Result<Output> {
         // Cleanup: delete all vector collections for this branch (#946)
         // Best-effort: silently continue if vector cleanup fails, since the
         // branch metadata is already deleted and data will be orphaned but harmless.
-        if let Ok(collections) = p.vector.list_collections(core_branch_id) {
+        if let Ok(collections) = p.vector.list_collections(core_branch_id, "default") {
             for collection in collections {
-                let _ = p.vector.delete_collection(core_branch_id, &collection.name);
+                let _ = p.vector.delete_collection(core_branch_id, "default", &collection.name);
             }
         }
     }

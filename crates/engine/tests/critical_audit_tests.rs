@@ -50,6 +50,7 @@ fn test_issue_594_toctou_race_condition() {
         "app".to_string(),
         "agent".to_string(),
         branch_id,
+        "default".to_string(),
     );
     let key = Key::new_kv(ns, "counter");
 

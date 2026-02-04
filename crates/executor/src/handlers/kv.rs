@@ -33,10 +33,10 @@ fn require_branch_exists(p: &Arc<Primitives>, branch: &BranchId) -> Result<()> {
 }
 
 /// Handle KvGetv command — get full version history for a key.
-pub fn kv_getv(p: &Arc<Primitives>, branch: BranchId, key: String) -> Result<Output> {
+pub fn kv_getv(p: &Arc<Primitives>, branch: BranchId, space: String, key: String) -> Result<Output> {
     let branch_id = to_core_branch_id(&branch)?;
     convert_result(validate_key(&key))?;
-    let result = convert_result(p.kv.getv(&branch_id, &key))?;
+    let result = convert_result(p.kv.getv(&branch_id, &space, &key))?;
     let mapped = result.map(|history| {
         history
             .into_versions()
@@ -52,30 +52,30 @@ pub fn kv_getv(p: &Arc<Primitives>, branch: BranchId, key: String) -> Result<Out
 // =============================================================================
 
 /// Handle KvPut command.
-pub fn kv_put(p: &Arc<Primitives>, branch: BranchId, key: String, value: Value) -> Result<Output> {
+pub fn kv_put(p: &Arc<Primitives>, branch: BranchId, space: String, key: String, value: Value) -> Result<Output> {
     require_branch_exists(p, &branch)?;
     let branch_id = to_core_branch_id(&branch)?;
     convert_result(validate_key(&key))?;
-    let version = convert_result(p.kv.put(&branch_id, &key, value))?;
+    let version = convert_result(p.kv.put(&branch_id, &space, &key, value))?;
     Ok(Output::Version(extract_version(&version)))
 }
 
 /// Handle KvGet command.
 ///
 /// Returns `MaybeVersioned` with value, version, and timestamp metadata.
-pub fn kv_get(p: &Arc<Primitives>, branch: BranchId, key: String) -> Result<Output> {
+pub fn kv_get(p: &Arc<Primitives>, branch: BranchId, space: String, key: String) -> Result<Output> {
     let branch_id = to_core_branch_id(&branch)?;
     convert_result(validate_key(&key))?;
-    let result = convert_result(p.kv.get_versioned(&branch_id, &key))?;
+    let result = convert_result(p.kv.get_versioned(&branch_id, &space, &key))?;
     Ok(Output::MaybeVersioned(result.map(to_versioned_value)))
 }
 
 /// Handle KvDelete command.
-pub fn kv_delete(p: &Arc<Primitives>, branch: BranchId, key: String) -> Result<Output> {
+pub fn kv_delete(p: &Arc<Primitives>, branch: BranchId, space: String, key: String) -> Result<Output> {
     require_branch_exists(p, &branch)?;
     let branch_id = to_core_branch_id(&branch)?;
     convert_result(validate_key(&key))?;
-    let existed = convert_result(p.kv.delete(&branch_id, &key))?;
+    let existed = convert_result(p.kv.delete(&branch_id, &space, &key))?;
     Ok(Output::Bool(existed))
 }
 
@@ -83,6 +83,7 @@ pub fn kv_delete(p: &Arc<Primitives>, branch: BranchId, key: String) -> Result<O
 pub fn kv_list(
     p: &Arc<Primitives>,
     branch: BranchId,
+    space: String,
     prefix: Option<String>,
     cursor: Option<String>,
     limit: Option<u64>,
@@ -93,7 +94,7 @@ pub fn kv_list(
             convert_result(validate_key(pfx))?;
         }
     }
-    let keys = convert_result(p.kv.list(&branch_id, prefix.as_deref()))?;
+    let keys = convert_result(p.kv.list(&branch_id, &space, prefix.as_deref()))?;
 
     // Apply cursor-based pagination if limit is present
     if let Some(lim) = limit {
