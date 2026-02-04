@@ -274,9 +274,7 @@ impl<'a> TransactionOps for Transaction<'a> {
         let event_json = serde_json::to_string(&event).map_err(|e| StrataError::Serialization {
             message: e.to_string(),
         })?;
-        self.ctx
-            .put(event_key, Value::String(event_json))
-            ?;
+        self.ctx.put(event_key, Value::String(event_json))?;
 
         // Write EventLogMeta so EventLog::len() and other readers see the update after commit
         let meta_key = Key::new_event_meta(self.namespace.clone());
@@ -289,9 +287,7 @@ impl<'a> TransactionOps for Transaction<'a> {
         let meta_json = serde_json::to_string(&meta).map_err(|e| StrataError::Serialization {
             message: e.to_string(),
         })?;
-        self.ctx
-            .put(meta_key, Value::String(meta_json))
-            ?;
+        self.ctx.put(meta_key, Value::String(meta_json))?;
 
         // Update TransactionContext event state for cross-Transaction continuity
         self.ctx.set_event_state(
@@ -392,9 +388,7 @@ impl<'a> TransactionOps for Transaction<'a> {
             message: e.to_string(),
         })?;
 
-        self.ctx
-            .put(full_key, Value::String(state_json))
-            ?;
+        self.ctx.put(full_key, Value::String(state_json))?;
 
         Ok(version)
     }
@@ -440,9 +434,7 @@ impl<'a> TransactionOps for Transaction<'a> {
                 message: e.to_string(),
             })?;
 
-        self.ctx
-            .put(full_key, Value::String(state_json))
-            ?;
+        self.ctx.put(full_key, Value::String(state_json))?;
 
         Ok(new_version)
     }
@@ -470,9 +462,7 @@ impl<'a> TransactionOps for Transaction<'a> {
         }
 
         // Create the document by setting at root path
-        self.ctx
-            .json_set(&full_key, &JsonPath::root(), value)
-            ?;
+        self.ctx.json_set(&full_key, &JsonPath::root(), value)?;
 
         Ok(Version::txn(self.ctx.txn_id))
     }
@@ -558,9 +548,7 @@ impl<'a> TransactionOps for Transaction<'a> {
         let full_key = self.json_key(doc_id);
 
         // Call ctx.json_set (same pattern as kv_put calling ctx.put)
-        self.ctx
-            .json_set(&full_key, path, value)
-            ?;
+        self.ctx.json_set(&full_key, path, value)?;
 
         Ok(Version::txn(self.ctx.txn_id))
     }
@@ -572,9 +560,7 @@ impl<'a> TransactionOps for Transaction<'a> {
         let existed = self.json_exists(doc_id)?;
 
         // Delete the entire document by deleting at root path
-        self.ctx
-            .json_delete(&full_key, &JsonPath::root())
-            ?;
+        self.ctx.json_delete(&full_key, &JsonPath::root())?;
 
         Ok(existed)
     }

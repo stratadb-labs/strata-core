@@ -414,9 +414,10 @@ impl ShardedStore {
         self.shards
             .get(&branch_id)
             .map(|shard| {
-                shard.data.get(key).is_some_and(|chain| {
-                    chain.latest().is_some_and(|sv| !sv.is_tombstone())
-                })
+                shard
+                    .data
+                    .get(key)
+                    .is_some_and(|chain| chain.latest().is_some_and(|sv| !sv.is_tombstone()))
             })
             .unwrap_or(false)
     }

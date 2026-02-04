@@ -23,7 +23,6 @@ impl Default for BranchId {
 }
 
 impl BranchId {
-
     /// Check if this is the default branch.
     pub fn is_default(&self) -> bool {
         self.0 == "default"
