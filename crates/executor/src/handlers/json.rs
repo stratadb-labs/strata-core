@@ -33,10 +33,10 @@ fn require_branch_exists(p: &Arc<Primitives>, branch: &BranchId) -> Result<()> {
 }
 
 /// Handle JsonGetv command — get full version history for a JSON document.
-pub fn json_getv(p: &Arc<Primitives>, branch: BranchId, key: String) -> Result<Output> {
+pub fn json_getv(p: &Arc<Primitives>, branch: BranchId, space: String, key: String) -> Result<Output> {
     let branch_id = to_core_branch_id(&branch)?;
     convert_result(validate_key(&key))?;
-    let result = convert_result(p.json.getv(&branch_id, &key))?;
+    let result = convert_result(p.json.getv(&branch_id, &space, &key))?;
     let mapped = result
         .map(|history| {
             history
@@ -69,6 +69,7 @@ pub fn json_getv(p: &Arc<Primitives>, branch: BranchId, key: String) -> Result<O
 pub fn json_set(
     p: &Arc<Primitives>,
     branch: BranchId,
+    space: String,
     key: String,
     path: String,
     value: Value,
@@ -81,7 +82,7 @@ pub fn json_set(
 
     // Single atomic transaction: checks existence, creates if needed, sets at path.
     // Produces exactly 1 WAL append (fixes #973).
-    let version = convert_result(p.json.set_or_create(&branch_id, &key, &json_path, json_value))?;
+    let version = convert_result(p.json.set_or_create(&branch_id, &space, &key, &json_path, json_value))?;
 
     Ok(Output::Version(extract_version(&version)))
 }
@@ -92,6 +93,7 @@ pub fn json_set(
 pub fn json_get(
     p: &Arc<Primitives>,
     branch: BranchId,
+    space: String,
     key: String,
     path: String,
 ) -> Result<Output> {
@@ -99,7 +101,7 @@ pub fn json_get(
     convert_result(validate_key(&key))?;
     let json_path = convert_result(parse_path(&path))?;
 
-    let result = convert_result(p.json.get_versioned(&branch_id, &key, &json_path))?;
+    let result = convert_result(p.json.get_versioned(&branch_id, &space, &key, &json_path))?;
     match result {
         Some(versioned) => {
             let value = convert_result(json_to_value(versioned.value))?;
@@ -120,6 +122,7 @@ pub fn json_get(
 pub fn json_delete(
     p: &Arc<Primitives>,
     branch: BranchId,
+    space: String,
     key: String,
     path: String,
 ) -> Result<Output> {
@@ -129,10 +132,10 @@ pub fn json_delete(
     let json_path = convert_result(parse_path(&path))?;
 
     if json_path.is_root() {
-        let deleted = convert_result(p.json.destroy(&branch_id, &key))?;
+        let deleted = convert_result(p.json.destroy(&branch_id, &space, &key))?;
         Ok(Output::Uint(if deleted { 1 } else { 0 }))
     } else {
-        match p.json.delete_at_path(&branch_id, &key, &json_path) {
+        match p.json.delete_at_path(&branch_id, &space, &key, &json_path) {
             Ok(_) => Ok(Output::Uint(1)),
             Err(e) => {
                 // If path not found, return 0 (nothing deleted)
@@ -152,6 +155,7 @@ pub fn json_delete(
 pub fn json_list(
     p: &Arc<Primitives>,
     branch: BranchId,
+    space: String,
     prefix: Option<String>,
     cursor: Option<String>,
     limit: u64,
@@ -160,6 +164,7 @@ pub fn json_list(
 
     let result = convert_result(p.json.list(
         &branch_id,
+        &space,
         prefix.as_deref(),
         cursor.as_deref(),
         limit as usize,

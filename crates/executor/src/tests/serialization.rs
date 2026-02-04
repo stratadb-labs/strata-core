@@ -69,6 +69,7 @@ fn test_command_compact() {
 fn test_command_kv_put() {
     test_command_round_trip(Command::KvPut {
         branch: Some(BranchId::from("default")),
+        space: None,
         key: "test-key".to_string(),
         value: Value::String("test-value".to_string()),
     });
@@ -78,6 +79,7 @@ fn test_command_kv_put() {
 fn test_command_kv_get() {
     test_command_round_trip(Command::KvGet {
         branch: Some(BranchId::from("default")),
+        space: None,
         key: "test-key".to_string(),
     });
 }
@@ -86,6 +88,7 @@ fn test_command_kv_get() {
 fn test_command_kv_delete() {
     test_command_round_trip(Command::KvDelete {
         branch: Some(BranchId::from("default")),
+        space: None,
         key: "test-key".to_string(),
     });
 }
@@ -94,6 +97,7 @@ fn test_command_kv_delete() {
 fn test_command_kv_list() {
     test_command_round_trip(Command::KvList {
         branch: Some(BranchId::from("default")),
+        space: None,
         prefix: Some("user:".to_string()),
         cursor: None,
         limit: None,
@@ -108,6 +112,7 @@ fn test_command_kv_list() {
 fn test_command_json_set() {
     test_command_round_trip(Command::JsonSet {
         branch: Some(BranchId::from("default")),
+        space: None,
         key: "doc1".to_string(),
         path: "$.name".to_string(),
         value: Value::String("Alice".to_string()),
@@ -118,6 +123,7 @@ fn test_command_json_set() {
 fn test_command_json_get() {
     test_command_round_trip(Command::JsonGet {
         branch: Some(BranchId::from("default")),
+        space: None,
         key: "doc1".to_string(),
         path: "$.name".to_string(),
     });
@@ -131,6 +137,7 @@ fn test_command_json_get() {
 fn test_command_event_append() {
     test_command_round_trip(Command::EventAppend {
         branch: Some(BranchId::from("default")),
+        space: None,
         event_type: "events".to_string(),
         payload: Value::Object(
             [("type".to_string(), Value::String("click".to_string()))]
@@ -144,6 +151,7 @@ fn test_command_event_append() {
 fn test_command_event_read() {
     test_command_round_trip(Command::EventRead {
         branch: Some(BranchId::from("default")),
+        space: None,
         sequence: 42,
     });
 }
@@ -152,6 +160,7 @@ fn test_command_event_read() {
 fn test_command_event_read_by_type() {
     test_command_round_trip(Command::EventReadByType {
         branch: Some(BranchId::from("default")),
+        space: None,
         event_type: "events".to_string(),
         limit: None,
         after_sequence: None,
@@ -162,6 +171,7 @@ fn test_command_event_read_by_type() {
 fn test_command_event_len() {
     test_command_round_trip(Command::EventLen {
         branch: Some(BranchId::from("default")),
+        space: None,
     });
 }
 
@@ -173,6 +183,7 @@ fn test_command_event_len() {
 fn test_command_state_set() {
     test_command_round_trip(Command::StateSet {
         branch: Some(BranchId::from("default")),
+        space: None,
         cell: "counter".to_string(),
         value: Value::Int(42),
     });
@@ -182,6 +193,7 @@ fn test_command_state_set() {
 fn test_command_state_cas() {
     test_command_round_trip(Command::StateCas {
         branch: Some(BranchId::from("default")),
+        space: None,
         cell: "counter".to_string(),
         expected_counter: Some(5),
         value: Value::Int(6),
@@ -196,6 +208,7 @@ fn test_command_state_cas() {
 fn test_command_vector_upsert() {
     test_command_round_trip(Command::VectorUpsert {
         branch: Some(BranchId::from("default")),
+        space: None,
         collection: "embeddings".to_string(),
         key: "vec1".to_string(),
         vector: vec![0.1, 0.2, 0.3, 0.4],
@@ -211,6 +224,7 @@ fn test_command_vector_upsert() {
 fn test_command_vector_search() {
     test_command_round_trip(Command::VectorSearch {
         branch: Some(BranchId::from("default")),
+        space: None,
         collection: "embeddings".to_string(),
         query: vec![0.1, 0.2, 0.3, 0.4],
         k: 10,
@@ -223,6 +237,7 @@ fn test_command_vector_search() {
 fn test_command_vector_create_collection() {
     test_command_round_trip(Command::VectorCreateCollection {
         branch: Some(BranchId::from("default")),
+        space: None,
         collection: "embeddings".to_string(),
         dimension: 384,
         metric: DistanceMetric::Cosine,
@@ -408,6 +423,7 @@ fn test_command_with_complex_value() {
 
     test_command_round_trip(Command::KvPut {
         branch: Some(BranchId::from("default")),
+        space: None,
         key: "complex".to_string(),
         value: complex_value,
     });
@@ -417,6 +433,7 @@ fn test_command_with_complex_value() {
 fn test_command_with_bytes_value() {
     test_command_round_trip(Command::KvPut {
         branch: Some(BranchId::from("default")),
+        space: None,
         key: "binary".to_string(),
         value: Value::Bytes(vec![0, 1, 2, 255, 254, 253]),
     });
@@ -432,6 +449,7 @@ fn test_command_with_branch_none_round_trip() {
     // and deserialize back to branch: None
     let cmd = Command::KvPut {
         branch: None,
+        space: None,
         key: "test".to_string(),
         value: Value::Int(42),
     };
@@ -442,7 +460,7 @@ fn test_command_with_branch_none_round_trip() {
     );
     let restored: Command = serde_json::from_str(&json).unwrap();
     match restored {
-        Command::KvPut { branch, key, value } => {
+        Command::KvPut { branch, key, value, .. } => {
             assert!(
                 branch.is_none(),
                 "branch should deserialize as None when omitted"
@@ -459,6 +477,7 @@ fn test_command_with_branch_some_round_trip() {
     // Commands with branch: Some(...) should include the branch field
     let cmd = Command::KvGet {
         branch: Some(BranchId::from("my-branch")),
+        space: None,
         key: "test".to_string(),
     };
     let json = serde_json::to_string(&cmd).unwrap();
@@ -468,7 +487,7 @@ fn test_command_with_branch_some_round_trip() {
     );
     let restored: Command = serde_json::from_str(&json).unwrap();
     match restored {
-        Command::KvGet { branch, key } => {
+        Command::KvGet { branch, key, .. } => {
             assert_eq!(branch, Some(BranchId::from("my-branch")));
             assert_eq!(key, "test");
         }
@@ -482,7 +501,7 @@ fn test_command_json_omitted_branch_deserializes() {
     let json = r#"{"KvPut":{"key":"foo","value":{"Int":42}}}"#;
     let cmd: Command = serde_json::from_str(json).unwrap();
     match cmd {
-        Command::KvPut { branch, key, value } => {
+        Command::KvPut { branch, key, value, .. } => {
             assert!(branch.is_none());
             assert_eq!(key, "foo");
             assert_eq!(value, Value::Int(42));
@@ -497,7 +516,7 @@ fn test_command_json_explicit_branch_deserializes() {
     let json = r#"{"KvPut":{"branch":"default","key":"foo","value":{"Int":42}}}"#;
     let cmd: Command = serde_json::from_str(json).unwrap();
     match cmd {
-        Command::KvPut { branch, key, value } => {
+        Command::KvPut { branch, key, value, .. } => {
             assert_eq!(branch, Some(BranchId::from("default")));
             assert_eq!(key, "foo");
             assert_eq!(value, Value::Int(42));

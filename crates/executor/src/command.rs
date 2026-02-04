@@ -71,6 +71,8 @@ pub enum Command {
     KvPut {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         branch: Option<BranchId>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        space: Option<String>,
         key: String,
         value: Value,
     },
@@ -80,6 +82,8 @@ pub enum Command {
     KvGet {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         branch: Option<BranchId>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        space: Option<String>,
         key: String,
     },
 
@@ -88,6 +92,8 @@ pub enum Command {
     KvDelete {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         branch: Option<BranchId>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        space: Option<String>,
         key: String,
     },
 
@@ -96,6 +102,8 @@ pub enum Command {
     KvList {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         branch: Option<BranchId>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        space: Option<String>,
         prefix: Option<String>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         cursor: Option<String>,
@@ -108,6 +116,8 @@ pub enum Command {
     KvGetv {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         branch: Option<BranchId>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        space: Option<String>,
         key: String,
     },
 
@@ -117,6 +127,8 @@ pub enum Command {
     JsonSet {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         branch: Option<BranchId>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        space: Option<String>,
         key: String,
         path: String,
         value: Value,
@@ -127,6 +139,8 @@ pub enum Command {
     JsonGet {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         branch: Option<BranchId>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        space: Option<String>,
         key: String,
         path: String,
     },
@@ -136,6 +150,8 @@ pub enum Command {
     JsonDelete {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         branch: Option<BranchId>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        space: Option<String>,
         key: String,
         path: String,
     },
@@ -145,6 +161,8 @@ pub enum Command {
     JsonGetv {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         branch: Option<BranchId>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        space: Option<String>,
         key: String,
     },
 
@@ -153,6 +171,8 @@ pub enum Command {
     JsonList {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         branch: Option<BranchId>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        space: Option<String>,
         prefix: Option<String>,
         cursor: Option<String>,
         limit: u64,
@@ -165,6 +185,8 @@ pub enum Command {
     EventAppend {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         branch: Option<BranchId>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        space: Option<String>,
         event_type: String,
         payload: Value,
     },
@@ -174,6 +196,8 @@ pub enum Command {
     EventRead {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         branch: Option<BranchId>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        space: Option<String>,
         sequence: u64,
     },
 
@@ -182,6 +206,8 @@ pub enum Command {
     EventReadByType {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         branch: Option<BranchId>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        space: Option<String>,
         event_type: String,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         limit: Option<u64>,
@@ -194,6 +220,8 @@ pub enum Command {
     EventLen {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         branch: Option<BranchId>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        space: Option<String>,
     },
 
     // ==================== State (4 MVP) ====================
@@ -203,6 +231,8 @@ pub enum Command {
     StateSet {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         branch: Option<BranchId>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        space: Option<String>,
         cell: String,
         value: Value,
     },
@@ -212,6 +242,8 @@ pub enum Command {
     StateRead {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         branch: Option<BranchId>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        space: Option<String>,
         cell: String,
     },
 
@@ -220,6 +252,8 @@ pub enum Command {
     StateCas {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         branch: Option<BranchId>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        space: Option<String>,
         cell: String,
         expected_counter: Option<u64>,
         value: Value,
@@ -230,6 +264,8 @@ pub enum Command {
     StateReadv {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         branch: Option<BranchId>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        space: Option<String>,
         cell: String,
     },
 
@@ -238,6 +274,8 @@ pub enum Command {
     StateInit {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         branch: Option<BranchId>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        space: Option<String>,
         cell: String,
         value: Value,
     },
@@ -247,6 +285,8 @@ pub enum Command {
     StateDelete {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         branch: Option<BranchId>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        space: Option<String>,
         cell: String,
     },
 
@@ -255,6 +295,8 @@ pub enum Command {
     StateList {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         branch: Option<BranchId>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        space: Option<String>,
         prefix: Option<String>,
     },
 
@@ -265,6 +307,8 @@ pub enum Command {
     VectorUpsert {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         branch: Option<BranchId>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        space: Option<String>,
         collection: String,
         key: String,
         vector: Vec<f32>,
@@ -276,6 +320,8 @@ pub enum Command {
     VectorGet {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         branch: Option<BranchId>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        space: Option<String>,
         collection: String,
         key: String,
     },
@@ -285,6 +331,8 @@ pub enum Command {
     VectorDelete {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         branch: Option<BranchId>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        space: Option<String>,
         collection: String,
         key: String,
     },
@@ -294,6 +342,8 @@ pub enum Command {
     VectorSearch {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         branch: Option<BranchId>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        space: Option<String>,
         collection: String,
         query: Vec<f32>,
         k: u64,
@@ -306,6 +356,8 @@ pub enum Command {
     VectorCreateCollection {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         branch: Option<BranchId>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        space: Option<String>,
         collection: String,
         dimension: u64,
         metric: DistanceMetric,
@@ -316,6 +368,8 @@ pub enum Command {
     VectorDeleteCollection {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         branch: Option<BranchId>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        space: Option<String>,
         collection: String,
     },
 
@@ -324,6 +378,8 @@ pub enum Command {
     VectorListCollections {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         branch: Option<BranchId>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        space: Option<String>,
     },
 
     /// Get detailed statistics for a single collection.
@@ -331,6 +387,8 @@ pub enum Command {
     VectorCollectionStats {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         branch: Option<BranchId>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        space: Option<String>,
         collection: String,
     },
 
@@ -339,6 +397,8 @@ pub enum Command {
     VectorBatchUpsert {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         branch: Option<BranchId>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        space: Option<String>,
         collection: String,
         entries: Vec<BatchVectorEntry>,
     },
@@ -452,11 +512,47 @@ pub enum Command {
     Search {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         branch: Option<BranchId>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        space: Option<String>,
         query: String,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         k: Option<u64>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         primitives: Option<Vec<String>>,
+    },
+
+    // ==================== Space (4) ====================
+    /// List spaces in a branch.
+    /// Returns: `Output::SpaceList`
+    SpaceList {
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        branch: Option<BranchId>,
+    },
+
+    /// Create a space explicitly.
+    /// Returns: `Output::Unit`
+    SpaceCreate {
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        branch: Option<BranchId>,
+        space: String,
+    },
+
+    /// Delete a space (must be empty unless force=true).
+    /// Returns: `Output::Unit`
+    SpaceDelete {
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        branch: Option<BranchId>,
+        space: String,
+        #[serde(default)]
+        force: bool,
+    },
+
+    /// Check if a space exists.
+    /// Returns: `Output::Bool`
+    SpaceExists {
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        branch: Option<BranchId>,
+        space: String,
     },
 }
 
@@ -484,6 +580,8 @@ impl Command {
                 | Command::VectorBatchUpsert { .. }
                 | Command::BranchCreate { .. }
                 | Command::BranchDelete { .. }
+                | Command::SpaceCreate { .. }
+                | Command::SpaceDelete { .. }
                 | Command::TxnBegin { .. }
                 | Command::TxnCommit
                 | Command::TxnRollback
@@ -552,70 +650,92 @@ impl Command {
             Command::BranchImport { .. } => "BranchImport",
             Command::BranchBundleValidate { .. } => "BranchBundleValidate",
             Command::Search { .. } => "Search",
+            Command::SpaceList { .. } => "SpaceList",
+            Command::SpaceCreate { .. } => "SpaceCreate",
+            Command::SpaceDelete { .. } => "SpaceDelete",
+            Command::SpaceExists { .. } => "SpaceExists",
         }
     }
 
-    /// Fill in the default branch for any data command where branch is `None`.
+    /// Fill in the default branch and space for any data command where they are `None`.
     ///
     /// Called by the executor before dispatch so handlers always receive a
-    /// concrete `BranchId`.
-    pub fn resolve_default_branch(&mut self) {
-        macro_rules! resolve {
+    /// concrete `BranchId` and space name.
+    pub fn resolve_defaults(&mut self) {
+        macro_rules! resolve_branch {
             ($branch:expr) => {
                 if $branch.is_none() {
                     *$branch = Some(BranchId::default());
                 }
             };
         }
+        macro_rules! resolve_space {
+            ($space:expr) => {
+                if $space.is_none() {
+                    *$space = Some("default".to_string());
+                }
+            };
+        }
 
         match self {
             // KV
-            Command::KvPut { branch, .. }
-            | Command::KvGet { branch, .. }
-            | Command::KvDelete { branch, .. }
-            | Command::KvList { branch, .. }
-            | Command::KvGetv { branch, .. }
+            Command::KvPut { branch, space, .. }
+            | Command::KvGet { branch, space, .. }
+            | Command::KvDelete { branch, space, .. }
+            | Command::KvList { branch, space, .. }
+            | Command::KvGetv { branch, space, .. }
             // JSON
-            | Command::JsonSet { branch, .. }
-            | Command::JsonGet { branch, .. }
-            | Command::JsonGetv { branch, .. }
-            | Command::JsonDelete { branch, .. }
-            | Command::JsonList { branch, .. }
+            | Command::JsonSet { branch, space, .. }
+            | Command::JsonGet { branch, space, .. }
+            | Command::JsonGetv { branch, space, .. }
+            | Command::JsonDelete { branch, space, .. }
+            | Command::JsonList { branch, space, .. }
             // Event (4 MVP)
-            | Command::EventAppend { branch, .. }
-            | Command::EventRead { branch, .. }
-            | Command::EventReadByType { branch, .. }
-            | Command::EventLen { branch, .. }
+            | Command::EventAppend { branch, space, .. }
+            | Command::EventRead { branch, space, .. }
+            | Command::EventReadByType { branch, space, .. }
+            | Command::EventLen { branch, space, .. }
             // State
-            | Command::StateSet { branch, .. }
-            | Command::StateRead { branch, .. }
-            | Command::StateReadv { branch, .. }
-            | Command::StateCas { branch, .. }
-            | Command::StateInit { branch, .. }
-            | Command::StateDelete { branch, .. }
-            | Command::StateList { branch, .. }
+            | Command::StateSet { branch, space, .. }
+            | Command::StateRead { branch, space, .. }
+            | Command::StateReadv { branch, space, .. }
+            | Command::StateCas { branch, space, .. }
+            | Command::StateInit { branch, space, .. }
+            | Command::StateDelete { branch, space, .. }
+            | Command::StateList { branch, space, .. }
             // Vector (7 MVP)
-            | Command::VectorUpsert { branch, .. }
-            | Command::VectorGet { branch, .. }
-            | Command::VectorDelete { branch, .. }
-            | Command::VectorSearch { branch, .. }
-            | Command::VectorCreateCollection { branch, .. }
-            | Command::VectorDeleteCollection { branch, .. }
-            | Command::VectorListCollections { branch, .. }
-            | Command::VectorCollectionStats { branch, .. }
-            | Command::VectorBatchUpsert { branch, .. }
-            // Retention
-            | Command::RetentionApply { branch, .. }
-            | Command::RetentionStats { branch, .. }
-            | Command::RetentionPreview { branch, .. }
-            // Transaction begin
-            | Command::TxnBegin { branch, .. }
+            | Command::VectorUpsert { branch, space, .. }
+            | Command::VectorGet { branch, space, .. }
+            | Command::VectorDelete { branch, space, .. }
+            | Command::VectorSearch { branch, space, .. }
+            | Command::VectorCreateCollection { branch, space, .. }
+            | Command::VectorDeleteCollection { branch, space, .. }
+            | Command::VectorListCollections { branch, space, .. }
+            | Command::VectorCollectionStats { branch, space, .. }
+            | Command::VectorBatchUpsert { branch, space, .. }
             // Intelligence
-            | Command::Search { branch, .. } => {
-                resolve!(branch);
+            | Command::Search { branch, space, .. } => {
+                resolve_branch!(branch);
+                resolve_space!(space);
             }
 
-            // Branch lifecycle (5 MVP), Transaction, and Database commands have no
+            // Retention, Transaction begin — only have branch, no space
+            Command::RetentionApply { branch, .. }
+            | Command::RetentionStats { branch, .. }
+            | Command::RetentionPreview { branch, .. }
+            | Command::TxnBegin { branch, .. } => {
+                resolve_branch!(branch);
+            }
+
+            // Space commands — only have branch, space is explicit
+            Command::SpaceList { branch, .. }
+            | Command::SpaceCreate { branch, .. }
+            | Command::SpaceDelete { branch, .. }
+            | Command::SpaceExists { branch, .. } => {
+                resolve_branch!(branch);
+            }
+
+            // Branch lifecycle, Transaction, and Database commands have no
             // optional branch to resolve.
             Command::BranchCreate { .. }
             | Command::BranchGet { .. }
@@ -634,5 +754,10 @@ impl Command {
             | Command::BranchImport { .. }
             | Command::BranchBundleValidate { .. } => {}
         }
+    }
+
+    /// Backwards-compatible alias for resolve_defaults
+    pub fn resolve_default_branch(&mut self) {
+        self.resolve_defaults();
     }
 }

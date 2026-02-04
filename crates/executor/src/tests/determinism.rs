@@ -63,6 +63,7 @@ fn test_kv_get_nonexistent_determinism() {
         .map(|_| {
             executor.execute(Command::KvGet {
                 branch: Some(BranchId::from("default")),
+                space: None,
                 key: "nonexistent-key".to_string(),
             })
         })
@@ -88,6 +89,7 @@ fn test_kv_write_read_determinism() {
     executor
         .execute(Command::KvPut {
             branch: Some(BranchId::from("default")),
+            space: None,
             key: "test-key".to_string(),
             value: Value::String("test-value".into()),
         })
@@ -98,6 +100,7 @@ fn test_kv_write_read_determinism() {
         .map(|_| {
             executor.execute(Command::KvGet {
                 branch: Some(BranchId::from("default")),
+                space: None,
                 key: "test-key".to_string(),
             })
         })
@@ -121,6 +124,7 @@ fn test_state_write_read_determinism() {
     executor
         .execute(Command::StateSet {
             branch: Some(BranchId::from("default")),
+            space: None,
             cell: "counter".to_string(),
             value: Value::Int(42),
         })
@@ -131,6 +135,7 @@ fn test_state_write_read_determinism() {
         .map(|_| {
             executor.execute(Command::StateRead {
                 branch: Some(BranchId::from("default")),
+                space: None,
                 cell: "counter".to_string(),
             })
         })
@@ -159,6 +164,7 @@ fn test_kv_delete_nonexistent_determinism() {
         .map(|_| {
             executor.execute(Command::KvDelete {
                 branch: Some(BranchId::from("default")),
+                space: None,
                 key: "nonexistent-key".to_string(),
             })
         })
@@ -185,6 +191,7 @@ fn test_sequential_writes_determinism() {
     for i in 0..10 {
         let result = executor.execute(Command::KvPut {
             branch: Some(BranchId::from("default")),
+            space: None,
             key: format!("key-{}", i),
             value: Value::Int(i),
         });
@@ -202,6 +209,7 @@ fn test_sequential_writes_determinism() {
     for i in 0..10 {
         let result = executor.execute(Command::KvGet {
             branch: Some(BranchId::from("default")),
+            space: None,
             key: format!("key-{}", i),
         });
 
@@ -224,6 +232,7 @@ fn test_kv_list_determinism() {
         executor
             .execute(Command::KvPut {
                 branch: Some(BranchId::from("default")),
+                space: None,
                 key: format!("user:{}", i),
                 value: Value::Int(i),
             })
@@ -235,6 +244,7 @@ fn test_kv_list_determinism() {
         .map(|_| {
             executor.execute(Command::KvList {
                 branch: Some(BranchId::from("default")),
+                space: None,
                 prefix: Some("user:".to_string()),
                 cursor: None,
                 limit: None,
@@ -275,6 +285,7 @@ fn test_vector_search_determinism() {
     executor
         .execute(Command::VectorCreateCollection {
             branch: Some(BranchId::from("default")),
+            space: None,
             collection: "embeddings".to_string(),
             dimension: 4,
             metric: DistanceMetric::Cosine,
@@ -288,6 +299,7 @@ fn test_vector_search_determinism() {
         executor
             .execute(Command::VectorUpsert {
                 branch: Some(BranchId::from("default")),
+                space: None,
                 collection: "embeddings".to_string(),
                 key: format!("v{}", i),
                 vector: vec,
@@ -302,6 +314,7 @@ fn test_vector_search_determinism() {
         .map(|_| {
             executor.execute(Command::VectorSearch {
                 branch: Some(BranchId::from("default")),
+                space: None,
                 collection: "embeddings".to_string(),
                 query: query.clone(),
                 k: 3,
@@ -343,6 +356,7 @@ fn test_event_read_by_type_determinism() {
         executor
             .execute(Command::EventAppend {
                 branch: Some(BranchId::from("default")),
+                space: None,
                 event_type: "events".to_string(),
                 payload: Value::Object([("seq".to_string(), Value::Int(i))].into_iter().collect()),
             })
@@ -354,6 +368,7 @@ fn test_event_read_by_type_determinism() {
         .map(|_| {
             executor.execute(Command::EventReadByType {
                 branch: Some(BranchId::from("default")),
+                space: None,
                 event_type: "events".to_string(),
                 after_sequence: None,
                 limit: None,
@@ -384,6 +399,7 @@ fn test_json_get_determinism() {
     executor
         .execute(Command::JsonSet {
             branch: Some(BranchId::from("default")),
+            space: None,
             key: "doc".to_string(),
             path: "".to_string(),
             value: Value::Object(
@@ -402,6 +418,7 @@ fn test_json_get_determinism() {
         .map(|_| {
             executor.execute(Command::JsonGet {
                 branch: Some(BranchId::from("default")),
+                space: None,
                 key: "doc".to_string(),
                 path: ".name".to_string(),
             })

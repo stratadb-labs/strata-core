@@ -16,6 +16,7 @@ fn vector_upsert_to_nonexistent_collection_behavior() {
 
     let result = executor.execute(Command::VectorUpsert {
         branch: None,
+        space: None,
         collection: "nonexistent".into(),
         key: "v1".into(),
         vector: vec![1.0, 0.0, 0.0, 0.0],
@@ -43,6 +44,7 @@ fn vector_search_in_nonexistent_collection_fails() {
 
     let result = executor.execute(Command::VectorSearch {
         branch: None,
+        space: None,
         collection: "nonexistent".into(),
         query: vec![1.0, 0.0, 0.0, 0.0],
         k: 10,
@@ -69,6 +71,7 @@ fn vector_wrong_dimension_fails() {
     executor
         .execute(Command::VectorCreateCollection {
             branch: None,
+            space: None,
             collection: "dim4".into(),
             dimension: 4,
             metric: DistanceMetric::Cosine,
@@ -78,6 +81,7 @@ fn vector_wrong_dimension_fails() {
     // Try to insert wrong dimension
     let result = executor.execute(Command::VectorUpsert {
         branch: None,
+        space: None,
         collection: "dim4".into(),
         key: "v1".into(),
         vector: vec![1.0, 0.0], // Only 2 dimensions
@@ -99,6 +103,7 @@ fn vector_delete_nonexistent_collection_behavior() {
 
     let result = executor.execute(Command::VectorDeleteCollection {
         branch: None,
+        space: None,
         collection: "nonexistent".into(),
     });
 
@@ -232,6 +237,7 @@ fn event_append_non_object_fails() {
     // Event payloads must be Objects
     let result = executor.execute(Command::EventAppend {
         branch: None,
+        space: None,
         event_type: "stream".into(),
         payload: Value::Int(42), // Not an object
     });
@@ -253,6 +259,7 @@ fn json_get_nonexistent_returns_none() {
     let result = executor
         .execute(Command::JsonGet {
             branch: None,
+            space: None,
             key: "nonexistent".into(),
             path: "$".into(),
         })
@@ -331,6 +338,7 @@ fn state_read_nonexistent_returns_none() {
     let result = executor
         .execute(Command::StateRead {
             branch: None,
+            space: None,
             cell: "nonexistent".into(),
         })
         .unwrap();

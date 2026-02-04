@@ -130,6 +130,7 @@ fn read_your_writes_kv() {
     session
         .execute(Command::KvPut {
             branch: None,
+            space: None,
             key: "txn_key".into(),
             value: Value::Int(42),
         })
@@ -139,6 +140,7 @@ fn read_your_writes_kv() {
     let output = session
         .execute(Command::KvGet {
             branch: None,
+            space: None,
             key: "txn_key".into(),
         })
         .unwrap();
@@ -171,6 +173,7 @@ fn read_your_writes_state() {
     session
         .execute(Command::StateInit {
             branch: None,
+            space: None,
             cell: "cell".into(),
             value: Value::String("value".into()),
         })
@@ -179,6 +182,7 @@ fn read_your_writes_state() {
     let output = session
         .execute(Command::StateRead {
             branch: None,
+            space: None,
             cell: "cell".into(),
         })
         .unwrap();
@@ -211,13 +215,14 @@ fn read_your_writes_event() {
     session
         .execute(Command::EventAppend {
             branch: None,
+            space: None,
             event_type: "default".into(),
             payload: event_payload("data", Value::Int(1)),
         })
         .unwrap();
 
     // EventLen counts events in the log
-    let output = session.execute(Command::EventLen { branch: None }).unwrap();
+    let output = session.execute(Command::EventLen { branch: None , space: None }).unwrap();
 
     match output {
         Output::Uint(len) => assert_eq!(len, 1, "Expected exactly 1 event, got {}", len),
@@ -246,6 +251,7 @@ fn rollback_discards_kv_writes() {
     session
         .execute(Command::KvPut {
             branch: None,
+            space: None,
             key: "rollback_test".into(),
             value: Value::Int(100),
         })
@@ -259,6 +265,7 @@ fn rollback_discards_kv_writes() {
     let output = executor
         .execute(Command::KvGet {
             branch: None,
+            space: None,
             key: "rollback_test".into(),
         })
         .unwrap();
@@ -285,6 +292,7 @@ fn rollback_discards_state_writes() {
     session
         .execute(Command::StateInit {
             branch: None,
+            space: None,
             cell: "rollback_cell".into(),
             value: Value::String("uncommitted".into()),
         })
@@ -297,6 +305,7 @@ fn rollback_discards_state_writes() {
     let output = executor
         .execute(Command::StateRead {
             branch: None,
+            space: None,
             cell: "rollback_cell".into(),
         })
         .unwrap();
@@ -326,6 +335,7 @@ fn commit_makes_kv_writes_visible() {
     session
         .execute(Command::KvPut {
             branch: None,
+            space: None,
             key: "commit_test".into(),
             value: Value::Int(999),
         })
@@ -338,6 +348,7 @@ fn commit_makes_kv_writes_visible() {
     let output = executor
         .execute(Command::KvGet {
             branch: None,
+            space: None,
             key: "commit_test".into(),
         })
         .unwrap();
@@ -446,6 +457,7 @@ fn vector_write_blocked_inside_transaction() {
     // Vector write operations are now blocked inside transactions
     let result = session.execute(Command::VectorCreateCollection {
         branch: None,
+        space: None,
         collection: "txn_coll".into(),
         dimension: 4,
         metric: DistanceMetric::Cosine,
@@ -460,7 +472,7 @@ fn vector_write_blocked_inside_transaction() {
 
     // After rollback, collection should not exist (was blocked)
     let output = session
-        .execute(Command::VectorListCollections { branch: None })
+        .execute(Command::VectorListCollections { branch: None , space: None })
         .unwrap();
 
     match output {
@@ -513,6 +525,7 @@ fn multiple_kv_operations_in_transaction() {
         session
             .execute(Command::KvPut {
                 branch: None,
+                space: None,
                 key: format!("key_{}", i),
                 value: Value::Int(i),
             })
@@ -524,6 +537,7 @@ fn multiple_kv_operations_in_transaction() {
         let output = session
             .execute(Command::KvGet {
                 branch: None,
+                space: None,
                 key: format!("key_{}", i),
             })
             .unwrap();
@@ -548,6 +562,7 @@ fn multiple_kv_operations_in_transaction() {
         let output = executor
             .execute(Command::KvGet {
                 branch: None,
+                space: None,
                 key: format!("key_{}", i),
             })
             .unwrap();
@@ -575,6 +590,7 @@ fn cross_primitive_transaction() {
     session
         .execute(Command::KvPut {
             branch: None,
+            space: None,
             key: "kv_key".into(),
             value: Value::Int(1),
         })
@@ -584,6 +600,7 @@ fn cross_primitive_transaction() {
     session
         .execute(Command::StateInit {
             branch: None,
+            space: None,
             cell: "state_cell".into(),
             value: Value::Int(2),
         })
@@ -593,6 +610,7 @@ fn cross_primitive_transaction() {
     session
         .execute(Command::EventAppend {
             branch: None,
+            space: None,
             event_type: "default".into(),
             payload: event_payload("n", Value::Int(3)),
         })
@@ -606,6 +624,7 @@ fn cross_primitive_transaction() {
     let kv_out = executor
         .execute(Command::KvGet {
             branch: None,
+            space: None,
             key: "kv_key".into(),
         })
         .unwrap();
@@ -617,6 +636,7 @@ fn cross_primitive_transaction() {
     let state_out = executor
         .execute(Command::StateRead {
             branch: None,
+            space: None,
             cell: "state_cell".into(),
         })
         .unwrap();
@@ -626,7 +646,7 @@ fn cross_primitive_transaction() {
     ));
 
     let event_out = executor
-        .execute(Command::EventLen { branch: None })
+        .execute(Command::EventLen { branch: None , space: None })
         .unwrap();
     match event_out {
         Output::Uint(len) => assert_eq!(len, 1, "Expected exactly 1 event, got {}", len),
@@ -655,6 +675,7 @@ fn session_drop_cleans_up_transaction() {
         session
             .execute(Command::KvPut {
                 branch: None,
+                space: None,
                 key: "drop_test".into(),
                 value: Value::Int(1),
             })
@@ -668,6 +689,7 @@ fn session_drop_cleans_up_transaction() {
     let output = executor
         .execute(Command::KvGet {
             branch: None,
+            space: None,
             key: "drop_test".into(),
         })
         .unwrap();

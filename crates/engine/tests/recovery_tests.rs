@@ -49,15 +49,15 @@ fn test_kv_survives_recovery() {
 
     // Write KV data
     let kv = KVStore::new(db.clone());
-    kv.put(&branch_id, "key1", Value::String("value1".into()))
+    kv.put(&branch_id, "default", "key1", Value::String("value1".into()))
         .unwrap();
-    kv.put(&branch_id, "key2", Value::Int(42)).unwrap();
-    kv.put(&branch_id, "nested/path/key", Value::Bool(true))
+    kv.put(&branch_id, "default", "key2", Value::Int(42)).unwrap();
+    kv.put(&branch_id, "default", "nested/path/key", Value::Bool(true))
         .unwrap();
 
     // Verify before crash
     assert_eq!(
-        kv.get(&branch_id, "key1").unwrap(),
+        kv.get(&branch_id, "default", "key1").unwrap(),
         Some(Value::String("value1".into()))
     );
 
@@ -71,20 +71,20 @@ fn test_kv_survives_recovery() {
 
     // Data survived
     assert_eq!(
-        kv.get(&branch_id, "key1").unwrap(),
+        kv.get(&branch_id, "default", "key1").unwrap(),
         Some(Value::String("value1".into()))
     );
-    assert_eq!(kv.get(&branch_id, "key2").unwrap(), Some(Value::Int(42)));
+    assert_eq!(kv.get(&branch_id, "default", "key2").unwrap(), Some(Value::Int(42)));
     assert_eq!(
-        kv.get(&branch_id, "nested/path/key").unwrap(),
+        kv.get(&branch_id, "default", "nested/path/key").unwrap(),
         Some(Value::Bool(true))
     );
 
     // Can still write after recovery
-    kv.put(&branch_id, "key3", Value::String("after_recovery".into()))
+    kv.put(&branch_id, "default", "key3", Value::String("after_recovery".into()))
         .unwrap();
     assert_eq!(
-        kv.get(&branch_id, "key3").unwrap(),
+        kv.get(&branch_id, "default", "key3").unwrap(),
         Some(Value::String("after_recovery".into()))
     );
 }
@@ -98,13 +98,13 @@ fn test_kv_list_survives_recovery() {
     let kv = KVStore::new(db.clone());
 
     // Create multiple keys with prefix
-    kv.put(&branch_id, "config/a", Value::Int(1)).unwrap();
-    kv.put(&branch_id, "config/b", Value::Int(2)).unwrap();
-    kv.put(&branch_id, "config/c", Value::Int(3)).unwrap();
-    kv.put(&branch_id, "other/x", Value::Int(99)).unwrap();
+    kv.put(&branch_id, "default", "config/a", Value::Int(1)).unwrap();
+    kv.put(&branch_id, "default", "config/b", Value::Int(2)).unwrap();
+    kv.put(&branch_id, "default", "config/c", Value::Int(3)).unwrap();
+    kv.put(&branch_id, "default", "other/x", Value::Int(99)).unwrap();
 
     // Verify list before crash
-    let config_keys = kv.list(&branch_id, Some("config/")).unwrap();
+    let config_keys = kv.list(&branch_id, "default", Some("config/")).unwrap();
     assert_eq!(config_keys.len(), 3);
 
     // Simulate crash
@@ -116,7 +116,7 @@ fn test_kv_list_survives_recovery() {
     let kv = KVStore::new(db.clone());
 
     // List still works
-    let config_keys = kv.list(&branch_id, Some("config/")).unwrap();
+    let config_keys = kv.list(&branch_id, "default", Some("config/")).unwrap();
     assert_eq!(config_keys.len(), 3);
     assert!(config_keys.contains(&"config/a".to_string()));
     assert!(config_keys.contains(&"config/b".to_string()));
@@ -135,26 +135,26 @@ fn test_event_log_chain_survives_recovery() {
 
     // Append multiple events (sequences are 0-based)
     event_log
-        .append(&branch_id, "event1", string_payload("payload1"))
+        .append(&branch_id, "default", "event1", string_payload("payload1"))
         .unwrap();
     event_log
-        .append(&branch_id, "event2", string_payload("payload2"))
+        .append(&branch_id, "default", "event2", string_payload("payload2"))
         .unwrap();
     event_log
-        .append(&branch_id, "event3", string_payload("payload3"))
+        .append(&branch_id, "default", "event3", string_payload("payload3"))
         .unwrap();
 
     // Read to get hashes before crash
-    let pre_event0 = event_log.read(&branch_id, 0).unwrap().unwrap();
-    let pre_event1 = event_log.read(&branch_id, 1).unwrap().unwrap();
-    let pre_event2 = event_log.read(&branch_id, 2).unwrap().unwrap();
+    let pre_event0 = event_log.read(&branch_id, "default", 0).unwrap().unwrap();
+    let pre_event1 = event_log.read(&branch_id, "default", 1).unwrap().unwrap();
+    let pre_event2 = event_log.read(&branch_id, "default", 2).unwrap().unwrap();
 
     let hash0 = pre_event0.value.hash;
     let hash1 = pre_event1.value.hash;
     let hash2 = pre_event2.value.hash;
 
     // Verify event count before crash (verify_chain removed in MVP)
-    assert_eq!(event_log.len(&branch_id).unwrap(), 3);
+    assert_eq!(event_log.len(&branch_id, "default").unwrap(), 3);
 
     // Simulate crash
     drop(event_log);
@@ -165,30 +165,30 @@ fn test_event_log_chain_survives_recovery() {
     let event_log = EventLog::new(db.clone());
 
     // Data is intact (verify_chain removed in MVP)
-    assert_eq!(event_log.len(&branch_id).unwrap(), 3);
+    assert_eq!(event_log.len(&branch_id, "default").unwrap(), 3);
 
     // Events readable with correct hashes
-    let event0 = event_log.read(&branch_id, 0).unwrap().unwrap();
+    let event0 = event_log.read(&branch_id, "default", 0).unwrap().unwrap();
     assert_eq!(event0.value.event_type, "event1");
     assert_eq!(event0.value.payload, string_payload("payload1"));
     assert_eq!(event0.value.hash, hash0);
 
-    let event2 = event_log.read(&branch_id, 2).unwrap().unwrap();
+    let event2 = event_log.read(&branch_id, "default", 2).unwrap().unwrap();
     assert_eq!(event2.value.hash, hash2);
 
     // Hash chaining preserved - event1 prev_hash points to event0's hash
-    let event1 = event_log.read(&branch_id, 1).unwrap().unwrap();
+    let event1 = event_log.read(&branch_id, "default", 1).unwrap().unwrap();
     assert_eq!(event1.value.prev_hash, hash0);
     assert_eq!(event1.value.hash, hash1);
 
     // Sequence continues correctly (not restarted)
     let v3 = event_log
-        .append(&branch_id, "event4", string_payload("payload4"))
+        .append(&branch_id, "default", "event4", string_payload("payload4"))
         .unwrap();
     assert!(matches!(v3, Version::Sequence(3))); // Not 0 (would be restart)
 
     // Data still valid after new append (verify_chain removed in MVP)
-    assert_eq!(event_log.len(&branch_id).unwrap(), 4);
+    assert_eq!(event_log.len(&branch_id, "default").unwrap(), 4);
 }
 
 /// Test EventLog multiple events survive recovery
@@ -202,7 +202,7 @@ fn test_event_log_multiple_events_survives_recovery() {
     // Append 5 events
     for i in 0..5 {
         event_log
-            .append(&branch_id, "numbered", int_payload(i))
+            .append(&branch_id, "default", "numbered", int_payload(i))
             .unwrap();
     }
 
@@ -215,10 +215,10 @@ fn test_event_log_multiple_events_survives_recovery() {
     let event_log = EventLog::new(db.clone());
 
     // Individual reads work (read_range removed in MVP)
-    assert_eq!(event_log.len(&branch_id).unwrap(), 5);
+    assert_eq!(event_log.len(&branch_id, "default").unwrap(), 5);
     assert_eq!(
         event_log
-            .read(&branch_id, 1)
+            .read(&branch_id, "default", 1)
             .unwrap()
             .unwrap()
             .value
@@ -227,7 +227,7 @@ fn test_event_log_multiple_events_survives_recovery() {
     );
     assert_eq!(
         event_log
-            .read(&branch_id, 2)
+            .read(&branch_id, "default", 2)
             .unwrap()
             .unwrap()
             .value
@@ -236,7 +236,7 @@ fn test_event_log_multiple_events_survives_recovery() {
     );
     assert_eq!(
         event_log
-            .read(&branch_id, 3)
+            .read(&branch_id, "default", 3)
             .unwrap()
             .unwrap()
             .value
@@ -255,22 +255,22 @@ fn test_state_cell_version_survives_recovery() {
 
     // Init creates version 1
     state_cell
-        .init(&branch_id, "counter", Value::Int(0))
+        .init(&branch_id, "default", "counter", Value::Int(0))
         .unwrap();
 
     // CAS increments version
     state_cell
-        .cas(&branch_id, "counter", Version::counter(1), Value::Int(10))
+        .cas(&branch_id, "default", "counter", Version::counter(1), Value::Int(10))
         .unwrap(); // -> v2
     state_cell
-        .cas(&branch_id, "counter", Version::counter(2), Value::Int(20))
+        .cas(&branch_id, "default", "counter", Version::counter(2), Value::Int(20))
         .unwrap(); // -> v3
     state_cell
-        .cas(&branch_id, "counter", Version::counter(3), Value::Int(30))
+        .cas(&branch_id, "default", "counter", Version::counter(3), Value::Int(30))
         .unwrap(); // -> v4
 
     // Verify before crash
-    let state = state_cell.read(&branch_id, "counter").unwrap().unwrap();
+    let state = state_cell.read(&branch_id, "default", "counter").unwrap().unwrap();
     assert_eq!(state, Value::Int(30));
 
     // Simulate crash
@@ -282,17 +282,17 @@ fn test_state_cell_version_survives_recovery() {
     let state_cell = StateCell::new(db.clone());
 
     // Value is correct
-    let state = state_cell.read(&branch_id, "counter").unwrap().unwrap();
+    let state = state_cell.read(&branch_id, "default", "counter").unwrap().unwrap();
     assert_eq!(state, Value::Int(30));
 
     // CAS works with correct version
     let new_versioned = state_cell
-        .cas(&branch_id, "counter", Version::counter(4), Value::Int(40))
+        .cas(&branch_id, "default", "counter", Version::counter(4), Value::Int(40))
         .unwrap();
     assert_eq!(new_versioned.value, Version::counter(5));
 
     // CAS with old version fails
-    let result = state_cell.cas(&branch_id, "counter", Version::counter(4), Value::Int(999));
+    let result = state_cell.cas(&branch_id, "default", "counter", Version::counter(4), Value::Int(999));
     assert!(result.is_err());
 }
 
@@ -306,10 +306,10 @@ fn test_state_cell_set_survives_recovery() {
 
     // Init and set
     state_cell
-        .init(&branch_id, "status", Value::String("initial".into()))
+        .init(&branch_id, "default", "status", Value::String("initial".into()))
         .unwrap();
     state_cell
-        .set(&branch_id, "status", Value::String("updated".into()))
+        .set(&branch_id, "default", "status", Value::String("updated".into()))
         .unwrap();
 
     // Simulate crash
@@ -321,7 +321,7 @@ fn test_state_cell_set_survives_recovery() {
     let state_cell = StateCell::new(db.clone());
 
     // Value preserved
-    let state = state_cell.read(&branch_id, "status").unwrap().unwrap();
+    let state = state_cell.read(&branch_id, "default", "status").unwrap().unwrap();
     assert_eq!(state, Value::String("updated".into()));
 }
 
@@ -406,8 +406,8 @@ fn test_branch_delete_survives_recovery() {
     let branch2 = BranchId::from_string(&meta2.value.branch_id).unwrap();
 
     // Write data to both
-    kv.put(&branch1, "key", Value::Int(1)).unwrap();
-    kv.put(&branch2, "key", Value::Int(2)).unwrap();
+    kv.put(&branch1, "default", "key", Value::Int(1)).unwrap();
+    kv.put(&branch2, "default", "key", Value::Int(2)).unwrap();
 
     // Delete branch1
     branch_index.delete_branch("branch1").unwrap();
@@ -424,11 +424,11 @@ fn test_branch_delete_survives_recovery() {
 
     // branch1 is still deleted
     assert!(branch_index.get_branch("branch1").unwrap().is_none());
-    assert!(kv.get(&branch1, "key").unwrap().is_none());
+    assert!(kv.get(&branch1, "default", "key").unwrap().is_none());
 
     // branch2 data preserved
     assert!(branch_index.get_branch("branch2").unwrap().is_some());
-    assert_eq!(kv.get(&branch2, "key").unwrap(), Some(Value::Int(2)));
+    assert_eq!(kv.get(&branch2, "default", "key").unwrap(), Some(Value::Int(2)));
 }
 
 /// Test cross-primitive transaction survives recovery
@@ -442,7 +442,7 @@ fn test_cross_primitive_transaction_survives_recovery() {
     // Initialize state cell
     let state_cell = StateCell::new(db.clone());
     state_cell
-        .init(&branch_id, "txn_state", Value::Int(0))
+        .init(&branch_id, "default", "txn_state", Value::Int(0))
         .unwrap();
 
     // Perform atomic transaction
@@ -466,11 +466,11 @@ fn test_cross_primitive_transaction_survives_recovery() {
 
     // All operations survived
     assert_eq!(
-        kv.get(&branch_id, "txn_key").unwrap(),
+        kv.get(&branch_id, "default", "txn_key").unwrap(),
         Some(Value::String("txn_value".into()))
     );
-    assert_eq!(event_log.len(&branch_id).unwrap(), 1);
-    let state = state_cell.read(&branch_id, "txn_state").unwrap().unwrap();
+    assert_eq!(event_log.len(&branch_id, "default").unwrap(), 1);
+    let state = state_cell.read(&branch_id, "default", "txn_state").unwrap().unwrap();
     assert_eq!(state, Value::Int(42));
 }
 
@@ -485,7 +485,7 @@ fn test_multiple_recovery_cycles() {
     {
         let db = Database::open(&path).unwrap();
         let kv = KVStore::new(db.clone());
-        kv.put(&branch_id, "cycle1", Value::Int(1)).unwrap();
+        kv.put(&branch_id, "default", "cycle1", Value::Int(1)).unwrap();
     }
 
     // Cycle 2: Add more data
@@ -494,10 +494,10 @@ fn test_multiple_recovery_cycles() {
         let kv = KVStore::new(db.clone());
 
         // Verify cycle 1 data
-        assert_eq!(kv.get(&branch_id, "cycle1").unwrap(), Some(Value::Int(1)));
+        assert_eq!(kv.get(&branch_id, "default", "cycle1").unwrap(), Some(Value::Int(1)));
 
         // Add cycle 2 data
-        kv.put(&branch_id, "cycle2", Value::Int(2)).unwrap();
+        kv.put(&branch_id, "default", "cycle2", Value::Int(2)).unwrap();
     }
 
     // Cycle 3: Add more data
@@ -506,11 +506,11 @@ fn test_multiple_recovery_cycles() {
         let kv = KVStore::new(db.clone());
 
         // Verify all previous data
-        assert_eq!(kv.get(&branch_id, "cycle1").unwrap(), Some(Value::Int(1)));
-        assert_eq!(kv.get(&branch_id, "cycle2").unwrap(), Some(Value::Int(2)));
+        assert_eq!(kv.get(&branch_id, "default", "cycle1").unwrap(), Some(Value::Int(1)));
+        assert_eq!(kv.get(&branch_id, "default", "cycle2").unwrap(), Some(Value::Int(2)));
 
         // Add cycle 3 data
-        kv.put(&branch_id, "cycle3", Value::Int(3)).unwrap();
+        kv.put(&branch_id, "default", "cycle3", Value::Int(3)).unwrap();
     }
 
     // Final verification
@@ -518,9 +518,9 @@ fn test_multiple_recovery_cycles() {
         let db = Database::open(&path).unwrap();
         let kv = KVStore::new(db.clone());
 
-        assert_eq!(kv.get(&branch_id, "cycle1").unwrap(), Some(Value::Int(1)));
-        assert_eq!(kv.get(&branch_id, "cycle2").unwrap(), Some(Value::Int(2)));
-        assert_eq!(kv.get(&branch_id, "cycle3").unwrap(), Some(Value::Int(3)));
+        assert_eq!(kv.get(&branch_id, "default", "cycle1").unwrap(), Some(Value::Int(1)));
+        assert_eq!(kv.get(&branch_id, "default", "cycle2").unwrap(), Some(Value::Int(2)));
+        assert_eq!(kv.get(&branch_id, "default", "cycle3").unwrap(), Some(Value::Int(3)));
     }
 }
 
@@ -544,19 +544,20 @@ fn test_all_primitives_recover_together() {
         branch_id = BranchId::from_string(&branch_meta.value.branch_id).unwrap();
 
         // Populate all primitives
-        kv.put(&branch_id, "full_key", Value::String("full_value".into()))
+        kv.put(&branch_id, "default", "full_key", Value::String("full_value".into()))
             .unwrap();
 
         event_log
-            .append(&branch_id, "full_event", int_payload(999))
+            .append(&branch_id, "default", "full_event", int_payload(999))
             .unwrap();
 
         state_cell
-            .init(&branch_id, "full_state", Value::Int(0))
+            .init(&branch_id, "default", "full_state", Value::Int(0))
             .unwrap();
         state_cell
             .cas(
                 &branch_id,
+                "default",
                 "full_state",
                 Version::counter(1),
                 Value::Int(100),
@@ -578,17 +579,17 @@ fn test_all_primitives_recover_together() {
 
         // KV
         assert_eq!(
-            kv.get(&branch_id, "full_key").unwrap(),
+            kv.get(&branch_id, "default", "full_key").unwrap(),
             Some(Value::String("full_value".into()))
         );
 
         // EventLog
-        assert_eq!(event_log.len(&branch_id).unwrap(), 1);
-        let event = event_log.read(&branch_id, 0).unwrap().unwrap();
+        assert_eq!(event_log.len(&branch_id, "default").unwrap(), 1);
+        let event = event_log.read(&branch_id, "default", 0).unwrap().unwrap();
         assert_eq!(event.value.payload, int_payload(999));
 
         // StateCell
-        let state = state_cell.read(&branch_id, "full_state").unwrap().unwrap();
+        let state = state_cell.read(&branch_id, "default", "full_state").unwrap().unwrap();
         assert_eq!(state, Value::Int(100));
     }
 }

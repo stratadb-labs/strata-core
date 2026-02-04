@@ -29,7 +29,7 @@ fn empty_log_has_zero_length() {
     let test_db = TestDb::new();
     let event = test_db.event();
 
-    let len = event.len(&test_db.branch_id).unwrap();
+    let len = event.len(&test_db.branch_id, "default").unwrap();
     assert_eq!(len, 0);
 }
 
@@ -39,7 +39,7 @@ fn empty_log_is_empty() {
     let event = test_db.event();
 
     // is_empty rewritten as len() == 0
-    assert_eq!(event.len(&test_db.branch_id).unwrap(), 0);
+    assert_eq!(event.len(&test_db.branch_id, "default").unwrap(), 0);
 }
 
 #[test]
@@ -48,12 +48,12 @@ fn empty_log_head_is_none() {
     let event = test_db.event();
 
     // head rewritten using len() + read(len-1)
-    let len = event.len(&test_db.branch_id).unwrap();
+    let len = event.len(&test_db.branch_id, "default").unwrap();
     if len == 0 {
         // empty log, head is none
         assert_eq!(len, 0);
     } else {
-        let head = event.read(&test_db.branch_id, len - 1).unwrap();
+        let head = event.read(&test_db.branch_id, "default", len - 1).unwrap();
         assert!(head.is_some());
     }
 }
@@ -64,7 +64,7 @@ fn append_returns_sequence_number() {
     let event = test_db.event();
 
     let seq = event
-        .append(&test_db.branch_id, "test_type", payload_int(42))
+        .append(&test_db.branch_id, "default", "test_type", payload_int(42))
         .unwrap();
     assert_eq!(seq.as_u64(), 0); // First event is sequence 0
 }
@@ -75,19 +75,19 @@ fn append_increments_length() {
     let event = test_db.event();
 
     event
-        .append(&test_db.branch_id, "type", payload_int(1))
+        .append(&test_db.branch_id, "default", "type", payload_int(1))
         .unwrap();
-    assert_eq!(event.len(&test_db.branch_id).unwrap(), 1);
+    assert_eq!(event.len(&test_db.branch_id, "default").unwrap(), 1);
 
     event
-        .append(&test_db.branch_id, "type", payload_int(2))
+        .append(&test_db.branch_id, "default", "type", payload_int(2))
         .unwrap();
-    assert_eq!(event.len(&test_db.branch_id).unwrap(), 2);
+    assert_eq!(event.len(&test_db.branch_id, "default").unwrap(), 2);
 
     event
-        .append(&test_db.branch_id, "type", payload_int(3))
+        .append(&test_db.branch_id, "default", "type", payload_int(3))
         .unwrap();
-    assert_eq!(event.len(&test_db.branch_id).unwrap(), 3);
+    assert_eq!(event.len(&test_db.branch_id, "default").unwrap(), 3);
 }
 
 #[test]
@@ -96,13 +96,13 @@ fn append_sequence_monotonically_increases() {
     let event = test_db.event();
 
     let seq0 = event
-        .append(&test_db.branch_id, "type", payload_int(1))
+        .append(&test_db.branch_id, "default", "type", payload_int(1))
         .unwrap();
     let seq1 = event
-        .append(&test_db.branch_id, "type", payload_int(2))
+        .append(&test_db.branch_id, "default", "type", payload_int(2))
         .unwrap();
     let seq2 = event
-        .append(&test_db.branch_id, "type", payload_int(3))
+        .append(&test_db.branch_id, "default", "type", payload_int(3))
         .unwrap();
 
     assert_eq!(seq0.as_u64(), 0);
@@ -120,10 +120,10 @@ fn read_returns_appended_event() {
     let event = test_db.event();
 
     event
-        .append(&test_db.branch_id, "my_type", payload_str("hello"))
+        .append(&test_db.branch_id, "default", "my_type", payload_str("hello"))
         .unwrap();
 
-    let read = event.read(&test_db.branch_id, 0).unwrap();
+    let read = event.read(&test_db.branch_id, "default", 0).unwrap();
     assert!(read.is_some());
 
     let e = read.unwrap().value;
@@ -136,7 +136,7 @@ fn read_nonexistent_returns_none() {
     let test_db = TestDb::new();
     let event = test_db.event();
 
-    let read = event.read(&test_db.branch_id, 999).unwrap();
+    let read = event.read(&test_db.branch_id, "default", 999).unwrap();
     assert!(read.is_none());
 }
 
@@ -146,18 +146,18 @@ fn head_returns_last_event() {
     let event = test_db.event();
 
     event
-        .append(&test_db.branch_id, "type", payload_int(1))
+        .append(&test_db.branch_id, "default", "type", payload_int(1))
         .unwrap();
     event
-        .append(&test_db.branch_id, "type", payload_int(2))
+        .append(&test_db.branch_id, "default", "type", payload_int(2))
         .unwrap();
     event
-        .append(&test_db.branch_id, "type", payload_int(3))
+        .append(&test_db.branch_id, "default", "type", payload_int(3))
         .unwrap();
 
     // head rewritten using len() + read(len-1)
-    let len = event.len(&test_db.branch_id).unwrap();
-    let head = event.read(&test_db.branch_id, len - 1).unwrap().unwrap();
+    let len = event.len(&test_db.branch_id, "default").unwrap();
+    let head = event.read(&test_db.branch_id, "default", len - 1).unwrap().unwrap();
     assert_eq!(head.value.payload, payload_int(3));
 }
 
@@ -168,14 +168,14 @@ fn read_range_returns_events_in_order() {
 
     for i in 0..5 {
         event
-            .append(&test_db.branch_id, "type", payload_int(i))
+            .append(&test_db.branch_id, "default", "type", payload_int(i))
             .unwrap();
     }
 
     // read_range rewritten using loop of read() calls
     let mut range = Vec::new();
     for seq in 1..4 {
-        if let Some(e) = event.read(&test_db.branch_id, seq).unwrap() {
+        if let Some(e) = event.read(&test_db.branch_id, "default", seq).unwrap() {
             range.push(e);
         }
     }
@@ -192,13 +192,13 @@ fn read_range_empty_when_start_equals_end() {
     let event = test_db.event();
 
     event
-        .append(&test_db.branch_id, "type", payload_int(1))
+        .append(&test_db.branch_id, "default", "type", payload_int(1))
         .unwrap();
 
     // read_range(0, 0) means empty range; rewritten using loop with 0..0
     let mut range = Vec::new();
     for seq in 0u64..0u64 {
-        if let Some(e) = event.read(&test_db.branch_id, seq).unwrap() {
+        if let Some(e) = event.read(&test_db.branch_id, "default", seq).unwrap() {
             range.push(e);
         }
     }
@@ -233,10 +233,10 @@ fn events_have_hash_field() {
     let event = test_db.event();
 
     event
-        .append(&test_db.branch_id, "type", payload_int(1))
+        .append(&test_db.branch_id, "default", "type", payload_int(1))
         .unwrap();
 
-    let e = event.read(&test_db.branch_id, 0).unwrap().unwrap();
+    let e = event.read(&test_db.branch_id, "default", 0).unwrap().unwrap();
     // Hash should be non-empty
     assert!(!e.value.hash.is_empty());
 }
@@ -247,14 +247,14 @@ fn events_have_prev_hash_field() {
     let event = test_db.event();
 
     event
-        .append(&test_db.branch_id, "type", payload_int(1))
+        .append(&test_db.branch_id, "default", "type", payload_int(1))
         .unwrap();
     event
-        .append(&test_db.branch_id, "type", payload_int(2))
+        .append(&test_db.branch_id, "default", "type", payload_int(2))
         .unwrap();
 
-    let e0 = event.read(&test_db.branch_id, 0).unwrap().unwrap();
-    let e1 = event.read(&test_db.branch_id, 1).unwrap().unwrap();
+    let e0 = event.read(&test_db.branch_id, "default", 0).unwrap().unwrap();
+    let e1 = event.read(&test_db.branch_id, "default", 1).unwrap().unwrap();
 
     // Second event's prev_hash should equal first event's hash
     assert_eq!(e1.value.prev_hash, e0.value.hash);
@@ -270,18 +270,18 @@ fn multiple_event_types() {
     let event = test_db.event();
 
     event
-        .append(&test_db.branch_id, "type_a", payload_int(1))
+        .append(&test_db.branch_id, "default", "type_a", payload_int(1))
         .unwrap();
     event
-        .append(&test_db.branch_id, "type_b", payload_int(2))
+        .append(&test_db.branch_id, "default", "type_b", payload_int(2))
         .unwrap();
     event
-        .append(&test_db.branch_id, "type_a", payload_int(3))
+        .append(&test_db.branch_id, "default", "type_a", payload_int(3))
         .unwrap();
 
     // Verify both types exist by reading by type
-    let type_a = event.read_by_type(&test_db.branch_id, "type_a").unwrap();
-    let type_b = event.read_by_type(&test_db.branch_id, "type_b").unwrap();
+    let type_a = event.read_by_type(&test_db.branch_id, "default", "type_a").unwrap();
+    let type_b = event.read_by_type(&test_db.branch_id, "default", "type_b").unwrap();
     assert_eq!(type_a.len(), 2);
     assert_eq!(type_b.len(), 1);
 }
@@ -292,36 +292,36 @@ fn len_by_type() {
     let event = test_db.event();
 
     event
-        .append(&test_db.branch_id, "type_a", payload_int(1))
+        .append(&test_db.branch_id, "default", "type_a", payload_int(1))
         .unwrap();
     event
-        .append(&test_db.branch_id, "type_b", payload_int(2))
+        .append(&test_db.branch_id, "default", "type_b", payload_int(2))
         .unwrap();
     event
-        .append(&test_db.branch_id, "type_a", payload_int(3))
+        .append(&test_db.branch_id, "default", "type_a", payload_int(3))
         .unwrap();
     event
-        .append(&test_db.branch_id, "type_a", payload_int(4))
+        .append(&test_db.branch_id, "default", "type_a", payload_int(4))
         .unwrap();
 
     // len_by_type rewritten using read_by_type().len()
     assert_eq!(
         event
-            .read_by_type(&test_db.branch_id, "type_a")
+            .read_by_type(&test_db.branch_id, "default", "type_a")
             .unwrap()
             .len(),
         3
     );
     assert_eq!(
         event
-            .read_by_type(&test_db.branch_id, "type_b")
+            .read_by_type(&test_db.branch_id, "default", "type_b")
             .unwrap()
             .len(),
         1
     );
     assert_eq!(
         event
-            .read_by_type(&test_db.branch_id, "type_c")
+            .read_by_type(&test_db.branch_id, "default", "type_c")
             .unwrap()
             .len(),
         0
@@ -334,16 +334,16 @@ fn read_by_type() {
     let event = test_db.event();
 
     event
-        .append(&test_db.branch_id, "orders", payload_int(100))
+        .append(&test_db.branch_id, "default", "orders", payload_int(100))
         .unwrap();
     event
-        .append(&test_db.branch_id, "payments", payload_int(50))
+        .append(&test_db.branch_id, "default", "payments", payload_int(50))
         .unwrap();
     event
-        .append(&test_db.branch_id, "orders", payload_int(200))
+        .append(&test_db.branch_id, "default", "orders", payload_int(200))
         .unwrap();
 
-    let orders = event.read_by_type(&test_db.branch_id, "orders").unwrap();
+    let orders = event.read_by_type(&test_db.branch_id, "default", "orders").unwrap();
     assert_eq!(orders.len(), 2);
     assert_eq!(orders[0].value.payload, payload_int(100));
     assert_eq!(orders[1].value.payload, payload_int(200));
@@ -372,7 +372,7 @@ fn empty_event_type_rejected() {
     let event = test_db.event();
 
     // Empty event type should be rejected
-    let result = event.append(&test_db.branch_id, "", payload_int(1));
+    let result = event.append(&test_db.branch_id, "default", "", payload_int(1));
     assert!(result.is_err());
 }
 
@@ -383,10 +383,10 @@ fn large_payload() {
 
     let large_string = "x".repeat(10000);
     event
-        .append(&test_db.branch_id, "type", payload_str(&large_string))
+        .append(&test_db.branch_id, "default", "type", payload_str(&large_string))
         .unwrap();
 
-    let read = event.read(&test_db.branch_id, 0).unwrap().unwrap();
+    let read = event.read(&test_db.branch_id, "default", 0).unwrap().unwrap();
     assert_eq!(read.value.payload, payload_str(&large_string));
 }
 
@@ -396,16 +396,16 @@ fn payload_must_be_object() {
     let event = test_db.event();
 
     // Non-object payloads should be rejected
-    let result = event.append(&test_db.branch_id, "type", Value::Int(42));
+    let result = event.append(&test_db.branch_id, "default", "type", Value::Int(42));
     assert!(result.is_err());
 
-    let result = event.append(&test_db.branch_id, "type", Value::String("hello".into()));
+    let result = event.append(&test_db.branch_id, "default", "type", Value::String("hello".into()));
     assert!(result.is_err());
 
-    let result = event.append(&test_db.branch_id, "type", Value::Array(vec![]));
+    let result = event.append(&test_db.branch_id, "default", "type", Value::Array(vec![]));
     assert!(result.is_err());
 
     // Object payload should work
-    let result = event.append(&test_db.branch_id, "type", payload_int(42));
+    let result = event.append(&test_db.branch_id, "default", "type", payload_int(42));
     assert!(result.is_ok());
 }

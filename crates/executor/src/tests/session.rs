@@ -164,6 +164,7 @@ fn test_ryw_kv_put_get_inside_txn() {
     session
         .execute(Command::KvPut {
             branch: None,
+            space: None,
             key: "ryw_key".to_string(),
             value: Value::String("written_in_txn".into()),
         })
@@ -173,6 +174,7 @@ fn test_ryw_kv_put_get_inside_txn() {
     let result = session
         .execute(Command::KvGet {
             branch: None,
+            space: None,
             key: "ryw_key".to_string(),
         })
         .unwrap();
@@ -209,6 +211,7 @@ fn test_ryw_kv_get_inside_txn() {
     session
         .execute(Command::KvPut {
             branch: None,
+            space: None,
             key: "exists_key".to_string(),
             value: Value::Int(42),
         })
@@ -217,6 +220,7 @@ fn test_ryw_kv_get_inside_txn() {
     let result = session
         .execute(Command::KvGet {
             branch: None,
+            space: None,
             key: "exists_key".to_string(),
         })
         .unwrap();
@@ -257,6 +261,7 @@ fn test_drop_with_active_txn_does_not_panic() {
     session
         .execute(Command::KvPut {
             branch: None,
+            space: None,
             key: "abandoned".to_string(),
             value: Value::Bool(true),
         })
@@ -309,6 +314,7 @@ fn test_data_commands_without_txn_delegate() {
     // KvPut without txn delegates to executor
     let result = session.execute(Command::KvPut {
         branch: None,
+        space: None,
         key: "no_txn_key".to_string(),
         value: Value::Int(99),
     });
@@ -318,6 +324,7 @@ fn test_data_commands_without_txn_delegate() {
     let result = session
         .execute(Command::KvGet {
             branch: None,
+            space: None,
             key: "no_txn_key".to_string(),
         })
         .unwrap();
@@ -367,6 +374,7 @@ fn test_multiple_txn_cycles() {
         session
             .execute(Command::KvPut {
                 branch: None,
+                space: None,
                 key: format!("cycle_{}", i),
                 value: Value::Int(i as i64),
             })
@@ -395,6 +403,7 @@ fn test_event_append_in_txn() {
 
     let result = session.execute(Command::EventAppend {
         branch: None,
+        space: None,
         event_type: "test_stream".to_string(),
         payload: Value::Object(std::collections::HashMap::from([(
             "data".to_string(),
@@ -423,6 +432,7 @@ fn test_state_init_in_txn() {
 
     let result = session.execute(Command::StateInit {
         branch: None,
+        space: None,
         cell: "counter".to_string(),
         value: Value::Int(0),
     });

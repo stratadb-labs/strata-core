@@ -172,6 +172,7 @@ mod tests {
             "app".to_string(),
             "agent".to_string(),
             BranchId::new(),
+            "default".to_string(),
         )
     }
 

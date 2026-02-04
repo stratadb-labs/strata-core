@@ -19,6 +19,7 @@ pub mod event;
 pub mod json;
 pub mod kv;
 pub mod search;
+pub mod space;
 pub mod state;
 pub mod vector;
 

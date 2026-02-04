@@ -50,7 +50,7 @@ fn recover_from_db(db: &Database) -> StrataResult<()> {
 
     // Iterate all branch_ids in storage
     for branch_id in db.storage().branch_ids() {
-        let ns = Namespace::for_branch(branch_id);
+        let ns = Namespace::for_branch_space(branch_id, "default");
 
         // Scan for vector config entries in this run
         let config_prefix = Key::new_vector_config_prefix(ns.clone());

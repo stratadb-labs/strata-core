@@ -36,8 +36,8 @@ fn cache_basic_operations() {
     let kv = KVStore::new(db);
 
     // Basic write/read cycle
-    kv.put(&branch_id, "key", Value::Int(42)).unwrap();
-    let value = kv.get(&branch_id, "key").unwrap().unwrap();
+    kv.put(&branch_id, "default", "key", Value::Int(42)).unwrap();
+    let value = kv.get(&branch_id, "default", "key").unwrap().unwrap();
     assert_eq!(value, Value::Int(42));
 }
 
@@ -53,22 +53,22 @@ fn cache_all_primitives() {
     let vector = VectorStore::new(db.clone());
 
     // KV
-    kv.put(&branch_id, "k", Value::Int(1)).unwrap();
-    assert_eq!(kv.get(&branch_id, "k").unwrap(), Some(Value::Int(1)));
+    kv.put(&branch_id, "default", "k", Value::Int(1)).unwrap();
+    assert_eq!(kv.get(&branch_id, "default", "k").unwrap(), Some(Value::Int(1)));
 
     // State
-    state.init(&branch_id, "s", Value::Int(2)).unwrap();
-    assert_eq!(state.read(&branch_id, "s").unwrap().unwrap(), Value::Int(2));
+    state.init(&branch_id, "default", "s", Value::Int(2)).unwrap();
+    assert_eq!(state.read(&branch_id, "default", "s").unwrap().unwrap(), Value::Int(2));
 
     // Event
-    event.append(&branch_id, "stream", int_payload(3)).unwrap();
-    assert!(event.len(&branch_id).unwrap() > 0);
+    event.append(&branch_id, "default", "stream", int_payload(3)).unwrap();
+    assert!(event.len(&branch_id, "default").unwrap() > 0);
 
     // JSON
-    json.create(&branch_id, "doc", json_value(serde_json::json!({"x": 4})))
+    json.create(&branch_id, "default", "doc", json_value(serde_json::json!({"x": 4})))
         .unwrap();
     assert_eq!(
-        json.get(&branch_id, "doc", &root())
+        json.get(&branch_id, "default", "doc", &root())
             .unwrap()
             .unwrap()
             .as_inner(),
@@ -77,14 +77,14 @@ fn cache_all_primitives() {
 
     // Vector
     vector
-        .create_collection(branch_id, "coll", config_small())
+        .create_collection(branch_id, "default", "coll", config_small())
         .unwrap();
     vector
-        .insert(branch_id, "coll", "v", &[1.0, 0.0, 0.0], None)
+        .insert(branch_id, "default", "coll", "v", &[1.0, 0.0, 0.0], None)
         .unwrap();
     assert_eq!(
         vector
-            .get(branch_id, "coll", "v")
+            .get(branch_id, "default", "coll", "v")
             .unwrap()
             .unwrap()
             .value
@@ -101,14 +101,14 @@ fn cache_data_is_lost_on_drop() {
     {
         let db = create_cache();
         let kv = KVStore::new(db);
-        kv.put(&branch_id, "cache_key", Value::Int(42)).unwrap();
+        kv.put(&branch_id, "default", "cache_key", Value::Int(42)).unwrap();
     }
 
     // New cache database should have no data
     let db = create_cache();
     let kv = KVStore::new(db);
     // Note: Different cache instance, so this key won't exist
-    assert!(kv.get(&branch_id, "cache_key").unwrap().is_none());
+    assert!(kv.get(&branch_id, "default", "cache_key").unwrap().is_none());
 }
 
 // ============================================================================
@@ -122,8 +122,8 @@ fn persistent_standard_basic() {
     let branch_id = BranchId::new();
     let kv = KVStore::new(db);
 
-    kv.put(&branch_id, "key", Value::Int(42)).unwrap();
-    let value = kv.get(&branch_id, "key").unwrap().unwrap();
+    kv.put(&branch_id, "default", "key", Value::Int(42)).unwrap();
+    let value = kv.get(&branch_id, "default", "key").unwrap().unwrap();
     assert_eq!(value, Value::Int(42));
 }
 
@@ -134,8 +134,8 @@ fn persistent_always_basic() {
     let branch_id = BranchId::new();
     let kv = KVStore::new(db);
 
-    kv.put(&branch_id, "key", Value::Int(42)).unwrap();
-    let value = kv.get(&branch_id, "key").unwrap().unwrap();
+    kv.put(&branch_id, "default", "key", Value::Int(42)).unwrap();
+    let value = kv.get(&branch_id, "default", "key").unwrap().unwrap();
     assert_eq!(value, Value::Int(42));
 }
 
@@ -153,7 +153,7 @@ fn always_mode_survives_reopen() {
         let db = create_persistent_always(&dir);
         let kv = KVStore::new(db);
         for i in 0..100 {
-            kv.put(&branch_id, &format!("key_{}", i), Value::Int(i))
+            kv.put(&branch_id, "default", &format!("key_{}", i), Value::Int(i))
                 .unwrap();
         }
     }
@@ -163,7 +163,7 @@ fn always_mode_survives_reopen() {
         let db = create_persistent_always(&dir);
         let kv = KVStore::new(db);
         for i in 0..100 {
-            let val = kv.get(&branch_id, &format!("key_{}", i)).unwrap();
+            let val = kv.get(&branch_id, "default", &format!("key_{}", i)).unwrap();
             assert!(val.is_some(), "Key {} should survive reopen", i);
             assert_eq!(val.unwrap(), Value::Int(i));
         }
@@ -180,27 +180,27 @@ fn always_mode_all_primitives_survive_reopen() {
         let db = create_persistent_always(&dir);
 
         let kv = KVStore::new(db.clone());
-        kv.put(&branch_id, "kv_key", Value::String("kv_val".into()))
+        kv.put(&branch_id, "default", "kv_key", Value::String("kv_val".into()))
             .unwrap();
 
         let state = StateCell::new(db.clone());
         state
-            .init(&branch_id, "state_cell", Value::Int(42))
+            .init(&branch_id, "default", "state_cell", Value::Int(42))
             .unwrap();
 
         let event = EventLog::new(db.clone());
-        event.append(&branch_id, "audit", int_payload(123)).unwrap();
+        event.append(&branch_id, "default", "audit", int_payload(123)).unwrap();
 
         let json = JsonStore::new(db.clone());
-        json.create(&branch_id, "doc", json_value(serde_json::json!({"k": "v"})))
+        json.create(&branch_id, "default", "doc", json_value(serde_json::json!({"k": "v"})))
             .unwrap();
 
         let vector = VectorStore::new(db.clone());
         vector
-            .create_collection(branch_id, "coll", config_small())
+            .create_collection(branch_id, "default", "coll", config_small())
             .unwrap();
         vector
-            .insert(branch_id, "coll", "vec", &[1.0, 0.0, 0.0], None)
+            .insert(branch_id, "default", "coll", "vec", &[1.0, 0.0, 0.0], None)
             .unwrap();
     }
 
@@ -210,22 +210,22 @@ fn always_mode_all_primitives_survive_reopen() {
 
         let kv = KVStore::new(db.clone());
         assert_eq!(
-            kv.get(&branch_id, "kv_key").unwrap(),
+            kv.get(&branch_id, "default", "kv_key").unwrap(),
             Some(Value::String("kv_val".into()))
         );
 
         let state = StateCell::new(db.clone());
         assert_eq!(
-            state.read(&branch_id, "state_cell").unwrap().unwrap(),
+            state.read(&branch_id, "default", "state_cell").unwrap().unwrap(),
             Value::Int(42)
         );
 
         let event = EventLog::new(db.clone());
-        assert!(event.len(&branch_id).unwrap() > 0);
+        assert!(event.len(&branch_id, "default").unwrap() > 0);
 
         let json = JsonStore::new(db.clone());
         assert_eq!(
-            json.get(&branch_id, "doc", &root())
+            json.get(&branch_id, "default", "doc", &root())
                 .unwrap()
                 .unwrap()
                 .as_inner(),
@@ -235,7 +235,7 @@ fn always_mode_all_primitives_survive_reopen() {
         let vector = VectorStore::new(db.clone());
         assert_eq!(
             vector
-                .get(branch_id, "coll", "vec")
+                .get(branch_id, "default", "coll", "vec")
                 .unwrap()
                 .unwrap()
                 .value
@@ -258,13 +258,13 @@ fn all_modes_produce_same_results() {
     fn workload(db: Arc<Database>, branch_id: BranchId) -> Vec<i64> {
         let kv = KVStore::new(db);
         for i in 0..10 {
-            kv.put(&branch_id, &format!("key_{}", i), Value::Int(i))
+            kv.put(&branch_id, "default", &format!("key_{}", i), Value::Int(i))
                 .unwrap();
         }
 
         let mut results = Vec::new();
         for i in 0..10 {
-            if let Some(v) = kv.get(&branch_id, &format!("key_{}", i)).unwrap() {
+            if let Some(v) = kv.get(&branch_id, "default", &format!("key_{}", i)).unwrap() {
                 if let Value::Int(n) = v {
                     results.push(n);
                 }
@@ -299,7 +299,7 @@ fn cache_mode_is_fast() {
 
     let start = std::time::Instant::now();
     for i in 0..10_000 {
-        kv.put(&branch_id, &format!("key_{}", i), Value::Int(i))
+        kv.put(&branch_id, "default", &format!("key_{}", i), Value::Int(i))
             .unwrap();
     }
     let elapsed = start.elapsed();
@@ -323,7 +323,7 @@ fn always_mode_is_durable() {
         let kv = KVStore::new(db);
         kv.put(
             &branch_id,
-            "critical",
+            "default", "critical",
             Value::String("important_data".into()),
         )
         .unwrap();
@@ -336,7 +336,7 @@ fn always_mode_is_durable() {
     {
         let db = create_persistent_always(&dir);
         let kv = KVStore::new(db);
-        let val = kv.get(&branch_id, "critical").unwrap();
+        let val = kv.get(&branch_id, "default", "critical").unwrap();
         assert!(val.is_some(), "Critical data should survive in always mode");
         assert_eq!(val.unwrap(), Value::String("important_data".into()));
     }

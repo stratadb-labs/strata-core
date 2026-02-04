@@ -20,6 +20,7 @@ impl Strata {
     ) -> Result<u64> {
         match self.executor.execute(Command::VectorCreateCollection {
             branch: self.branch_id(),
+            space: self.space_id(),
             collection: collection.to_string(),
             dimension,
             metric,
@@ -35,6 +36,7 @@ impl Strata {
     pub fn vector_delete_collection(&self, collection: &str) -> Result<bool> {
         match self.executor.execute(Command::VectorDeleteCollection {
             branch: self.branch_id(),
+            space: self.space_id(),
             collection: collection.to_string(),
         })? {
             Output::Bool(dropped) => Ok(dropped),
@@ -48,6 +50,7 @@ impl Strata {
     pub fn vector_list_collections(&self) -> Result<Vec<CollectionInfo>> {
         match self.executor.execute(Command::VectorListCollections {
             branch: self.branch_id(),
+            space: self.space_id(),
         })? {
             Output::VectorCollectionList(infos) => Ok(infos),
             _ => Err(Error::Internal {
@@ -66,6 +69,7 @@ impl Strata {
     ) -> Result<u64> {
         match self.executor.execute(Command::VectorUpsert {
             branch: self.branch_id(),
+            space: self.space_id(),
             collection: collection.to_string(),
             key: key.to_string(),
             vector,
@@ -82,6 +86,7 @@ impl Strata {
     pub fn vector_get(&self, collection: &str, key: &str) -> Result<Option<VersionedVectorData>> {
         match self.executor.execute(Command::VectorGet {
             branch: self.branch_id(),
+            space: self.space_id(),
             collection: collection.to_string(),
             key: key.to_string(),
         })? {
@@ -96,6 +101,7 @@ impl Strata {
     pub fn vector_delete(&self, collection: &str, key: &str) -> Result<bool> {
         match self.executor.execute(Command::VectorDelete {
             branch: self.branch_id(),
+            space: self.space_id(),
             collection: collection.to_string(),
             key: key.to_string(),
         })? {
@@ -110,6 +116,7 @@ impl Strata {
     pub fn vector_collection_stats(&self, collection: &str) -> Result<CollectionInfo> {
         match self.executor.execute(Command::VectorCollectionStats {
             branch: self.branch_id(),
+            space: self.space_id(),
             collection: collection.to_string(),
         })? {
             Output::VectorCollectionList(mut infos) => {
@@ -131,6 +138,7 @@ impl Strata {
     ) -> Result<Vec<u64>> {
         match self.executor.execute(Command::VectorBatchUpsert {
             branch: self.branch_id(),
+            space: self.space_id(),
             collection: collection.to_string(),
             entries,
         })? {
@@ -150,6 +158,7 @@ impl Strata {
     ) -> Result<Vec<VectorMatch>> {
         match self.executor.execute(Command::VectorSearch {
             branch: self.branch_id(),
+            space: self.space_id(),
             collection: collection.to_string(),
             query,
             k,

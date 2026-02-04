@@ -31,7 +31,7 @@ pub use error::{
     ConstraintReason, DetailValue, ErrorCode, ErrorDetails, StrataError, StrataResult,
 };
 pub use traits::{SnapshotView, Storage};
-pub use types::{BranchId, Key, Namespace, TypeTag};
+pub use types::{validate_space_name, BranchId, Key, Namespace, TypeTag};
 pub use value::Value;
 
 // Re-export contract types at crate root for convenience

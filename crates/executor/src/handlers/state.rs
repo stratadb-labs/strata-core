@@ -34,10 +34,10 @@ fn require_branch_exists(p: &Arc<Primitives>, branch: &BranchId) -> Result<()> {
 }
 
 /// Handle StateReadv command — get full version history for a state cell.
-pub fn state_readv(p: &Arc<Primitives>, branch: BranchId, cell: String) -> Result<Output> {
+pub fn state_readv(p: &Arc<Primitives>, branch: BranchId, space: String, cell: String) -> Result<Output> {
     let branch_id = bridge::to_core_branch_id(&branch)?;
     convert_result(bridge::validate_key(&cell))?;
-    let result = convert_result(p.state.readv(&branch_id, &cell))?;
+    let result = convert_result(p.state.readv(&branch_id, &space, &cell))?;
     let mapped = result.map(|history| {
         history
             .into_versions()
@@ -56,23 +56,24 @@ pub fn state_readv(p: &Arc<Primitives>, branch: BranchId, cell: String) -> Resul
 pub fn state_set(
     p: &Arc<Primitives>,
     branch: BranchId,
+    space: String,
     cell: String,
     value: Value,
 ) -> Result<Output> {
     require_branch_exists(p, &branch)?;
     let branch_id = bridge::to_core_branch_id(&branch)?;
     convert_result(bridge::validate_key(&cell))?;
-    let versioned = convert_result(p.state.set(&branch_id, &cell, value))?;
+    let versioned = convert_result(p.state.set(&branch_id, &space, &cell, value))?;
     Ok(Output::Version(bridge::extract_version(&versioned.version)))
 }
 
 /// Handle StateRead command.
 ///
 /// Returns `MaybeVersioned` with value, version, and timestamp metadata.
-pub fn state_read(p: &Arc<Primitives>, branch: BranchId, cell: String) -> Result<Output> {
+pub fn state_read(p: &Arc<Primitives>, branch: BranchId, space: String, cell: String) -> Result<Output> {
     let branch_id = bridge::to_core_branch_id(&branch)?;
     convert_result(bridge::validate_key(&cell))?;
-    let result = convert_result(p.state.read_versioned(&branch_id, &cell))?;
+    let result = convert_result(p.state.read_versioned(&branch_id, &space, &cell))?;
     Ok(Output::MaybeVersioned(
         result.map(bridge::to_versioned_value),
     ))
@@ -82,6 +83,7 @@ pub fn state_read(p: &Arc<Primitives>, branch: BranchId, cell: String) -> Result
 pub fn state_cas(
     p: &Arc<Primitives>,
     branch: BranchId,
+    space: String,
     cell: String,
     expected_counter: Option<u64>,
     value: Value,
@@ -93,10 +95,10 @@ pub fn state_cas(
         None => {
             // Init semantics: create only if cell doesn't exist.
             // Check existence first since init() is idempotent.
-            if convert_result(p.state.read(&branch_id, &cell))?.is_some() {
+            if convert_result(p.state.read(&branch_id, &space, &cell))?.is_some() {
                 return Ok(Output::MaybeVersion(None));
             }
-            match p.state.init(&branch_id, &cell, value) {
+            match p.state.init(&branch_id, &space, &cell, value) {
                 Ok(versioned) => Ok(Output::MaybeVersion(Some(bridge::extract_version(
                     &versioned.version,
                 )))),
@@ -114,7 +116,7 @@ pub fn state_cas(
         Some(expected) => {
             match p
                 .state
-                .cas(&branch_id, &cell, Version::Counter(expected), value)
+                .cas(&branch_id, &space, &cell, Version::Counter(expected), value)
             {
                 Ok(versioned) => Ok(Output::MaybeVersion(Some(bridge::extract_version(
                     &versioned.version,
@@ -137,33 +139,34 @@ pub fn state_cas(
 pub fn state_init(
     p: &Arc<Primitives>,
     branch: BranchId,
+    space: String,
     cell: String,
     value: Value,
 ) -> Result<Output> {
     require_branch_exists(p, &branch)?;
     let branch_id = bridge::to_core_branch_id(&branch)?;
     convert_result(bridge::validate_key(&cell))?;
-    let versioned = convert_result(p.state.init(&branch_id, &cell, value))?;
+    let versioned = convert_result(p.state.init(&branch_id, &space, &cell, value))?;
     Ok(Output::Version(bridge::extract_version(&versioned.version)))
 }
 
 /// Handle StateDelete command.
-pub fn state_delete(p: &Arc<Primitives>, branch: BranchId, cell: String) -> Result<Output> {
+pub fn state_delete(p: &Arc<Primitives>, branch: BranchId, space: String, cell: String) -> Result<Output> {
     require_branch_exists(p, &branch)?;
     let branch_id = bridge::to_core_branch_id(&branch)?;
     convert_result(bridge::validate_key(&cell))?;
-    let existed = convert_result(p.state.delete(&branch_id, &cell))?;
+    let existed = convert_result(p.state.delete(&branch_id, &space, &cell))?;
     Ok(Output::Bool(existed))
 }
 
 /// Handle StateList command.
-pub fn state_list(p: &Arc<Primitives>, branch: BranchId, prefix: Option<String>) -> Result<Output> {
+pub fn state_list(p: &Arc<Primitives>, branch: BranchId, space: String, prefix: Option<String>) -> Result<Output> {
     let branch_id = bridge::to_core_branch_id(&branch)?;
     if let Some(ref pfx) = prefix {
         if !pfx.is_empty() {
             convert_result(bridge::validate_key(pfx))?;
         }
     }
-    let keys = convert_result(p.state.list(&branch_id, prefix.as_deref()))?;
+    let keys = convert_result(p.state.list(&branch_id, &space, prefix.as_deref()))?;
     Ok(Output::Keys(keys))
 }

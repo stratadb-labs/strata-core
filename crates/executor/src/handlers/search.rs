@@ -16,6 +16,7 @@ use crate::{Output, Result};
 pub fn search(
     p: &Arc<Primitives>,
     branch: BranchId,
+    _space: String,
     query: String,
     k: Option<u64>,
     primitives: Option<Vec<String>>,

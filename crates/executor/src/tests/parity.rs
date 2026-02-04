@@ -29,12 +29,13 @@ fn test_kv_put_get_parity() {
 
     // Direct primitive call to write key1
     let _direct_version =
-        p.kv.put(&branch_id, "key1", Value::String("direct".into()))
+        p.kv.put(&branch_id, "default", "key1", Value::String("direct".into()))
             .unwrap();
 
     // Executor call to write key2
     let exec_result = executor.execute(Command::KvPut {
         branch: None,
+        space: None,
         key: "key2".to_string(),
         value: Value::String("executor".into()),
     });
@@ -48,9 +49,10 @@ fn test_kv_put_get_parity() {
     }
 
     // Now verify we can read back what was written via both methods
-    let direct_value = p.kv.get(&branch_id, "key1").unwrap();
+    let direct_value = p.kv.get(&branch_id, "default", "key1").unwrap();
     let exec_get = executor.execute(Command::KvGet {
         branch: None,
+        space: None,
         key: "key2".to_string(),
     });
 
@@ -66,6 +68,7 @@ fn test_kv_put_get_parity() {
     // Cross-check: executor can read primitive write and vice versa
     let cross_read_exec = executor.execute(Command::KvGet {
         branch: None,
+        space: None,
         key: "key1".to_string(),
     });
     match cross_read_exec {
@@ -76,7 +79,7 @@ fn test_kv_put_get_parity() {
         _ => panic!("Cross-read failed"),
     }
 
-    let cross_read_prim = p.kv.get(&branch_id, "key2").unwrap();
+    let cross_read_prim = p.kv.get(&branch_id, "default", "key2").unwrap();
     assert_eq!(cross_read_prim.unwrap(), Value::String("executor".into()));
 }
 
@@ -86,11 +89,12 @@ fn test_kv_delete_parity() {
     let branch_id = strata_core::types::BranchId::from_bytes([0u8; 16]);
 
     // Set up data via primitive
-    p.kv.put(&branch_id, "to-delete", Value::Int(42)).unwrap();
+    p.kv.put(&branch_id, "default", "to-delete", Value::Int(42)).unwrap();
 
     // Delete via executor
     let result = executor.execute(Command::KvDelete {
         branch: None,
+        space: None,
         key: "to-delete".to_string(),
     });
 
@@ -101,7 +105,7 @@ fn test_kv_delete_parity() {
     }
 
     // Verify deleted via direct primitive call
-    let check = p.kv.get(&branch_id, "to-delete").unwrap();
+    let check = p.kv.get(&branch_id, "default", "to-delete").unwrap();
     assert!(check.is_none(), "Key should be deleted");
 }
 
@@ -111,13 +115,14 @@ fn test_kv_list_parity() {
     let branch_id = strata_core::types::BranchId::from_bytes([0u8; 16]);
 
     // Create keys via primitive
-    p.kv.put(&branch_id, "user:1", Value::Int(1)).unwrap();
-    p.kv.put(&branch_id, "user:2", Value::Int(2)).unwrap();
-    p.kv.put(&branch_id, "task:1", Value::Int(3)).unwrap();
+    p.kv.put(&branch_id, "default", "user:1", Value::Int(1)).unwrap();
+    p.kv.put(&branch_id, "default", "user:2", Value::Int(2)).unwrap();
+    p.kv.put(&branch_id, "default", "task:1", Value::Int(3)).unwrap();
 
     // List via executor with prefix filter
     let result = executor.execute(Command::KvList {
         branch: None,
+        space: None,
         prefix: Some("user:".to_string()),
         cursor: None,
         limit: None,
@@ -135,6 +140,7 @@ fn test_kv_list_parity() {
     // List all via executor
     let result_all = executor.execute(Command::KvList {
         branch: None,
+        space: None,
         prefix: None,
         cursor: None,
         limit: None,
@@ -159,6 +165,7 @@ fn test_json_set_get_parity() {
     // Set via executor - use root path (empty string means root)
     let result = executor.execute(Command::JsonSet {
         branch: None,
+        space: None,
         key: "doc1".to_string(),
         path: "".to_string(), // Root path
         value: Value::Object(
@@ -177,6 +184,7 @@ fn test_json_set_get_parity() {
     // Get via executor - JsonGet returns MaybeVersioned
     let exec_get = executor.execute(Command::JsonGet {
         branch: None,
+        space: None,
         key: "doc1".to_string(),
         path: ".name".to_string(),
     });
@@ -202,6 +210,7 @@ fn test_event_append_read_by_type_parity() {
     // Append via executor - EventAppend returns Version
     let result1 = executor.execute(Command::EventAppend {
         branch: None,
+        space: None,
         event_type: "events".to_string(),
         payload: Value::Object(
             [("type".to_string(), Value::String("click".into()))]
@@ -221,6 +230,7 @@ fn test_event_append_read_by_type_parity() {
         .event
         .append(
             &branch_id,
+            "default",
             "events",
             Value::Object(
                 [("type".to_string(), Value::String("scroll".into()))]
@@ -233,6 +243,7 @@ fn test_event_append_read_by_type_parity() {
     // ReadByType query via executor
     let read_result = executor.execute(Command::EventReadByType {
         branch: None,
+        space: None,
         event_type: "events".to_string(),
         after_sequence: None,
         limit: None,
@@ -258,6 +269,7 @@ fn test_state_set_get_parity() {
     // Set via executor
     let result = executor.execute(Command::StateSet {
         branch: None,
+        space: None,
         cell: "cell1".to_string(),
         value: Value::Int(100),
     });
@@ -268,12 +280,12 @@ fn test_state_set_get_parity() {
     };
 
     // Get via direct primitive
-    let direct_get = p.state.read(&branch_id, "cell1").unwrap();
+    let direct_get = p.state.read(&branch_id, "default", "cell1").unwrap();
     assert!(direct_get.is_some());
     assert_eq!(direct_get.unwrap(), Value::Int(100));
 
     // Set via direct primitive
-    let versioned2 = p.state.set(&branch_id, "cell2", Value::Int(200)).unwrap();
+    let versioned2 = p.state.set(&branch_id, "default", "cell2", Value::Int(200)).unwrap();
 
     // Both should have counter 1 (first write to each cell)
     assert_eq!(counter1, 1);
@@ -282,6 +294,7 @@ fn test_state_set_get_parity() {
     // Get cell2 via executor
     let exec_get = executor.execute(Command::StateRead {
         branch: None,
+        space: None,
         cell: "cell2".to_string(),
     });
 
@@ -306,6 +319,7 @@ fn test_vector_create_collection_parity() {
     // Create collection via executor
     let result = executor.execute(Command::VectorCreateCollection {
         branch: None,
+        space: None,
         collection: "embeddings".to_string(),
         dimension: 4,
         metric: DistanceMetric::Cosine,
@@ -314,7 +328,7 @@ fn test_vector_create_collection_parity() {
     assert!(result.is_ok());
 
     // Verify via direct primitive using list_collections (get_collection is internal)
-    let collections = p.vector.list_collections(branch_id).unwrap();
+    let collections = p.vector.list_collections(branch_id, "default").unwrap();
     let info = collections.iter().find(|c| c.name == "embeddings");
     assert!(info.is_some());
     let info = info.unwrap();
@@ -333,13 +347,14 @@ fn test_vector_upsert_search_parity() {
     )
     .unwrap();
     p.vector
-        .create_collection(branch_id, "vecs", config)
+        .create_collection(branch_id, "default", "vecs", config)
         .unwrap();
 
     // Upsert via executor
     executor
         .execute(Command::VectorUpsert {
             branch: None,
+            space: None,
             collection: "vecs".to_string(),
             key: "v1".to_string(),
             vector: vec![1.0, 0.0, 0.0, 0.0],
@@ -349,12 +364,13 @@ fn test_vector_upsert_search_parity() {
 
     // Upsert via direct primitive
     p.vector
-        .insert(branch_id, "vecs", "v2", &[0.0, 1.0, 0.0, 0.0], None)
+        .insert(branch_id, "default", "vecs", "v2", &[0.0, 1.0, 0.0, 0.0], None)
         .unwrap();
 
     // Search via executor
     let search_result = executor.execute(Command::VectorSearch {
         branch: None,
+        space: None,
         collection: "vecs".to_string(),
         query: vec![1.0, 0.0, 0.0, 0.0],
         k: 10,
@@ -483,6 +499,7 @@ fn test_branch_isolation_parity() {
     executor
         .execute(Command::KvPut {
             branch: Some(BranchId::from("550e8400-e29b-41d4-a716-446655440003")),
+            space: None,
             key: "shared-key".to_string(),
             value: Value::String("from-a".into()),
         })
@@ -492,6 +509,7 @@ fn test_branch_isolation_parity() {
     executor
         .execute(Command::KvPut {
             branch: Some(BranchId::from("550e8400-e29b-41d4-a716-446655440004")),
+            space: None,
             key: "shared-key".to_string(),
             value: Value::String("from-b".into()),
         })
@@ -500,6 +518,7 @@ fn test_branch_isolation_parity() {
     // Read from branch-a
     let result_a = executor.execute(Command::KvGet {
         branch: Some(BranchId::from("550e8400-e29b-41d4-a716-446655440003")),
+        space: None,
         key: "shared-key".to_string(),
     });
 
@@ -514,6 +533,7 @@ fn test_branch_isolation_parity() {
     // Read from branch-b
     let result_b = executor.execute(Command::KvGet {
         branch: Some(BranchId::from("550e8400-e29b-41d4-a716-446655440004")),
+        space: None,
         key: "shared-key".to_string(),
     });
 

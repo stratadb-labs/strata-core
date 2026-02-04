@@ -158,6 +158,7 @@ mod tests {
             "app".to_string(),
             "agent".to_string(),
             BranchId::new(),
+            "default".to_string(),
         )
     }
 
@@ -279,6 +280,7 @@ mod tests {
             "app".to_string(),
             "agent".to_string(),
             BranchId::new(),
+            "default".to_string(),
         );
         let key = create_test_key(&other_ns, b"key1");
 
@@ -341,6 +343,7 @@ mod tests {
             "app".to_string(),
             "agent".to_string(),
             BranchId::new(),
+            "default".to_string(),
         );
         let prefix = create_test_key(&other_ns, b"key");
 

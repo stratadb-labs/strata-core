@@ -109,6 +109,7 @@ mod tests {
             "app".to_string(),
             "agent".to_string(),
             branch_id,
+            "default".to_string(),
         );
         Key::new_kv(ns, suffix)
     }

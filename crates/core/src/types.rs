@@ -2,7 +2,7 @@
 //!
 //! This module defines the foundational types:
 //! - BranchId: Unique identifier for agent branches
-//! - Namespace: Hierarchical namespace (tenant/app/agent/branch)
+//! - Namespace: Hierarchical namespace (tenant/app/agent/branch/space)
 //! - TypeTag: Type discriminator for unified storage
 //! - Key: Composite key (namespace + type_tag + user_key)
 
@@ -57,12 +57,12 @@ impl fmt::Display for BranchId {
     }
 }
 
-/// Hierarchical namespace: tenant → app → agent → branch
+/// Hierarchical namespace: tenant → app → agent → branch → space
 ///
 /// Namespaces provide multi-tenant isolation and hierarchical organization
 /// of data. The hierarchy enables efficient querying and access control.
 ///
-/// Format: "tenant/app/agent/branch_id"
+/// Format: "tenant/app/agent/branch_id/space"
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct Namespace {
     /// Tenant identifier (top-level isolation)
@@ -73,29 +73,55 @@ pub struct Namespace {
     pub agent: String,
     /// Branch identifier
     pub branch_id: BranchId,
+    /// Space identifier (organizational namespace within a branch)
+    #[serde(default = "default_space_name")]
+    pub space: String,
+}
+
+fn default_space_name() -> String {
+    "default".to_string()
 }
 
 impl Namespace {
     /// Create a new namespace
-    pub fn new(tenant: String, app: String, agent: String, branch_id: BranchId) -> Self {
+    pub fn new(
+        tenant: String,
+        app: String,
+        agent: String,
+        branch_id: BranchId,
+        space: String,
+    ) -> Self {
         Self {
             tenant,
             app,
             agent,
             branch_id,
+            space,
         }
     }
 
-    /// Create a namespace for a branch with default tenant/app/agent
+    /// Create a namespace for a branch with default tenant/app/agent/space
     ///
     /// This is a convenience method for primitives that only need
-    /// branch-level isolation. Uses "default" for tenant, app, and agent.
+    /// branch-level isolation. Uses "default" for tenant, app, agent, and space.
     pub fn for_branch(branch_id: BranchId) -> Self {
         Self {
             tenant: "default".to_string(),
             app: "default".to_string(),
             agent: "default".to_string(),
             branch_id,
+            space: "default".to_string(),
+        }
+    }
+
+    /// Create a namespace for a branch and space with default tenant/app/agent
+    pub fn for_branch_space(branch_id: BranchId, space: &str) -> Self {
+        Self {
+            tenant: "default".to_string(),
+            app: "default".to_string(),
+            agent: "default".to_string(),
+            branch_id,
+            space: space.to_string(),
         }
     }
 }
@@ -104,14 +130,14 @@ impl fmt::Display for Namespace {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(
             f,
-            "{}/{}/{}/{}",
-            self.tenant, self.app, self.agent, self.branch_id
+            "{}/{}/{}/{}/{}",
+            self.tenant, self.app, self.agent, self.branch_id, self.space
         )
     }
 }
 
 // Ord implementation for BTreeMap key ordering
-// Orders by: tenant → app → agent → branch_id
+// Orders by: tenant → app → agent → branch_id → space
 impl Ord for Namespace {
     fn cmp(&self, other: &Self) -> std::cmp::Ordering {
         self.tenant
@@ -119,6 +145,7 @@ impl Ord for Namespace {
             .then(self.app.cmp(&other.app))
             .then(self.agent.cmp(&other.agent))
             .then(self.branch_id.0.cmp(&other.branch_id.0))
+            .then(self.space.cmp(&other.space))
     }
 }
 
@@ -162,6 +189,8 @@ pub enum TypeTag {
     Trace = 0x04,
     /// Branch index entries
     Branch = 0x05,
+    /// Space metadata entries
+    Space = 0x06,
     /// Vector store entries
     Vector = 0x10,
     /// JSON document store entries
@@ -185,6 +214,7 @@ impl TypeTag {
             0x03 => Some(TypeTag::State),
             0x04 => Some(TypeTag::Trace), // Deprecated but needed for backwards compatibility
             0x05 => Some(TypeTag::Branch),
+            0x06 => Some(TypeTag::Space),
             0x10 => Some(TypeTag::Vector),
             0x11 => Some(TypeTag::Json),
             0x12 => Some(TypeTag::VectorConfig),
@@ -215,7 +245,7 @@ impl TypeTag {
 ///
 /// let branch_id = BranchId::new();
 /// let ns = Namespace::new("tenant".to_string(), "app".to_string(),
-///                         "agent".to_string(), branch_id);
+///                         "agent".to_string(), branch_id, "default".to_string());
 ///
 /// // Create a KV key
 /// let key = Key::new_kv(ns.clone(), "session_state");
@@ -396,6 +426,22 @@ impl Key {
         Self::new(namespace, TypeTag::VectorConfig, vec![])
     }
 
+    /// Create a space metadata key.
+    ///
+    /// Uses the branch-level namespace (space is "default") to store
+    /// space metadata. This avoids circular dependency where space
+    /// metadata would be stored in the space itself.
+    pub fn new_space(branch_id: BranchId, space_name: &str) -> Self {
+        let namespace = Namespace::for_branch(branch_id);
+        Self::new(namespace, TypeTag::Space, space_name.as_bytes().to_vec())
+    }
+
+    /// Prefix for scanning all space metadata in a branch.
+    pub fn new_space_prefix(branch_id: BranchId) -> Self {
+        let namespace = Namespace::for_branch(branch_id);
+        Self::new(namespace, TypeTag::Space, vec![])
+    }
+
     /// Extract user key as string (if valid UTF-8)
     ///
     /// Returns None if the user_key is not valid UTF-8
@@ -414,7 +460,7 @@ impl Key {
     /// ```
     /// # use strata_core::{Key, Namespace, BranchId};
     /// # let branch_id = BranchId::new();
-    /// # let ns = Namespace::new("t".to_string(), "a".to_string(), "ag".to_string(), branch_id);
+    /// # let ns = Namespace::new("t".to_string(), "a".to_string(), "ag".to_string(), branch_id, "default".to_string());
     /// let prefix = Key::new_kv(ns.clone(), "user:");
     /// let key = Key::new_kv(ns.clone(), "user:alice");
     /// assert!(key.starts_with(&prefix));
@@ -443,6 +489,39 @@ impl PartialOrd for Key {
     fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
         Some(self.cmp(other))
     }
+}
+
+/// Validate a space name according to naming rules.
+///
+/// Rules:
+/// - Must not be empty
+/// - Max length: 64 characters
+/// - Must start with a lowercase letter
+/// - Only lowercase letters, digits, hyphens, and underscores allowed
+/// - Names starting with `_system_` are reserved
+pub fn validate_space_name(name: &str) -> Result<(), String> {
+    if name.is_empty() {
+        return Err("Space name cannot be empty".into());
+    }
+    if name.len() > 64 {
+        return Err("Space name cannot exceed 64 characters".into());
+    }
+    if !name.as_bytes()[0].is_ascii_lowercase() {
+        return Err("Space name must start with a lowercase letter".into());
+    }
+    if !name
+        .bytes()
+        .all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'-' || b == b'_')
+    {
+        return Err(
+            "Space name can only contain lowercase letters, digits, hyphens, and underscores"
+                .into(),
+        );
+    }
+    if name.starts_with("_system_") {
+        return Err("Space names starting with '_system_' are reserved".into());
+    }
+    Ok(())
 }
 
 #[cfg(test)]
@@ -636,6 +715,7 @@ mod tests {
             "chatbot".to_string(),
             "agent-42".to_string(),
             branch_id,
+            "default".to_string(),
         );
 
         assert_eq!(ns.tenant, "acme");
@@ -652,13 +732,14 @@ mod tests {
             "chatbot".to_string(),
             "agent-42".to_string(),
             branch_id,
+            "default".to_string(),
         );
 
         let display_str = format!("{}", ns);
-        let expected = format!("acme/chatbot/agent-42/{}", branch_id);
+        let expected = format!("acme/chatbot/agent-42/{}/default", branch_id);
         assert_eq!(
             display_str, expected,
-            "Namespace should format as tenant/app/agent/branch_id"
+            "Namespace should format as tenant/app/agent/branch_id/space"
         );
     }
 
@@ -672,6 +753,7 @@ mod tests {
             "chatbot".to_string(),
             "agent-42".to_string(),
             branch_id1,
+            "default".to_string(),
         );
 
         let ns2 = Namespace::new(
@@ -679,6 +761,7 @@ mod tests {
             "chatbot".to_string(),
             "agent-42".to_string(),
             branch_id1,
+            "default".to_string(),
         );
 
         let ns3 = Namespace::new(
@@ -686,6 +769,7 @@ mod tests {
             "chatbot".to_string(),
             "agent-42".to_string(),
             branch_id2,
+            "default".to_string(),
         );
 
         assert_eq!(ns1, ns2, "Namespaces with same values should be equal");
@@ -718,14 +802,20 @@ mod tests {
     #[test]
     fn test_namespace_display_empty_components() {
         let branch_id = BranchId::new();
-        let ns = Namespace::new("".to_string(), "".to_string(), "".to_string(), branch_id);
+        let ns = Namespace::new(
+            "".to_string(),
+            "".to_string(),
+            "".to_string(),
+            branch_id,
+            "default".to_string(),
+        );
         let display = format!("{}", ns);
-        // Should produce "///branch_id" with empty components
+        // Should produce "///branch_id/default" with empty components
         assert!(
             display.starts_with("///"),
             "Empty components should produce leading slashes"
         );
-        assert!(display.ends_with(&format!("{}", branch_id)));
+        assert!(display.ends_with("/default"));
     }
 
     #[test]
@@ -746,6 +836,7 @@ mod tests {
             "my_app".to_string(),
             "agent.42".to_string(),
             branch_id,
+            "default".to_string(),
         );
 
         let display = format!("{}", ns);
@@ -757,7 +848,13 @@ mod tests {
     #[test]
     fn test_namespace_with_empty_strings() {
         let branch_id = BranchId::new();
-        let ns = Namespace::new("".to_string(), "".to_string(), "".to_string(), branch_id);
+        let ns = Namespace::new(
+            "".to_string(),
+            "".to_string(),
+            "".to_string(),
+            branch_id,
+            "default".to_string(),
+        );
 
         // Should still construct, even if semantically invalid
         assert_eq!(ns.tenant, "");
@@ -775,30 +872,35 @@ mod tests {
             "app1".to_string(),
             "agent1".to_string(),
             branch1,
+            "default".to_string(),
         );
         let ns2 = Namespace::new(
             "tenant1".to_string(),
             "app1".to_string(),
             "agent1".to_string(),
             branch2,
+            "default".to_string(),
         );
         let ns3 = Namespace::new(
             "tenant2".to_string(),
             "app1".to_string(),
             "agent1".to_string(),
             branch1,
+            "default".to_string(),
         );
         let ns4 = Namespace::new(
             "tenant1".to_string(),
             "app2".to_string(),
             "agent1".to_string(),
             branch1,
+            "default".to_string(),
         );
         let ns5 = Namespace::new(
             "tenant1".to_string(),
             "app1".to_string(),
             "agent2".to_string(),
             branch1,
+            "default".to_string(),
         );
 
         // Same tenant/app/agent, different branch_id - order depends on UUID
@@ -822,6 +924,7 @@ mod tests {
             "myapp".to_string(),
             "agent-42".to_string(),
             branch_id,
+            "default".to_string(),
         );
 
         let json = serde_json::to_string(&ns).unwrap();
@@ -842,18 +945,21 @@ mod tests {
             "app1".to_string(),
             "agent1".to_string(),
             branch1,
+            "default".to_string(),
         );
         let ns2 = Namespace::new(
             "acme".to_string(),
             "app1".to_string(),
             "agent2".to_string(),
             branch2,
+            "default".to_string(),
         );
         let ns3 = Namespace::new(
             "acme".to_string(),
             "app2".to_string(),
             "agent1".to_string(),
             branch1,
+            "default".to_string(),
         );
 
         let mut map = BTreeMap::new();
@@ -881,7 +987,8 @@ mod tests {
         assert!(TypeTag::KV < TypeTag::Event);
         assert!(TypeTag::Event < TypeTag::State);
         assert!(TypeTag::State < TypeTag::Branch);
-        assert!(TypeTag::Branch < TypeTag::Vector);
+        assert!(TypeTag::Branch < TypeTag::Space);
+        assert!(TypeTag::Space < TypeTag::Vector);
         assert!(TypeTag::Vector < TypeTag::Json);
 
         // Verify numeric values match spec
@@ -891,6 +998,7 @@ mod tests {
         // TypeTag::Trace (0x04) is deprecated but still exists for backwards compatibility
         assert_eq!(TypeTag::Trace as u8, 0x04);
         assert_eq!(TypeTag::Branch as u8, 0x05);
+        assert_eq!(TypeTag::Space as u8, 0x06);
         assert_eq!(TypeTag::Vector as u8, 0x10);
         assert_eq!(TypeTag::Json as u8, 0x11);
     }
@@ -904,6 +1012,7 @@ mod tests {
         // TypeTag::Trace (0x04) is deprecated but still exists for backwards compatibility
         assert_eq!(TypeTag::Trace.as_byte(), 0x04);
         assert_eq!(TypeTag::Branch.as_byte(), 0x05);
+        assert_eq!(TypeTag::Space.as_byte(), 0x06);
         assert_eq!(TypeTag::Vector.as_byte(), 0x10);
         assert_eq!(TypeTag::Json.as_byte(), 0x11);
     }
@@ -917,6 +1026,7 @@ mod tests {
         // 0x04 still parses to Trace for backwards compatibility
         assert_eq!(TypeTag::from_byte(0x04), Some(TypeTag::Trace));
         assert_eq!(TypeTag::from_byte(0x05), Some(TypeTag::Branch));
+        assert_eq!(TypeTag::from_byte(0x06), Some(TypeTag::Space));
         assert_eq!(TypeTag::from_byte(0x10), Some(TypeTag::Vector));
         assert_eq!(TypeTag::from_byte(0x11), Some(TypeTag::Json));
         assert_eq!(TypeTag::from_byte(0x00), None);
@@ -931,6 +1041,7 @@ mod tests {
             TypeTag::Event,
             TypeTag::State,
             TypeTag::Branch,
+            TypeTag::Space,
             TypeTag::Vector,
             TypeTag::Json,
         ];
@@ -947,6 +1058,7 @@ mod tests {
             TypeTag::Event,
             TypeTag::State,
             TypeTag::Branch,
+            TypeTag::Space,
             TypeTag::Vector,
             TypeTag::Json,
         ];
@@ -966,8 +1078,8 @@ mod tests {
     fn test_typetag_from_byte_gap_values_return_none() {
         // Bytes between defined variants must return None (on-disk format safety)
         for byte in [
-            0x00, 0x06, 0x07, 0x08, 0x09, 0x0A, 0x0B, 0x0C, 0x0D, 0x0E, 0x0F, 0x13, 0x14, 0x20,
-            0x80, 0xFE, 0xFF,
+            0x00, 0x07, 0x08, 0x09, 0x0A, 0x0B, 0x0C, 0x0D, 0x0E, 0x0F, 0x13, 0x14, 0x20, 0x80,
+            0xFE, 0xFF,
         ] {
             assert_eq!(
                 TypeTag::from_byte(byte),
@@ -995,6 +1107,7 @@ mod tests {
             TypeTag::State,
             TypeTag::Trace,
             TypeTag::Branch,
+            TypeTag::Space,
             TypeTag::Vector,
             TypeTag::Json,
             TypeTag::VectorConfig,
@@ -1022,6 +1135,7 @@ mod tests {
             TypeTag::State,
             TypeTag::Trace,
             TypeTag::Branch,
+            TypeTag::Space,
             TypeTag::Vector,
             TypeTag::Json,
             TypeTag::VectorConfig,
@@ -1064,6 +1178,7 @@ mod tests {
             "app".to_string(),
             "agent".to_string(),
             branch_id,
+            "default".to_string(),
         );
 
         // Test generic constructor
@@ -1081,6 +1196,7 @@ mod tests {
             "app".to_string(),
             "agent".to_string(),
             branch_id,
+            "default".to_string(),
         );
 
         // Test KV helper
@@ -1115,6 +1231,7 @@ mod tests {
             "app".to_string(),
             "agent".to_string(),
             branch_id,
+            "default".to_string(),
         );
 
         let key = Key::new_event_meta(ns);
@@ -1130,6 +1247,7 @@ mod tests {
             "app".to_string(),
             "agent".to_string(),
             branch_id,
+            "default".to_string(),
         );
 
         // Test by-status index
@@ -1156,6 +1274,7 @@ mod tests {
             "app".to_string(),
             "agent".to_string(),
             branch_id,
+            "default".to_string(),
         );
 
         // Valid UTF-8
@@ -1175,6 +1294,7 @@ mod tests {
             "app".to_string(),
             "agent".to_string(),
             branch_id,
+            "default".to_string(),
         );
 
         let key1 = Key::new_event(ns.clone(), 1);
@@ -1194,12 +1314,14 @@ mod tests {
             "app".to_string(),
             "agent".to_string(),
             branch_id,
+            "default".to_string(),
         );
         let ns2 = Namespace::new(
             "tenant".to_string(),
             "app".to_string(),
             "agent".to_string(),
             branch_id,
+            "default".to_string(),
         );
 
         let key1 = Key::new_kv(ns1, "same-key");
@@ -1218,12 +1340,14 @@ mod tests {
             "app1".to_string(),
             "agent1".to_string(),
             branch1,
+            "default".to_string(),
         );
         let ns2 = Namespace::new(
             "tenant2".to_string(),
             "app1".to_string(),
             "agent1".to_string(),
             branch1,
+            "default".to_string(),
         );
 
         // Test ordering: namespace → type_tag → user_key
@@ -1265,12 +1389,14 @@ mod tests {
             "app".to_string(),
             "agent".to_string(),
             branch_id,
+            "default".to_string(),
         );
         let ns2 = Namespace::new(
             "b".to_string(),
             "app".to_string(),
             "agent".to_string(),
             branch_id,
+            "default".to_string(),
         );
 
         let key1 = Key::new(ns1.clone(), TypeTag::KV, b"key1".to_vec());
@@ -1302,6 +1428,7 @@ mod tests {
             "app".to_string(),
             "agent".to_string(),
             branch_id,
+            "default".to_string(),
         );
 
         let prefix = Key::new_kv(ns.clone(), b"user:");
@@ -1341,6 +1468,7 @@ mod tests {
             "app".to_string(),
             "agent".to_string(),
             branch_id,
+            "default".to_string(),
         );
 
         // Empty prefix should match all keys of same namespace and type
@@ -1366,6 +1494,7 @@ mod tests {
             "app".to_string(),
             "agent".to_string(),
             branch_id,
+            "default".to_string(),
         );
         let key = Key::new_kv(ns, "testkey");
 
@@ -1383,6 +1512,7 @@ mod tests {
             "app".to_string(),
             "agent".to_string(),
             branch_id,
+            "default".to_string(),
         );
 
         let key1 = Key::new_kv(ns.clone(), "mykey");
@@ -1504,6 +1634,7 @@ mod tests {
             "app".to_string(),
             "agent".to_string(),
             branch_id,
+            "default".to_string(),
         );
 
         let key1 = Key::new_kv(ns.clone(), "key1");
@@ -1526,6 +1657,7 @@ mod tests {
             "app".to_string(),
             "agent".to_string(),
             branch_id,
+            "default".to_string(),
         );
 
         // Test with binary data (not UTF-8)

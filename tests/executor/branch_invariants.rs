@@ -42,6 +42,7 @@ fn branch_data_is_isolated() {
     executor
         .execute(Command::KvPut {
             branch: Some(branch_a.clone()),
+            space: None,
             key: "secret".into(),
             value: Value::String("branch_a_secret".into()),
         })
@@ -50,6 +51,7 @@ fn branch_data_is_isolated() {
     executor
         .execute(Command::StateSet {
             branch: Some(branch_a.clone()),
+            space: None,
             cell: "state".into(),
             value: Value::Int(42),
         })
@@ -59,6 +61,7 @@ fn branch_data_is_isolated() {
     let output = executor
         .execute(Command::KvGet {
             branch: Some(branch_b.clone()),
+            space: None,
             key: "secret".into(),
         })
         .unwrap();
@@ -70,6 +73,7 @@ fn branch_data_is_isolated() {
     let output = executor
         .execute(Command::StateRead {
             branch: Some(branch_b.clone()),
+            space: None,
             cell: "state".into(),
         })
         .unwrap();
@@ -82,6 +86,7 @@ fn branch_data_is_isolated() {
     let output = executor
         .execute(Command::KvGet {
             branch: Some(branch_a.clone()),
+            space: None,
             key: "secret".into(),
         })
         .unwrap();
@@ -118,6 +123,7 @@ fn branch_delete_removes_all_data() {
     executor
         .execute(Command::KvPut {
             branch: Some(branch_id.clone()),
+            space: None,
             key: "key1".into(),
             value: Value::String("value1".into()),
         })
@@ -126,6 +132,7 @@ fn branch_delete_removes_all_data() {
     executor
         .execute(Command::KvPut {
             branch: Some(branch_id.clone()),
+            space: None,
             key: "key2".into(),
             value: Value::Int(123),
         })
@@ -134,6 +141,7 @@ fn branch_delete_removes_all_data() {
     executor
         .execute(Command::StateSet {
             branch: Some(branch_id.clone()),
+            space: None,
             cell: "cell1".into(),
             value: Value::Bool(true),
         })
@@ -143,6 +151,7 @@ fn branch_delete_removes_all_data() {
     let output = executor
         .execute(Command::KvGet {
             branch: Some(branch_id.clone()),
+            space: None,
             key: "key1".into(),
         })
         .unwrap();
@@ -179,6 +188,7 @@ fn branch_delete_removes_all_data() {
     let output = executor
         .execute(Command::KvGet {
             branch: Some(branch_id.clone()),
+            space: None,
             key: "key1".into(),
         })
         .unwrap();
@@ -208,6 +218,7 @@ fn branch_delete_cleans_up_data() {
     executor
         .execute(Command::KvPut {
             branch: Some(branch_id.clone()),
+            space: None,
             key: "persistent_key".into(),
             value: Value::String("should_be_deleted".into()),
         })
@@ -232,6 +243,7 @@ fn branch_delete_cleans_up_data() {
     let output = executor
         .execute(Command::KvGet {
             branch: Some(branch_id),
+            space: None,
             key: "persistent_key".into(),
         })
         .unwrap();
@@ -255,6 +267,7 @@ fn default_branch_always_works() {
     executor
         .execute(Command::KvPut {
             branch: None,
+            space: None,
             key: "default_key".into(),
             value: Value::String("default_value".into()),
         })
@@ -264,6 +277,7 @@ fn default_branch_always_works() {
     let output = executor
         .execute(Command::KvGet {
             branch: None,
+            space: None,
             key: "default_key".into(),
         })
         .unwrap();
@@ -279,6 +293,7 @@ fn default_branch_always_works() {
     let output = executor
         .execute(Command::KvGet {
             branch: Some(BranchId::from("default")),
+            space: None,
             key: "default_key".into(),
         })
         .unwrap();

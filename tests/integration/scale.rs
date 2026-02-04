@@ -42,7 +42,7 @@ mod kv_scale {
         // Write
         measure(&format!("Write {} KV entries", count), || {
             for i in 0..count {
-                kv.put(&branch_id, &format!("key_{:08}", i), Value::Int(i as i64))
+                kv.put(&branch_id, "default", &format!("key_{:08}", i), Value::Int(i as i64))
                     .unwrap();
             }
         });
@@ -50,21 +50,21 @@ mod kv_scale {
         // Read all
         measure(&format!("Read {} KV entries", count), || {
             for i in 0..count {
-                let val = kv.get(&branch_id, &format!("key_{:08}", i)).unwrap();
+                let val = kv.get(&branch_id, "default", &format!("key_{:08}", i)).unwrap();
                 assert_eq!(val.unwrap(), Value::Int(i as i64));
             }
         });
 
         // List/scan
         measure(&format!("List {} KV keys", count), || {
-            let keys = kv.list(&branch_id, Some("key_")).unwrap();
+            let keys = kv.list(&branch_id, "default", Some("key_")).unwrap();
             assert_eq!(keys.len(), count);
         });
 
         // Random reads
         measure(&format!("Random read 1000 from {}", count), || {
             for i in (0..count).step_by(count / 1000) {
-                let _ = kv.get(&branch_id, &format!("key_{:08}", i)).unwrap();
+                let _ = kv.get(&branch_id, "default", &format!("key_{:08}", i)).unwrap();
             }
         });
     }
@@ -102,20 +102,20 @@ mod event_scale {
         measure(&format!("Append {} events", count), || {
             for i in 0..count {
                 event
-                    .append(&branch_id, "scale_test", int_payload(i as i64))
+                    .append(&branch_id, "default", "scale_test", int_payload(i as i64))
                     .unwrap();
             }
         });
 
         // Count
         measure(&format!("Count {} events", count), || {
-            let len = event.read_by_type(&branch_id, "scale_test").unwrap().len() as u64;
+            let len = event.read_by_type(&branch_id, "default", "scale_test").unwrap().len() as u64;
             assert_eq!(len, count as u64);
         });
 
         // Read all
         measure(&format!("Read {} events", count), || {
-            let events = event.read_by_type(&branch_id, "scale_test").unwrap();
+            let events = event.read_by_type(&branch_id, "default", "scale_test").unwrap();
             assert_eq!(events.len(), count);
         });
     }
@@ -152,7 +152,7 @@ mod json_scale {
         // Create documents
         measure(&format!("Create {} JSON documents", count), || {
             for i in 0..count {
-                json.create(&branch_id, &format!("doc_{:08}", i), test_json_value(i))
+                json.create(&branch_id, "default", &format!("doc_{:08}", i), test_json_value(i))
                     .unwrap();
             }
         });
@@ -161,7 +161,7 @@ mod json_scale {
         measure(&format!("Read {} JSON documents", count), || {
             for i in 0..count {
                 let doc = json
-                    .get(&branch_id, &format!("doc_{:08}", i), &root())
+                    .get(&branch_id, "default", &format!("doc_{:08}", i), &root())
                     .unwrap();
                 assert!(doc.is_some());
             }
@@ -169,7 +169,7 @@ mod json_scale {
 
         // List
         measure(&format!("List {} JSON documents", count), || {
-            let list = json.list(&branch_id, None, None, count + 1).unwrap();
+            let list = json.list(&branch_id, "default", None, None, count + 1).unwrap();
             assert_eq!(list.doc_ids.len(), count);
         });
     }
@@ -204,7 +204,7 @@ mod vector_scale {
         let vector = test_db.vector();
 
         vector
-            .create_collection(branch_id, "scale_test", config_small())
+            .create_collection(branch_id, "default", "scale_test", config_small())
             .unwrap();
 
         // Insert vectors
@@ -214,7 +214,7 @@ mod vector_scale {
                 vector
                     .insert(
                         branch_id,
-                        "scale_test",
+                        "default", "scale_test",
                         &format!("vec_{:08}", i),
                         &emb,
                         None,
@@ -225,7 +225,7 @@ mod vector_scale {
 
         // Count
         let actual_count = vector
-            .list_collections(branch_id)
+            .list_collections(branch_id, "default")
             .unwrap()
             .iter()
             .find(|c| c.name == "scale_test")
@@ -238,7 +238,7 @@ mod vector_scale {
             for i in 0..100 {
                 let query = seeded_vector(3, i);
                 let results = vector
-                    .search(branch_id, "scale_test", &query, 10, None)
+                    .search(branch_id, "default", "scale_test", &query, 10, None)
                     .unwrap();
                 assert_eq!(results.len(), 10);
             }
@@ -274,25 +274,25 @@ fn cross_primitive_scale_1k() {
     let p = test_db.all_primitives();
 
     p.vector
-        .create_collection(branch_id, "embeddings", config_small())
+        .create_collection(branch_id, "default", "embeddings", config_small())
         .unwrap();
 
     measure(&format!("Cross-primitive {} records", count), || {
         for i in 0..count {
             // KV: config
-            p.kv.put(&branch_id, &format!("item:{}", i), Value::Int(i as i64))
+            p.kv.put(&branch_id, "default", &format!("item:{}", i), Value::Int(i as i64))
                 .unwrap();
 
             // Event: audit
             p.event
-                .append(&branch_id, "items", int_payload(i as i64))
+                .append(&branch_id, "default", "items", int_payload(i as i64))
                 .unwrap();
 
             // Vector: embedding
             p.vector
                 .insert(
                     branch_id,
-                    "embeddings",
+                    "default", "embeddings",
                     &format!("item_{}", i),
                     &seeded_vector(3, i as u64),
                     None,
@@ -302,14 +302,14 @@ fn cross_primitive_scale_1k() {
     });
 
     // Verify counts
-    assert_eq!(p.kv.list(&branch_id, Some("item:")).unwrap().len(), count);
+    assert_eq!(p.kv.list(&branch_id, "default", Some("item:")).unwrap().len(), count);
     assert_eq!(
-        p.event.read_by_type(&branch_id, "items").unwrap().len() as u64,
+        p.event.read_by_type(&branch_id, "default", "items").unwrap().len() as u64,
         count as u64
     );
     assert_eq!(
         p.vector
-            .list_collections(branch_id)
+            .list_collections(branch_id, "default")
             .unwrap()
             .iter()
             .find(|c| c.name == "embeddings")
@@ -331,18 +331,18 @@ fn large_kv_values() {
 
     // 1KB value
     let small = vec![0xABu8; 1024];
-    kv.put(&branch_id, "1kb", Value::Bytes(small.clone()))
+    kv.put(&branch_id, "default", "1kb", Value::Bytes(small.clone()))
         .unwrap();
-    let val = kv.get(&branch_id, "1kb").unwrap().unwrap();
+    let val = kv.get(&branch_id, "default", "1kb").unwrap().unwrap();
     if let Value::Bytes(b) = val {
         assert_eq!(b.len(), 1024);
     }
 
     // 1MB value
     let large = vec![0xCDu8; 1024 * 1024];
-    kv.put(&branch_id, "1mb", Value::Bytes(large.clone()))
+    kv.put(&branch_id, "default", "1mb", Value::Bytes(large.clone()))
         .unwrap();
-    let val = kv.get(&branch_id, "1mb").unwrap().unwrap();
+    let val = kv.get(&branch_id, "default", "1mb").unwrap().unwrap();
     if let Value::Bytes(b) = val {
         assert_eq!(b.len(), 1024 * 1024);
     }
@@ -356,9 +356,9 @@ fn deep_json_nesting() {
 
     // 50 levels deep
     let deep = deep_json_value(50);
-    json.create(&branch_id, "deep", deep).unwrap();
+    json.create(&branch_id, "default", "deep", deep).unwrap();
 
-    let doc = json.get(&branch_id, "deep", &root()).unwrap().unwrap();
+    let doc = json.get(&branch_id, "default", "deep", &root()).unwrap().unwrap();
 
     // Navigate down
     let mut current: serde_json::Value = doc.as_inner().clone();
@@ -384,21 +384,21 @@ fn high_dimension_vectors() {
     };
 
     vector
-        .create_collection(branch_id, "high_dim", config)
+        .create_collection(branch_id, "default", "high_dim", config)
         .unwrap();
 
     // Insert 100 high-dimensional vectors
     for i in 0..100 {
         let emb = seeded_vector(1536, i);
         vector
-            .insert(branch_id, "high_dim", &format!("vec_{}", i), &emb, None)
+            .insert(branch_id, "default", "high_dim", &format!("vec_{}", i), &emb, None)
             .unwrap();
     }
 
     // Search should work
     let query = seeded_vector(1536, 0);
     let results = vector
-        .search(branch_id, "high_dim", &query, 5, None)
+        .search(branch_id, "default", "high_dim", &query, 5, None)
         .unwrap();
     assert_eq!(results.len(), 5);
     assert_eq!(results[0].key, "vec_0"); // Should find exact match
@@ -430,7 +430,7 @@ fn concurrent_writers_scale() {
                 barrier.wait();
                 for i in 0..writes_per_thread {
                     let key = format!("t{}_{}", t, i);
-                    kv.put(&branch_id, &key, Value::Int((t * 1000 + i) as i64))
+                    kv.put(&branch_id, "default", &key, Value::Int((t * 1000 + i) as i64))
                         .unwrap();
                 }
             })
@@ -442,6 +442,6 @@ fn concurrent_writers_scale() {
     }
 
     let kv = KVStore::new(test_db.db.clone());
-    let all_keys = kv.list(&branch_id, Some("t")).unwrap();
+    let all_keys = kv.list(&branch_id, "default", Some("t")).unwrap();
     assert_eq!(all_keys.len(), num_threads * writes_per_thread);
 }

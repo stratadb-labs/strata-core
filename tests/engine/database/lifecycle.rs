@@ -15,8 +15,8 @@ fn cache_database_is_functional() {
     let branch_id = BranchId::new();
     let kv = KVStore::new(db);
 
-    kv.put(&branch_id, "key", Value::Int(42)).unwrap();
-    let result = kv.get(&branch_id, "key").unwrap();
+    kv.put(&branch_id, "default", "key", Value::Int(42)).unwrap();
+    let result = kv.get(&branch_id, "default", "key").unwrap();
 
     assert!(result.is_some());
     assert_eq!(result.unwrap(), Value::Int(42));
@@ -31,13 +31,13 @@ fn cache_database_data_is_lost_on_drop() {
     {
         let db = Database::cache().expect("cache database");
         let kv = KVStore::new(db);
-        kv.put(&branch_id, &key, Value::Int(42)).unwrap();
+        kv.put(&branch_id, "default", &key, Value::Int(42)).unwrap();
     }
 
     // New cache database has no data
     let db = Database::cache().expect("cache database");
     let kv = KVStore::new(db);
-    let result = kv.get(&branch_id, &key).unwrap();
+    let result = kv.get(&branch_id, "default", &key).unwrap();
 
     assert!(result.is_none());
 }
@@ -67,7 +67,7 @@ fn persistent_database_survives_reopen() {
     // Write data
     {
         let kv = test_db.kv();
-        kv.put(&branch_id, &key, Value::Int(42)).unwrap();
+        kv.put(&branch_id, "default", &key, Value::Int(42)).unwrap();
     }
 
     // Force sync and reopen
@@ -76,7 +76,7 @@ fn persistent_database_survives_reopen() {
 
     // Verify data persisted
     let kv = test_db.kv();
-    let result = kv.get(&branch_id, &key).unwrap();
+    let result = kv.get(&branch_id, "default", &key).unwrap();
 
     assert!(result.is_some());
     assert_eq!(result.unwrap(), Value::Int(42));
@@ -91,7 +91,7 @@ fn persistent_database_multiple_reopens() {
     for i in 0..5 {
         {
             let kv = test_db.kv();
-            kv.put(&branch_id, &format!("key_{}", i), Value::Int(i))
+            kv.put(&branch_id, "default", &format!("key_{}", i), Value::Int(i))
                 .unwrap();
         }
         test_db.db.shutdown().unwrap();
@@ -101,7 +101,7 @@ fn persistent_database_multiple_reopens() {
     // Verify all data present
     let kv = test_db.kv();
     for i in 0..5 {
-        let result = kv.get(&branch_id, &format!("key_{}", i)).unwrap();
+        let result = kv.get(&branch_id, "default", &format!("key_{}", i)).unwrap();
         assert!(result.is_some(), "key_{} should exist", i);
         assert_eq!(result.unwrap(), Value::Int(i));
     }
@@ -137,8 +137,8 @@ fn open_with_always_config() {
     // Verify it works
     let branch_id = BranchId::new();
     let kv = KVStore::new(db);
-    kv.put(&branch_id, "key", Value::Int(1)).unwrap();
-    assert_eq!(kv.get(&branch_id, "key").unwrap(), Some(Value::Int(1)));
+    kv.put(&branch_id, "default", "key", Value::Int(1)).unwrap();
+    assert_eq!(kv.get(&branch_id, "default", "key").unwrap(), Some(Value::Int(1)));
 }
 
 #[test]
@@ -150,8 +150,8 @@ fn open_with_standard_config() {
     // Verify it works
     let branch_id = BranchId::new();
     let kv = KVStore::new(db);
-    kv.put(&branch_id, "key", Value::Int(1)).unwrap();
-    assert_eq!(kv.get(&branch_id, "key").unwrap(), Some(Value::Int(1)));
+    kv.put(&branch_id, "default", "key", Value::Int(1)).unwrap();
+    assert_eq!(kv.get(&branch_id, "default", "key").unwrap(), Some(Value::Int(1)));
 }
 
 // ============================================================================

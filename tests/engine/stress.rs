@@ -39,8 +39,8 @@ fn stress_concurrent_kv_operations() {
 
                 for i in 0..1000 {
                     let key = format!("thread_{}_key_{}", thread_id, i);
-                    kv.put(&branch_id, &key, Value::Int(i)).unwrap();
-                    let _ = kv.get(&branch_id, &key);
+                    kv.put(&branch_id, "default", &key, Value::Int(i)).unwrap();
+                    let _ = kv.get(&branch_id, "default", &key);
                     ops.fetch_add(2, Ordering::Relaxed);
                 }
             })
@@ -64,7 +64,7 @@ fn stress_transaction_throughput() {
     let branch_id = test_db.branch_id;
     let kv = test_db.kv();
 
-    kv.put(&branch_id, "counter", Value::Int(0)).unwrap();
+    kv.put(&branch_id, "default", "counter", Value::Int(0)).unwrap();
 
     let duration = Duration::from_secs(5);
     let start = Instant::now();
@@ -103,7 +103,7 @@ fn stress_large_batch_kv() {
 
     // Write 10K keys
     for i in 0..10_000 {
-        kv.put(&branch_id, &format!("key_{}", i), Value::Int(i))
+        kv.put(&branch_id, "default", &format!("key_{}", i), Value::Int(i))
             .unwrap();
     }
 
@@ -112,7 +112,7 @@ fn stress_large_batch_kv() {
     // Read all keys
     let read_start = Instant::now();
     for i in 0..10_000 {
-        let _ = kv.get(&branch_id, &format!("key_{}", i));
+        let _ = kv.get(&branch_id, "default", &format!("key_{}", i));
     }
     let read_time = read_start.elapsed();
 
@@ -120,7 +120,7 @@ fn stress_large_batch_kv() {
 
     // List all keys
     let list_start = Instant::now();
-    let keys = kv.list(&branch_id, None).unwrap();
+    let keys = kv.list(&branch_id, "default", None).unwrap();
     let list_time = list_start.elapsed();
 
     println!("List {} keys: {:?}", keys.len(), list_time);
@@ -151,13 +151,13 @@ fn stress_many_concurrent_branches() {
 
                 // Each branch does independent work
                 for i in 0..100 {
-                    kv.put(&branch_id, &format!("key_{}", i), Value::Int(i))
+                    kv.put(&branch_id, "default", &format!("key_{}", i), Value::Int(i))
                         .unwrap();
                 }
 
                 // Verify
                 for i in 0..100 {
-                    let val = kv.get(&branch_id, &format!("key_{}", i)).unwrap();
+                    let val = kv.get(&branch_id, "default", &format!("key_{}", i)).unwrap();
                     if val.is_some() && val.unwrap() == Value::Int(i) {
                         success.fetch_add(1, Ordering::Relaxed);
                     }
@@ -245,7 +245,7 @@ fn stress_vector_search() {
 
     let config = config_standard(); // 384 dimensions
     vector
-        .create_collection(branch_id, "stress_coll", config)
+        .create_collection(branch_id, "default", "stress_coll", config)
         .unwrap();
 
     // Insert 1000 vectors
@@ -253,7 +253,7 @@ fn stress_vector_search() {
     for i in 0..1000 {
         let v = seeded_vector(384, i as u64);
         vector
-            .insert(branch_id, "stress_coll", &format!("vec_{}", i), &v, None)
+            .insert(branch_id, "default", "stress_coll", &format!("vec_{}", i), &v, None)
             .unwrap();
     }
     let insert_time = insert_start.elapsed();
@@ -265,7 +265,7 @@ fn stress_vector_search() {
     for i in 0..100 {
         let query = seeded_vector(384, i * 10);
         let _ = vector
-            .search(branch_id, "stress_coll", &query, 10, None)
+            .search(branch_id, "default", "stress_coll", &query, 10, None)
             .unwrap();
     }
     let search_time = search_start.elapsed();
@@ -290,7 +290,7 @@ fn stress_eventlog_append() {
     // Append 10K events
     for i in 0..10_000 {
         event
-            .append(&branch_id, "stress_event", event_payload(Value::Int(i)))
+            .append(&branch_id, "default", "stress_event", event_payload(Value::Int(i)))
             .unwrap();
     }
 
@@ -302,12 +302,12 @@ fn stress_eventlog_append() {
         10_000.0 / elapsed.as_secs_f64()
     );
 
-    assert_eq!(event.len(&branch_id).unwrap(), 10_000);
+    assert_eq!(event.len(&branch_id, "default").unwrap(), 10_000);
 
     // Verify all events are readable
     let verify_start = Instant::now();
     for i in 0..10_000u64 {
-        let ev = event.read(&branch_id, i).unwrap();
+        let ev = event.read(&branch_id, "default", i).unwrap();
         assert!(ev.is_some(), "Event at sequence {} should exist", i);
     }
     let verify_time = verify_start.elapsed();

@@ -26,7 +26,7 @@ use std::sync::Arc;
 
 use strata_core::types::{Key, Namespace, TypeTag};
 use strata_engine::{
-    extensions::StateCellExt, Database, Transaction, TransactionContext, TransactionOps,
+    Database, Transaction, TransactionContext, TransactionOps,
 };
 use strata_security::AccessMode;
 
@@ -87,7 +87,7 @@ impl Session {
             });
         }
 
-        cmd.resolve_default_branch();
+        cmd.resolve_defaults();
 
         match &cmd {
             // Transaction lifecycle commands
@@ -150,6 +150,12 @@ impl Session {
             | Command::BranchImport { .. }
             | Command::BranchBundleValidate { .. }
             | Command::Search { .. }
+            // Space commands: manage spaces at the branch level,
+            // not transactional.
+            | Command::SpaceList { .. }
+            | Command::SpaceCreate { .. }
+            | Command::SpaceDelete { .. }
+            | Command::SpaceExists { .. }
             // Version history commands (KvGetv, StateReadv, JsonGetv) require
             // storage-layer version chains which are not available through the
             // transaction context. These always read from the committed store,
@@ -272,7 +278,35 @@ impl Session {
         let branch_id = self
             .txn_branch_id
             .expect("txn_branch_id set when txn_ctx is Some");
-        let ns = Namespace::for_branch(branch_id);
+
+        // Extract space from the command being executed
+        let space = match &cmd {
+            Command::KvPut { space, .. }
+            | Command::KvGet { space, .. }
+            | Command::KvDelete { space, .. }
+            | Command::KvList { space, .. }
+            | Command::KvGetv { space, .. }
+            | Command::StateSet { space, .. }
+            | Command::StateRead { space, .. }
+            | Command::StateReadv { space, .. }
+            | Command::StateDelete { space, .. }
+            | Command::StateInit { space, .. }
+            | Command::StateCas { space, .. }
+            | Command::StateList { space, .. }
+            | Command::EventAppend { space, .. }
+            | Command::EventRead { space, .. }
+            | Command::EventReadByType { space, .. }
+            | Command::EventLen { space, .. }
+            | Command::JsonSet { space, .. }
+            | Command::JsonGet { space, .. }
+            | Command::JsonGetv { space, .. }
+            | Command::JsonDelete { space, .. }
+            | Command::JsonList { space, .. } => {
+                space.clone().unwrap_or_else(|| "default".to_string())
+            }
+            _ => "default".to_string(),
+        };
+        let ns = Namespace::for_branch_space(branch_id, &space);
 
         // Temporarily take the context to create a Transaction
         let mut ctx = self.txn_ctx.take().unwrap();
@@ -455,8 +489,27 @@ impl Session {
                 Ok(Output::MaybeVersion(Some(extract_version(&version))))
             }
             Command::StateSet { cell, value, .. } => {
-                let version = ctx.state_set(&cell, value).map_err(Error::from)?;
-                Ok(Output::Version(extract_version(&version)))
+                // Construct key using the space-aware namespace (not StateCellExt
+                // which hardcodes the "default" space).
+                let full_key = Key::new_state(ns, &cell);
+                let new_version = match ctx.get(&full_key).map_err(Error::from)? {
+                    Some(strata_core::value::Value::String(s)) => {
+                        let current: strata_core::State =
+                            serde_json::from_str(&s).map_err(|e| Error::Serialization {
+                                reason: e.to_string(),
+                            })?;
+                        current.version.increment()
+                    }
+                    _ => strata_core::Version::counter(1),
+                };
+                let new_state = strata_core::State::with_version(value, new_version);
+                let serialized = serde_json::to_string(&new_state)
+                    .map(strata_core::value::Value::String)
+                    .map_err(|e| Error::Serialization {
+                        reason: e.to_string(),
+                    })?;
+                ctx.put(full_key, serialized).map_err(Error::from)?;
+                Ok(Output::Version(extract_version(&new_version)))
             }
 
             // === JSON writes — use Transaction ===
