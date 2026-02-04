@@ -44,6 +44,7 @@ pub mod event;
 pub mod extensions;
 pub mod json;
 pub mod kv;
+pub mod space;
 pub mod state;
 pub mod vector;
 
@@ -53,6 +54,7 @@ pub use branch::{BranchIndex, BranchMetadata, BranchStatus};
 pub use event::{Event, EventLog};
 pub use json::{JsonDoc, JsonStore};
 pub use kv::KVStore;
+pub use space::SpaceIndex;
 pub use state::{State, StateCell};
 pub use vector::{
     register_vector_recovery, validate_collection_name, validate_vector_key, BruteForceBackend,

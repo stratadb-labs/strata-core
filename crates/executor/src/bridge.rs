@@ -14,7 +14,8 @@ use strata_core::primitives::json::{JsonPath, JsonValue};
 use strata_core::{StrataError, StrataResult, Value};
 use strata_engine::{
     BranchIndex as PrimitiveBranchIndex, Database, EventLog as PrimitiveEventLog,
-    JsonStore as PrimitiveJsonStore, KVStore as PrimitiveKVStore, StateCell as PrimitiveStateCell,
+    JsonStore as PrimitiveJsonStore, KVStore as PrimitiveKVStore,
+    SpaceIndex as PrimitiveSpaceIndex, StateCell as PrimitiveStateCell,
     VectorStore as PrimitiveVectorStore,
 };
 
@@ -44,6 +45,8 @@ pub struct Primitives {
     pub branch: PrimitiveBranchIndex,
     /// Vector primitive
     pub vector: PrimitiveVectorStore,
+    /// Space primitive
+    pub space: PrimitiveSpaceIndex,
 }
 
 impl Primitives {
@@ -56,6 +59,7 @@ impl Primitives {
             state: PrimitiveStateCell::new(db.clone()),
             branch: PrimitiveBranchIndex::new(db.clone()),
             vector: PrimitiveVectorStore::new(db.clone()),
+            space: PrimitiveSpaceIndex::new(db.clone()),
             db,
         }
     }

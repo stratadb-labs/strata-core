@@ -274,6 +274,185 @@ fn test_delete_default_space_force_rejected() {
     assert!(matches!(result, Err(Error::ConstraintViolation { .. })));
 }
 
+#[test]
+fn test_space_create_and_list() {
+    let db = strata();
+
+    // Create a space via executor
+    let result = db.executor().execute(Command::SpaceCreate {
+        branch: None,
+        space: "alpha".to_string(),
+    });
+    assert!(matches!(result, Ok(Output::Unit)));
+
+    // Verify it appears in list
+    let spaces = db.list_spaces().unwrap();
+    assert!(spaces.contains(&"default".to_string()));
+    assert!(spaces.contains(&"alpha".to_string()));
+}
+
+#[test]
+fn test_space_exists() {
+    let db = strata();
+
+    // Default always exists
+    let result = db.executor().execute(Command::SpaceExists {
+        branch: None,
+        space: "default".to_string(),
+    });
+    assert!(matches!(result, Ok(Output::Bool(true))));
+
+    // Non-existent space
+    let result = db.executor().execute(Command::SpaceExists {
+        branch: None,
+        space: "nonexistent".to_string(),
+    });
+    assert!(matches!(result, Ok(Output::Bool(false))));
+
+    // Create a space, then check it exists
+    db.executor()
+        .execute(Command::SpaceCreate {
+            branch: None,
+            space: "beta".to_string(),
+        })
+        .unwrap();
+    let result = db.executor().execute(Command::SpaceExists {
+        branch: None,
+        space: "beta".to_string(),
+    });
+    assert!(matches!(result, Ok(Output::Bool(true))));
+}
+
+#[test]
+fn test_space_auto_register_on_write() {
+    let db = strata();
+
+    // Verify "auto-space" does not exist yet
+    let result = db.executor().execute(Command::SpaceExists {
+        branch: None,
+        space: "auto-space".to_string(),
+    });
+    assert!(matches!(result, Ok(Output::Bool(false))));
+
+    // Write KV to "auto-space" — should auto-register
+    db.executor()
+        .execute(Command::KvPut {
+            branch: None,
+            space: Some("auto-space".to_string()),
+            key: "key1".to_string(),
+            value: Value::Int(42),
+        })
+        .unwrap();
+
+    // Verify it now appears in list
+    let spaces = db.list_spaces().unwrap();
+    assert!(spaces.contains(&"auto-space".to_string()));
+
+    // And exists check returns true
+    let result = db.executor().execute(Command::SpaceExists {
+        branch: None,
+        space: "auto-space".to_string(),
+    });
+    assert!(matches!(result, Ok(Output::Bool(true))));
+}
+
+#[test]
+fn test_delete_empty_space() {
+    let db = strata();
+
+    // Create a space
+    db.executor()
+        .execute(Command::SpaceCreate {
+            branch: None,
+            space: "ephemeral".to_string(),
+        })
+        .unwrap();
+
+    // Delete without force — should succeed because it's empty
+    let result = db.delete_space("ephemeral");
+    assert!(result.is_ok());
+
+    // Verify it's gone
+    let result = db.executor().execute(Command::SpaceExists {
+        branch: None,
+        space: "ephemeral".to_string(),
+    });
+    assert!(matches!(result, Ok(Output::Bool(false))));
+}
+
+#[test]
+fn test_delete_non_empty_space_rejected() {
+    let mut db = strata();
+
+    // Create a space and write data into it
+    db.set_space("occupied").unwrap();
+    db.kv_put("key1", "value1").unwrap();
+    db.set_space("default").unwrap();
+
+    // Delete without force — should be rejected
+    let result = db.delete_space("occupied");
+    assert!(matches!(result, Err(Error::ConstraintViolation { .. })));
+}
+
+#[test]
+fn test_delete_non_empty_space_force() {
+    let mut db = strata();
+
+    // Create a space and write data into it
+    db.set_space("to-delete").unwrap();
+    db.kv_put("key1", "value1").unwrap();
+    db.set_space("default").unwrap();
+
+    // Force delete — should succeed
+    let result = db.delete_space_force("to-delete");
+    assert!(result.is_ok());
+
+    // Space should be gone
+    let result = db.executor().execute(Command::SpaceExists {
+        branch: None,
+        space: "to-delete".to_string(),
+    });
+    assert!(matches!(result, Ok(Output::Bool(false))));
+
+    // Data should be gone too
+    db.set_space("to-delete").unwrap();
+    let v = db.kv_get("key1").unwrap();
+    assert_eq!(v, None);
+}
+
+#[test]
+fn test_space_create_validates_name() {
+    let db = strata();
+
+    // Empty name
+    let result = db.executor().execute(Command::SpaceCreate {
+        branch: None,
+        space: "".to_string(),
+    });
+    assert!(result.is_err());
+
+    // Uppercase
+    let result = db.executor().execute(Command::SpaceCreate {
+        branch: None,
+        space: "MySpace".to_string(),
+    });
+    assert!(result.is_err());
+
+    // System prefix
+    let result = db.executor().execute(Command::SpaceCreate {
+        branch: None,
+        space: "_system_reserved".to_string(),
+    });
+    assert!(result.is_err());
+
+    // Too long
+    let result = db.executor().execute(Command::SpaceCreate {
+        branch: None,
+        space: "a".repeat(65),
+    });
+    assert!(result.is_err());
+}
+
 // =============================================================================
 // Backwards compatibility
 // =============================================================================

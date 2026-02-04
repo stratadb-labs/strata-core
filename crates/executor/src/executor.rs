@@ -8,7 +8,9 @@ use std::sync::Arc;
 use strata_engine::Database;
 use strata_security::AccessMode;
 
-use crate::bridge::Primitives;
+use crate::bridge::{to_core_branch_id, Primitives};
+use crate::convert::convert_result;
+use crate::types::BranchId;
 use crate::{Command, Error, Output, Result};
 
 /// The command executor - single entry point to Strata's engine.
@@ -69,6 +71,20 @@ impl Executor {
         self.access_mode
     }
 
+    /// Auto-register a space on first write to a non-default space.
+    ///
+    /// This is idempotent: calling it on an already-registered space just
+    /// performs a single `txn.get()` check. The "default" space is skipped
+    /// since it always exists implicitly.
+    fn ensure_space_registered(&self, branch: &BranchId, space: &str) -> Result<()> {
+        if space == "default" {
+            return Ok(());
+        }
+        let core_branch = to_core_branch_id(branch)?;
+        convert_result(self.primitives.space.register(core_branch, space))?;
+        Ok(())
+    }
+
     /// Execute a single command.
     ///
     /// Resolves any `None` branch fields to the default branch before dispatch.
@@ -116,6 +132,7 @@ impl Executor {
                     reason: "Branch must be specified or resolved to default".into(),
                 })?;
                 let space = space.unwrap_or_else(|| "default".to_string());
+                self.ensure_space_registered(&branch, &space)?;
                 crate::handlers::kv::kv_put(&self.primitives, branch, space, key, value)
             }
             Command::KvGet { branch, space, key } => {
@@ -130,6 +147,7 @@ impl Executor {
                     reason: "Branch must be specified or resolved to default".into(),
                 })?;
                 let space = space.unwrap_or_else(|| "default".to_string());
+                self.ensure_space_registered(&branch, &space)?;
                 crate::handlers::kv::kv_delete(&self.primitives, branch, space, key)
             }
             Command::KvList {
@@ -165,6 +183,7 @@ impl Executor {
                     reason: "Branch must be specified or resolved to default".into(),
                 })?;
                 let space = space.unwrap_or_else(|| "default".to_string());
+                self.ensure_space_registered(&branch, &space)?;
                 crate::handlers::json::json_set(&self.primitives, branch, space, key, path, value)
             }
             Command::JsonGet { branch, space, key, path } => {
@@ -186,6 +205,7 @@ impl Executor {
                     reason: "Branch must be specified or resolved to default".into(),
                 })?;
                 let space = space.unwrap_or_else(|| "default".to_string());
+                self.ensure_space_registered(&branch, &space)?;
                 crate::handlers::json::json_delete(&self.primitives, branch, space, key, path)
             }
             Command::JsonList {
@@ -213,6 +233,7 @@ impl Executor {
                     reason: "Branch must be specified or resolved to default".into(),
                 })?;
                 let space = space.unwrap_or_else(|| "default".to_string());
+                self.ensure_space_registered(&branch, &space)?;
                 crate::handlers::event::event_append(&self.primitives, branch, space, event_type, payload)
             }
             Command::EventRead { branch, space, sequence } => {
@@ -261,6 +282,7 @@ impl Executor {
                     reason: "Branch must be specified or resolved to default".into(),
                 })?;
                 let space = space.unwrap_or_else(|| "default".to_string());
+                self.ensure_space_registered(&branch, &space)?;
                 crate::handlers::state::state_set(&self.primitives, branch, space, cell, value)
             }
             Command::StateRead { branch, space, cell } => {
@@ -288,6 +310,7 @@ impl Executor {
                     reason: "Branch must be specified or resolved to default".into(),
                 })?;
                 let space = space.unwrap_or_else(|| "default".to_string());
+                self.ensure_space_registered(&branch, &space)?;
                 crate::handlers::state::state_cas(
                     &self.primitives,
                     branch,
@@ -307,6 +330,7 @@ impl Executor {
                     reason: "Branch must be specified or resolved to default".into(),
                 })?;
                 let space = space.unwrap_or_else(|| "default".to_string());
+                self.ensure_space_registered(&branch, &space)?;
                 crate::handlers::state::state_init(&self.primitives, branch, space, cell, value)
             }
             Command::StateDelete { branch, space, cell } => {
@@ -314,6 +338,7 @@ impl Executor {
                     reason: "Branch must be specified or resolved to default".into(),
                 })?;
                 let space = space.unwrap_or_else(|| "default".to_string());
+                self.ensure_space_registered(&branch, &space)?;
                 crate::handlers::state::state_delete(&self.primitives, branch, space, cell)
             }
             Command::StateList { branch, space, prefix } => {
@@ -337,6 +362,7 @@ impl Executor {
                     reason: "Branch must be specified or resolved to default".into(),
                 })?;
                 let space = space.unwrap_or_else(|| "default".to_string());
+                self.ensure_space_registered(&branch, &space)?;
                 crate::handlers::vector::vector_upsert(
                     &self.primitives,
                     branch,
@@ -369,6 +395,7 @@ impl Executor {
                     reason: "Branch must be specified or resolved to default".into(),
                 })?;
                 let space = space.unwrap_or_else(|| "default".to_string());
+                self.ensure_space_registered(&branch, &space)?;
                 crate::handlers::vector::vector_delete(&self.primitives, branch, space, collection, key)
             }
             Command::VectorSearch {
@@ -406,6 +433,7 @@ impl Executor {
                     reason: "Branch must be specified or resolved to default".into(),
                 })?;
                 let space = space.unwrap_or_else(|| "default".to_string());
+                self.ensure_space_registered(&branch, &space)?;
                 crate::handlers::vector::vector_create_collection(
                     &self.primitives,
                     branch,
@@ -420,6 +448,7 @@ impl Executor {
                     reason: "Branch must be specified or resolved to default".into(),
                 })?;
                 let space = space.unwrap_or_else(|| "default".to_string());
+                self.ensure_space_registered(&branch, &space)?;
                 crate::handlers::vector::vector_delete_collection(
                     &self.primitives,
                     branch,
@@ -456,6 +485,7 @@ impl Executor {
                     reason: "Branch must be specified or resolved to default".into(),
                 })?;
                 let space = space.unwrap_or_else(|| "default".to_string());
+                self.ensure_space_registered(&branch, &space)?;
                 crate::handlers::vector::vector_batch_upsert(
                     &self.primitives,
                     branch,

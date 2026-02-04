@@ -105,6 +105,7 @@ pub use primitives::{
     // Search & Scoring
     Searchable,
     SimpleScorer,
+    SpaceIndex,
     State,
     StateCell,
     StateCellExt,
