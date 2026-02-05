@@ -2,48 +2,33 @@
 
 The Event Log is an append-only sequence of typed events. Events are immutable once written — you cannot update or delete individual events. This makes it ideal for audit trails, tool call history, and decision logs.
 
-## API Overview
+## Command Overview
 
-| Method | Signature | Returns |
-|--------|-----------|---------|
-| `event_append` | `(event_type: &str, payload: Value) -> Result<u64>` | Sequence number |
-| `event_get` | `(sequence: u64) -> Result<Option<VersionedValue>>` | Event at sequence |
-| `event_get_by_type` | `(event_type: &str) -> Result<Vec<VersionedValue>>` | All events of type |
-| `event_len` | `() -> Result<u64>` | Total event count |
+| Command | Syntax | Returns |
+|---------|--------|---------|
+| `event append` | `event append <type> <payload>` | Sequence number |
+| `event get` | `event get <seq>` | Event at sequence |
+| `event list` | `event list <type> [--limit N] [--after SEQ]` | All events of type |
+| `event len` | `event len` | Total event count |
 
 ## Appending Events
 
-Each event has a **type** (a string label) and a **payload** (must be `Value::Object`):
+Each event has a **type** (a string label) and a **payload** (must be a JSON object):
 
-```rust
-let db = Strata::cache()?;
-
-// Append with serde_json for ergonomic Object construction
-let payload: Value = serde_json::json!({
-    "tool": "web_search",
-    "query": "rust embedded database",
-    "results": 10
-}).into();
-let seq = db.event_append("tool_call", payload)?;
-println!("Event recorded at sequence {}", seq);
+```
+$ strata --cache
+strata:default/default> event append tool_call '{"tool":"web_search","query":"rust embedded database","results":10}'
+(seq) 1
 ```
 
-### Payload Must Be Object
+### Payload Must Be a JSON Object
 
-Event payloads must be `Value::Object`. This ensures events are structured and queryable:
+Event payloads must be JSON objects. This ensures events are structured and queryable:
 
-```rust
-use std::collections::HashMap;
-
-// Using HashMap directly
-let mut payload = HashMap::new();
-payload.insert("action".to_string(), Value::String("login".into()));
-payload.insert("user_id".to_string(), Value::Int(42));
-db.event_append("auth", Value::Object(payload))?;
-
-// Using serde_json::json! (more ergonomic)
-let payload: Value = serde_json::json!({"action": "login", "user_id": 42}).into();
-db.event_append("auth", payload)?;
+```
+$ strata --cache
+strata:default/default> event append auth '{"action":"login","user_id":42}'
+(seq) 1
 ```
 
 ## Reading Events
@@ -52,109 +37,102 @@ db.event_append("auth", payload)?;
 
 Each event gets a unique sequence number (starting from 1):
 
-```rust
-let db = Strata::cache()?;
-
-let seq = db.event_append("log", serde_json::json!({"msg": "hello"}).into())?;
-
-let event = db.event_get(seq)?;
-if let Some(versioned) = event {
-    println!("Payload: {:?}", versioned.value);
-    println!("Version: {}", versioned.version);
-}
+```
+$ strata --cache
+strata:default/default> event append log '{"msg":"hello"}'
+(seq) 1
+strata:default/default> event get 1
+seq=1 type=log payload={"msg":"hello"}
 ```
 
 ### By Event Type
 
 Retrieve all events with a specific type label:
 
-```rust
-let db = Strata::cache()?;
-
-db.event_append("tool_call", serde_json::json!({"tool": "search"}).into())?;
-db.event_append("decision", serde_json::json!({"choice": "A"}).into())?;
-db.event_append("tool_call", serde_json::json!({"tool": "calculator"}).into())?;
-
-let tool_calls = db.event_get_by_type("tool_call")?;
-assert_eq!(tool_calls.len(), 2);
-
-let decisions = db.event_get_by_type("decision")?;
-assert_eq!(decisions.len(), 1);
+```
+$ strata --cache
+strata:default/default> event append tool_call '{"tool":"search"}'
+(seq) 1
+strata:default/default> event append decision '{"choice":"A"}'
+(seq) 2
+strata:default/default> event append tool_call '{"tool":"calculator"}'
+(seq) 3
+strata:default/default> event list tool_call
+seq=1 type=tool_call payload={"tool":"search"}
+seq=3 type=tool_call payload={"tool":"calculator"}
+strata:default/default> event list decision
+seq=2 type=decision payload={"choice":"A"}
 ```
 
 ## Event Count
 
 Get the total number of events in the current branch:
 
-```rust
-let db = Strata::cache()?;
-assert_eq!(db.event_len()?, 0);
-
-db.event_append("log", serde_json::json!({"msg": "one"}).into())?;
-db.event_append("log", serde_json::json!({"msg": "two"}).into())?;
-assert_eq!(db.event_len()?, 2);
+```
+$ strata --cache
+strata:default/default> event len
+0
+strata:default/default> event append log '{"msg":"one"}'
+(seq) 1
+strata:default/default> event append log '{"msg":"two"}'
+(seq) 2
+strata:default/default> event len
+2
 ```
 
 ## Common Patterns
 
 ### Audit Trail
 
-```rust
-fn log_tool_call(db: &Strata, tool: &str, input: &str, output: &str) -> stratadb::Result<u64> {
-    let payload: Value = serde_json::json!({
-        "tool": tool,
-        "input": input,
-        "output": output,
-    }).into();
-    db.event_append("tool_call", payload)
-}
+Log every tool call with input and output:
+
+```bash
+strata --cache event append tool_call '{"tool":"search","input":"query","output":"results"}'
 ```
 
 ### Decision Log
 
-```rust
-fn log_decision(db: &Strata, decision: &str, reason: &str, confidence: f64) -> stratadb::Result<u64> {
-    let payload: Value = serde_json::json!({
-        "decision": decision,
-        "reason": reason,
-        "confidence": confidence,
-    }).into();
-    db.event_append("decision", payload)
-}
+Record agent decisions with reasoning:
+
+```bash
+strata --cache event append decision '{"decision":"use_tool_A","reason":"higher confidence","confidence":0.92}'
 ```
 
 ## Branch Isolation
 
-Events are isolated by branch. `event_len()` returns 0 in a new branch even if other branches have events:
+Events are isolated by branch. `event len` returns 0 in a new branch even if other branches have events:
 
-```rust
-let mut db = Strata::cache()?;
-db.event_append("log", serde_json::json!({"msg": "in default"}).into())?;
-
-db.create_branch("other")?;
-db.set_branch("other")?;
-assert_eq!(db.event_len()?, 0); // Isolated
+```
+$ strata --cache
+strata:default/default> event append log '{"msg":"in default"}'
+(seq) 1
+strata:default/default> branch create other
+OK
+strata:default/default> use other
+strata:other/default> event len
+0
 ```
 
 ## Space Isolation
 
 Within a branch, events are scoped to the current space:
 
-```rust
-let mut db = Strata::cache()?;
-
-db.event_append("log", serde_json::json!({"msg": "in default space"}).into())?;
-assert_eq!(db.event_len()?, 1);
-
-db.set_space("other")?;
-assert_eq!(db.event_len()?, 0); // separate event stream per space
+```
+$ strata --cache
+strata:default/default> event append log '{"msg":"in default space"}'
+(seq) 1
+strata:default/default> event len
+1
+strata:default/default> use default other
+strata:default/other> event len
+0
 ```
 
 See [Spaces](spaces.md) for the full guide.
 
 ## Transactions
 
-Event append operations participate in transactions. Within a session, appended events are only visible after commit.
+Event append operations participate in transactions. Within a transaction, appended events are only visible after commit.
 
 See [Sessions and Transactions](sessions-and-transactions.md) for details.
 

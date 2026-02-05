@@ -1,17 +1,27 @@
 # Error Handling Guide
 
-All StrataDB operations return `Result<T, Error>`. The `Error` enum has structured variants so you can match on specific error conditions.
+All StrataDB CLI commands return an error message and a non-zero exit code on failure. Errors have structured categories so you can handle them in scripts.
 
-## Using the ? Operator
+## CLI Error Output
 
-The recommended pattern uses Rust's `?` operator:
+Errors are displayed with the error category:
 
-```rust
-fn do_work(db: &Strata) -> stratadb::Result<()> {
-    db.kv_put("key", "value")?;
-    let val = db.kv_get("key")?;
-    Ok(())
-}
+```
+$ strata --cache
+strata:default/default> kv get missing
+(nil)
+strata:default/default> use nonexistent
+(error) BranchNotFound: branch "nonexistent" does not exist
+```
+
+In shell mode, check exit codes:
+
+```bash
+if strata --cache branch exists my-branch; then
+    echo "Branch exists"
+else
+    echo "Branch does not exist"
+fi
 ```
 
 ## Error Categories
@@ -20,127 +30,101 @@ fn do_work(db: &Strata) -> stratadb::Result<()> {
 
 Returned when an entity doesn't exist.
 
-| Variant | When |
-|---------|------|
-| `KeyNotFound { key }` | KV key not found |
-| `BranchNotFound { branch }` | Branch doesn't exist |
-| `CollectionNotFound { collection }` | Vector collection doesn't exist |
-| `StreamNotFound { stream }` | Event stream not found |
-| `CellNotFound { cell }` | State cell not found |
-| `DocumentNotFound { key }` | JSON document not found |
+| Error | When |
+|-------|------|
+| `BranchNotFound` | Branch doesn't exist |
+| `CollectionNotFound` | Vector collection doesn't exist |
 
-```rust
-match db.kv_get("missing") {
-    Ok(None) => println!("Key not found (normal)"),
-    Ok(Some(v)) => println!("Found: {:?}", v),
-    Err(e) => println!("Error: {}", e),
-}
-```
-
-Note: `kv_get` returns `Ok(None)` for missing keys, not an error. The `KeyNotFound` error is used in contexts where the key is required.
+Note: `kv get` returns `(nil)` for missing keys, not an error. Similarly for `state get` and `json get`.
 
 ### Validation Errors
 
 Returned when input is malformed.
 
-| Variant | When |
-|---------|------|
-| `InvalidKey { reason }` | Key format is invalid |
-| `InvalidPath { reason }` | JSON path is malformed |
-| `InvalidInput { reason }` | General input validation failure |
-| `WrongType { expected, actual }` | Type mismatch |
+| Error | When |
+|-------|------|
+| `InvalidKey` | Key format is invalid |
+| `InvalidPath` | JSON path is malformed |
+| `InvalidInput` | General input validation failure |
 
 ### Concurrency Errors
 
 Returned when concurrent operations conflict.
 
-| Variant | When |
-|---------|------|
-| `VersionConflict { expected, actual }` | CAS version doesn't match |
-| `TransitionFailed { expected, actual }` | State transition condition not met |
-| `Conflict { reason }` | General conflict |
+| Error | When |
+|-------|------|
+| `VersionConflict` | CAS version doesn't match |
+| `TransactionConflict` | Commit-time validation failure |
 
 ### State Errors
 
 Returned when an operation violates state constraints.
 
-| Variant | When |
-|---------|------|
-| `BranchClosed { branch }` | Operation on a closed branch |
-| `BranchExists { branch }` | Creating a branch that already exists |
-| `CollectionExists { collection }` | Creating a collection that already exists |
+| Error | When |
+|-------|------|
+| `BranchExists` | Creating a branch that already exists |
+| `CollectionExists` | Creating a collection that already exists |
 
 ### Constraint Errors
 
 Returned when limits or constraints are violated.
 
-| Variant | When |
-|---------|------|
-| `DimensionMismatch { expected, actual }` | Vector dimension doesn't match collection |
-| `ConstraintViolation { reason }` | General constraint violation (e.g., deleting default branch) |
-| `HistoryTrimmed { requested, earliest }` | Requested version was removed by retention |
-| `Overflow { reason }` | Numeric overflow |
+| Error | When |
+|-------|------|
+| `DimensionMismatch` | Vector dimension doesn't match collection |
+| `ConstraintViolation` | General constraint violation (e.g., deleting default branch) |
 
 ### Transaction Errors
 
 Returned during transaction lifecycle issues.
 
-| Variant | When |
-|---------|------|
+| Error | When |
+|-------|------|
 | `TransactionNotActive` | Commit/rollback without an active transaction |
 | `TransactionAlreadyActive` | Begin while a transaction is already open |
-| `TransactionConflict { reason }` | Commit-time validation failure |
-
-### System Errors
-
-Returned for infrastructure-level failures.
-
-| Variant | When |
-|---------|------|
-| `Io { reason }` | File I/O failure |
-| `Serialization { reason }` | Data serialization/deserialization failure |
-| `Internal { reason }` | Bug or invariant violation |
-| `NotImplemented { feature, reason }` | Feature not yet available |
+| `TransactionConflict` | Commit-time validation failure |
 
 ## Common Patterns
 
-### Match on Specific Errors
+### Handle Specific Errors in Scripts
 
-```rust
-use stratadb::Error;
+```bash
+#!/bin/bash
+set -euo pipefail
 
-match db.create_branch("my-branch") {
-    Ok(()) => println!("Created"),
-    Err(Error::BranchExists { branch }) => println!("Branch {} already exists", branch),
-    Err(e) => return Err(e),
-}
+# Create branch only if it doesn't exist
+if ! strata --cache branch create my-branch 2>/dev/null; then
+    echo "Branch already exists (or other error)"
+fi
 ```
 
 ### Transaction Retry
 
-```rust
-loop {
-    session.execute(Command::TxnBegin { branch: None, options: None })?;
-    // ... operations ...
-    match session.execute(Command::TxnCommit) {
-        Ok(_) => break,
-        Err(Error::TransactionConflict { .. }) => continue,
-        Err(e) => return Err(e),
-    }
-}
+```bash
+#!/bin/bash
+set -euo pipefail
+
+for attempt in 1 2 3 4 5; do
+    strata --db ./data <<'EOF' && break
+begin
+kv get counter
+kv put counter 1
+commit
+EOF
+    echo "Conflict on attempt $attempt, retrying..."
+done
 ```
 
 ### Idempotent Operations
 
-Use `state_init` and check for `BranchExists` to write idempotent code:
+Use `state init` for idempotent initialization and check for `BranchExists`:
 
-```rust
-// Create branch only if it doesn't exist
-match db.create_branch("session-001") {
-    Ok(()) => {},
-    Err(Error::BranchExists { .. }) => {},  // Already exists — fine
-    Err(e) => return Err(e),
-}
+```bash
+# Create branch only if it doesn't exist
+strata --cache branch create session-001 2>/dev/null || true
+
+# Initialize state idempotently
+strata --cache state init status idle
 ```
 
 ## Next

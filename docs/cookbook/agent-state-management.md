@@ -11,97 +11,100 @@ Each agent session gets its own branch. Within that branch:
 
 ## Implementation
 
-```rust
-use stratadb::{Strata, Value};
+Set up and run an agent session in the REPL:
 
-fn run_agent_session(db: &mut Strata, session_id: &str) -> stratadb::Result<()> {
-    // Create an isolated branch for this session
-    db.create_branch(session_id)?;
-    db.set_branch(session_id)?;
+```
+$ strata --cache
+strata:default/default> branch create session-001
+OK
+strata:default/default> use session-001
+strata:session-001/default> kv put config:model gpt-4
+(version) 1
+strata:session-001/default> kv put config:max_steps 10
+(version) 1
+strata:session-001/default> kv put config:temperature 0.7
+(version) 1
+strata:session-001/default> state init status started
+(version) 1
+strata:session-001/default> state init step_count 0
+(version) 1
+strata:session-001/default> state set status thinking
+(version) 2
+strata:session-001/default> event append tool_call '{"step":0,"action":"web_search","query":"step 0 query"}'
+(seq) 1
+strata:session-001/default> kv put result:step:0 "Result from step 0"
+(version) 1
+strata:session-001/default> state set step_count 1
+(version) 2
+strata:session-001/default> state set status completed
+(version) 3
+strata:session-001/default> event len
+1
+strata:session-001/default> state get status
+"completed"
+strata:session-001/default> state get step_count
+1
+```
 
-    // === Configuration (KV) ===
-    db.kv_put("config:model", "gpt-4")?;
-    db.kv_put("config:max_steps", 10i64)?;
-    db.kv_put("config:temperature", 0.7)?;
+Or as a shell script for automated sessions:
 
-    // === Status Tracking (StateCell) ===
-    db.state_init("status", "started")?;
-    db.state_init("step_count", 0i64)?;
+```bash
+#!/bin/bash
+set -euo pipefail
 
-    // === Main Agent Loop ===
-    for step in 0..10 {
-        // Update status
-        db.state_set("status", "thinking")?;
+DB="--db ./data"
+SESSION="session-001"
 
-        // Record the tool call (EventLog)
-        let payload: Value = serde_json::json!({
-            "step": step,
-            "action": "web_search",
-            "query": format!("step {} query", step),
-        }).into();
-        db.event_append("tool_call", payload)?;
+# Create isolated branch
+strata $DB branch create "$SESSION"
 
-        // Store intermediate results (KV)
-        db.kv_put(
-            &format!("result:step:{}", step),
-            format!("Result from step {}", step),
-        )?;
+# Configuration
+strata $DB --branch "$SESSION" kv put config:model gpt-4
+strata $DB --branch "$SESSION" kv put config:max_steps 10
+strata $DB --branch "$SESSION" kv put config:temperature 0.7
 
-        // Update step counter
-        db.state_set("step_count", (step + 1) as i64)?;
-    }
+# Initialize status
+strata $DB --branch "$SESSION" state init status started
+strata $DB --branch "$SESSION" state init step_count 0
 
-    // Mark session complete
-    db.state_set("status", "completed")?;
+# Agent loop
+for step in $(seq 0 9); do
+    strata $DB --branch "$SESSION" state set status thinking
+    strata $DB --branch "$SESSION" event append tool_call "{\"step\":$step,\"action\":\"web_search\"}"
+    strata $DB --branch "$SESSION" kv put "result:step:$step" "Result from step $step"
+    strata $DB --branch "$SESSION" state set step_count $((step + 1))
+done
 
-    // Review the session
-    let status = db.state_get("status")?;
-    let events = db.event_len()?;
-    let steps = db.state_get("step_count")?;
-    println!("Session {}: status={:?}, events={}, steps={:?}",
-        session_id, status, events, steps);
+# Mark complete
+strata $DB --branch "$SESSION" state set status completed
 
-    // Switch back to default branch
-    db.set_branch("default")?;
-
-    Ok(())
-}
+echo "Session complete"
+strata $DB --branch "$SESSION" event len
+strata $DB --branch "$SESSION" state get status
 ```
 
 ## Reading Session History
 
-After a session completes, you can switch to its branch and read everything:
+After a session completes, switch to its branch and read everything:
 
-```rust
-fn review_session(db: &mut Strata, session_id: &str) -> stratadb::Result<()> {
-    db.set_branch(session_id)?;
-
-    // Read all tool calls
-    let tool_calls = db.event_get_by_type("tool_call")?;
-    for tc in &tool_calls {
-        println!("Tool call: {:?}", tc.value);
-    }
-
-    // Read config
-    let model = db.kv_get("config:model")?;
-    println!("Model used: {:?}", model);
-
-    // Read final status
-    let status = db.state_get("status")?;
-    println!("Final status: {:?}", status);
-
-    db.set_branch("default")?;
-    Ok(())
-}
+```
+$ strata --db ./data
+strata:default/default> use session-001
+strata:session-001/default> event list tool_call
+seq=1 type=tool_call payload={"step":0,"action":"web_search","query":"step 0 query"}
+...
+strata:session-001/default> kv get config:model
+"gpt-4"
+strata:session-001/default> state get status
+"completed"
 ```
 
 ## Cleanup
 
 Delete sessions you no longer need:
 
-```rust
-db.set_branch("default")?;
-db.delete_branch("session-001")?; // Removes all data
+```bash
+strata --db ./data branch del session-001
 ```
 
 ## See Also

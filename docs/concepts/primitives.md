@@ -47,24 +47,22 @@ Every primitive is isolated by the current branch. Data written in one branch is
 
 ### Space Organization Within Branches
 
-Within a branch, primitives are further organized by **space**. Each space has its own independent instance of every primitive. The `default` space is implicit — all operations target it unless you switch with `set_space`.
+Within a branch, primitives are further organized by **space**. Each space has its own independent instance of every primitive. The `default` space is implicit — all operations target it unless you switch spaces.
 
-```rust
-let mut db = Strata::cache()?;
-
-// Default space
-db.kv_put("key", "default-value")?;
-
-// Switch space — data is separate
-db.set_space("experiments")?;
-assert!(db.kv_get("key")?.is_none()); // not visible in this space
+```
+$ strata --cache
+strata:default/default> kv put key default-value
+(version) 1
+strata:default/default> use default experiments
+strata:default/experiments> kv get key
+(nil)
 ```
 
 Spaces are organizational, not isolation boundaries. Transactions can span multiple spaces within the same branch. See [Spaces](../guides/spaces.md) for the full guide.
 
 ## All Primitives Use Value
 
-Every primitive stores data as [`Value`](value-types.md) — StrataDB's 8-variant type system. You pass Rust types directly (strings, integers, bools) and they convert automatically via `Into<Value>`.
+The CLI auto-detects types from input format. Strings, integers, floats, and booleans are recognized automatically. JSON objects and arrays can be passed as JSON strings.
 
 ## Next
 

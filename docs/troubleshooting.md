@@ -4,139 +4,157 @@ Common issues and their solutions.
 
 ## Data Not Visible After Writing
 
-**Symptom:** You wrote data with `kv_put` but `kv_get` returns `None`.
+**Symptom:** You wrote data with `kv put` but `kv get` returns `(nil)`.
 
-**Likely cause:** You are on a different branch than where you wrote the data.
+**Likely cause:** You are on a different branch or space than where you wrote the data.
 
-**Fix:** Check your current branch with `db.current_branch()` and make sure you are reading from the same branch where you wrote:
+**Fix:** Check your current branch and space — the prompt shows them:
 
-```rust
-println!("Current branch: {}", db.current_branch());
+```
+strata:default/default>
+       ^^^^^^^  ^^^^^^^
+       branch   space
 ```
 
-All data in StrataDB is branch-scoped. Data written in one branch is invisible from another. See [Branches](concepts/branches.md).
+All data in StrataDB is branch-scoped and space-scoped. Data written in one branch is invisible from another. See [Branches](concepts/branches.md).
 
 ## TransactionConflict Error
 
-**Symptom:** `Error::TransactionConflict` when committing a transaction.
+**Symptom:** `TransactionConflict` error when committing a transaction.
 
 **Cause:** Another transaction modified data that your transaction read between your begin and commit.
 
 **Fix:** Retry the entire transaction:
 
-```rust
-loop {
-    session.execute(Command::TxnBegin { branch: None, options: None })?;
-    // ... your operations ...
-    match session.execute(Command::TxnCommit) {
-        Ok(_) => break,
-        Err(Error::TransactionConflict { .. }) => continue,
-        Err(e) => return Err(e),
-    }
-}
+```
+$ strata --db ./data
+strata:default/default> begin
+OK
+strata:default/default> kv put key value
+(version) 1
+strata:default/default> commit
+(error) TransactionConflict: key was modified by another transaction
+strata:default/default> begin
+OK
+strata:default/default> kv put key value
+(version) 1
+strata:default/default> commit
+OK
+```
+
+In scripts, use a retry loop:
+
+```bash
+for attempt in 1 2 3 4 5; do
+    strata --db ./data <<'EOF' && break
+begin
+kv put key value
+commit
+EOF
+    echo "Conflict on attempt $attempt, retrying..."
+done
 ```
 
 See [Transactions](concepts/transactions.md).
 
 ## DimensionMismatch Error
 
-**Symptom:** `Error::DimensionMismatch` when upserting a vector.
+**Symptom:** `DimensionMismatch` error when upserting a vector.
 
 **Cause:** The vector you are inserting has a different number of dimensions than the collection was created with.
 
 **Fix:** Ensure your vector length matches the collection's dimension:
 
-```rust
-// If collection was created with dimension 384:
-db.vector_create_collection("col", 384, DistanceMetric::Cosine)?;
-
-// Your vector must have exactly 384 elements:
-let embedding = vec![0.0f32; 384]; // correct
-db.vector_upsert("col", "key", embedding, None)?;
 ```
+$ strata --cache
+strata:default/default> vector create col 384 --metric cosine
+OK
+strata:default/default> vector upsert col key [0.0,0.0,...,0.0]
+OK
+```
+
+The vector must have exactly the same number of elements as the collection's dimension (384 in this example).
 
 ## Cannot Delete Current Branch
 
-**Symptom:** `Error::ConstraintViolation` when deleting a branch.
+**Symptom:** `ConstraintViolation` error when deleting a branch.
 
 **Cause:** You are trying to delete the branch you are currently on, or the "default" branch.
 
 **Fix:** Switch to a different branch before deleting:
 
-```rust
-db.set_branch("default")?;
-db.delete_branch("the-branch-to-delete")?;
+```
+$ strata --cache
+strata:my-branch/default> use default
+strata:default/default> branch del my-branch
+OK
 ```
 
 The "default" branch cannot be deleted.
 
 ## BranchNotFound When Switching
 
-**Symptom:** `Error::BranchNotFound` when calling `set_branch`.
+**Symptom:** `BranchNotFound` error when running `use`.
 
 **Cause:** The branch doesn't exist yet.
 
 **Fix:** Create it first:
 
-```rust
-db.create_branch("my-branch")?;
-db.set_branch("my-branch")?;
+```
+strata:default/default> branch create my-branch
+OK
+strata:default/default> use my-branch
+strata:my-branch/default>
 ```
 
 ## BranchExists When Creating
 
-**Symptom:** `Error::BranchExists` when calling `create_branch`.
+**Symptom:** `BranchExists` error when running `branch create`.
 
 **Cause:** A branch with that name already exists.
 
 **Fix:** Check existence first, or ignore the error:
 
-```rust
-match db.create_branch("my-branch") {
-    Ok(()) => {},
-    Err(Error::BranchExists { .. }) => {}, // Already exists
-    Err(e) => return Err(e),
-}
+```bash
+# Shell: ignore the error if branch already exists
+strata --cache branch create my-branch 2>/dev/null || true
+```
+
+```
+$ strata --cache
+strata:default/default> branch exists my-branch
+true
 ```
 
 ## Event Append Fails
 
-**Symptom:** Error when calling `event_append`.
+**Symptom:** Error when running `event append`.
 
-**Cause:** Event payloads must be `Value::Object`. Passing a string, integer, or other type will fail.
+**Cause:** Event payloads must be JSON objects. Passing a plain string or number will fail.
 
-**Fix:** Wrap your data in an object:
+**Fix:** Wrap your data in a JSON object:
 
-```rust
-// Wrong: passing a string directly
-// db.event_append("log", Value::String("hello".into()))?;
-
-// Correct: wrap in an object
-let payload: Value = serde_json::json!({"message": "hello"}).into();
-db.event_append("log", payload)?;
+```
+$ strata --cache
+strata:default/default> event append log '{"message":"hello"}'
+(seq) 1
 ```
 
 ## CollectionNotFound for Vectors
 
-**Symptom:** `Error::CollectionNotFound` when upserting or searching vectors.
+**Symptom:** `CollectionNotFound` error when upserting or searching vectors.
 
 **Cause:** The vector collection hasn't been created yet, or you are on a different branch.
 
 **Fix:** Create the collection first in the current branch:
 
-```rust
-db.vector_create_collection("my-collection", 384, DistanceMetric::Cosine)?;
+```
+$ strata --cache
+strata:default/default> vector create my-collection 384 --metric cosine
+OK
 ```
 
-Remember: collections are branch-scoped. Creating a collection in one branch doesn't make it available in another.
-
-## NotImplemented Error
-
-**Symptom:** `Error::NotImplemented` for a specific feature.
-
-**Cause:** The feature is recognized but not yet available in this version.
-
-**Note:** Branch fork, diff, and merge are now implemented. See the [Branch Management Guide](guides/branch-management.md) for usage.
+Collections are branch-scoped. Creating a collection in one branch doesn't make it available in another.
 
 ## Getting Help
 

@@ -1,35 +1,14 @@
 # Installation
 
-## Requirements
+## Install the CLI
 
-- **Rust 1.70** or later
-- A standard Rust toolchain (`rustup`, `cargo`)
+### From crates.io (recommended)
 
-## Add to Your Project
-
-Add StrataDB to your `Cargo.toml`:
-
-```toml
-[dependencies]
-stratadb = "0.1"
+```bash
+cargo install strata-cli
 ```
 
-For JSON construction in examples, you may also want `serde_json`:
-
-```toml
-[dependencies]
-stratadb = "0.1"
-serde_json = "1.0"
-```
-
-## Feature Flags
-
-| Feature | Description | Default |
-|---------|-------------|---------|
-| `default` | Core database functionality | Yes |
-| `perf-trace` | Per-layer timing instrumentation | No |
-
-## Building from Source
+### From source
 
 ```bash
 git clone https://github.com/anibjoshi/strata.git
@@ -37,7 +16,9 @@ cd strata
 cargo build --release
 ```
 
-### Running Tests
+The binary is located at `target/release/strata`.
+
+### Running Tests (development)
 
 ```bash
 # All tests across the workspace
@@ -52,30 +33,30 @@ cargo test --workspace -- --nocapture
 
 ## Verify Installation
 
-Create a minimal program to verify everything works:
-
-```rust
-use stratadb::Strata;
-
-fn main() -> stratadb::Result<()> {
-    let db = Strata::cache()?;
-    db.kv_put("hello", "world")?;
-
-    let value = db.kv_get("hello")?;
-    assert!(value.is_some());
-    println!("StrataDB is working!");
-
-    Ok(())
-}
-```
-
-Run it:
+Run a quick command to confirm the CLI is working:
 
 ```bash
-cargo run
+strata --cache ping
 ```
 
-If you see "StrataDB is working!", you are ready to go. Continue to [Your First Database](first-database.md) for a complete tutorial.
+Expected output:
+
+```
+PONG
+```
+
+You can also try a quick interactive session:
+
+```
+$ strata --cache
+strata:default/default> kv put hello world
+(version) 1
+strata:default/default> kv get hello
+"world"
+strata:default/default> quit
+```
+
+If you see the output above, you are ready to go. Continue to [Your First Database](first-database.md) for a complete tutorial.
 
 ## Next
 

@@ -8,39 +8,35 @@ The search system indexes data from multiple primitives (KV values, event payloa
 
 ## Using Search
 
-Search is available via the `Command::Search` interface:
+```
+$ strata --cache
+strata:default/default> kv put doc:1 "error handling in production"
+(version) 1
+strata:default/default> kv put doc:2 "database configuration guide"
+(version) 1
+strata:default/default> search "error handling" --k 10
+[kv] doc:1 (score: 0.892)
+  error handling in production
+```
 
-```rust
-use stratadb::{Command, Output};
+From the shell:
 
-let output = db.executor().execute(Command::Search {
-    branch: None,              // Uses current branch
-    query: "error handling".into(),
-    k: Some(10),            // Return top 10 results
-    primitives: None,       // Search all primitives
-})?;
-
-if let Output::SearchResults(hits) = output {
-    for hit in &hits {
-        println!("[{}] {} (score: {:.3})", hit.primitive, hit.entity, hit.score);
-        if let Some(snippet) = &hit.snippet {
-            println!("  {}", snippet);
-        }
-    }
-}
+```bash
+strata --cache search "error handling" --k 10
+strata --cache search "configuration" --k 5 --primitives kv,json
 ```
 
 ## Search Result Fields
 
-Each `SearchResultHit` contains:
+Each result contains:
 
-| Field | Type | Description |
-|-------|------|-------------|
-| `entity` | `String` | Identifier of the matched item |
-| `primitive` | `String` | Which primitive produced the hit (e.g., "kv", "json") |
-| `score` | `f32` | Relevance score (higher = more relevant) |
-| `rank` | `u32` | Position in results (1-indexed) |
-| `snippet` | `Option<String>` | Text snippet showing the match |
+| Field | Description |
+|-------|-------------|
+| `entity` | Identifier of the matched item |
+| `primitive` | Which primitive produced the hit (e.g., "kv", "json") |
+| `score` | Relevance score (higher = more relevant) |
+| `rank` | Position in results (1-indexed) |
+| `snippet` | Text snippet showing the match |
 
 ## How It Works
 
@@ -64,13 +60,9 @@ where `k` is a constant (typically 60) and `rank_i(d)` is the document's rank in
 
 Restrict search to specific primitives:
 
-```rust
-let output = db.executor().execute(Command::Search {
-    branch: None,
-    query: "configuration".into(),
-    k: Some(10),
-    primitives: Some(vec!["kv".into(), "json".into()]), // Only KV and JSON
-})?;
+```bash
+# Only search KV and JSON
+strata --cache search "configuration" --k 10 --primitives kv,json
 ```
 
 ## Branch Isolation

@@ -2,134 +2,131 @@
 
 State cells provide mutable, named values with **compare-and-swap (CAS)** for safe concurrent coordination. Use them for counters, locks, state machines, and any value that multiple writers need to update safely.
 
-## API Overview
+## Command Overview
 
-| Method | Signature | Returns |
-|--------|-----------|---------|
-| `state_set` | `(cell: &str, value: impl Into<Value>) -> Result<u64>` | Version number |
-| `state_get` | `(cell: &str) -> Result<Option<Value>>` | Current value, or None |
-| `state_init` | `(cell: &str, value: impl Into<Value>) -> Result<u64>` | Version number |
-| `state_cas` | `(cell: &str, expected_counter: Option<u64>, value: impl Into<Value>) -> Result<Option<u64>>` | New version, or None on mismatch |
+| Command | Syntax | Returns |
+|---------|--------|---------|
+| `state set` | `state set <cell> <value>` | Version number |
+| `state get` | `state get <cell>` | Current value, or `(nil)` |
+| `state init` | `state init <cell> <value>` | Version number (or no-op) |
+| `state cas` | `state cas <cell> <expected> <value>` | New version, or error on mismatch |
+| `state list` | `state list [--prefix P]` | All cells |
+| `state history` | `state history <cell>` | Version history |
 
 ## Set (Unconditional Write)
 
-`state_set` overwrites the cell value regardless of its current state:
+`state set` overwrites the cell value regardless of its current state:
 
-```rust
-let db = Strata::cache()?;
-
-db.state_set("status", "active")?;
-db.state_set("counter", 0i64)?;
-
-let status = db.state_get("status")?;
-assert_eq!(status, Some(Value::String("active".into())));
+```
+$ strata --cache
+strata:default/default> state set status active
+(version) 1
+strata:default/default> state set counter 0
+(version) 1
+strata:default/default> state get status
+"active"
 ```
 
 ## Read
 
-`state_get` returns the current value, or `None` if the cell doesn't exist:
+`state get` returns the current value, or `(nil)` if the cell doesn't exist:
 
-```rust
-let db = Strata::cache()?;
-
-assert_eq!(db.state_get("missing")?, None);
-
-db.state_set("cell", 42i64)?;
-assert_eq!(db.state_get("cell")?, Some(Value::Int(42)));
+```
+$ strata --cache
+strata:default/default> state get missing
+(nil)
+strata:default/default> state set cell 42
+(version) 1
+strata:default/default> state get cell
+42
 ```
 
 ## Init (Create If Absent)
 
-`state_init` sets the value only if the cell does not already exist. This is idempotent — calling it multiple times with different values has no effect after the first call:
+`state init` sets the value only if the cell does not already exist. This is idempotent — calling it multiple times with different values has no effect after the first call:
 
-```rust
-let db = Strata::cache()?;
-
-// First init creates the cell
-db.state_init("status", "idle")?;
-assert_eq!(db.state_get("status")?, Some(Value::String("idle".into())));
-
-// Second init is a no-op — value unchanged
-db.state_init("status", "should-not-overwrite")?;
-assert_eq!(db.state_get("status")?, Some(Value::String("idle".into())));
+```
+$ strata --cache
+strata:default/default> state init status idle
+(version) 1
+strata:default/default> state init status should-not-overwrite
+(no-op)
+strata:default/default> state get status
+"idle"
 ```
 
 ## Compare-and-Swap (CAS)
 
-`state_cas` updates a cell only if the current version counter matches the expected value. This prevents lost updates when multiple writers are competing:
+`state cas` updates a cell only if the current version counter matches the expected value. This prevents lost updates when multiple writers are competing:
 
-```rust
-let db = Strata::cache()?;
-
-// Create the cell (version 1)
-let v1 = db.state_set("lock", "free")?;
-
-// CAS: update only if at version v1
-let new_version = db.state_cas("lock", Some(v1), "acquired")?;
-assert!(new_version.is_some()); // Succeeded
-
-// CAS with stale version fails
-let failed = db.state_cas("lock", Some(v1), "stolen")?;
-// The cell is now at a newer version, so the old version doesn't match
+```
+$ strata --cache
+strata:default/default> state set lock free
+(version) 1
+strata:default/default> state cas lock 1 acquired
+(version) 2
+strata:default/default> state cas lock 1 stolen
+(error) CAS conflict: expected version 1, current version 2
 ```
 
 ### CAS for Create-If-Absent
 
-Pass `None` as the expected counter to create a cell only if it doesn't exist:
+Pass `none` as the expected version to create a cell only if it doesn't exist:
 
-```rust
-let db = Strata::cache()?;
-
-// Creates the cell because it doesn't exist
-let version = db.state_cas("new-cell", None, "initial")?;
-assert!(version.is_some());
+```
+$ strata --cache
+strata:default/default> state cas new-cell none initial
+(version) 1
 ```
 
 ## Common Patterns
 
 ### State Machine
 
-```rust
-let db = Strata::cache()?;
-
-// Initialize state
-let v = db.state_set("task:status", "pending")?;
-
-// Transition: pending → running (only if still pending)
-let v = db.state_cas("task:status", Some(v), "running")?;
-
-// Transition: running → completed
-if let Some(v) = v {
-    db.state_cas("task:status", Some(v), "completed")?;
-}
+```
+$ strata --cache
+strata:default/default> state set task:status pending
+(version) 1
+strata:default/default> state cas task:status 1 running
+(version) 2
+strata:default/default> state cas task:status 2 completed
+(version) 3
 ```
 
 ### Simple Lock
 
-```rust
-let db = Strata::cache()?;
-
-// Try to acquire lock (create-if-absent)
-let result = db.state_cas("lock:resource", None, "owner-1")?;
-if result.is_some() {
-    println!("Lock acquired");
-    // ... do work ...
-    // Release by setting to a known "free" value
-    db.state_set("lock:resource", "free")?;
-}
+```
+$ strata --cache
+strata:default/default> state cas lock:resource none owner-1
+(version) 1
+strata:default/default> state get lock:resource
+"owner-1"
+strata:default/default> state set lock:resource free
+(version) 2
 ```
 
-### Counter
+### Counter with CAS Retry (Shell Script)
 
-```rust
-let db = Strata::cache()?;
+```bash
+#!/bin/bash
+set -euo pipefail
 
-db.state_set("counter", 0i64)?;
+DB="--db ./data"
 
-// Increment with CAS loop
-let current = db.state_get("counter")?.unwrap();
-let count = current.as_int().unwrap();
-// In a real application, you'd retry on CAS failure
+# Initialize counter
+strata $DB state set counter 0
+
+# CAS increment loop
+while true; do
+    current=$(strata $DB --raw state get counter)
+    version=$(strata $DB --json state get counter | jq -r '.version')
+    new_value=$((current + 1))
+    if strata $DB state cas counter "$version" "$new_value" 2>/dev/null; then
+        echo "Counter incremented to $new_value"
+        break
+    fi
+    echo "CAS conflict, retrying..."
+done
 ```
 
 ## Branch Isolation
@@ -140,13 +137,13 @@ State cells are isolated by branch, like all primitives.
 
 Within a branch, state cells are scoped to the current space:
 
-```rust
-let mut db = Strata::cache()?;
-
-db.state_set("status", "active")?;
-
-db.set_space("other")?;
-assert_eq!(db.state_get("status")?, None); // separate state per space
+```
+$ strata --cache
+strata:default/default> state set status active
+(version) 1
+strata:default/default> use default other
+strata:default/other> state get status
+(nil)
 ```
 
 See [Spaces](spaces.md) for the full guide.

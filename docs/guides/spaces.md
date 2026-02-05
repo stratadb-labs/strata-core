@@ -2,74 +2,72 @@
 
 Spaces are an organizational layer within branches. Each branch contains one or more spaces, and each space has its own independent instance of every primitive (KV, Event, State, JSON, Vector). Think of spaces like schemas in PostgreSQL — they organize data within a database (branch) without creating full isolation boundaries.
 
-## API Overview
+## Command Overview
 
-| Method | Signature | Returns |
-|--------|-----------|---------|
-| `set_space` | `(name: &str) -> Result<()>` | Switches current space |
-| `current_space` | `() -> &str` | Current space name |
-| `list_spaces` | `() -> Result<Vec<String>>` | All space names in current branch |
-| `delete_space` | `(name: &str) -> Result<()>` | Deletes empty space |
-| `delete_space_force` | `(name: &str) -> Result<()>` | Deletes space and all its data |
+| Command | Syntax | Returns |
+|---------|--------|---------|
+| `use` | `use <branch> [space]` | Switches branch and/or space |
+| `space list` | `space list` | All space names in current branch |
+| `space create` | `space create <name>` | Creates a space |
+| `space del` | `space del <name> [--force]` | Deletes a space |
+| `space exists` | `space exists <name>` | Whether the space exists |
 
 ## Default Space
 
-Every branch starts with a `default` space. When you open a database, all operations target this space automatically. You never need to create or switch to it explicitly.
+Every branch starts with a `default` space. When you open the CLI, all operations target this space automatically. You never need to create or switch to it explicitly.
 
-```rust
-let db = Strata::cache()?;
-
-// These go to the "default" space
-db.kv_put("key", "value")?;
-db.event_append("log", serde_json::json!({"msg": "hello"}).into())?;
-
-assert_eq!(db.current_space(), "default");
+```
+$ strata --cache
+strata:default/default> kv put key value
+(version) 1
+strata:default/default> event append log '{"msg":"hello"}'
+(seq) 1
 ```
 
 The `default` space cannot be deleted.
 
 ## Creating and Switching Spaces
 
-Use `set_space` to switch to a space. Spaces are auto-registered on first write — no explicit create step is needed:
+Use `use <branch> <space>` to switch to a space. Spaces are auto-registered on first write — no explicit create step is needed:
 
-```rust
-let mut db = Strata::cache()?;
-
-// Switch to a new space (auto-created on first data write)
-db.set_space("conversations")?;
-db.kv_put("msg_001", "hello")?;     // creates "conversations" space
-
-// Switch to another space
-db.set_space("tool-results")?;
-db.kv_put("task_42", "done")?;       // creates "tool-results" space
-
-// List all spaces
-let spaces = db.list_spaces()?;
-// → ["conversations", "default", "tool-results"]
+```
+$ strata --cache
+strata:default/default> use default conversations
+strata:default/conversations> kv put msg_001 hello
+(version) 1
+strata:default/conversations> use default tool-results
+strata:default/tool-results> kv put task_42 done
+(version) 1
+strata:default/tool-results> space list
+- conversations
+- default
+- tool-results
 ```
 
-You can also create a space explicitly using the `SpaceCreate` command without writing data.
+You can also create a space explicitly:
+
+```
+strata:default/default> space create my-space
+OK
+```
 
 ## Data Isolation Between Spaces
 
 Each space has its own independent data. The same key in different spaces refers to different values:
 
-```rust
-let mut db = Strata::cache()?;
-
-// Write in default space
-db.kv_put("config", "default-config")?;
-
-// Switch to another space
-db.set_space("experiments")?;
-db.kv_put("config", "experiment-config")?;
-
-// Data is separate
-db.set_space("default")?;
-assert_eq!(db.kv_get("config")?, Some(Value::String("default-config".into())));
-
-db.set_space("experiments")?;
-assert_eq!(db.kv_get("config")?, Some(Value::String("experiment-config".into())));
+```
+$ strata --cache
+strata:default/default> kv put config default-config
+(version) 1
+strata:default/default> use default experiments
+strata:default/experiments> kv put config experiment-config
+(version) 1
+strata:default/experiments> use default
+strata:default/default> kv get config
+"default-config"
+strata:default/default> use default experiments
+strata:default/experiments> kv get config
+"experiment-config"
 ```
 
 This applies to all primitives — events, state cells, JSON documents, and vector collections are all space-scoped.
@@ -78,17 +76,18 @@ This applies to all primitives — events, state cells, JSON documents, and vect
 
 Transactions can span multiple spaces within the same branch. This is useful when you need atomic operations across organizational boundaries:
 
-```rust
-let session = db.session();
-session.begin()?;
-
-session.set_space("billing")?;
-session.kv_put("credits", credits - 1)?;
-
-session.set_space("api-logs")?;
-session.event_append("api_call", serde_json::json!({"endpoint": "/search"}).into())?;
-
-session.commit()?; // atomic across both spaces
+```
+$ strata --cache
+strata:default/default> begin
+OK
+strata:default/default> use default billing
+strata:default/billing> kv put credits 99
+(version) 1
+strata:default/billing> use default api-logs
+strata:default/api-logs> event append api_call '{"endpoint":"/search"}'
+(seq) 1
+strata:default/api-logs> commit
+OK
 ```
 
 ## Space Naming Rules
@@ -103,116 +102,74 @@ Space names follow these conventions:
 | **Reserved prefix** | `_system_` (reserved for internal use) |
 | **Reserved name** | `default` (cannot be deleted) |
 
-```rust
-// Valid names
-db.set_space("conversations")?;       // ✓
-db.set_space("tool-results")?;        // ✓
-db.set_space("agent_memory_v2")?;     // ✓
+Valid names: `conversations`, `tool-results`, `agent_memory_v2`
 
-// Invalid names
-db.set_space("Conversations")?;       // ✗ uppercase
-db.set_space("123-invalid")?;         // ✗ starts with digit
-db.set_space("")?;                    // ✗ empty
-db.set_space("_system_internal")?;    // ✗ reserved prefix
-```
+Invalid names: `Conversations` (uppercase), `123-invalid` (starts with digit), `_system_internal` (reserved prefix)
 
 ## Deleting Spaces
 
-Delete a space with `delete_space` (must be empty) or `delete_space_force` (deletes all data):
+Delete a space with `space del` (must be empty) or `space del --force` (deletes all data):
 
-```rust
-let mut db = Strata::cache()?;
-
-// Create and populate a space
-db.set_space("temp")?;
-db.kv_put("key", "value")?;
-
-// Can't delete non-empty space without force
-db.set_space("default")?;
-// db.delete_space("temp")?;           // Error: space is non-empty
-
-// Force delete removes all data
-db.delete_space_force("temp")?;        // OK — deletes space and all its data
-
-// Cannot delete the default space
-// db.delete_space("default")?;        // Error: cannot delete default space
+```
+$ strata --cache
+strata:default/default> use default temp
+strata:default/temp> kv put key value
+(version) 1
+strata:default/temp> use default
+strata:default/default> space del temp
+(error) space is non-empty
+strata:default/default> space del temp --force
+OK
 ```
 
-## Multi-Threaded Usage
-
-Each handle tracks its own current space. Use `new_handle()` for independent space context per thread:
-
-```rust
-let db = Strata::open("/data/app")?;
-
-let handle_a = db.new_handle()?;
-let handle_b = db.new_handle()?;
-
-std::thread::spawn(move || {
-    handle_a.set_space("conversations").unwrap();
-    handle_a.kv_put("msg_001", "hello").unwrap();
-});
-
-std::thread::spawn(move || {
-    handle_b.set_space("tool-results").unwrap();
-    handle_b.kv_put("task_42", "done").unwrap();
-});
-// No interference — each handle has its own active space.
-```
-
-New handles always start on the `default` space.
+The `default` space cannot be deleted.
 
 ## Common Patterns
 
 ### Agent Memory Organization
 
-```rust
-let mut db = Strata::open("/data/agent")?;
-
-// Conversation history
-db.set_space("conversations")?;
-db.event_append("user_message", serde_json::json!({"content": "What's the weather?"}).into())?;
-db.event_append("tool_call", serde_json::json!({"tool": "weather_api"}).into())?;
-
-// Tool results
-db.set_space("tool-results")?;
-db.kv_put("weather_api:call_1", serde_json::json!({"temp": 72, "conditions": "sunny"}))?;
-
-// User preferences
-db.set_space("user-context")?;
-db.state_set("preferences", serde_json::json!({"units": "fahrenheit"}))?;
+```
+$ strata --db ./data
+strata:default/default> use default conversations
+strata:default/conversations> event append user_message '{"content":"What is the weather?"}'
+(seq) 1
+strata:default/conversations> event append tool_call '{"tool":"weather_api"}'
+(seq) 2
+strata:default/conversations> use default tool-results
+strata:default/tool-results> kv put weather_api:call_1 '{"temp":72,"conditions":"sunny"}'
+(version) 1
+strata:default/tool-results> use default user-context
+strata:default/user-context> state set preferences '{"units":"fahrenheit"}'
+(version) 1
 ```
 
 ### Multi-Tenant Data
 
-```rust
-let mut db = Strata::open("/data/app")?;
+```bash
+#!/bin/bash
+set -euo pipefail
 
-for tenant in ["acme-corp", "globex", "initech"] {
-    db.set_space(tenant)?;
-    db.kv_put("config", serde_json::json!({"plan": "enterprise"}))?;
-    db.vector_create_collection("docs", 384, DistanceMetric::Cosine)?;
-}
+for tenant in acme-corp globex initech; do
+    strata --db ./data --space "$tenant" kv put config '{"plan":"enterprise"}'
+    strata --db ./data --space "$tenant" vector create docs 384 --metric cosine
+done
 
-let spaces = db.list_spaces()?;
-// → ["acme-corp", "default", "globex", "initech"]
+strata --db ./data space list
 ```
 
 ### Experiment Tracking
 
-```rust
-let mut db = Strata::open("/data/ml")?;
-
-// Baseline parameters
-db.set_space("hyperparams")?;
-db.kv_put("config", serde_json::json!({"lr": 0.001, "epochs": 10}))?;
-
-// Results per experiment
-db.set_space("experiment-001")?;
-db.kv_put("metrics", serde_json::json!({"loss": 0.42, "accuracy": 0.87}))?;
-
-db.set_space("experiment-002")?;
-db.kv_put("metrics", serde_json::json!({"loss": 0.38, "accuracy": 0.89}))?;
+```
+$ strata --db ./data
+strata:default/default> use default hyperparams
+strata:default/hyperparams> kv put config '{"lr":0.001,"epochs":10}'
+(version) 1
+strata:default/hyperparams> use default experiment-001
+strata:default/experiment-001> kv put metrics '{"loss":0.42,"accuracy":0.87}'
+(version) 1
+strata:default/experiment-001> use default experiment-002
+strata:default/experiment-002> kv put metrics '{"loss":0.38,"accuracy":0.89}'
+(version) 1
 ```
 
 ## Spaces vs Branches
