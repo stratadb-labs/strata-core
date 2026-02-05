@@ -8,16 +8,16 @@ This guide covers the different ways to open a StrataDB database and configure i
 
 For testing and development. No files are created on disk.
 
-```rust
-let db = Strata::cache()?;
+```bash
+strata --cache
 ```
 
 ### Persistent
 
 Creates or opens a database at the specified path:
 
-```rust
-let db = Strata::open("/path/to/data")?;
+```bash
+strata --db /path/to/data
 ```
 
 If the directory doesn't exist, it is created. If a database already exists at that path, it is opened and any WAL entries are replayed for recovery.
@@ -28,54 +28,78 @@ If the directory doesn't exist, it is created. If a database already exists at t
 
 Verify the database is responsive:
 
-```rust
-let version = db.ping()?;
-println!("StrataDB version: {}", version);
+```bash
+strata --cache ping
+```
+
+Output:
+
+```
+PONG
 ```
 
 ### Info
 
 Get database statistics:
 
-```rust
-let info = db.info()?;
-println!("Version: {}", info.version);
-println!("Uptime: {} seconds", info.uptime_secs);
-println!("Branches: {}", info.branch_count);
-println!("Total keys: {}", info.total_keys);
+```
+$ strata --cache
+strata:default/default> info
+version: 0.1.0
+branches: 1
+total_keys: 0
+```
+
+Or from the shell:
+
+```bash
+strata --cache info
 ```
 
 ### Flush
 
 Force pending writes to disk (relevant in Buffered durability mode):
 
-```rust
-db.flush()?;
+```bash
+strata --db ./data flush
 ```
 
 ### Compact
 
 Trigger storage compaction:
 
-```rust
-db.compact()?;
+```bash
+strata --db ./data compact
 ```
 
-## Thread Safety
+## Shell Flags
 
-`Strata` is `Send` but not `Sync`. To use StrataDB from multiple threads, create a separate `Strata` instance per thread pointing to the same path:
+The CLI supports several flags for controlling behavior:
 
-```rust
-let handle = std::thread::spawn(move || {
-    let strata = Strata::open("./data").unwrap();
-    strata.kv_put("from-thread", "hello").unwrap();
-});
+| Flag | Description |
+|------|-------------|
+| `--db <path>` | Open a persistent database at the given path |
+| `--cache` | Open an ephemeral in-memory database |
+| `--branch <name>` | Set the active branch (default: `default`) |
+| `--space <name>` | Set the active space (default: `default`) |
+| `--json` | Output results as JSON |
+| `--raw` | Output raw values without formatting |
+| `--read-only` | Open in read-only mode |
 
-handle.join().unwrap();
+### Examples
+
+```bash
+# Persistent database with specific branch
+strata --db ./data --branch experiment kv get config
+
+# Ephemeral with JSON output
+strata --cache --json kv get key
+
+# Read-only access
+strata --db ./data --read-only kv list
 ```
 
 ## Next
 
 - [Branch Bundles](branch-bundles.md) — exporting and importing branches
 - [Error Handling](error-handling.md) — error categories
-- [Configuration Reference](../reference/configuration-reference.md) — all options

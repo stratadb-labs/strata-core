@@ -1,182 +1,155 @@
 # Branch Management Guide
 
-This guide covers the complete API for creating, switching, listing, and deleting branches. For the conceptual overview, see [Concepts: Branches](../concepts/branches.md).
+This guide covers the complete CLI for creating, switching, listing, and deleting branches. For the conceptual overview, see [Concepts: Branches](../concepts/branches.md).
 
 ## Opening and Default Branch
 
-When you open a database, a "default" branch is automatically created and set as current:
+When you open the CLI, a "default" branch is automatically created and set as current:
 
-```rust
-let db = Strata::cache()?;
-assert_eq!(db.current_branch(), "default");
+```
+$ strata --cache
+strata:default/default>
 ```
 
 ## Creating Branches
 
-`create_branch` creates a new empty branch. It does **not** switch to it:
+`branch create` creates a new empty branch. It does **not** switch to it:
 
-```rust
-let db = Strata::cache()?;
-
-db.create_branch("experiment-1")?;
-assert_eq!(db.current_branch(), "default"); // Still on default
-
-// Duplicate names fail
-let result = db.create_branch("experiment-1");
-assert!(result.is_err()); // BranchExists error
+```
+$ strata --cache
+strata:default/default> branch create experiment-1
+OK
+strata:default/default> branch create experiment-1
+(error) BranchExists: branch "experiment-1" already exists
 ```
 
 ## Switching Branches
 
-`set_branch` changes the current branch. All subsequent data operations target the new branch:
+`use <branch>` changes the current branch. All subsequent data operations target the new branch:
 
-```rust
-let mut db = Strata::cache()?;
-
-db.create_branch("my-branch")?;
-db.set_branch("my-branch")?;
-assert_eq!(db.current_branch(), "my-branch");
-
-// Switching to a nonexistent branch fails
-let result = db.set_branch("nonexistent");
-assert!(result.is_err()); // BranchNotFound error
+```
+$ strata --cache
+strata:default/default> branch create my-branch
+OK
+strata:default/default> use my-branch
+strata:my-branch/default> use nonexistent
+(error) BranchNotFound: branch "nonexistent" does not exist
 ```
 
 ## Listing Branches
 
-`list_branches` returns all branch names:
+`branch list` returns all branch names:
 
-```rust
-let db = Strata::cache()?;
-
-db.create_branch("branch-a")?;
-db.create_branch("branch-b")?;
-
-let branches = db.list_branches()?;
-// Contains: "default", "branch-a", "branch-b"
-assert!(branches.contains(&"default".to_string()));
-assert!(branches.contains(&"branch-a".to_string()));
+```
+$ strata --cache
+strata:default/default> branch create branch-a
+OK
+strata:default/default> branch create branch-b
+OK
+strata:default/default> branch list
+- branch-a
+- branch-b
+- default
 ```
 
 ## Deleting Branches
 
-`delete_branch` removes a branch and all its data (KV, Events, State, JSON, Vectors):
+`branch del` removes a branch and all its data (KV, Events, State, JSON, Vectors):
 
-```rust
-let db = Strata::cache()?;
-
-db.create_branch("temp")?;
-db.delete_branch("temp")?;
+```
+$ strata --cache
+strata:default/default> branch create temp
+OK
+strata:default/default> branch del temp
+OK
 ```
 
 ### Safety Rules
 
-```rust
-let mut db = Strata::cache()?;
-
-// Cannot delete the current branch
-db.create_branch("my-branch")?;
-db.set_branch("my-branch")?;
-let result = db.delete_branch("my-branch");
-assert!(result.is_err()); // ConstraintViolation
-
-// Switch away first, then delete
-db.set_branch("default")?;
-db.delete_branch("my-branch")?; // Works
-
-// Cannot delete the default branch
-let result = db.delete_branch("default");
-assert!(result.is_err()); // ConstraintViolation
+```
+$ strata --cache
+strata:default/default> branch create my-branch
+OK
+strata:default/default> use my-branch
+strata:my-branch/default> branch del my-branch
+(error) ConstraintViolation: cannot delete current branch
+strata:my-branch/default> use default
+strata:default/default> branch del my-branch
+OK
+strata:default/default> branch del default
+(error) ConstraintViolation: cannot delete default branch
 ```
 
-## Power API: `db.branches()`
+## Branch Info
 
-The `branches()` method returns a `Branches` handle for advanced operations:
+Get detailed information about a branch:
 
-```rust
-let db = Strata::cache()?;
-
-// Create
-db.branches().create("experiment")?;
-
-// Check existence
-assert!(db.branches().exists("experiment")?);
-
-// List
-let all = db.branches().list()?;
-
-// Delete
-db.branches().delete("experiment")?;
-assert!(!db.branches().exists("experiment")?);
+```
+$ strata --cache
+strata:default/default> branch create my-branch
+OK
+strata:default/default> branch info my-branch
+id: my-branch
+status: active
 ```
 
-## Low-Level Branch API
+## Branch Existence Check
 
-For more control, use the lower-level `branch_*` methods that return full `BranchInfo`:
-
-```rust
-let db = Strata::cache()?;
-
-// Create with explicit ID
-let (info, version) = db.branch_create(Some("my-branch-id".to_string()), None)?;
-println!("Created branch: {} at version {}", info.id.as_str(), version);
-
-// Get branch info
-let info = db.branch_get("my-branch-id")?;
-if let Some(versioned) = info {
-    println!("Status: {:?}", versioned.info.status);
-    println!("Created at: {}", versioned.info.created_at);
-}
-
-// List with full info
-let branches = db.branch_list(None, None, None)?;
-for branch in &branches {
-    println!("{}: {:?}", branch.info.id.as_str(), branch.info.status);
-}
-
-// Check existence
-assert!(db.branch_exists("my-branch-id")?);
-
-// Delete
-db.branch_delete("my-branch-id")?;
+```
+$ strata --cache
+strata:default/default> branch create experiment
+OK
+strata:default/default> branch exists experiment
+true
+strata:default/default> branch exists nonexistent
+false
 ```
 
 ## Fork a Branch
 
 Fork creates an exact copy of a branch, including all data across all primitives and spaces:
 
-```rust
-db.fork_branch("experiment-1")?;
-
-// Or via the power API:
-let info = db.branches().fork("source-branch", "dest-branch")?;
-println!("Copied {} keys across {} spaces", info.keys_copied, info.spaces_copied);
+```
+$ strata --cache
+strata:default/default> kv put key value
+(version) 1
+strata:default/default> branch fork experiment-1
+OK
+strata:default/default> use experiment-1
+strata:experiment-1/default> kv get key
+"value"
 ```
 
 ## Diff Branches
 
 Compare two branches to see what's different:
 
-```rust
-let diff = db.branches().diff("branch-a", "branch-b")?;
-for space in &diff.spaces {
-    println!("{}: {} added, {} removed, {} modified",
-        space.space, space.added.len(), space.removed.len(), space.modified.len());
-}
+```bash
+strata --cache branch diff branch-a branch-b
 ```
 
 ## Merge Branches
 
 Merge data from one branch into another:
 
-```rust
-use strata_executor::MergeStrategy;
+```bash
+# Last-writer-wins: source values overwrite target on conflict
+strata --cache branch merge source --strategy lww
 
-// Last-writer-wins: source values overwrite target on conflict
-let info = db.branches().merge("source", "target", MergeStrategy::LastWriterWins)?;
+# Strict: fails if any conflicts exist
+strata --cache branch merge source --strategy strict
+```
 
-// Strict: fails if any conflicts exist
-let info = db.branches().merge("source", "target", MergeStrategy::Strict)?;
+## Shell Mode
+
+All branch operations work from the shell too:
+
+```bash
+strata --cache branch create experiment
+strata --cache branch list
+strata --cache branch exists experiment
+strata --cache --branch experiment kv put key value
+strata --cache branch del experiment
 ```
 
 ## Next

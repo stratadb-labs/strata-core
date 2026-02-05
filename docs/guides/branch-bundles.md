@@ -13,11 +13,8 @@ Branch bundles let you export a branch as a portable archive file (`.branchbundl
 
 Export a branch to a bundle file:
 
-```rust
-let result = db.branch_export("my-branch", "./exports/my-branch.branchbundle.tar.zst")?;
-println!("Exported branch: {}", result.branch_id);
-println!("Entries: {}", result.entry_count);
-println!("Size: {} bytes", result.bundle_size);
+```bash
+strata --db ./data branch export my-branch ./exports/my-branch.branchbundle.tar.zst
 ```
 
 The export creates a compressed tar archive containing:
@@ -29,25 +26,26 @@ The export creates a compressed tar archive containing:
 
 Import a bundle into the current database:
 
-```rust
-let result = db.branch_import("./exports/my-branch.branchbundle.tar.zst")?;
-println!("Imported branch: {}", result.branch_id);
-println!("Transactions applied: {}", result.transactions_applied);
-println!("Keys written: {}", result.keys_written);
+```bash
+strata --db ./data branch import ./exports/my-branch.branchbundle.tar.zst
 ```
 
-The imported branch becomes available immediately. You can switch to it with `set_branch()`.
+The imported branch becomes available immediately. You can switch to it with `use`:
+
+```
+$ strata --db ./data
+strata:default/default> branch import ./exports/my-branch.branchbundle.tar.zst
+OK
+strata:default/default> use my-branch
+strata:my-branch/default>
+```
 
 ## Validate
 
 Check a bundle's integrity without importing:
 
-```rust
-let result = db.branch_validate_bundle("./exports/my-branch.branchbundle.tar.zst")?;
-println!("Branch ID: {}", result.branch_id);
-println!("Format version: {}", result.format_version);
-println!("Entry count: {}", result.entry_count);
-println!("Checksums valid: {}", result.checksums_valid);
+```bash
+strata --db ./data branch validate ./exports/my-branch.branchbundle.tar.zst
 ```
 
 ## Bundle Format

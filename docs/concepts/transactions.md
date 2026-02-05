@@ -16,33 +16,18 @@ This means:
 
 ## Using Transactions
 
-Transactions are managed through the `Session` API:
+Transactions are managed through the CLI's `begin`, `commit`, and `rollback` commands:
 
-```rust
-use stratadb::{Strata, Session, Command, Value};
-use std::sync::Arc;
-// Create a session from a Strata instance
-let db = Strata::open("./data")?;
-let mut session = db.session();
-
-// Begin a transaction
-session.execute(Command::TxnBegin { branch: None, options: None })?;
-
-// All data operations now go through the transaction
-session.execute(Command::KvPut {
-    branch: None,
-    key: "key".into(),
-    value: Value::Int(42),
-})?;
-
-// Read your own writes
-let output = session.execute(Command::KvGet {
-    branch: None,
-    key: "key".into(),
-})?;
-
-// Commit — validates and applies atomically
-session.execute(Command::TxnCommit)?;
+```
+$ strata --db ./data
+strata:default/default> begin
+OK
+strata:default/default> kv put key 42
+(version) 1
+strata:default/default> kv get key
+42
+strata:default/default> commit
+OK
 ```
 
 ## Snapshot Isolation
@@ -88,38 +73,45 @@ These operations **always bypass** the transaction:
 
 ## Error Handling
 
-When a transaction conflicts, you get a `TransactionConflict` error. The standard pattern is to retry:
+When a transaction conflicts, you get a conflict error. In scripts, check exit codes and retry:
 
-```rust
-loop {
-    session.execute(Command::TxnBegin { branch: None, options: None })?;
+```bash
+#!/bin/bash
+set -euo pipefail
 
-    // ... your operations ...
+# Retry loop for transactional operations
+for attempt in 1 2 3 4 5; do
+    strata --db ./data <<'EOF' && break
+begin
+kv get counter
+kv put counter 1
+commit
+EOF
+    echo "Conflict on attempt $attempt, retrying..."
+done
+```
 
-    match session.execute(Command::TxnCommit) {
-        Ok(_) => break, // Success
-        Err(Error::TransactionConflict { .. }) => {
-            // Transaction was automatically rolled back — retry
-            continue;
-        }
-        Err(e) => return Err(e), // Unexpected error
-    }
-}
+In the REPL, you can manually retry:
+
+```
+$ strata --db ./data
+strata:default/default> begin
+OK
+strata:default/default> kv put key value
+(version) 1
+strata:default/default> commit
+(error) TransactionConflict: key was modified by another transaction
+strata:default/default> begin
+OK
+strata:default/default> kv put key value
+(version) 1
+strata:default/default> commit
+OK
 ```
 
 ## Auto-Rollback
 
-If a `Session` is dropped while a transaction is active, the transaction is automatically rolled back. No uncommitted changes leak.
-
-```rust
-{
-    let mut session = Session::new(db.clone());
-    session.execute(Command::TxnBegin { branch: None, options: None })?;
-    session.execute(Command::KvPut { branch: None, key: "key".into(), value: Value::Int(1) })?;
-    // session dropped here — transaction automatically rolled back
-}
-// "key" was never committed
-```
+If the CLI session ends (quit, Ctrl-C) while a transaction is active, the transaction is automatically rolled back. No uncommitted changes leak.
 
 ## When to Use Transactions
 

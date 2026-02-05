@@ -10,128 +10,100 @@ This recipe shows how to use branches to compare different agent strategies side
 
 ## Implementation
 
-```rust
-use stratadb::{Strata, Value};
+```bash
+#!/bin/bash
+set -euo pipefail
 
-fn ab_test(db: &mut Strata) -> stratadb::Result<()> {
-    // Create branches for each variant
-    db.create_branch("variant-a")?;
-    db.create_branch("variant-b")?;
+DB="--db ./data"
 
-    // === Run Strategy A ===
-    db.set_branch("variant-a")?;
+# Create branches for each variant
+strata $DB branch create variant-a
+strata $DB branch create variant-b
 
-    db.kv_put("config:strategy", "conservative")?;
-    db.kv_put("config:temperature", 0.3)?;
+# === Run Strategy A ===
+strata $DB --branch variant-a kv put config:strategy conservative
+strata $DB --branch variant-a kv put config:temperature 0.3
 
-    // Simulate agent execution
-    for i in 0..5 {
-        let payload: Value = serde_json::json!({
-            "step": i,
-            "strategy": "conservative",
-            "action": "careful_action",
-        }).into();
-        db.event_append("action", payload)?;
-    }
-    db.kv_put("result:score", 85i64)?;
-    db.state_set("status", "completed")?;
+for i in $(seq 0 4); do
+    strata $DB --branch variant-a event append action "{\"step\":$i,\"strategy\":\"conservative\",\"action\":\"careful_action\"}"
+done
+strata $DB --branch variant-a kv put result:score 85
+strata $DB --branch variant-a state set status completed
 
-    // === Run Strategy B ===
-    db.set_branch("variant-b")?;
+# === Run Strategy B ===
+strata $DB --branch variant-b kv put config:strategy aggressive
+strata $DB --branch variant-b kv put config:temperature 0.9
 
-    db.kv_put("config:strategy", "aggressive")?;
-    db.kv_put("config:temperature", 0.9)?;
+for i in $(seq 0 7); do
+    strata $DB --branch variant-b event append action "{\"step\":$i,\"strategy\":\"aggressive\",\"action\":\"bold_action\"}"
+done
+strata $DB --branch variant-b kv put result:score 92
+strata $DB --branch variant-b state set status completed
 
-    // Simulate agent execution
-    for i in 0..8 {
-        let payload: Value = serde_json::json!({
-            "step": i,
-            "strategy": "aggressive",
-            "action": "bold_action",
-        }).into();
-        db.event_append("action", payload)?;
-    }
-    db.kv_put("result:score", 92i64)?;
-    db.state_set("status", "completed")?;
+# === Compare Results ===
+SCORE_A=$(strata $DB --branch variant-a --raw kv get result:score)
+SCORE_B=$(strata $DB --branch variant-b --raw kv get result:score)
+EVENTS_A=$(strata $DB --branch variant-a event len)
+EVENTS_B=$(strata $DB --branch variant-b event len)
+STRATEGY_A=$(strata $DB --branch variant-a --raw kv get config:strategy)
+STRATEGY_B=$(strata $DB --branch variant-b --raw kv get config:strategy)
 
-    // === Compare Results ===
-    compare_variants(db, "variant-a", "variant-b")?;
+echo "=== A/B Test Results ==="
+echo "Variant A ($STRATEGY_A): score=$SCORE_A, actions=$EVENTS_A"
+echo "Variant B ($STRATEGY_B): score=$SCORE_B, actions=$EVENTS_B"
 
-    db.set_branch("default")?;
-    Ok(())
-}
-
-fn compare_variants(db: &mut Strata, a: &str, b: &str) -> stratadb::Result<()> {
-    // Read variant A results
-    db.set_branch(a)?;
-    let score_a = db.kv_get("result:score")?
-        .and_then(|v| v.as_int())
-        .unwrap_or(0);
-    let events_a = db.event_len()?;
-    let strategy_a = db.kv_get("config:strategy")?;
-
-    // Read variant B results
-    db.set_branch(b)?;
-    let score_b = db.kv_get("result:score")?
-        .and_then(|v| v.as_int())
-        .unwrap_or(0);
-    let events_b = db.event_len()?;
-    let strategy_b = db.kv_get("config:strategy")?;
-
-    println!("=== A/B Test Results ===");
-    println!("Variant A ({:?}): score={}, actions={}", strategy_a, score_a, events_a);
-    println!("Variant B ({:?}): score={}, actions={}", strategy_b, score_b, events_b);
-    println!("Winner: {}", if score_a > score_b { a } else { b });
-
-    Ok(())
-}
+if [ "$SCORE_A" -gt "$SCORE_B" ]; then
+    echo "Winner: variant-a"
+else
+    echo "Winner: variant-b"
+fi
 ```
 
 ## Scaling to Many Variants
 
-```rust
-fn multi_variant_test(db: &mut Strata, variants: &[(&str, f64)]) -> stratadb::Result<()> {
-    // variants: (name, temperature) pairs
+```bash
+#!/bin/bash
+set -euo pipefail
 
-    for (name, temperature) in variants {
-        let branch_name = format!("variant-{}", name);
-        db.create_branch(&branch_name)?;
-        db.set_branch(&branch_name)?;
+DB="--db ./data"
+VARIANTS=("low:0.1" "medium:0.5" "high:0.9")
 
-        db.kv_put("config:temperature", *temperature)?;
-        // ... run the agent ...
-        db.kv_put("result:score", 0i64)?; // placeholder
-    }
+# Run each variant
+for variant in "${VARIANTS[@]}"; do
+    name="${variant%%:*}"
+    temp="${variant##*:}"
+    branch="variant-$name"
 
-    // Compare all variants
-    db.set_branch("default")?;
-    let mut best_score = 0i64;
-    let mut best_variant = String::new();
+    strata $DB branch create "$branch"
+    strata $DB --branch "$branch" kv put config:temperature "$temp"
+    # ... run the agent ...
+    strata $DB --branch "$branch" kv put result:score 0  # placeholder
+done
 
-    for (name, _) in variants {
-        let branch_name = format!("variant-{}", name);
-        db.set_branch(&branch_name)?;
-        let score = db.kv_get("result:score")?
-            .and_then(|v| v.as_int())
-            .unwrap_or(0);
-        if score > best_score {
-            best_score = score;
-            best_variant = name.to_string();
-        }
-    }
+# Compare all variants
+best_score=0
+best_variant=""
 
-    println!("Best variant: {} (score: {})", best_variant, best_score);
+for variant in "${VARIANTS[@]}"; do
+    name="${variant%%:*}"
+    branch="variant-$name"
+    score=$(strata $DB --branch "$branch" --raw kv get result:score)
+    echo "Variant $name: score=$score"
+    if [ "$score" -gt "$best_score" ]; then
+        best_score=$score
+        best_variant=$name
+    fi
+done
 
-    // Clean up losing variants
-    db.set_branch("default")?;
-    for (name, _) in variants {
-        if *name != best_variant.as_str() {
-            db.delete_branch(&format!("variant-{}", name))?;
-        }
-    }
+echo "Best variant: $best_variant (score: $best_score)"
 
-    Ok(())
-}
+# Clean up losing variants
+for variant in "${VARIANTS[@]}"; do
+    name="${variant%%:*}"
+    if [ "$name" != "$best_variant" ]; then
+        strata $DB branch del "variant-$name"
+    fi
+done
 ```
 
 ## See Also

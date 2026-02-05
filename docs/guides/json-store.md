@@ -2,52 +2,48 @@
 
 The JSON Store holds structured documents that you can read and write at specific JSON paths. Instead of replacing an entire document to change one field, you can update just `$.config.temperature`.
 
-## API Overview
+## Command Overview
 
-| Method | Signature | Returns |
-|--------|-----------|---------|
-| `json_set` | `(key: &str, path: &str, value: impl Into<Value>) -> Result<u64>` | Version number |
-| `json_get` | `(key: &str, path: &str) -> Result<Option<Value>>` | Value at path, or None |
-| `json_delete` | `(key: &str, path: &str) -> Result<u64>` | Count deleted |
-| `json_list` | `(prefix: Option<String>, cursor: Option<String>, limit: u64) -> Result<(Vec<String>, Option<String>)>` | Keys + next cursor |
+| Command | Syntax | Returns |
+|---------|--------|---------|
+| `json set` | `json set <key> <path> <value>` | Version number |
+| `json get` | `json get <key> [path]` | Value at path, or `(nil)` |
+| `json del` | `json del <key> <path>` | OK |
+| `json list` | `json list [--prefix P] [--cursor C] [--limit N]` | Keys + next cursor |
+| `json history` | `json history <key>` | Version history |
 
 ## Creating Documents
 
-Use `json_set` with the root path `"$"` to create a document:
+Use `json set` with the root path `$` to create a document:
 
-```rust
-let db = Strata::cache()?;
-
-let doc: Value = serde_json::json!({
-    "model": "gpt-4",
-    "temperature": 0.7,
-    "settings": {
-        "max_tokens": 1000,
-        "stream": true
-    }
-}).into();
-db.json_set("config", "$", doc)?;
+```
+$ strata --cache
+strata:default/default> json set config $ '{"model":"gpt-4","temperature":0.7,"settings":{"max_tokens":1000,"stream":true}}'
+(version) 1
 ```
 
 ## Reading Documents
 
 ### Read the Whole Document
 
-```rust
-let doc = db.json_get("config", "$")?;
-if let Some(value) = doc {
-    println!("Config: {:?}", value);
-}
+```
+$ strata --cache
+strata:default/default> json set config $ '{"model":"gpt-4","temperature":0.7}'
+(version) 1
+strata:default/default> json get config
+{"model":"gpt-4","temperature":0.7}
 ```
 
 ### Read a Nested Path
 
-```rust
-let temp = db.json_get("config", "$.temperature")?;
-assert_eq!(temp, Some(Value::Float(0.7)));
-
-let max_tokens = db.json_get("config", "$.settings.max_tokens")?;
-assert_eq!(max_tokens, Some(Value::Int(1000)));
+```
+$ strata --cache
+strata:default/default> json set config $ '{"model":"gpt-4","temperature":0.7,"settings":{"max_tokens":1000}}'
+(version) 1
+strata:default/default> json get config $.temperature
+0.7
+strata:default/default> json get config $.settings.max_tokens
+1000
 ```
 
 ### Path Syntax
@@ -64,97 +60,92 @@ Paths use a simple dot notation starting with `$`:
 
 Update a specific path without touching the rest of the document:
 
-```rust
-// Change temperature
-db.json_set("config", "$.temperature", 0.9)?;
-
-// Add a new field
-db.json_set("config", "$.version", "2.0")?;
-
-// Update nested field
-db.json_set("config", "$.settings.stream", false)?;
+```
+$ strata --cache
+strata:default/default> json set config $ '{"model":"gpt-4","temperature":0.7,"settings":{"stream":true}}'
+(version) 1
+strata:default/default> json set config $.temperature 0.9
+(version) 2
+strata:default/default> json set config $.version 2.0
+(version) 3
+strata:default/default> json set config $.settings.stream false
+(version) 4
 ```
 
 ## Deleting
 
 ### Delete a Field
 
-```rust
-db.json_delete("config", "$.deprecated_field")?;
+```
+$ strata --cache
+strata:default/default> json set config $ '{"model":"gpt-4","deprecated_field":"old"}'
+(version) 1
+strata:default/default> json del config $.deprecated_field
+OK
 ```
 
 ### Delete the Entire Document
 
-```rust
-db.json_delete("config", "$")?;
-assert!(db.json_get("config", "$")?.is_none());
+```
+$ strata --cache
+strata:default/default> json set config $ '{"model":"gpt-4"}'
+(version) 1
+strata:default/default> json del config $
+OK
+strata:default/default> json get config
+(nil)
 ```
 
 ## Listing Documents
 
-List documents with cursor-based pagination:
+List documents with optional prefix filtering and cursor-based pagination:
 
-```rust
-let db = Strata::cache()?;
-
-db.json_set("user:1", "$", serde_json::json!({"name": "Alice"}).into())?;
-db.json_set("user:2", "$", serde_json::json!({"name": "Bob"}).into())?;
-db.json_set("config", "$", serde_json::json!({"debug": true}).into())?;
-
-// List all
-let (keys, _cursor) = db.json_list(None, None, 100)?;
-assert_eq!(keys.len(), 3);
-
-// List with prefix
-let (user_keys, _cursor) = db.json_list(Some("user:".into()), None, 100)?;
-assert_eq!(user_keys.len(), 2);
+```
+$ strata --cache
+strata:default/default> json set user:1 $ '{"name":"Alice"}'
+(version) 1
+strata:default/default> json set user:2 $ '{"name":"Bob"}'
+(version) 1
+strata:default/default> json set config $ '{"debug":true}'
+(version) 1
+strata:default/default> json list
+config
+user:1
+user:2
+strata:default/default> json list --prefix user:
+user:1
+user:2
 ```
 
 ### Pagination
 
-When there are more results than `limit`, the returned cursor is `Some`. Pass it to the next call:
+When there are more results than the limit, use the cursor to fetch the next page:
 
-```rust
-let (first_page, cursor) = db.json_list(None, None, 10)?;
-if let Some(c) = cursor {
-    let (second_page, _) = db.json_list(None, Some(c), 10)?;
-}
+```bash
+# Paginate through results
+strata --cache json list --limit 10
+# Use the returned cursor for the next page
+strata --cache json list --limit 10 --cursor <cursor>
 ```
 
 ## Common Patterns
 
 ### Conversation History
 
-```rust
-let conv: Value = serde_json::json!({
-    "messages": [
-        {"role": "user", "content": "Hello"},
-        {"role": "assistant", "content": "Hi there!"}
-    ],
-    "metadata": {
-        "model": "gpt-4",
-        "created_at": 1234567890
-    }
-}).into();
-db.json_set("conversation:001", "$", conv)?;
+```
+$ strata --cache
+strata:default/default> json set conversation:001 $ '{"messages":[{"role":"user","content":"Hello"},{"role":"assistant","content":"Hi there!"}],"metadata":{"model":"gpt-4","created_at":1234567890}}'
+(version) 1
 ```
 
 ### Agent Configuration
 
-```rust
-let config: Value = serde_json::json!({
-    "agent_id": "agent-001",
-    "model": "gpt-4",
-    "tools": ["search", "calculator", "code_interpreter"],
-    "constraints": {
-        "max_steps": 10,
-        "timeout_seconds": 30
-    }
-}).into();
-db.json_set("agent:001:config", "$", config)?;
-
-// Update just the model
-db.json_set("agent:001:config", "$.model", "gpt-4-turbo")?;
+```
+$ strata --cache
+strata:default/default> json set agent:001:config $ '{"agent_id":"agent-001","model":"gpt-4","tools":["search","calculator","code_interpreter"],"constraints":{"max_steps":10,"timeout_seconds":30}}'
+(version) 1
+strata:default/default> json set agent:001:config $.model gpt-4-turbo
+(version) 2
 ```
 
 ## Branch Isolation
@@ -165,13 +156,13 @@ JSON documents are isolated by branch, like all primitives.
 
 Within a branch, JSON documents are scoped to the current space:
 
-```rust
-let mut db = Strata::cache()?;
-
-db.json_set("config", "$", serde_json::json!({"debug": true}).into())?;
-
-db.set_space("other")?;
-assert!(db.json_get("config", "$")?.is_none()); // separate documents per space
+```
+$ strata --cache
+strata:default/default> json set config $ '{"debug":true}'
+(version) 1
+strata:default/default> use default other
+strata:default/other> json get config
+(nil)
 ```
 
 See [Spaces](spaces.md) for the full guide.

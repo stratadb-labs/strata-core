@@ -15,119 +15,68 @@ During replay, the agent reads from the Event Log instead of making external cal
 
 ### Recording Phase
 
-```rust
-use stratadb::{Strata, Value};
+Record all external inputs as events during the live session:
 
-fn live_session(db: &mut Strata, session_id: &str) -> stratadb::Result<()> {
-    db.create_branch(session_id)?;
-    db.set_branch(session_id)?;
+```bash
+#!/bin/bash
+set -euo pipefail
 
-    // Record external API response
-    let api_response = call_external_api("weather"); // nondeterministic
-    let payload: Value = serde_json::json!({
-        "source": "weather_api",
-        "response": api_response,
-    }).into();
-    db.event_append("external_input", payload)?;
+DB="--db ./data"
+SESSION="session-001"
 
-    // Record a random decision
-    let random_choice: i64 = rand::random::<i64>() % 3;
-    let payload: Value = serde_json::json!({
-        "source": "random",
-        "value": random_choice,
-    }).into();
-    db.event_append("external_input", payload)?;
+# Create isolated branch for this session
+strata $DB branch create "$SESSION"
 
-    // Record timestamp
-    let now = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .unwrap()
-        .as_secs();
-    let payload: Value = serde_json::json!({
-        "source": "timestamp",
-        "value": now,
-    }).into();
-    db.event_append("external_input", payload)?;
+# Record external API response
+API_RESPONSE=$(curl -s https://api.weather.com/current)  # nondeterministic
+strata $DB --branch "$SESSION" event append external_input "{\"source\":\"weather_api\",\"response\":$API_RESPONSE}"
 
-    // Use the recorded values for agent logic
-    db.kv_put("decision", format!("chose option {}", random_choice))?;
-    db.state_set("status", "completed")?;
+# Record a random decision
+RANDOM_CHOICE=$((RANDOM % 3))
+strata $DB --branch "$SESSION" event append external_input "{\"source\":\"random\",\"value\":$RANDOM_CHOICE}"
 
-    db.set_branch("default")?;
-    Ok(())
-}
+# Record timestamp
+NOW=$(date +%s)
+strata $DB --branch "$SESSION" event append external_input "{\"source\":\"timestamp\",\"value\":$NOW}"
 
-fn call_external_api(query: &str) -> String {
-    format!("response for {}", query) // placeholder
-}
+# Use the recorded values for agent logic
+strata $DB --branch "$SESSION" kv put decision "chose option $RANDOM_CHOICE"
+strata $DB --branch "$SESSION" state set status completed
 ```
 
 ### Replay Phase
 
-```rust
-fn replay_session(db: &mut Strata, session_id: &str) -> stratadb::Result<()> {
-    db.set_branch(session_id)?;
+Read all external inputs from the Event Log and replay:
 
-    // Read all external inputs in order
-    let inputs = db.event_get_by_type("external_input")?;
+```bash
+#!/bin/bash
+set -euo pipefail
 
-    for (i, input) in inputs.iter().enumerate() {
-        println!("Input {}: {:?}", i, input.value);
+DB="--db ./data"
+SESSION="session-001"
 
-        // Extract the recorded values and use them
-        // instead of making live external calls
-    }
+# Read all external inputs in order
+strata $DB --branch "$SESSION" event list external_input
 
-    // The agent can now re-execute its logic using recorded inputs
-    // and produce the exact same results
-
-    db.set_branch("default")?;
-    Ok(())
-}
+# The agent can re-execute its logic using recorded inputs
+# and produce the exact same results
 ```
 
-## Helper: Input Recorder
+### Interactive Replay
 
-A reusable abstraction for recording and replaying inputs:
+You can also replay interactively:
 
-```rust
-struct InputRecorder<'a> {
-    db: &'a Strata,
-    replay_inputs: Option<Vec<Value>>,
-    replay_index: usize,
-}
-
-impl<'a> InputRecorder<'a> {
-    /// Create a recorder for live operation
-    fn live(db: &'a Strata) -> Self {
-        Self { db, replay_inputs: None, replay_index: 0 }
-    }
-
-    /// Create a recorder for replay (reads from event log)
-    fn replay(db: &'a Strata) -> stratadb::Result<Self> {
-        let inputs = db.event_get_by_type("external_input")?;
-        let values: Vec<Value> = inputs.into_iter().map(|v| v.value).collect();
-        Ok(Self { db, replay_inputs: Some(values), replay_index: 0 })
-    }
-
-    /// Record an external input (live) or read the next one (replay)
-    fn record_input(&mut self, source: &str, live_value: Value) -> stratadb::Result<Value> {
-        if let Some(ref inputs) = self.replay_inputs {
-            // Replay mode: return the recorded value
-            let value = inputs[self.replay_index].clone();
-            self.replay_index += 1;
-            Ok(value)
-        } else {
-            // Live mode: record and return
-            let payload: Value = serde_json::json!({
-                "source": source,
-                "value": serde_json::Value::from(live_value.clone()),
-            }).into();
-            self.db.event_append("external_input", payload)?;
-            Ok(live_value)
-        }
-    }
-}
+```
+$ strata --db ./data
+strata:default/default> use session-001
+strata:session-001/default> event list external_input
+seq=1 type=external_input payload={"source":"weather_api","response":{...}}
+seq=2 type=external_input payload={"source":"random","value":2}
+seq=3 type=external_input payload={"source":"timestamp","value":1706900000}
+strata:session-001/default> kv get decision
+"chose option 2"
+strata:session-001/default> state get status
+"completed"
 ```
 
 ## See Also

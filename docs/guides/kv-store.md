@@ -2,162 +2,161 @@
 
 The KV Store is StrataDB's most general-purpose primitive. It maps string keys to arbitrary values with simple put/get/delete semantics.
 
-## API Overview
+## Command Overview
 
-| Method | Signature | Returns |
-|--------|-----------|---------|
-| `kv_put` | `(key: &str, value: impl Into<Value>) -> Result<u64>` | Version number |
-| `kv_get` | `(key: &str) -> Result<Option<Value>>` | The value, or None |
-| `kv_delete` | `(key: &str) -> Result<bool>` | Whether the key existed |
-| `kv_list` | `(prefix: Option<&str>) -> Result<Vec<String>>` | Matching key names |
+| Command | Syntax | Returns |
+|---------|--------|---------|
+| `kv put` | `kv put <key> <value>` | Version number |
+| `kv get` | `kv get <key>` | The value, or `(nil)` |
+| `kv del` | `kv del <key>` | OK |
+| `kv list` | `kv list [--prefix P] [--limit N] [--cursor C]` | Matching key names |
+| `kv history` | `kv history <key>` | Version history |
 
 ## Put
 
-`kv_put` creates or overwrites a key. It returns the version number of the write.
+`kv put` creates or overwrites a key. It returns the version number of the write.
 
-```rust
-let db = Strata::cache()?;
-
-// Pass any type that implements Into<Value>
-db.kv_put("name", "Alice")?;           // &str
-db.kv_put("age", 30i64)?;              // i64
-db.kv_put("score", 99.5)?;             // f64
-db.kv_put("active", true)?;            // bool
-db.kv_put("data", vec![1u8, 2, 3])?;   // Vec<u8> → Bytes
-
-// Overwriting returns a new version
-let v1 = db.kv_put("counter", 1i64)?;
-let v2 = db.kv_put("counter", 2i64)?;
-assert!(v2 > v1);
 ```
+$ strata --cache
+strata:default/default> kv put name Alice
+(version) 1
+strata:default/default> kv put age 30
+(version) 1
+strata:default/default> kv put score 99.5
+(version) 1
+strata:default/default> kv put active true
+(version) 1
+strata:default/default> kv put counter 1
+(version) 1
+strata:default/default> kv put counter 2
+(version) 2
+```
+
+The CLI auto-detects types from input format (strings, integers, floats, booleans).
 
 ## Get
 
-`kv_get` returns the latest value for a key, or `None` if the key doesn't exist.
+`kv get` returns the latest value for a key, or `(nil)` if the key doesn't exist.
 
-```rust
-let db = Strata::cache()?;
-db.kv_put("key", "value")?;
-
-let result = db.kv_get("key")?;
-assert_eq!(result, Some(Value::String("value".into())));
-
-let missing = db.kv_get("nonexistent")?;
-assert_eq!(missing, None);
 ```
-
-### Extracting Typed Values
-
-Use the `as_*()` accessors on `Value`:
-
-```rust
-if let Some(value) = db.kv_get("name")? {
-    let name: &str = value.as_str().expect("expected a string");
-    println!("Name: {}", name);
-}
-
-if let Some(value) = db.kv_get("age")? {
-    let age: i64 = value.as_int().expect("expected an integer");
-    println!("Age: {}", age);
-}
+$ strata --cache
+strata:default/default> kv put key value
+(version) 1
+strata:default/default> kv get key
+"value"
+strata:default/default> kv get nonexistent
+(nil)
 ```
 
 ## Delete
 
-`kv_delete` removes a key and returns whether it existed.
+`kv del` removes a key.
 
-```rust
-let db = Strata::cache()?;
-
-db.kv_put("key", "value")?;
-assert!(db.kv_delete("key")?);   // true — existed
-assert!(!db.kv_delete("key")?);  // false — already gone
+```
+$ strata --cache
+strata:default/default> kv put key value
+(version) 1
+strata:default/default> kv del key
+OK
+strata:default/default> kv get key
+(nil)
 ```
 
 ## List Keys
 
-`kv_list` returns all keys, optionally filtered by prefix.
+`kv list` returns all keys, optionally filtered by prefix.
 
-```rust
-let db = Strata::cache()?;
-
-db.kv_put("user:1", "Alice")?;
-db.kv_put("user:2", "Bob")?;
-db.kv_put("task:1", "Review")?;
-
-// All keys
-let all = db.kv_list(None)?;
-assert_eq!(all.len(), 3);
-
-// Keys with prefix
-let users = db.kv_list(Some("user:"))?;
-assert_eq!(users.len(), 2);
+```
+$ strata --cache
+strata:default/default> kv put user:1 Alice
+(version) 1
+strata:default/default> kv put user:2 Bob
+(version) 1
+strata:default/default> kv put task:1 Review
+(version) 1
+strata:default/default> kv list
+task:1 = "Review"
+user:1 = "Alice"
+user:2 = "Bob"
+strata:default/default> kv list --prefix user:
+user:1 = "Alice"
+user:2 = "Bob"
 ```
 
 ## Key Naming Conventions
 
 Use colon-separated namespaces for organized key spaces:
 
-```rust
-// Group by entity type
-db.kv_put("user:123:name", "Alice")?;
-db.kv_put("user:123:email", "alice@example.com")?;
-db.kv_put("config:model", "gpt-4")?;
-db.kv_put("config:temperature", 0.7)?;
-
-// Then list by prefix
-let user_keys = db.kv_list(Some("user:123:"))?;
-let config_keys = db.kv_list(Some("config:"))?;
+```
+$ strata --cache
+strata:default/default> kv put user:123:name Alice
+(version) 1
+strata:default/default> kv put user:123:email alice@example.com
+(version) 1
+strata:default/default> kv put config:model gpt-4
+(version) 1
+strata:default/default> kv put config:temperature 0.7
+(version) 1
+strata:default/default> kv list --prefix user:123:
+user:123:email = "alice@example.com"
+user:123:name = "Alice"
+strata:default/default> kv list --prefix config:
+config:model = "gpt-4"
+config:temperature = 0.7
 ```
 
 ## Branch Isolation
 
 KV data is isolated by branch. See [Branches](../concepts/branches.md) for details.
 
-```rust
-let mut db = Strata::cache()?;
-db.kv_put("key", "default-value")?;
-
-db.create_branch("other")?;
-db.set_branch("other")?;
-assert!(db.kv_get("key")?.is_none()); // Not visible in other branch
+```
+$ strata --cache
+strata:default/default> kv put key default-value
+(version) 1
+strata:default/default> branch create other
+OK
+strata:default/default> use other
+strata:other/default> kv get key
+(nil)
 ```
 
 ## Space Isolation
 
 Within a branch, KV data is further organized by space. Each space has independent keys:
 
-```rust
-let mut db = Strata::cache()?;
-
-db.kv_put("config", "default-value")?;
-
-// Switch to a different space
-db.set_space("experiments")?;
-assert!(db.kv_get("config")?.is_none()); // not visible in this space
-
-db.kv_put("config", "experiment-value")?;
-
-// Switch back — original data is untouched
-db.set_space("default")?;
-assert_eq!(db.kv_get("config")?, Some(Value::String("default-value".into())));
+```
+$ strata --cache
+strata:default/default> kv put config default-value
+(version) 1
+strata:default/default> use default experiments
+strata:default/experiments> kv get config
+(nil)
+strata:default/experiments> kv put config experiment-value
+(version) 1
+strata:default/experiments> use default
+strata:default/default> kv get config
+"default-value"
 ```
 
 See [Spaces](spaces.md) for the full guide.
 
 ## Transactions
 
-KV operations participate in transactions. Within a `Session`, reads and writes are atomic:
+KV operations participate in transactions. Within a transaction, reads and writes are atomic:
 
-```rust
-session.execute(Command::TxnBegin { branch: None, options: None })?;
-session.execute(Command::KvPut { branch: None, key: "a".into(), value: Value::Int(1) })?;
-session.execute(Command::KvPut { branch: None, key: "b".into(), value: Value::Int(2) })?;
-session.execute(Command::TxnCommit)?;
-// Both writes are visible atomically
+```
+$ strata --cache
+strata:default/default> begin
+OK
+strata:default/default> kv put a 1
+(version) 1
+strata:default/default> kv put b 2
+(version) 1
+strata:default/default> commit
+OK
 ```
 
-See [Sessions and Transactions](sessions-and-transactions.md) for the full guide.
+Both writes become visible atomically. See [Sessions and Transactions](sessions-and-transactions.md) for the full guide.
 
 ## Next
 
