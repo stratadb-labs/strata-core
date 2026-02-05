@@ -25,3 +25,6 @@ architecture-plan.md
 # Claude Code and local development
 .claude
 github-issues/
+
+# Internal strategy documents
+docs/internal/

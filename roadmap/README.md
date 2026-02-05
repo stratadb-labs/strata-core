@@ -32,9 +32,9 @@ HNSW index backend (~95%+ recall, built from scratch), advanced metadata filters
 | ↳ v0.5.1 | Spaces + structured logging | |
 | ↳ v0.5.2 | Fork, diff, merge (space-aware) | v0.5.1 |
 | ↳ v0.5.3 | MCP server | v0.5.2 |
-| [**v0.6: Auto-Embedding**](v0.6-auto-embedding.md) | MiniLM auto-embedding pipeline | v0.5 |
-| [**v0.7: SDKs**](v0.7-sdks.md) | Python (PyO3) and Node.js (NAPI-RS) | v0.6 |
-| [**v0.8: Enhanced Hybrid Search**](v0.8-enhanced-hybrid-search.md) | MiniLM vectors in RRF, new retrieval signals, internal knowledge graph | v0.6 |
+| [**v0.6: SDKs**](v0.6-sdks.md) | Python (PyO3) and Node.js (NAPI-RS) | v0.5 |
+| [**v0.7: Auto-Embedding**](v0.7-auto-embedding.md) | MiniLM auto-embedding pipeline | v0.5 |
+| [**v0.8: Enhanced Hybrid Search**](v0.8-enhanced-hybrid-search.md) | MiniLM vectors in RRF, new retrieval signals, internal knowledge graph | v0.7 |
 | [**v0.9: NL Search (Basic)**](v0.9-nl-search-basic.md) | Qwen3 NL→query decomposition | v0.8 |
 | [**v0.10: NL Search (Advanced)**](v0.10-nl-search-advanced.md) | Query expansion, result summarization, multi-step retrieval | v0.9 |
 | [**v0.11: Advanced Branch Workflows**](v0.11-advanced-branch-workflows.md) | Time-travel, replay, sandboxing | v0.5 |
@@ -67,14 +67,14 @@ HNSW index backend (~95%+ recall, built from scratch), advanced metadata filters
               ┌────────┴────────┐
               │                 │
             v0.6              v0.11
-        Auto-Embedding    Advanced Branch
-           (MiniLM)        Workflows
+            SDKs          Advanced Branch
+       (Python/Node)       Workflows
               │
          ┌────┴────┐
          │         │
        v0.7      v0.8
-       SDKs    Enhanced
-              Hybrid Search
+   Auto-Embedding  Enhanced
+      (MiniLM)   Hybrid Search
               + Knowledge Graph
                    │
                  v0.9
@@ -98,9 +98,9 @@ HNSW index backend (~95%+ recall, built from scratch), advanced metadata filters
            Scaling
 ```
 
-**Critical path**: v0.5 → v0.6 → v0.8 → v0.9 → v0.10 → v0.12 → v1.0
+**Critical path**: v0.5 → v0.6 → v0.7 → v0.8 → v0.9 → v0.10 → v0.12 → v1.0
 
-**Independent tracks**: v0.7 (SDKs) and v0.11 (advanced branch workflows) can proceed in parallel once their dependencies are met.
+**Independent tracks**: v0.11 (advanced branch workflows) can proceed in parallel once v0.5 is complete.
 
 ---
 
