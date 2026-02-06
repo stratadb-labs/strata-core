@@ -523,58 +523,6 @@ impl Strata {
             }),
         }
     }
-
-    /// Create a new space explicitly.
-    ///
-    /// Spaces are auto-created on first write, but this allows pre-creation
-    /// for organizational purposes.
-    pub fn space_create(&self, space: &str) -> Result<()> {
-        match self.executor.execute(Command::SpaceCreate {
-            branch: self.branch_id(),
-            space: space.to_string(),
-        })? {
-            Output::Unit => Ok(()),
-            _ => Err(Error::Internal {
-                reason: "Unexpected output for SpaceCreate".into(),
-            }),
-        }
-    }
-
-    /// Check if a space exists in the current branch.
-    pub fn space_exists(&self, space: &str) -> Result<bool> {
-        match self.executor.execute(Command::SpaceExists {
-            branch: self.branch_id(),
-            space: space.to_string(),
-        })? {
-            Output::Bool(exists) => Ok(exists),
-            _ => Err(Error::Internal {
-                reason: "Unexpected output for SpaceExists".into(),
-            }),
-        }
-    }
-
-    /// Search across multiple primitives for matching content.
-    ///
-    /// Returns ranked results with entity, primitive type, score, rank, and optional snippet.
-    pub fn search(
-        &self,
-        query: &str,
-        k: Option<u64>,
-        primitives: Option<Vec<String>>,
-    ) -> Result<Vec<crate::types::SearchResultHit>> {
-        match self.executor.execute(Command::Search {
-            branch: self.branch_id(),
-            space: self.space_id(),
-            query: query.to_string(),
-            k,
-            primitives,
-        })? {
-            Output::SearchResults(results) => Ok(results),
-            _ => Err(Error::Internal {
-                reason: "Unexpected output for Search".into(),
-            }),
-        }
-    }
 }
 
 // =============================================================================
