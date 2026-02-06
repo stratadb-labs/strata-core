@@ -126,40 +126,4 @@ impl Strata {
             }),
         }
     }
-
-    /// List keys with pagination support.
-    ///
-    /// Returns a tuple of (keys, next_cursor). If next_cursor is Some, there are more keys
-    /// to fetch by calling with that cursor value.
-    pub fn kv_list_paginated(
-        &self,
-        prefix: Option<&str>,
-        cursor: Option<&str>,
-        limit: Option<u64>,
-    ) -> Result<(Vec<String>, Option<String>)> {
-        match self.executor.execute(Command::KvList {
-            branch: self.branch_id(),
-            space: self.space_id(),
-            prefix: prefix.map(|s| s.to_string()),
-            cursor: cursor.map(|s| s.to_string()),
-            limit,
-        })? {
-            Output::Keys(keys) => {
-                // If we got exactly `limit` keys, the last key is the cursor for the next page
-                let next_cursor = if let Some(lim) = limit {
-                    if keys.len() == lim as usize {
-                        keys.last().cloned()
-                    } else {
-                        None
-                    }
-                } else {
-                    None
-                };
-                Ok((keys, next_cursor))
-            }
-            _ => Err(Error::Internal {
-                reason: "Unexpected output for KvList".into(),
-            }),
-        }
-    }
 }

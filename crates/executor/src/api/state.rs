@@ -92,34 +92,4 @@ impl Strata {
             }),
         }
     }
-
-    /// Delete a state cell.
-    ///
-    /// Returns `true` if the cell existed and was deleted, `false` if it didn't exist.
-    pub fn state_delete(&self, cell: &str) -> Result<bool> {
-        match self.executor.execute(Command::StateDelete {
-            branch: self.branch_id(),
-            space: self.space_id(),
-            cell: cell.to_string(),
-        })? {
-            Output::Bool(deleted) => Ok(deleted),
-            _ => Err(Error::Internal {
-                reason: "Unexpected output for StateDelete".into(),
-            }),
-        }
-    }
-
-    /// List state cell names with optional prefix filter.
-    pub fn state_list(&self, prefix: Option<&str>) -> Result<Vec<String>> {
-        match self.executor.execute(Command::StateList {
-            branch: self.branch_id(),
-            space: self.space_id(),
-            prefix: prefix.map(|s| s.to_string()),
-        })? {
-            Output::Keys(keys) => Ok(keys),
-            _ => Err(Error::Internal {
-                reason: "Unexpected output for StateList".into(),
-            }),
-        }
-    }
 }

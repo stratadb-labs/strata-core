@@ -68,28 +68,4 @@ impl Strata {
             }),
         }
     }
-
-    /// Read events of a specific type with pagination support.
-    ///
-    /// - `limit`: Maximum number of events to return
-    /// - `after_sequence`: Only return events after this sequence number
-    pub fn event_get_by_type_paginated(
-        &self,
-        event_type: &str,
-        limit: Option<u64>,
-        after_sequence: Option<u64>,
-    ) -> Result<Vec<VersionedValue>> {
-        match self.executor.execute(Command::EventGetByType {
-            branch: self.branch_id(),
-            space: self.space_id(),
-            event_type: event_type.to_string(),
-            limit,
-            after_sequence,
-        })? {
-            Output::VersionedValues(events) => Ok(events),
-            _ => Err(Error::Internal {
-                reason: "Unexpected output for EventGetByType".into(),
-            }),
-        }
-    }
 }
