@@ -45,12 +45,23 @@ pub struct EmbedModel {
 
 impl EmbedModel {
     /// Load model weights from SafeTensors bytes and vocabulary text.
+    ///
+    /// Supports both naming conventions:
+    /// - HuggingFace BERT: `bert.embeddings.word_embeddings.weight`
+    /// - Sentence Transformers: `embeddings.word_embeddings.weight`
     pub fn load(safetensors_bytes: &[u8], vocab_text: &str) -> Result<Self, String> {
         let st = SafeTensors::from_bytes(safetensors_bytes)?;
         let tokenizer = WordPieceTokenizer::from_vocab(vocab_text);
 
+        // Detect naming convention: try with "bert." prefix first, fall back to without.
+        let prefix = if st.tensor("bert.embeddings.word_embeddings.weight").is_some() {
+            "bert."
+        } else {
+            ""
+        };
+
         let word_embeddings = st
-            .tensor("bert.embeddings.word_embeddings.weight")
+            .tensor(&format!("{}embeddings.word_embeddings.weight", prefix))
             .ok_or("Missing word_embeddings")?;
 
         if word_embeddings.rows != VOCAB_SIZE || word_embeddings.cols != HIDDEN_SIZE {
@@ -61,85 +72,85 @@ impl EmbedModel {
         }
 
         let position_embeddings = st
-            .tensor("bert.embeddings.position_embeddings.weight")
+            .tensor(&format!("{}embeddings.position_embeddings.weight", prefix))
             .ok_or("Missing position_embeddings")?;
 
         let token_type_embeddings = st
-            .tensor("bert.embeddings.token_type_embeddings.weight")
+            .tensor(&format!("{}embeddings.token_type_embeddings.weight", prefix))
             .ok_or("Missing token_type_embeddings")?;
 
         let embed_ln_weight = st
-            .tensor_1d("bert.embeddings.LayerNorm.weight")
+            .tensor_1d(&format!("{}embeddings.LayerNorm.weight", prefix))
             .ok_or("Missing embeddings LayerNorm weight")?;
 
         let embed_ln_bias = st
-            .tensor_1d("bert.embeddings.LayerNorm.bias")
+            .tensor_1d(&format!("{}embeddings.LayerNorm.bias", prefix))
             .ok_or("Missing embeddings LayerNorm bias")?;
 
         let mut layers = Vec::with_capacity(NUM_LAYERS);
         for i in 0..NUM_LAYERS {
-            let prefix = format!("bert.encoder.layer.{}", i);
+            let layer_prefix = format!("{}encoder.layer.{}", prefix, i);
             let layer = TransformerLayer {
                 q_weight: st
-                    .tensor(&format!("{}.attention.self.query.weight", prefix))
-                    .ok_or_else(|| format!("Missing {}.attention.self.query.weight", prefix))?,
+                    .tensor(&format!("{}.attention.self.query.weight", layer_prefix))
+                    .ok_or_else(|| format!("Missing {}.attention.self.query.weight", layer_prefix))?,
                 q_bias: st
-                    .tensor_1d(&format!("{}.attention.self.query.bias", prefix))
-                    .ok_or_else(|| format!("Missing {}.attention.self.query.bias", prefix))?,
+                    .tensor_1d(&format!("{}.attention.self.query.bias", layer_prefix))
+                    .ok_or_else(|| format!("Missing {}.attention.self.query.bias", layer_prefix))?,
                 k_weight: st
-                    .tensor(&format!("{}.attention.self.key.weight", prefix))
-                    .ok_or_else(|| format!("Missing {}.attention.self.key.weight", prefix))?,
+                    .tensor(&format!("{}.attention.self.key.weight", layer_prefix))
+                    .ok_or_else(|| format!("Missing {}.attention.self.key.weight", layer_prefix))?,
                 k_bias: st
-                    .tensor_1d(&format!("{}.attention.self.key.bias", prefix))
-                    .ok_or_else(|| format!("Missing {}.attention.self.key.bias", prefix))?,
+                    .tensor_1d(&format!("{}.attention.self.key.bias", layer_prefix))
+                    .ok_or_else(|| format!("Missing {}.attention.self.key.bias", layer_prefix))?,
                 v_weight: st
-                    .tensor(&format!("{}.attention.self.value.weight", prefix))
-                    .ok_or_else(|| format!("Missing {}.attention.self.value.weight", prefix))?,
+                    .tensor(&format!("{}.attention.self.value.weight", layer_prefix))
+                    .ok_or_else(|| format!("Missing {}.attention.self.value.weight", layer_prefix))?,
                 v_bias: st
-                    .tensor_1d(&format!("{}.attention.self.value.bias", prefix))
-                    .ok_or_else(|| format!("Missing {}.attention.self.value.bias", prefix))?,
+                    .tensor_1d(&format!("{}.attention.self.value.bias", layer_prefix))
+                    .ok_or_else(|| format!("Missing {}.attention.self.value.bias", layer_prefix))?,
                 attn_output_weight: st
-                    .tensor(&format!("{}.attention.output.dense.weight", prefix))
+                    .tensor(&format!("{}.attention.output.dense.weight", layer_prefix))
                     .ok_or_else(|| {
-                        format!("Missing {}.attention.output.dense.weight", prefix)
+                        format!("Missing {}.attention.output.dense.weight", layer_prefix)
                     })?,
                 attn_output_bias: st
-                    .tensor_1d(&format!("{}.attention.output.dense.bias", prefix))
+                    .tensor_1d(&format!("{}.attention.output.dense.bias", layer_prefix))
                     .ok_or_else(|| {
-                        format!("Missing {}.attention.output.dense.bias", prefix)
+                        format!("Missing {}.attention.output.dense.bias", layer_prefix)
                     })?,
                 attn_ln_weight: st
-                    .tensor_1d(&format!("{}.attention.output.LayerNorm.weight", prefix))
+                    .tensor_1d(&format!("{}.attention.output.LayerNorm.weight", layer_prefix))
                     .ok_or_else(|| {
-                        format!("Missing {}.attention.output.LayerNorm.weight", prefix)
+                        format!("Missing {}.attention.output.LayerNorm.weight", layer_prefix)
                     })?,
                 attn_ln_bias: st
-                    .tensor_1d(&format!("{}.attention.output.LayerNorm.bias", prefix))
+                    .tensor_1d(&format!("{}.attention.output.LayerNorm.bias", layer_prefix))
                     .ok_or_else(|| {
-                        format!("Missing {}.attention.output.LayerNorm.bias", prefix)
+                        format!("Missing {}.attention.output.LayerNorm.bias", layer_prefix)
                     })?,
                 intermediate_weight: st
-                    .tensor(&format!("{}.intermediate.dense.weight", prefix))
+                    .tensor(&format!("{}.intermediate.dense.weight", layer_prefix))
                     .ok_or_else(|| {
-                        format!("Missing {}.intermediate.dense.weight", prefix)
+                        format!("Missing {}.intermediate.dense.weight", layer_prefix)
                     })?,
                 intermediate_bias: st
-                    .tensor_1d(&format!("{}.intermediate.dense.bias", prefix))
+                    .tensor_1d(&format!("{}.intermediate.dense.bias", layer_prefix))
                     .ok_or_else(|| {
-                        format!("Missing {}.intermediate.dense.bias", prefix)
+                        format!("Missing {}.intermediate.dense.bias", layer_prefix)
                     })?,
                 output_weight: st
-                    .tensor(&format!("{}.output.dense.weight", prefix))
-                    .ok_or_else(|| format!("Missing {}.output.dense.weight", prefix))?,
+                    .tensor(&format!("{}.output.dense.weight", layer_prefix))
+                    .ok_or_else(|| format!("Missing {}.output.dense.weight", layer_prefix))?,
                 output_bias: st
-                    .tensor_1d(&format!("{}.output.dense.bias", prefix))
-                    .ok_or_else(|| format!("Missing {}.output.dense.bias", prefix))?,
+                    .tensor_1d(&format!("{}.output.dense.bias", layer_prefix))
+                    .ok_or_else(|| format!("Missing {}.output.dense.bias", layer_prefix))?,
                 output_ln_weight: st
-                    .tensor_1d(&format!("{}.output.LayerNorm.weight", prefix))
-                    .ok_or_else(|| format!("Missing {}.output.LayerNorm.weight", prefix))?,
+                    .tensor_1d(&format!("{}.output.LayerNorm.weight", layer_prefix))
+                    .ok_or_else(|| format!("Missing {}.output.LayerNorm.weight", layer_prefix))?,
                 output_ln_bias: st
-                    .tensor_1d(&format!("{}.output.LayerNorm.bias", prefix))
-                    .ok_or_else(|| format!("Missing {}.output.LayerNorm.bias", prefix))?,
+                    .tensor_1d(&format!("{}.output.LayerNorm.bias", layer_prefix))
+                    .ok_or_else(|| format!("Missing {}.output.LayerNorm.bias", layer_prefix))?,
             };
             layers.push(layer);
         }
@@ -343,5 +354,195 @@ mod tests {
         let v = vec![0.0, 0.0];
         let n = l2_normalize(&v);
         assert_eq!(n, vec![0.0, 0.0]);
+    }
+
+    #[test]
+    fn test_l2_normalize_unit_norm() {
+        let v = vec![1.0, 2.0, 3.0, 4.0, 5.0];
+        let n = l2_normalize(&v);
+        let norm: f32 = n.iter().map(|x| x * x).sum::<f32>().sqrt();
+        assert!(
+            (norm - 1.0).abs() < 1e-5,
+            "norm = {}, expected 1.0",
+            norm
+        );
+    }
+
+    #[test]
+    fn test_l2_normalize_single_element() {
+        let v = vec![5.0];
+        let n = l2_normalize(&v);
+        assert!((n[0] - 1.0).abs() < 1e-6);
+    }
+
+    #[test]
+    fn test_l2_normalize_negative_values() {
+        let v = vec![-3.0, 4.0];
+        let n = l2_normalize(&v);
+        let norm: f32 = n.iter().map(|x| x * x).sum::<f32>().sqrt();
+        assert!((norm - 1.0).abs() < 1e-5);
+    }
+
+    #[test]
+    fn test_l2_normalize_preserves_direction() {
+        let v = vec![2.0, 4.0, 6.0];
+        let n = l2_normalize(&v);
+        // Ratios should be preserved: n[1]/n[0] ≈ 2.0, n[2]/n[0] ≈ 3.0
+        assert!((n[1] / n[0] - 2.0).abs() < 1e-5);
+        assert!((n[2] / n[0] - 3.0).abs() < 1e-5);
+    }
+
+    /// Build synthetic SafeTensors bytes with named tensors.
+    /// Each entry is (name, dtype, shape, data_bytes).
+    fn build_safetensors(entries: &[(&str, &str, &[usize], &[u8])]) -> Vec<u8> {
+        let mut header_map = serde_json::Map::new();
+        let mut offset = 0usize;
+        let mut all_data = Vec::new();
+
+        for &(name, dtype, shape, data) in entries {
+            let end = offset + data.len();
+            let info = serde_json::json!({
+                "dtype": dtype,
+                "shape": shape,
+                "data_offsets": [offset, end],
+            });
+            header_map.insert(name.to_string(), info);
+            all_data.extend_from_slice(data);
+            offset = end;
+        }
+
+        let header_json =
+            serde_json::to_string(&serde_json::Value::Object(header_map)).unwrap();
+        let header_bytes = header_json.as_bytes();
+        let header_len = header_bytes.len() as u64;
+
+        let mut buf = Vec::new();
+        buf.extend_from_slice(&header_len.to_le_bytes());
+        buf.extend_from_slice(header_bytes);
+        buf.extend_from_slice(&all_data);
+        buf
+    }
+
+    fn f32_bytes(vals: &[f32]) -> Vec<u8> {
+        vals.iter().flat_map(|v| v.to_le_bytes()).collect()
+    }
+
+    #[test]
+    fn test_load_missing_word_embeddings() {
+        // SafeTensors with a random tensor but no bert.embeddings.word_embeddings.weight
+        let data = f32_bytes(&[1.0, 2.0]);
+        let bytes = build_safetensors(&[("some_other_tensor", "F32", &[1, 2], &data)]);
+        let result = EmbedModel::load(&bytes, "[PAD]\n[UNK]");
+        assert!(result.is_err());
+        let err = result.err().unwrap();
+        assert!(
+            err.contains("Missing"),
+            "expected 'Missing' in error: {}",
+            err
+        );
+    }
+
+    #[test]
+    fn test_load_wrong_dimensions() {
+        // word_embeddings with wrong shape (2x2 instead of 30522x384)
+        let data = f32_bytes(&[1.0, 2.0, 3.0, 4.0]);
+        let bytes = build_safetensors(&[(
+            "bert.embeddings.word_embeddings.weight",
+            "F32",
+            &[2, 2],
+            &data,
+        )]);
+        let result = EmbedModel::load(&bytes, "[PAD]\n[UNK]");
+        assert!(result.is_err());
+        let err = result.err().unwrap();
+        assert!(
+            err.contains("shape mismatch"),
+            "expected 'shape mismatch' in error: {}",
+            err
+        );
+    }
+
+    #[test]
+    fn test_load_missing_layer_weights() {
+        // Provide embeddings with correct shape but no encoder layers.
+        let embed_size = VOCAB_SIZE * HIDDEN_SIZE;
+        let word_data = f32_bytes(&vec![0.0f32; embed_size]);
+        let pos_size = 512 * HIDDEN_SIZE; // BERT max position embeddings
+        let pos_data = f32_bytes(&vec![0.0f32; pos_size]);
+        let type_size = 2 * HIDDEN_SIZE; // 2 token types
+        let type_data = f32_bytes(&vec![0.0f32; type_size]);
+        let ln_data = f32_bytes(&vec![1.0f32; HIDDEN_SIZE]);
+        let ln_bias = f32_bytes(&vec![0.0f32; HIDDEN_SIZE]);
+
+        let bytes = build_safetensors(&[
+            (
+                "bert.embeddings.word_embeddings.weight",
+                "F32",
+                &[VOCAB_SIZE, HIDDEN_SIZE],
+                &word_data,
+            ),
+            (
+                "bert.embeddings.position_embeddings.weight",
+                "F32",
+                &[512, HIDDEN_SIZE],
+                &pos_data,
+            ),
+            (
+                "bert.embeddings.token_type_embeddings.weight",
+                "F32",
+                &[2, HIDDEN_SIZE],
+                &type_data,
+            ),
+            (
+                "bert.embeddings.LayerNorm.weight",
+                "F32",
+                &[HIDDEN_SIZE],
+                &ln_data,
+            ),
+            (
+                "bert.embeddings.LayerNorm.bias",
+                "F32",
+                &[HIDDEN_SIZE],
+                &ln_bias,
+            ),
+        ]);
+
+        let mut vocab_lines: Vec<String> = (0..VOCAB_SIZE).map(|i| format!("tok{}", i)).collect();
+        vocab_lines[0] = "[PAD]".into();
+        vocab_lines[100] = "[UNK]".into();
+        vocab_lines[101] = "[CLS]".into();
+        vocab_lines[102] = "[SEP]".into();
+        let vocab = vocab_lines.join("\n");
+
+        let result = EmbedModel::load(&bytes, &vocab);
+        assert!(result.is_err());
+        let err = result.err().unwrap();
+        assert!(
+            err.contains("Missing"),
+            "expected 'Missing' in error for missing layer weights: {}",
+            err
+        );
+    }
+
+    #[test]
+    #[ignore] // Requires real model files
+    fn test_embed_produces_384_dim_unit_vector() {
+        let workspace = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+        let model_dir = workspace.join("models/minilm-l6-v2");
+        let safetensors_bytes =
+            std::fs::read(model_dir.join("model.safetensors")).expect("model.safetensors not found");
+        let vocab_text =
+            std::fs::read_to_string(model_dir.join("vocab.txt")).expect("vocab.txt not found");
+
+        let model = EmbedModel::load(&safetensors_bytes, &vocab_text).expect("load model");
+        let embedding = model.embed("hello");
+
+        assert_eq!(embedding.len(), HIDDEN_SIZE);
+        let norm: f32 = embedding.iter().map(|x| x * x).sum::<f32>().sqrt();
+        assert!(
+            (norm - 1.0).abs() < 1e-4,
+            "L2 norm = {}, expected 1.0",
+            norm
+        );
     }
 }

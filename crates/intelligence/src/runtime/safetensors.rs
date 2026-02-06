@@ -218,4 +218,150 @@ mod tests {
     fn test_too_short() {
         assert!(SafeTensors::from_bytes(&[0; 4]).is_err());
     }
+
+    #[test]
+    fn test_metadata_key_skipped() {
+        let header = r#"{"__metadata__":{"format":"pt"},"t":{"dtype":"F32","shape":[2],"data_offsets":[0,8]}}"#;
+        let header_bytes = header.as_bytes();
+        let header_len = header_bytes.len() as u64;
+
+        let mut buf = Vec::new();
+        buf.extend_from_slice(&header_len.to_le_bytes());
+        buf.extend_from_slice(header_bytes);
+        for &v in &[1.0f32, 2.0] {
+            buf.extend_from_slice(&v.to_le_bytes());
+        }
+
+        let st = SafeTensors::from_bytes(&buf).unwrap();
+        // __metadata__ should not be treated as a tensor
+        assert!(st.tensor("__metadata__").is_none());
+        // The actual tensor should be retrievable
+        let t = st.tensor("t").unwrap();
+        assert_eq!(t.cols, 2);
+    }
+
+    #[test]
+    fn test_non_f32_dtype_returns_none() {
+        let header = r#"{"half":{"dtype":"F16","shape":[2],"data_offsets":[0,4]}}"#;
+        let header_bytes = header.as_bytes();
+        let header_len = header_bytes.len() as u64;
+
+        let mut buf = Vec::new();
+        buf.extend_from_slice(&header_len.to_le_bytes());
+        buf.extend_from_slice(header_bytes);
+        buf.extend_from_slice(&[0u8; 4]);
+
+        let st = SafeTensors::from_bytes(&buf).unwrap();
+        assert!(st.tensor("half").is_none());
+    }
+
+    #[test]
+    fn test_3d_shape_returns_none() {
+        let header = r#"{"cube":{"dtype":"F32","shape":[2,3,4],"data_offsets":[0,96]}}"#;
+        let header_bytes = header.as_bytes();
+        let header_len = header_bytes.len() as u64;
+
+        let mut buf = Vec::new();
+        buf.extend_from_slice(&header_len.to_le_bytes());
+        buf.extend_from_slice(header_bytes);
+        buf.extend_from_slice(&vec![0u8; 96]);
+
+        let st = SafeTensors::from_bytes(&buf).unwrap();
+        assert!(st.tensor("cube").is_none());
+    }
+
+    #[test]
+    fn test_header_exceeds_file_size() {
+        // Header length says 1000 but file is only 16 bytes total.
+        let header_len = 1000u64;
+        let mut buf = Vec::new();
+        buf.extend_from_slice(&header_len.to_le_bytes());
+        buf.extend_from_slice(b"{}");
+
+        let result = SafeTensors::from_bytes(&buf);
+        assert!(result.is_err());
+        let err = result.err().unwrap();
+        assert!(err.contains("exceeds file size"));
+    }
+
+    #[test]
+    fn test_multiple_tensors() {
+        // Two tensors in one file: a (2 floats), b (3 floats)
+        let header = r#"{"a":{"dtype":"F32","shape":[2],"data_offsets":[0,8]},"b":{"dtype":"F32","shape":[3],"data_offsets":[8,20]}}"#;
+        let header_bytes = header.as_bytes();
+        let header_len = header_bytes.len() as u64;
+
+        let mut buf = Vec::new();
+        buf.extend_from_slice(&header_len.to_le_bytes());
+        buf.extend_from_slice(header_bytes);
+        for &v in &[1.0f32, 2.0] {
+            buf.extend_from_slice(&v.to_le_bytes());
+        }
+        for &v in &[10.0f32, 20.0, 30.0] {
+            buf.extend_from_slice(&v.to_le_bytes());
+        }
+
+        let st = SafeTensors::from_bytes(&buf).unwrap();
+        let a = st.tensor("a").unwrap();
+        assert_eq!(a.cols, 2);
+        assert!((a.data[0] - 1.0).abs() < 1e-6);
+        assert!((a.data[1] - 2.0).abs() < 1e-6);
+
+        let b = st.tensor("b").unwrap();
+        assert_eq!(b.cols, 3);
+        assert!((b.data[0] - 10.0).abs() < 1e-6);
+        assert!((b.data[2] - 30.0).abs() < 1e-6);
+    }
+
+    #[test]
+    fn test_data_offset_beyond_data() {
+        // Tensor claims offsets [0, 100] but data section is only 8 bytes.
+        let header = r#"{"big":{"dtype":"F32","shape":[25],"data_offsets":[0,100]}}"#;
+        let header_bytes = header.as_bytes();
+        let header_len = header_bytes.len() as u64;
+
+        let mut buf = Vec::new();
+        buf.extend_from_slice(&header_len.to_le_bytes());
+        buf.extend_from_slice(header_bytes);
+        buf.extend_from_slice(&[0u8; 8]); // Only 8 bytes of data
+
+        let st = SafeTensors::from_bytes(&buf).unwrap();
+        assert!(st.tensor("big").is_none());
+    }
+
+    #[test]
+    fn test_1d_shape_as_row_vector() {
+        // Shape [5] should load as rows=1, cols=5.
+        let header = r#"{"vec":{"dtype":"F32","shape":[5],"data_offsets":[0,20]}}"#;
+        let header_bytes = header.as_bytes();
+        let header_len = header_bytes.len() as u64;
+
+        let mut buf = Vec::new();
+        buf.extend_from_slice(&header_len.to_le_bytes());
+        buf.extend_from_slice(header_bytes);
+        for &v in &[1.0f32, 2.0, 3.0, 4.0, 5.0] {
+            buf.extend_from_slice(&v.to_le_bytes());
+        }
+
+        let st = SafeTensors::from_bytes(&buf).unwrap();
+        let t = st.tensor("vec").unwrap();
+        assert_eq!(t.rows, 1);
+        assert_eq!(t.cols, 5);
+        assert_eq!(t.data, vec![1.0, 2.0, 3.0, 4.0, 5.0]);
+    }
+
+    #[test]
+    fn test_invalid_json_header() {
+        let bad_json = b"not valid json at all";
+        let header_len = bad_json.len() as u64;
+
+        let mut buf = Vec::new();
+        buf.extend_from_slice(&header_len.to_le_bytes());
+        buf.extend_from_slice(bad_json);
+
+        let result = SafeTensors::from_bytes(&buf);
+        assert!(result.is_err());
+        let err = result.err().unwrap();
+        assert!(err.contains("Failed to parse header JSON"));
+    }
 }

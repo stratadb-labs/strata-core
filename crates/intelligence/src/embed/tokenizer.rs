@@ -231,4 +231,135 @@ mod tests {
         // [CLS], [SEP]
         assert_eq!(result.input_ids, vec![CLS_ID, SEP_ID]);
     }
+
+    #[test]
+    fn test_case_insensitivity() {
+        let vocab = test_vocab();
+        let tok = WordPieceTokenizer::from_vocab(&vocab);
+        let upper = tok.tokenize("HELLO World");
+        let lower = tok.tokenize("hello world");
+        assert_eq!(upper.input_ids, lower.input_ids);
+    }
+
+    #[test]
+    fn test_wordpiece_subword() {
+        // "testing" is not in vocab, but "test" (106) and "##ing" (105) are.
+        let vocab = test_vocab();
+        let tok = WordPieceTokenizer::from_vocab(&vocab);
+        let result = tok.tokenize("testing");
+        // [CLS]=101, "test"=106, "##ing"=105, [SEP]=102
+        assert_eq!(result.input_ids[0], CLS_ID);
+        assert_eq!(result.input_ids[1], 106); // test
+        assert_eq!(result.input_ids[2], 105); // ##ing
+        assert_eq!(*result.input_ids.last().unwrap(), SEP_ID);
+    }
+
+    #[test]
+    fn test_max_sequence_length() {
+        // Build a vocab with many single-char tokens so we can generate > 256.
+        let mut lines: Vec<String> = (0..101).map(|_| "[PAD]".into()).collect();
+        lines[0] = "[PAD]".into();
+        lines[100] = "[UNK]".into();
+        lines.push("[CLS]".into()); // 101
+        lines.push("[SEP]".into()); // 102
+        // Add single letters a-z
+        for c in b'a'..=b'z' {
+            lines.push(String::from(c as char));
+        }
+        let vocab = lines.join("\n");
+        let tok = WordPieceTokenizer::from_vocab(&vocab);
+
+        // 300 space-separated words, each in vocab → would exceed 256
+        let input: String = (0..300).map(|_| "a").collect::<Vec<_>>().join(" ");
+        let result = tok.tokenize(&input);
+
+        assert!(result.input_ids.len() <= 256);
+        assert_eq!(*result.input_ids.last().unwrap(), SEP_ID);
+    }
+
+    #[test]
+    fn test_attention_mask_all_ones() {
+        let vocab = test_vocab();
+        let tok = WordPieceTokenizer::from_vocab(&vocab);
+        let result = tok.tokenize("hello world");
+        assert!(result.attention_mask.iter().all(|&v| v == 1));
+    }
+
+    #[test]
+    fn test_token_type_ids_all_zero() {
+        let vocab = test_vocab();
+        let tok = WordPieceTokenizer::from_vocab(&vocab);
+        let result = tok.tokenize("hello world");
+        assert!(result.token_type_ids.iter().all(|&v| v == 0));
+    }
+
+    #[test]
+    fn test_multiple_spaces() {
+        let vocab = test_vocab();
+        let tok = WordPieceTokenizer::from_vocab(&vocab);
+        let single = tok.tokenize("hello world");
+        let multi = tok.tokenize("hello   world");
+        assert_eq!(single.input_ids, multi.input_ids);
+    }
+
+    #[test]
+    fn test_punctuation_becomes_separate_token() {
+        // "hello,world" → basic_split produces ["hello", ",", "world"]
+        // With CLS/SEP that's 5 tokens total.
+        let vocab = test_vocab();
+        let tok = WordPieceTokenizer::from_vocab(&vocab);
+        let result = tok.tokenize("hello,world");
+        // [CLS], hello(103), ","(UNK), world(104), [SEP]
+        assert_eq!(result.input_ids.len(), 5);
+        assert_eq!(result.input_ids[1], 103); // hello
+        assert_eq!(result.input_ids[3], 104); // world
+    }
+
+    #[test]
+    fn test_all_punctuation_chars() {
+        // Every char listed in is_punctuation should become a separate token.
+        let puncts = "!\"#$%&'()*+,-./:;<=>?@[\\]^_`{|}~";
+        let tokens = basic_split(puncts);
+        // Each punctuation char should be its own token
+        assert_eq!(tokens.len(), puncts.chars().count());
+        for (token, ch) in tokens.iter().zip(puncts.chars()) {
+            assert_eq!(token, &ch.to_string());
+        }
+    }
+
+    #[test]
+    fn test_numbers_tokenized() {
+        let vocab = test_vocab();
+        let tok = WordPieceTokenizer::from_vocab(&vocab);
+        let result = tok.tokenize("42");
+        // "42" is not in vocab; wordpiece splits each char → 2 UNKs
+        // [CLS, UNK, UNK, SEP]
+        assert_eq!(result.input_ids[0], CLS_ID);
+        assert_eq!(*result.input_ids.last().unwrap(), SEP_ID);
+        // All middle tokens should be UNK
+        for &id in &result.input_ids[1..result.input_ids.len() - 1] {
+            assert_eq!(id, UNK_ID);
+        }
+    }
+
+    #[test]
+    fn test_cls_sep_always_present() {
+        let vocab = test_vocab();
+        let tok = WordPieceTokenizer::from_vocab(&vocab);
+
+        // Empty input
+        let r1 = tok.tokenize("");
+        assert_eq!(r1.input_ids[0], CLS_ID);
+        assert_eq!(*r1.input_ids.last().unwrap(), SEP_ID);
+
+        // Single word
+        let r2 = tok.tokenize("hello");
+        assert_eq!(r2.input_ids[0], CLS_ID);
+        assert_eq!(*r2.input_ids.last().unwrap(), SEP_ID);
+
+        // Long text
+        let r3 = tok.tokenize(&"hello ".repeat(100));
+        assert_eq!(r3.input_ids[0], CLS_ID);
+        assert_eq!(*r3.input_ids.last().unwrap(), SEP_ID);
+    }
 }

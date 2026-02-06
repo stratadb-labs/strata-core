@@ -194,4 +194,62 @@ mod tests {
         // All within MAX_DEPTH (16), so the text should be extractable.
         assert_eq!(extract_text(&value), Some("found".into()));
     }
+
+    #[test]
+    fn test_nested_object_in_array() {
+        let mut m1 = HashMap::new();
+        m1.insert("name".to_string(), Value::String("Alice".into()));
+        let mut m2 = HashMap::new();
+        m2.insert("name".to_string(), Value::String("Bob".into()));
+        let arr = Value::Array(vec![Value::Object(m1), Value::Object(m2)]);
+        let text = extract_text(&arr).unwrap();
+        assert!(text.contains("name: Alice"));
+        assert!(text.contains("name: Bob"));
+    }
+
+    #[test]
+    fn test_object_all_null_values() {
+        let mut map = HashMap::new();
+        map.insert("a".to_string(), Value::Null);
+        map.insert("b".to_string(), Value::Null);
+        assert_eq!(extract_text(&Value::Object(map)), None);
+    }
+
+    #[test]
+    fn test_empty_object() {
+        let map = HashMap::new();
+        assert_eq!(extract_text(&Value::Object(map)), None);
+    }
+
+    #[test]
+    fn test_object_keys_sorted() {
+        let mut map = HashMap::new();
+        map.insert("z".to_string(), Value::String("last".into()));
+        map.insert("a".to_string(), Value::String("first".into()));
+        map.insert("m".to_string(), Value::String("middle".into()));
+        let text = extract_text(&Value::Object(map)).unwrap();
+        let a_pos = text.find("a:").unwrap();
+        let m_pos = text.find("m:").unwrap();
+        let z_pos = text.find("z:").unwrap();
+        assert!(a_pos < m_pos, "a should come before m");
+        assert!(m_pos < z_pos, "m should come before z");
+    }
+
+    #[test]
+    fn test_mixed_depth_objects_and_arrays() {
+        let mut inner = HashMap::new();
+        inner.insert("nested".to_string(), Value::Bool(true));
+        let arr = Value::Array(vec![
+            Value::Int(1),
+            Value::String("two".into()),
+            Value::Object(inner),
+        ]);
+        let mut outer = HashMap::new();
+        outer.insert("items".to_string(), arr);
+        let text = extract_text(&Value::Object(outer)).unwrap();
+        assert!(text.contains("items:"));
+        assert!(text.contains("1"));
+        assert!(text.contains("two"));
+        assert!(text.contains("nested: true"));
+    }
 }

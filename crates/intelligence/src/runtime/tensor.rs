@@ -298,4 +298,157 @@ mod tests {
         assert_eq!(s.rows, 2);
         assert_eq!(s.data, vec![3.0, 4.0, 5.0, 6.0]);
     }
+
+    #[test]
+    fn test_matmul_identity() {
+        // Multiplying by 3x3 identity should return the original matrix.
+        let a = Tensor::from_slice(&[1.0, 2.0, 3.0, 4.0, 5.0, 6.0], 2, 3);
+        let identity = Tensor::from_slice(
+            &[1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0],
+            3,
+            3,
+        );
+        let result = a.matmul(&identity);
+        assert_eq!(result.rows, 2);
+        assert_eq!(result.cols, 3);
+        for (a_val, r_val) in a.data.iter().zip(result.data.iter()) {
+            assert!((a_val - r_val).abs() < 1e-6);
+        }
+    }
+
+    #[test]
+    fn test_matmul_transpose_non_identity() {
+        // A = [[1, 2], [3, 4]], B = [[5, 6], [7, 8]]
+        // A × Bᵀ = [[1*5+2*6, 1*7+2*8], [3*5+4*6, 3*7+4*8]]
+        //         = [[17, 23], [39, 53]]
+        let a = Tensor::from_slice(&[1.0, 2.0, 3.0, 4.0], 2, 2);
+        let b = Tensor::from_slice(&[5.0, 6.0, 7.0, 8.0], 2, 2);
+        let c = a.matmul_transpose(&b);
+        assert_eq!(c.rows, 2);
+        assert_eq!(c.cols, 2);
+        assert!((c.data[0] - 17.0).abs() < 1e-6);
+        assert!((c.data[1] - 23.0).abs() < 1e-6);
+        assert!((c.data[2] - 39.0).abs() < 1e-6);
+        assert!((c.data[3] - 53.0).abs() < 1e-6);
+    }
+
+    #[test]
+    fn test_softmax_rows_multi_row() {
+        // Each row should independently sum to 1.0.
+        let mut t = Tensor::from_slice(&[1.0, 2.0, 3.0, 10.0, 20.0, 30.0], 2, 3);
+        t.softmax_rows();
+        for r in 0..2 {
+            let row_sum: f32 = t.row(r).iter().sum();
+            assert!(
+                (row_sum - 1.0).abs() < 1e-5,
+                "row {} sum = {}, expected 1.0",
+                r,
+                row_sum
+            );
+        }
+    }
+
+    #[test]
+    fn test_softmax_numerical_stability() {
+        // Large values should not overflow — still sums to 1.0.
+        let mut t = Tensor::from_slice(&[1000.0, 1001.0, 1000.5], 1, 3);
+        t.softmax_rows();
+        let sum: f32 = t.data.iter().sum();
+        assert!(
+            (sum - 1.0).abs() < 1e-5,
+            "softmax sum = {}, expected 1.0",
+            sum
+        );
+        assert!(t.data.iter().all(|&v| v.is_finite()));
+    }
+
+    #[test]
+    fn test_softmax_all_equal() {
+        // Equal inputs → uniform distribution.
+        let mut t = Tensor::from_slice(&[5.0, 5.0, 5.0, 5.0], 1, 4);
+        t.softmax_rows();
+        for &v in &t.data {
+            assert!(
+                (v - 0.25).abs() < 1e-5,
+                "expected uniform 0.25, got {}",
+                v
+            );
+        }
+    }
+
+    #[test]
+    fn test_layer_norm_multi_row() {
+        // Two rows with different means/variances, each independently normalized.
+        // Row 0: [1, 3] → mean=2, var=1, normed=[-1, 1]
+        // Row 1: [2, 6] → mean=4, var=4, normed=[-1, 1]
+        let t = Tensor::from_slice(&[1.0, 3.0, 2.0, 6.0], 2, 2);
+        let w = vec![1.0, 1.0];
+        let b = vec![0.0, 0.0];
+        let n = t.layer_norm(&w, &b, 1e-5);
+        // Both rows should normalize to approximately [-1, 1]
+        assert!((n.data[0] - (-1.0)).abs() < 1e-4);
+        assert!((n.data[1] - 1.0).abs() < 1e-4);
+        assert!((n.data[2] - (-1.0)).abs() < 1e-4);
+        assert!((n.data[3] - 1.0).abs() < 1e-4);
+    }
+
+    #[test]
+    fn test_layer_norm_with_weight_bias() {
+        // [1, 3] → mean=2, var=1, normed=[-1, 1]
+        // With weight=[2,2], bias=[10,10]: output = [-1*2+10, 1*2+10] = [8, 12]
+        let t = Tensor::from_slice(&[1.0, 3.0], 1, 2);
+        let w = vec![2.0, 2.0];
+        let b = vec![10.0, 10.0];
+        let n = t.layer_norm(&w, &b, 1e-5);
+        assert!((n.data[0] - 8.0).abs() < 1e-4);
+        assert!((n.data[1] - 12.0).abs() < 1e-4);
+    }
+
+    #[test]
+    fn test_gelu_positive() {
+        // For large positive x, GELU(x) ≈ x.
+        let t = Tensor::from_slice(&[5.0], 1, 1);
+        let g = t.gelu();
+        assert!(
+            (g.data[0] - 5.0).abs() < 0.01,
+            "GELU(5.0) = {}, expected ≈5.0",
+            g.data[0]
+        );
+    }
+
+    #[test]
+    fn test_gelu_negative() {
+        // For large negative x, GELU(x) ≈ 0.
+        let t = Tensor::from_slice(&[-5.0], 1, 1);
+        let g = t.gelu();
+        assert!(
+            g.data[0].abs() < 0.01,
+            "GELU(-5.0) = {}, expected ≈0.0",
+            g.data[0]
+        );
+    }
+
+    #[test]
+    #[should_panic(expected = "data length mismatch")]
+    fn test_from_slice_dimension_mismatch_panics() {
+        // 5 floats cannot form a 2x3 tensor.
+        Tensor::from_slice(&[1.0, 2.0, 3.0, 4.0, 5.0], 2, 3);
+    }
+
+    #[test]
+    #[should_panic(expected = "matmul dimension mismatch")]
+    fn test_matmul_dimension_mismatch_panics() {
+        // A(2,3) × B(2,3): inner dims 3 ≠ 2.
+        let a = Tensor::from_slice(&[1.0, 2.0, 3.0, 4.0, 5.0, 6.0], 2, 3);
+        let b = Tensor::from_slice(&[1.0, 2.0, 3.0, 4.0, 5.0, 6.0], 2, 3);
+        a.matmul(&b);
+    }
+
+    #[test]
+    fn test_row_access() {
+        let t = Tensor::from_slice(&[1.0, 2.0, 3.0, 4.0, 5.0, 6.0], 3, 2);
+        assert_eq!(t.row(0), &[1.0, 2.0]);
+        assert_eq!(t.row(1), &[3.0, 4.0]);
+        assert_eq!(t.row(2), &[5.0, 6.0]);
+    }
 }

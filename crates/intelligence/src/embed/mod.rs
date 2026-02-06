@@ -61,3 +61,60 @@ impl EmbedModelState {
             .clone()
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_default_state_is_empty() {
+        let state = EmbedModelState::default();
+        let result = state.get_or_load(Path::new("/nonexistent/path"));
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_missing_model_file_error_message() {
+        let dir = tempfile::tempdir().unwrap();
+        let state = EmbedModelState::default();
+        let result = state.get_or_load(dir.path());
+        assert!(result.is_err());
+        let err = result.err().unwrap();
+        assert!(
+            err.contains(dir.path().to_str().unwrap()),
+            "error should contain the path: {}",
+            err
+        );
+    }
+
+    #[test]
+    fn test_error_is_cached() {
+        let dir = tempfile::tempdir().unwrap();
+        let state = EmbedModelState::default();
+        let err1 = state.get_or_load(dir.path()).err().unwrap();
+        let err2 = state.get_or_load(dir.path()).err().unwrap();
+        assert_eq!(err1, err2, "error should be cached and identical");
+    }
+
+    #[test]
+    fn test_missing_vocab_file() {
+        let dir = tempfile::tempdir().unwrap();
+        // Create a model.safetensors file (minimal valid safetensors)
+        let header = b"{}";
+        let header_len = header.len() as u64;
+        let mut buf = Vec::new();
+        buf.extend_from_slice(&header_len.to_le_bytes());
+        buf.extend_from_slice(header);
+        std::fs::write(dir.path().join("model.safetensors"), &buf).unwrap();
+
+        let state = EmbedModelState::default();
+        let result = state.get_or_load(dir.path());
+        assert!(result.is_err());
+        let err = result.err().unwrap();
+        assert!(
+            err.contains("vocab"),
+            "error should mention 'vocab': {}",
+            err
+        );
+    }
+}
