@@ -40,7 +40,13 @@ pub fn maybe_embed_text(
     }
 
     let model_dir = p.db.model_dir();
-    let embed_state = p.db.extension::<EmbedModelState>();
+    let embed_state = match p.db.extension::<EmbedModelState>() {
+        Ok(s) => s,
+        Err(e) => {
+            tracing::warn!(target: "strata::embed", error = %e, "Failed to get embed model state");
+            return;
+        }
+    };
 
     let model = match embed_state.get_or_load(&model_dir) {
         Ok(m) => m,
@@ -175,7 +181,13 @@ fn ensure_shadow_collection(
     use strata_engine::database::AutoEmbedState;
 
     let cache_key = format!("{:?}{}{}", branch_id.as_bytes(), SHADOW_KEY_SEP, name);
-    let state = p.db.extension::<AutoEmbedState>();
+    let state = match p.db.extension::<AutoEmbedState>() {
+        Ok(s) => s,
+        Err(e) => {
+            tracing::warn!(target: "strata::embed", error = %e, "Failed to get auto-embed state");
+            return;
+        }
+    };
 
     // Fast path: already created in this process lifetime
     if state.shadow_collections_created.contains_key(&cache_key) {

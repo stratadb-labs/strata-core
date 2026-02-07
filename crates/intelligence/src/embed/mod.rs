@@ -70,7 +70,13 @@ impl EmbedModelState {
 /// or embedding fails. This is a best-effort helper for hybrid search.
 pub fn embed_query(db: &strata_engine::Database, text: &str) -> Option<Vec<f32>> {
     let model_dir = db.model_dir();
-    let state = db.extension::<EmbedModelState>();
+    let state = match db.extension::<EmbedModelState>() {
+        Ok(s) => s,
+        Err(e) => {
+            tracing::warn!(target: "strata::hybrid", error = %e, "Failed to get embed model state");
+            return None;
+        }
+    };
     let model = match state.get_or_load(&model_dir) {
         Ok(m) => m,
         Err(e) => {
