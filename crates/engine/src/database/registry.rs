@@ -4,9 +4,10 @@
 //! Uses weak references to allow cleanup when all references are dropped.
 
 use once_cell::sync::Lazy;
+use parking_lot::Mutex;
 use std::collections::HashMap;
 use std::path::PathBuf;
-use std::sync::{Mutex, Weak};
+use std::sync::Weak;
 
 use super::Database;
 
@@ -21,6 +22,9 @@ use super::Database;
 //   3. Consistent behavior across the process
 //
 // The registry uses weak references so databases are cleaned up when dropped.
+//
+// Uses parking_lot::Mutex instead of std::sync::Mutex to avoid cascading
+// panics from mutex poisoning (issue #1047).
 
 /// Global registry of open databases (path -> weak reference)
 pub static OPEN_DATABASES: Lazy<Mutex<HashMap<PathBuf, Weak<Database>>>> =

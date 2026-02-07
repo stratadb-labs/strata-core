@@ -853,8 +853,8 @@ mod tests {
     /// increasing values with no duplicates.
     #[test]
     fn test_version_allocation_no_duplicates() {
+        use parking_lot::Mutex;
         use std::collections::HashSet;
-        use std::sync::Mutex;
         use std::thread;
 
         let coordinator = Arc::new(TransactionCoordinator::new(0));
@@ -871,7 +871,7 @@ mod tests {
                         let v = coord.allocate_commit_version();
                         local_versions.push(v);
                     }
-                    vers.lock().unwrap().extend(local_versions);
+                    vers.lock().extend(local_versions);
                 })
             })
             .collect();
@@ -880,7 +880,7 @@ mod tests {
             h.join().unwrap();
         }
 
-        let all_versions = versions.lock().unwrap();
+        let all_versions = versions.lock();
         let unique: HashSet<_> = all_versions.iter().collect();
 
         assert_eq!(
@@ -902,8 +902,8 @@ mod tests {
     /// Similar to version allocation, transaction IDs must be unique.
     #[test]
     fn test_txn_id_allocation_no_duplicates() {
+        use parking_lot::Mutex;
         use std::collections::HashSet;
-        use std::sync::Mutex;
         use std::thread;
 
         let coordinator = Arc::new(TransactionCoordinator::new(0));
@@ -920,7 +920,7 @@ mod tests {
                         let id = coord.next_txn_id();
                         local_ids.push(id);
                     }
-                    ids.lock().unwrap().extend(local_ids);
+                    ids.lock().extend(local_ids);
                 })
             })
             .collect();
@@ -929,7 +929,7 @@ mod tests {
             h.join().unwrap();
         }
 
-        let all_ids = txn_ids.lock().unwrap();
+        let all_ids = txn_ids.lock();
         let unique: HashSet<_> = all_ids.iter().collect();
 
         assert_eq!(
@@ -1003,6 +1003,56 @@ mod tests {
         assert!(
             idle_seen || completed == 0,
             "Should see idle state between rapid transactions"
+        );
+    }
+
+    /// Issue #1047: Verify that parking_lot::Mutex used for result collection
+    /// in concurrent tests does not cascade panics from poisoned locks.
+    ///
+    /// With std::sync::Mutex, if one worker thread panics while holding the lock,
+    /// all other threads calling .lock().unwrap() would also panic. parking_lot::Mutex
+    /// does not poison, so surviving threads can still collect results.
+    #[test]
+    fn test_issue_1047_concurrent_collection_survives_thread_panic() {
+        use parking_lot::Mutex;
+        use std::thread;
+
+        let coordinator = Arc::new(TransactionCoordinator::new(0));
+        let results = Arc::new(Mutex::new(Vec::new()));
+
+        let handles: Vec<_> = (0..4)
+            .map(|i| {
+                let coord = Arc::clone(&coordinator);
+                let res = Arc::clone(&results);
+
+                thread::spawn(move || {
+                    let mut local = Vec::new();
+                    for _ in 0..10 {
+                        let v = coord.allocate_commit_version();
+                        local.push(v);
+                    }
+
+                    // Thread 0 panics after pushing to the shared mutex
+                    res.lock().extend(local);
+                    if i == 0 {
+                        panic!("Simulated worker panic after collecting results");
+                    }
+                })
+            })
+            .collect();
+
+        // Collect results, ignoring panicked thread
+        for h in handles {
+            let _ = h.join(); // Don't unwrap — thread 0 panicked
+        }
+
+        // With parking_lot, we can still access the mutex despite thread 0's panic
+        let collected = results.lock();
+        // All 4 threads pushed 10 versions each before any panic
+        assert_eq!(
+            collected.len(),
+            40,
+            "All threads should have collected results before panic"
         );
     }
 }

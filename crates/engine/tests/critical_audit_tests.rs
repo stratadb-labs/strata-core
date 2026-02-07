@@ -463,3 +463,75 @@ fn test_all_critical_issues_documented() {
 }
 
 */
+
+// ============================================================================
+// Issue #1047: parking_lot::Mutex eliminates cascading panic risk
+// ============================================================================
+
+use std::sync::Arc;
+use std::thread;
+
+/// Verifies that parking_lot::Mutex does NOT poison after a thread panics
+/// while holding the lock. This is the fix for the cascading panic risk
+/// identified in issue #1047.
+///
+/// Unlike std::sync::Mutex, parking_lot::Mutex allows subsequent lock
+/// acquisitions to succeed even after a panic, preventing cascading failures.
+#[test]
+fn test_issue_1047_parking_lot_no_poisoning() {
+    use parking_lot::Mutex;
+
+    let mutex = Arc::new(Mutex::new(Vec::<String>::new()));
+    let clone = Arc::clone(&mutex);
+
+    // Thread panics while holding the lock
+    let handle = thread::spawn(move || {
+        let mut guard = clone.lock();
+        guard.push("entry1".to_string());
+        panic!("Thread panic while holding parking_lot lock");
+    });
+
+    let _ = handle.join();
+
+    // With parking_lot, subsequent lock acquisitions succeed (no poisoning)
+    let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        let mut guard = mutex.lock();
+        guard.push("entry2".to_string());
+        guard.len()
+    }));
+
+    assert!(
+        result.is_ok(),
+        "FIX VERIFIED: parking_lot::Mutex does not poison after panic"
+    );
+    assert!(result.unwrap() >= 1, "Should have at least one entry");
+}
+
+/// Verifies that std::sync::Mutex DOES poison after a thread panic,
+/// confirming the bug that issue #1047 fixes.
+#[test]
+fn test_issue_1047_std_mutex_does_poison() {
+    use std::sync::Mutex;
+
+    let mutex = Arc::new(Mutex::new(Vec::<String>::new()));
+    let clone = Arc::clone(&mutex);
+
+    // Thread panics while holding the lock
+    let handle = thread::spawn(move || {
+        let mut guard = clone.lock().unwrap();
+        guard.push("entry1".to_string());
+        panic!("Thread panic while holding std lock");
+    });
+
+    let _ = handle.join();
+
+    // With std::sync::Mutex, subsequent .lock().unwrap() panics (poisoned)
+    let result = std::panic::catch_unwind(|| {
+        let _guard = mutex.lock().unwrap();
+    });
+
+    assert!(
+        result.is_err(),
+        "BUG CONFIRMED: std::sync::Mutex poisons after panic"
+    );
+}

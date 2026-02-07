@@ -311,7 +311,7 @@ impl Database {
         // Hold lock for entire operation to prevent TOCTOU race condition
         // This ensures only one thread creates a database for a given path.
         // For the common case (database already open), this is still fast.
-        let mut registry = OPEN_DATABASES.lock().unwrap();
+        let mut registry = OPEN_DATABASES.lock();
 
         // Check registry for existing instance
         if let Some(weak) = registry.get(&canonical_path) {
@@ -1270,9 +1270,8 @@ impl Drop for Database {
 
         // Remove from registry if we're disk-backed
         if self.persistence_mode == PersistenceMode::Disk && !self.data_dir.as_os_str().is_empty() {
-            if let Ok(mut registry) = OPEN_DATABASES.lock() {
-                registry.remove(&self.data_dir);
-            }
+            let mut registry = OPEN_DATABASES.lock();
+            registry.remove(&self.data_dir);
         }
     }
 }
