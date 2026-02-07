@@ -2356,7 +2356,7 @@ mod tests {
         for _ in 0..MAX_NESTING_DEPTH {
             json_str.push_str(r#"{"a":"#);
         }
-        json_str.push_str("1");
+        json_str.push('1');
         for _ in 0..MAX_NESTING_DEPTH {
             json_str.push('}');
         }
@@ -2381,7 +2381,7 @@ mod tests {
         for _ in 0..depth {
             json_str.push_str(r#"{"a":"#);
         }
-        json_str.push_str("1");
+        json_str.push('1');
         for _ in 0..depth {
             json_str.push('}');
         }
@@ -2417,7 +2417,7 @@ mod tests {
         for _ in 0..pairs {
             json_str.push_str(r#"{"a":["#);
         }
-        json_str.push_str("1");
+        json_str.push('1');
         for _ in 0..pairs {
             json_str.push_str("]}");
         }
@@ -2474,7 +2474,7 @@ mod tests {
         for _ in 0..depth {
             json_str.push_str(r#"{"a":"#);
         }
-        json_str.push_str("1");
+        json_str.push('1');
         for _ in 0..depth {
             json_str.push('}');
         }

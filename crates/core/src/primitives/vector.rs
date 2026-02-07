@@ -933,7 +933,8 @@ mod tests {
         let c1 = CollectionId::new(r1, "a");
         let c2 = CollectionId::new(r1, "b");
         // Same branch_id, different name: should have defined ordering
-        assert!(c1 < c2 || c1 > c2 || c1 == c2);
+        // CollectionId has a defined total ordering
+        let _has_ordering = c1.cmp(&c2);
         // Different branch_id
         let c3 = CollectionId::new(r2, "a");
         assert_ne!(c1, c3);
@@ -1037,14 +1038,14 @@ mod tests {
             name: "embeddings".to_string(),
             config: VectorConfig::for_minilm(),
             count: 1000,
-            created_at: 1700000000_000000,
+            created_at: 1_700_000_000_000_000,
         };
         let json = serde_json::to_string(&info).unwrap();
         let restored: CollectionInfo = serde_json::from_str(&json).unwrap();
         assert_eq!(restored.name, "embeddings");
         assert_eq!(restored.config.dimension, 384);
         assert_eq!(restored.count, 1000);
-        assert_eq!(restored.created_at, 1700000000_000000);
+        assert_eq!(restored.created_at, 1_700_000_000_000_000);
     }
 
     #[test]

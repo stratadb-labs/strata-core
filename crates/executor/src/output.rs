@@ -65,7 +65,9 @@ pub enum Output {
     // ==================== Scan Results ====================
     /// JSON list result with cursor
     JsonListResult {
+        /// Matching document keys.
         keys: Vec<String>,
+        /// Cursor for fetching the next page, if more results exist.
         cursor: Option<String>,
     },
 
@@ -91,7 +93,12 @@ pub enum Output {
     BranchInfoList(Vec<VersionedBranchInfo>),
 
     /// Branch creation result (info + version)
-    BranchWithVersion { info: BranchInfo, version: u64 },
+    BranchWithVersion {
+        /// Newly created branch metadata.
+        info: BranchInfo,
+        /// Version number assigned to the creation event.
+        version: u64,
+    },
 
     // ==================== Transaction-specific ====================
     /// Transaction info
@@ -101,7 +108,10 @@ pub enum Output {
     TxnBegun,
 
     /// Transaction committed with version
-    TxnCommitted { version: u64 },
+    TxnCommitted {
+        /// Commit version number.
+        version: u64,
+    },
 
     /// Transaction aborted
     TxnAborted,
@@ -111,7 +121,10 @@ pub enum Output {
     DatabaseInfo(DatabaseInfo),
 
     /// Ping response
-    Pong { version: String },
+    Pong {
+        /// Database engine version string.
+        version: String,
+    },
 
     // ==================== Intelligence ====================
     /// Search results across primitives

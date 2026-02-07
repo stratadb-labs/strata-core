@@ -116,9 +116,8 @@ pub fn maybe_remove_embedding(
         .vector
         .system_delete(branch_id, shadow_collection, &composite_key)
     {
-        // Collection may not exist yet (no embeds were ever created), that's fine.
-        let msg = e.to_string();
-        if !msg.contains("not found") && !msg.contains("does not exist") {
+        // Collection or vector may not exist yet (no embeds were ever created), that's fine.
+        if !e.is_not_found() {
             tracing::warn!(
                 target: "strata::embed",
                 collection = shadow_collection,
@@ -156,6 +155,16 @@ pub fn extract_text(_value: &strata_core::Value) -> Option<String> {
 /// Ensure a shadow collection exists, swallowing AlreadyExists errors.
 ///
 /// Uses a per-Database cache to avoid repeated creation attempts on every write.
+///
+/// # Race Condition Safety
+///
+/// The check-then-act on `state.shadow_collections_created` is intentionally
+/// non-atomic. If two threads race past the `contains_key` fast-path
+/// simultaneously, both will call `create_system_collection`. The first call
+/// succeeds; the second returns `CollectionAlreadyExists`, which is caught and
+/// treated identically to success (the cache entry is inserted). This makes
+/// the pattern safe despite the race: the worst case is a redundant creation
+/// attempt that is harmlessly swallowed.
 #[cfg(feature = "embed")]
 fn ensure_shadow_collection(
     p: &Arc<Primitives>,
@@ -180,19 +189,17 @@ fn ensure_shadow_collection(
             tracing::info!(target: "strata::embed", collection = name, "Created shadow embedding collection");
             state.shadow_collections_created.insert(cache_key, ());
         }
+        Err(strata_engine::vector::VectorError::CollectionAlreadyExists { .. }) => {
+            // Already exists from a previous process run — mark as created
+            state.shadow_collections_created.insert(cache_key, ());
+        }
         Err(e) => {
-            let msg = e.to_string();
-            if msg.contains("already exists") {
-                // Already exists from a previous process run — mark as created
-                state.shadow_collections_created.insert(cache_key, ());
-            } else {
-                tracing::warn!(
-                    target: "strata::embed",
-                    collection = name,
-                    error = %e,
-                    "Failed to create shadow collection"
-                );
-            }
+            tracing::warn!(
+                target: "strata::embed",
+                collection = name,
+                error = %e,
+                "Failed to create shadow collection"
+            );
         }
     }
 }

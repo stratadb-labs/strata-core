@@ -69,44 +69,59 @@ pub enum Command {
     /// Put a key-value pair.
     /// Returns: `Output::Version`
     KvPut {
+        /// Target branch (defaults to "default").
         #[serde(default, skip_serializing_if = "Option::is_none")]
         branch: Option<BranchId>,
+        /// Target space (defaults to "default").
         #[serde(default, skip_serializing_if = "Option::is_none")]
         space: Option<String>,
+        /// Key to write.
         key: String,
+        /// Value to store.
         value: Value,
     },
 
     /// Get a value by key.
     /// Returns: `Output::MaybeValue`
     KvGet {
+        /// Target branch (defaults to "default").
         #[serde(default, skip_serializing_if = "Option::is_none")]
         branch: Option<BranchId>,
+        /// Target space (defaults to "default").
         #[serde(default, skip_serializing_if = "Option::is_none")]
         space: Option<String>,
+        /// Key to look up.
         key: String,
     },
 
     /// Delete a key.
     /// Returns: `Output::Bool` (true if key existed)
     KvDelete {
+        /// Target branch (defaults to "default").
         #[serde(default, skip_serializing_if = "Option::is_none")]
         branch: Option<BranchId>,
+        /// Target space (defaults to "default").
         #[serde(default, skip_serializing_if = "Option::is_none")]
         space: Option<String>,
+        /// Key to delete.
         key: String,
     },
 
     /// List keys with optional prefix filter.
     /// Returns: `Output::Keys`
     KvList {
+        /// Target branch (defaults to "default").
         #[serde(default, skip_serializing_if = "Option::is_none")]
         branch: Option<BranchId>,
+        /// Target space (defaults to "default").
         #[serde(default, skip_serializing_if = "Option::is_none")]
         space: Option<String>,
+        /// Optional key prefix filter.
         prefix: Option<String>,
+        /// Pagination cursor from a previous response.
         #[serde(default, skip_serializing_if = "Option::is_none")]
         cursor: Option<String>,
+        /// Maximum number of keys to return.
         #[serde(default, skip_serializing_if = "Option::is_none")]
         limit: Option<u64>,
     },
@@ -114,10 +129,13 @@ pub enum Command {
     /// Get full version history for a key.
     /// Returns: `Output::VersionHistory`
     KvGetv {
+        /// Target branch (defaults to "default").
         #[serde(default, skip_serializing_if = "Option::is_none")]
         branch: Option<BranchId>,
+        /// Target space (defaults to "default").
         #[serde(default, skip_serializing_if = "Option::is_none")]
         space: Option<String>,
+        /// Key to retrieve history for.
         key: String,
     },
 
@@ -125,56 +143,77 @@ pub enum Command {
     /// Set a value at a path in a JSON document.
     /// Returns: `Output::Version`
     JsonSet {
+        /// Target branch (defaults to "default").
         #[serde(default, skip_serializing_if = "Option::is_none")]
         branch: Option<BranchId>,
+        /// Target space (defaults to "default").
         #[serde(default, skip_serializing_if = "Option::is_none")]
         space: Option<String>,
+        /// Document key.
         key: String,
+        /// JSON path within the document.
         path: String,
+        /// Value to set at the path.
         value: Value,
     },
 
     /// Get a value at a path from a JSON document.
     /// Returns: `Output::MaybeVersioned`
     JsonGet {
+        /// Target branch (defaults to "default").
         #[serde(default, skip_serializing_if = "Option::is_none")]
         branch: Option<BranchId>,
+        /// Target space (defaults to "default").
         #[serde(default, skip_serializing_if = "Option::is_none")]
         space: Option<String>,
+        /// Document key.
         key: String,
+        /// JSON path to read.
         path: String,
     },
 
     /// Delete a value at a path from a JSON document.
     /// Returns: `Output::Uint` (count of elements removed)
     JsonDelete {
+        /// Target branch (defaults to "default").
         #[serde(default, skip_serializing_if = "Option::is_none")]
         branch: Option<BranchId>,
+        /// Target space (defaults to "default").
         #[serde(default, skip_serializing_if = "Option::is_none")]
         space: Option<String>,
+        /// Document key.
         key: String,
+        /// JSON path to delete.
         path: String,
     },
 
     /// Get full version history for a JSON document.
     /// Returns: `Output::VersionHistory`
     JsonGetv {
+        /// Target branch (defaults to "default").
         #[serde(default, skip_serializing_if = "Option::is_none")]
         branch: Option<BranchId>,
+        /// Target space (defaults to "default").
         #[serde(default, skip_serializing_if = "Option::is_none")]
         space: Option<String>,
+        /// Document key.
         key: String,
     },
 
     /// List JSON documents with cursor-based pagination.
     /// Returns: `Output::JsonListResult`
     JsonList {
+        /// Target branch (defaults to "default").
         #[serde(default, skip_serializing_if = "Option::is_none")]
         branch: Option<BranchId>,
+        /// Target space (defaults to "default").
         #[serde(default, skip_serializing_if = "Option::is_none")]
         space: Option<String>,
+        /// Optional key prefix filter.
         prefix: Option<String>,
+        /// Pagination cursor from a previous response.
         cursor: Option<String>,
+        /// Maximum number of documents to return.
         limit: u64,
     },
 
@@ -183,34 +222,46 @@ pub enum Command {
     /// Append an event to the log.
     /// Returns: `Output::Version`
     EventAppend {
+        /// Target branch (defaults to "default").
         #[serde(default, skip_serializing_if = "Option::is_none")]
         branch: Option<BranchId>,
+        /// Target space (defaults to "default").
         #[serde(default, skip_serializing_if = "Option::is_none")]
         space: Option<String>,
+        /// Event type tag (e.g. "user.created").
         event_type: String,
+        /// Event payload data.
         payload: Value,
     },
 
     /// Read a specific event by sequence number.
     /// Returns: `Output::MaybeVersioned`
     EventGet {
+        /// Target branch (defaults to "default").
         #[serde(default, skip_serializing_if = "Option::is_none")]
         branch: Option<BranchId>,
+        /// Target space (defaults to "default").
         #[serde(default, skip_serializing_if = "Option::is_none")]
         space: Option<String>,
+        /// Event sequence number.
         sequence: u64,
     },
 
     /// Read all events of a specific type.
     /// Returns: `Output::VersionedValues`
     EventGetByType {
+        /// Target branch (defaults to "default").
         #[serde(default, skip_serializing_if = "Option::is_none")]
         branch: Option<BranchId>,
+        /// Target space (defaults to "default").
         #[serde(default, skip_serializing_if = "Option::is_none")]
         space: Option<String>,
+        /// Event type to filter by.
         event_type: String,
+        /// Maximum number of events to return.
         #[serde(default, skip_serializing_if = "Option::is_none")]
         limit: Option<u64>,
+        /// Only return events after this sequence number.
         #[serde(default, skip_serializing_if = "Option::is_none")]
         after_sequence: Option<u64>,
     },
@@ -218,8 +269,10 @@ pub enum Command {
     /// Get the total count of events in the log.
     /// Returns: `Output::Uint`
     EventLen {
+        /// Target branch (defaults to "default").
         #[serde(default, skip_serializing_if = "Option::is_none")]
         branch: Option<BranchId>,
+        /// Target space (defaults to "default").
         #[serde(default, skip_serializing_if = "Option::is_none")]
         space: Option<String>,
     },
@@ -229,74 +282,99 @@ pub enum Command {
     /// Set a state cell value (unconditional write).
     /// Returns: `Output::Version`
     StateSet {
+        /// Target branch (defaults to "default").
         #[serde(default, skip_serializing_if = "Option::is_none")]
         branch: Option<BranchId>,
+        /// Target space (defaults to "default").
         #[serde(default, skip_serializing_if = "Option::is_none")]
         space: Option<String>,
+        /// Cell name.
         cell: String,
+        /// Value to store.
         value: Value,
     },
 
     /// Read a state cell value.
     /// Returns: `Output::MaybeVersioned`
     StateGet {
+        /// Target branch (defaults to "default").
         #[serde(default, skip_serializing_if = "Option::is_none")]
         branch: Option<BranchId>,
+        /// Target space (defaults to "default").
         #[serde(default, skip_serializing_if = "Option::is_none")]
         space: Option<String>,
+        /// Cell name.
         cell: String,
     },
 
     /// Compare-and-swap on a state cell.
     /// Returns: `Output::MaybeVersion`
     StateCas {
+        /// Target branch (defaults to "default").
         #[serde(default, skip_serializing_if = "Option::is_none")]
         branch: Option<BranchId>,
+        /// Target space (defaults to "default").
         #[serde(default, skip_serializing_if = "Option::is_none")]
         space: Option<String>,
+        /// Cell name.
         cell: String,
+        /// Expected version counter (`None` means cell must not exist).
         expected_counter: Option<u64>,
+        /// New value to swap in.
         value: Value,
     },
 
     /// Get full version history for a state cell.
     /// Returns: `Output::VersionHistory`
     StateGetv {
+        /// Target branch (defaults to "default").
         #[serde(default, skip_serializing_if = "Option::is_none")]
         branch: Option<BranchId>,
+        /// Target space (defaults to "default").
         #[serde(default, skip_serializing_if = "Option::is_none")]
         space: Option<String>,
+        /// Cell name.
         cell: String,
     },
 
     /// Initialize a state cell (only if it doesn't exist).
     /// Returns: `Output::Version`
     StateInit {
+        /// Target branch (defaults to "default").
         #[serde(default, skip_serializing_if = "Option::is_none")]
         branch: Option<BranchId>,
+        /// Target space (defaults to "default").
         #[serde(default, skip_serializing_if = "Option::is_none")]
         space: Option<String>,
+        /// Cell name.
         cell: String,
+        /// Initial value.
         value: Value,
     },
 
     /// Delete a state cell.
     /// Returns: `Output::Bool` (true if cell existed)
     StateDelete {
+        /// Target branch (defaults to "default").
         #[serde(default, skip_serializing_if = "Option::is_none")]
         branch: Option<BranchId>,
+        /// Target space (defaults to "default").
         #[serde(default, skip_serializing_if = "Option::is_none")]
         space: Option<String>,
+        /// Cell name.
         cell: String,
     },
 
     /// List state cell names with optional prefix filter.
     /// Returns: `Output::Keys`
     StateList {
+        /// Target branch (defaults to "default").
         #[serde(default, skip_serializing_if = "Option::is_none")]
         branch: Option<BranchId>,
+        /// Target space (defaults to "default").
         #[serde(default, skip_serializing_if = "Option::is_none")]
         space: Option<String>,
+        /// Optional cell name prefix filter.
         prefix: Option<String>,
     },
 
@@ -305,79 +383,110 @@ pub enum Command {
     /// Insert or update a vector.
     /// Returns: `Output::Version`
     VectorUpsert {
+        /// Target branch (defaults to "default").
         #[serde(default, skip_serializing_if = "Option::is_none")]
         branch: Option<BranchId>,
+        /// Target space (defaults to "default").
         #[serde(default, skip_serializing_if = "Option::is_none")]
         space: Option<String>,
+        /// Collection name.
         collection: String,
+        /// Vector key.
         key: String,
+        /// Embedding vector data.
         vector: Vec<f32>,
+        /// Optional metadata to associate with the vector.
         metadata: Option<Value>,
     },
 
     /// Get a vector by key.
     /// Returns: `Output::MaybeVectorData`
     VectorGet {
+        /// Target branch (defaults to "default").
         #[serde(default, skip_serializing_if = "Option::is_none")]
         branch: Option<BranchId>,
+        /// Target space (defaults to "default").
         #[serde(default, skip_serializing_if = "Option::is_none")]
         space: Option<String>,
+        /// Collection name.
         collection: String,
+        /// Vector key.
         key: String,
     },
 
     /// Delete a vector.
     /// Returns: `Output::Bool`
     VectorDelete {
+        /// Target branch (defaults to "default").
         #[serde(default, skip_serializing_if = "Option::is_none")]
         branch: Option<BranchId>,
+        /// Target space (defaults to "default").
         #[serde(default, skip_serializing_if = "Option::is_none")]
         space: Option<String>,
+        /// Collection name.
         collection: String,
+        /// Vector key.
         key: String,
     },
 
     /// Search for similar vectors.
     /// Returns: `Output::VectorMatches`
     VectorSearch {
+        /// Target branch (defaults to "default").
         #[serde(default, skip_serializing_if = "Option::is_none")]
         branch: Option<BranchId>,
+        /// Target space (defaults to "default").
         #[serde(default, skip_serializing_if = "Option::is_none")]
         space: Option<String>,
+        /// Collection to search.
         collection: String,
+        /// Query embedding vector.
         query: Vec<f32>,
+        /// Number of nearest neighbors to return.
         k: u64,
+        /// Optional metadata filters.
         filter: Option<Vec<MetadataFilter>>,
+        /// Optional distance metric override.
         metric: Option<DistanceMetric>,
     },
 
     /// Create a collection with explicit configuration.
     /// Returns: `Output::Version`
     VectorCreateCollection {
+        /// Target branch (defaults to "default").
         #[serde(default, skip_serializing_if = "Option::is_none")]
         branch: Option<BranchId>,
+        /// Target space (defaults to "default").
         #[serde(default, skip_serializing_if = "Option::is_none")]
         space: Option<String>,
+        /// Collection name.
         collection: String,
+        /// Vector dimensionality.
         dimension: u64,
+        /// Distance metric for similarity search.
         metric: DistanceMetric,
     },
 
     /// Delete a collection.
     /// Returns: `Output::Bool`
     VectorDeleteCollection {
+        /// Target branch (defaults to "default").
         #[serde(default, skip_serializing_if = "Option::is_none")]
         branch: Option<BranchId>,
+        /// Target space (defaults to "default").
         #[serde(default, skip_serializing_if = "Option::is_none")]
         space: Option<String>,
+        /// Collection name.
         collection: String,
     },
 
     /// List all collections in a branch.
     /// Returns: `Output::VectorCollectionList`
     VectorListCollections {
+        /// Target branch (defaults to "default").
         #[serde(default, skip_serializing_if = "Option::is_none")]
         branch: Option<BranchId>,
+        /// Target space (defaults to "default").
         #[serde(default, skip_serializing_if = "Option::is_none")]
         space: Option<String>,
     },
@@ -385,21 +494,28 @@ pub enum Command {
     /// Get detailed statistics for a single collection.
     /// Returns: `Output::VectorCollectionList` (with single entry)
     VectorCollectionStats {
+        /// Target branch (defaults to "default").
         #[serde(default, skip_serializing_if = "Option::is_none")]
         branch: Option<BranchId>,
+        /// Target space (defaults to "default").
         #[serde(default, skip_serializing_if = "Option::is_none")]
         space: Option<String>,
+        /// Collection name.
         collection: String,
     },
 
     /// Batch insert or update multiple vectors.
     /// Returns: `Output::Versions`
     VectorBatchUpsert {
+        /// Target branch (defaults to "default").
         #[serde(default, skip_serializing_if = "Option::is_none")]
         branch: Option<BranchId>,
+        /// Target space (defaults to "default").
         #[serde(default, skip_serializing_if = "Option::is_none")]
         space: Option<String>,
+        /// Collection name.
         collection: String,
+        /// Vector entries to upsert.
         entries: Vec<BatchVectorEntry>,
     },
 
@@ -407,36 +523,52 @@ pub enum Command {
     /// Create a new branch.
     /// Returns: `Output::BranchWithVersion`
     BranchCreate {
+        /// Optional branch name (auto-generated UUID if omitted).
         branch_id: Option<String>,
+        /// Optional metadata to attach to the branch.
         metadata: Option<Value>,
     },
 
     /// Get branch info.
     /// Returns: `Output::MaybeBranchInfo`
-    BranchGet { branch: BranchId },
+    BranchGet {
+        /// Branch to look up.
+        branch: BranchId,
+    },
 
     /// List all branches.
     /// Returns: `Output::BranchInfoList`
     BranchList {
+        /// Optional status filter.
         state: Option<BranchStatus>,
+        /// Maximum number of branches to return.
         limit: Option<u64>,
+        /// Number of branches to skip.
         offset: Option<u64>,
     },
 
     /// Check if a branch exists.
     /// Returns: `Output::Bool`
-    BranchExists { branch: BranchId },
+    BranchExists {
+        /// Branch to check.
+        branch: BranchId,
+    },
 
     /// Delete a branch and all its data (cascading delete).
     /// Returns: `Output::Unit`
-    BranchDelete { branch: BranchId },
+    BranchDelete {
+        /// Branch to delete.
+        branch: BranchId,
+    },
 
     // ==================== Transaction (5) ====================
     /// Begin a new transaction.
     /// Returns: `Output::TxnBegun`
     TxnBegin {
+        /// Target branch (defaults to "default").
         #[serde(default, skip_serializing_if = "Option::is_none")]
         branch: Option<BranchId>,
+        /// Transaction configuration options.
         options: Option<TxnOptions>,
     },
 
@@ -462,6 +594,7 @@ pub enum Command {
     /// Apply retention policy (trigger garbage collection).
     /// Returns: `Output::RetentionResult`
     RetentionApply {
+        /// Target branch (defaults to "default").
         #[serde(default, skip_serializing_if = "Option::is_none")]
         branch: Option<BranchId>,
     },
@@ -469,6 +602,7 @@ pub enum Command {
     /// Get retention statistics.
     /// Returns: `Output::RetentionStats`
     RetentionStats {
+        /// Target branch (defaults to "default").
         #[serde(default, skip_serializing_if = "Option::is_none")]
         branch: Option<BranchId>,
     },
@@ -476,6 +610,7 @@ pub enum Command {
     /// Preview what would be deleted by retention policy.
     /// Returns: `Output::RetentionPreview`
     RetentionPreview {
+        /// Target branch (defaults to "default").
         #[serde(default, skip_serializing_if = "Option::is_none")]
         branch: Option<BranchId>,
     },
@@ -496,27 +631,43 @@ pub enum Command {
     // ==================== Bundle (3) ====================
     /// Export a branch to a .branchbundle.tar.zst archive.
     /// Returns: `Output::BranchExported`
-    BranchExport { branch_id: String, path: String },
+    BranchExport {
+        /// Branch to export.
+        branch_id: String,
+        /// Output file path.
+        path: String,
+    },
 
     /// Import a branch from a .branchbundle.tar.zst archive.
     /// Returns: `Output::BranchImported`
-    BranchImport { path: String },
+    BranchImport {
+        /// Path to the bundle archive.
+        path: String,
+    },
 
     /// Validate a .branchbundle.tar.zst archive without importing.
     /// Returns: `Output::BundleValidated`
-    BranchBundleValidate { path: String },
+    BranchBundleValidate {
+        /// Path to the bundle archive.
+        path: String,
+    },
 
     // ==================== Intelligence (1) ====================
     /// Search across multiple primitives.
     /// Returns: `Output::SearchResults`
     Search {
+        /// Target branch (defaults to "default").
         #[serde(default, skip_serializing_if = "Option::is_none")]
         branch: Option<BranchId>,
+        /// Target space (defaults to "default").
         #[serde(default, skip_serializing_if = "Option::is_none")]
         space: Option<String>,
+        /// Natural-language or keyword query string.
         query: String,
+        /// Number of results to return.
         #[serde(default, skip_serializing_if = "Option::is_none")]
         k: Option<u64>,
+        /// Restrict search to specific primitives (e.g. "kv", "json").
         #[serde(default, skip_serializing_if = "Option::is_none")]
         primitives: Option<Vec<String>>,
     },
@@ -525,6 +676,7 @@ pub enum Command {
     /// List spaces in a branch.
     /// Returns: `Output::SpaceList`
     SpaceList {
+        /// Target branch (defaults to "default").
         #[serde(default, skip_serializing_if = "Option::is_none")]
         branch: Option<BranchId>,
     },
@@ -532,17 +684,22 @@ pub enum Command {
     /// Create a space explicitly.
     /// Returns: `Output::Unit`
     SpaceCreate {
+        /// Target branch (defaults to "default").
         #[serde(default, skip_serializing_if = "Option::is_none")]
         branch: Option<BranchId>,
+        /// Space name.
         space: String,
     },
 
     /// Delete a space (must be empty unless force=true).
     /// Returns: `Output::Unit`
     SpaceDelete {
+        /// Target branch (defaults to "default").
         #[serde(default, skip_serializing_if = "Option::is_none")]
         branch: Option<BranchId>,
+        /// Space name.
         space: String,
+        /// If true, delete even if the space is non-empty.
         #[serde(default)]
         force: bool,
     },
@@ -550,8 +707,10 @@ pub enum Command {
     /// Check if a space exists.
     /// Returns: `Output::Bool`
     SpaceExists {
+        /// Target branch (defaults to "default").
         #[serde(default, skip_serializing_if = "Option::is_none")]
         branch: Option<BranchId>,
+        /// Space name.
         space: String,
     },
 }

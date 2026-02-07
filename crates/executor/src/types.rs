@@ -14,7 +14,8 @@ use strata_core::Value;
 ///
 /// Can be "default" for the default branch, or a UUID string for named branches.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
-pub struct BranchId(pub String);
+pub struct BranchId(/// The underlying string identifier.
+pub String);
 
 impl Default for BranchId {
     fn default() -> Self {
@@ -56,24 +57,33 @@ impl std::fmt::Display for BranchId {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum BranchStatus {
+    /// Branch is active and accepting reads/writes.
     Active,
 }
 
 /// Branch information
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct BranchInfo {
+    /// Unique branch identifier.
     pub id: BranchId,
+    /// Current branch status.
     pub status: BranchStatus,
+    /// Unix timestamp when the branch was created.
     pub created_at: u64,
+    /// Unix timestamp of the last update.
     pub updated_at: u64,
+    /// Parent branch, if this branch was forked.
     pub parent_id: Option<BranchId>,
 }
 
 /// Versioned branch information
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct VersionedBranchInfo {
+    /// The branch metadata.
     pub info: BranchInfo,
+    /// Version counter for this branch record.
     pub version: u64,
+    /// Unix timestamp of this version.
     pub timestamp: u64,
 }
 
@@ -84,8 +94,11 @@ pub struct VersionedBranchInfo {
 /// A value with version metadata.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct VersionedValue {
+    /// The stored value.
     pub value: Value,
+    /// Monotonic version counter.
     pub version: u64,
+    /// Unix timestamp when this version was written.
     pub timestamp: u64,
 }
 
@@ -97,17 +110,23 @@ pub struct VersionedValue {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum DistanceMetric {
+    /// Cosine similarity (default).
     #[default]
     Cosine,
+    /// Euclidean (L2) distance.
     Euclidean,
+    /// Dot product similarity.
     DotProduct,
 }
 
 /// Metadata filter for vector search
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct MetadataFilter {
+    /// Metadata field name to filter on.
     pub field: String,
+    /// Comparison operator.
     pub op: FilterOp,
+    /// Value to compare against.
     pub value: Value,
 }
 
@@ -115,46 +134,67 @@ pub struct MetadataFilter {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum FilterOp {
+    /// Equal.
     Eq,
+    /// Not equal.
     Ne,
+    /// Greater than.
     Gt,
+    /// Greater than or equal.
     Gte,
+    /// Less than.
     Lt,
+    /// Less than or equal.
     Lte,
+    /// Value is in a set.
     In,
+    /// String/array contains value.
     Contains,
 }
 
 /// Vector data (embedding + metadata)
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct VectorData {
+    /// The embedding vector.
     pub embedding: Vec<f32>,
+    /// Optional metadata associated with the vector.
     pub metadata: Option<Value>,
 }
 
 /// Versioned vector data
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct VersionedVectorData {
+    /// Vector key.
     pub key: String,
+    /// Embedding and metadata.
     pub data: VectorData,
+    /// Monotonic version counter.
     pub version: u64,
+    /// Unix timestamp when this version was written.
     pub timestamp: u64,
 }
 
 /// Vector search match result
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct VectorMatch {
+    /// Key of the matched vector.
     pub key: String,
+    /// Similarity score (higher is more similar).
     pub score: f32,
+    /// Optional metadata of the matched vector.
     pub metadata: Option<Value>,
 }
 
 /// Vector collection information
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct CollectionInfo {
+    /// Collection name.
     pub name: String,
+    /// Vector dimensionality.
     pub dimension: usize,
+    /// Distance metric used for search.
     pub metric: DistanceMetric,
+    /// Number of vectors in the collection.
     pub count: u64,
     /// Index type (e.g., "brute_force", "hnsw")
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -167,8 +207,11 @@ pub struct CollectionInfo {
 /// Batch vector entry for bulk upsert
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct BatchVectorEntry {
+    /// Vector key.
     pub key: String,
+    /// The embedding vector.
     pub vector: Vec<f32>,
+    /// Optional metadata.
     pub metadata: Option<Value>,
 }
 
@@ -179,14 +222,18 @@ pub struct BatchVectorEntry {
 /// Transaction options
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
 pub struct TxnOptions {
+    /// If true, the transaction only permits reads.
     pub read_only: bool,
 }
 
 /// Transaction information
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct TransactionInfo {
+    /// Transaction identifier.
     pub id: String,
+    /// Current transaction status.
     pub status: TxnStatus,
+    /// Unix timestamp when the transaction began.
     pub started_at: u64,
 }
 
@@ -194,8 +241,11 @@ pub struct TransactionInfo {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum TxnStatus {
+    /// Transaction is in progress.
     Active,
+    /// Transaction has been committed.
     Committed,
+    /// Transaction has been rolled back.
     RolledBack,
 }
 
@@ -206,9 +256,13 @@ pub enum TxnStatus {
 /// Database information
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct DatabaseInfo {
+    /// Database engine version string.
     pub version: String,
+    /// Seconds since the database was opened.
     pub uptime_secs: u64,
+    /// Total number of branches.
     pub branch_count: u64,
+    /// Total number of keys across all branches.
     pub total_keys: u64,
 }
 
@@ -219,26 +273,37 @@ pub struct DatabaseInfo {
 /// Information about a branch export operation
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct BranchExportResult {
+    /// Exported branch identifier.
     pub branch_id: String,
+    /// File path of the created bundle.
     pub path: String,
+    /// Number of entries in the bundle.
     pub entry_count: u64,
+    /// Bundle file size in bytes.
     pub bundle_size: u64,
 }
 
 /// Information about a branch import operation
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct BranchImportResult {
+    /// Imported branch identifier.
     pub branch_id: String,
+    /// Number of transactions replayed.
     pub transactions_applied: u64,
+    /// Total keys written during import.
     pub keys_written: u64,
 }
 
 /// Information about bundle validation
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct BundleValidateResult {
+    /// Branch identifier found in the bundle.
     pub branch_id: String,
+    /// Bundle format version.
     pub format_version: u32,
+    /// Number of entries in the bundle.
     pub entry_count: u64,
+    /// Whether all checksums passed validation.
     pub checksums_valid: bool,
 }
 

@@ -46,98 +46,170 @@ pub enum Error {
     // ==================== Not Found ====================
     /// Key not found in KV store
     #[error("key not found: {key}")]
-    KeyNotFound { key: String },
+    KeyNotFound {
+        /// The missing key.
+        key: String,
+    },
 
     /// Branch not found
     #[error("branch not found: {branch}")]
-    BranchNotFound { branch: String },
+    BranchNotFound {
+        /// The missing branch identifier.
+        branch: String,
+    },
 
     /// Vector collection not found
     #[error("collection not found: {collection}")]
-    CollectionNotFound { collection: String },
+    CollectionNotFound {
+        /// The missing collection name.
+        collection: String,
+    },
 
     /// Event stream not found
     #[error("stream not found: {stream}")]
-    StreamNotFound { stream: String },
+    StreamNotFound {
+        /// The missing stream name.
+        stream: String,
+    },
 
     /// State cell not found
     #[error("cell not found: {cell}")]
-    CellNotFound { cell: String },
+    CellNotFound {
+        /// The missing cell name.
+        cell: String,
+    },
 
     /// JSON document not found
     #[error("document not found: {key}")]
-    DocumentNotFound { key: String },
+    DocumentNotFound {
+        /// The missing document key.
+        key: String,
+    },
 
     // ==================== Type Errors ====================
     /// Wrong type for operation
     #[error("wrong type: expected {expected}, got {actual}")]
-    WrongType { expected: String, actual: String },
+    WrongType {
+        /// Expected type name.
+        expected: String,
+        /// Actual type name.
+        actual: String,
+    },
 
     // ==================== Validation Errors ====================
     /// Invalid key format
     #[error("invalid key: {reason}")]
-    InvalidKey { reason: String },
+    InvalidKey {
+        /// Reason the key is invalid.
+        reason: String,
+    },
 
     /// Invalid JSON path
     #[error("invalid path: {reason}")]
-    InvalidPath { reason: String },
+    InvalidPath {
+        /// Reason the path is invalid.
+        reason: String,
+    },
 
     /// Invalid input
     #[error("invalid input: {reason}")]
-    InvalidInput { reason: String },
+    InvalidInput {
+        /// Description of the validation failure.
+        reason: String,
+    },
 
     // ==================== Concurrency Errors ====================
     /// Version conflict (CAS failure)
     #[error("version conflict: expected {expected_type}:{expected}, got {actual_type}:{actual}")]
     VersionConflict {
+        /// Expected version number.
         expected: u64,
+        /// Actual version number found.
         actual: u64,
+        /// Expected version type label.
         expected_type: String,
+        /// Actual version type label.
         actual_type: String,
     },
 
     /// State transition failed (expected value mismatch)
     #[error("transition failed: expected {expected}, got {actual}")]
-    TransitionFailed { expected: String, actual: String },
+    TransitionFailed {
+        /// Expected state value.
+        expected: String,
+        /// Actual state value.
+        actual: String,
+    },
 
     /// Generic conflict
     #[error("conflict: {reason}")]
-    Conflict { reason: String },
+    Conflict {
+        /// Description of the conflict.
+        reason: String,
+    },
 
     // ==================== State Errors ====================
     /// Branch is closed
     #[error("branch closed: {branch}")]
-    BranchClosed { branch: String },
+    BranchClosed {
+        /// The closed branch identifier.
+        branch: String,
+    },
 
     /// Branch already exists
     #[error("branch already exists: {branch}")]
-    BranchExists { branch: String },
+    BranchExists {
+        /// The duplicate branch identifier.
+        branch: String,
+    },
 
     /// Collection already exists
     #[error("collection already exists: {collection}")]
-    CollectionExists { collection: String },
+    CollectionExists {
+        /// The duplicate collection name.
+        collection: String,
+    },
 
     // ==================== Constraint Errors ====================
     /// Vector dimension mismatch
     #[error("dimension mismatch: expected {expected}, got {actual}")]
-    DimensionMismatch { expected: usize, actual: usize },
+    DimensionMismatch {
+        /// Expected dimensionality.
+        expected: usize,
+        /// Actual dimensionality provided.
+        actual: usize,
+    },
 
     /// Constraint violation
     #[error("constraint violation: {reason}")]
-    ConstraintViolation { reason: String },
+    ConstraintViolation {
+        /// Description of the violated constraint.
+        reason: String,
+    },
 
     /// Requested version was trimmed by retention policy
     #[error("history trimmed: requested version {requested}, earliest is {earliest}")]
-    HistoryTrimmed { requested: u64, earliest: u64 },
+    HistoryTrimmed {
+        /// Version that was requested.
+        requested: u64,
+        /// Earliest available version.
+        earliest: u64,
+    },
 
     /// Numeric overflow
     #[error("overflow: {reason}")]
-    Overflow { reason: String },
+    Overflow {
+        /// Description of the overflow.
+        reason: String,
+    },
 
     // ==================== Access Control ====================
     /// Write command rejected because the database is read-only
     #[error("access denied: {command} rejected — database is read-only")]
-    AccessDenied { command: String },
+    AccessDenied {
+        /// Name of the rejected command.
+        command: String,
+    },
 
     // ==================== Transaction Errors ====================
     /// No active transaction
@@ -150,22 +222,39 @@ pub enum Error {
 
     /// Transaction conflict (commit-time validation failure)
     #[error("transaction conflict: {reason}")]
-    TransactionConflict { reason: String },
+    TransactionConflict {
+        /// Description of the transaction conflict.
+        reason: String,
+    },
 
     // ==================== System Errors ====================
     /// I/O error
     #[error("I/O error: {reason}")]
-    Io { reason: String },
+    Io {
+        /// I/O error details.
+        reason: String,
+    },
 
     /// Serialization error
     #[error("serialization error: {reason}")]
-    Serialization { reason: String },
+    Serialization {
+        /// Serialization error details.
+        reason: String,
+    },
 
     /// Internal error (bug or invariant violation)
     #[error("internal error: {reason}")]
-    Internal { reason: String },
+    Internal {
+        /// Internal error details.
+        reason: String,
+    },
 
     /// Feature not yet implemented
     #[error("not implemented: {feature} - {reason}")]
-    NotImplemented { feature: String, reason: String },
+    NotImplemented {
+        /// Name of the unimplemented feature.
+        feature: String,
+        /// Details about what is missing.
+        reason: String,
+    },
 }

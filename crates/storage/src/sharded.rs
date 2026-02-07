@@ -1730,7 +1730,7 @@ mod tests {
         // Insert mixed types
         for i in 0..5 {
             store.put(
-                Key::new_kv(ns.clone(), &format!("kv{}", i)),
+                Key::new_kv(ns.clone(), format!("kv{}", i)),
                 create_stored_value(Value::Int(i), 1),
             );
         }
@@ -2717,10 +2717,14 @@ mod tests {
         // This is documented behavior for the extremely unlikely overflow case.
     }
 
-    /// BUG HUNT: TTL expiration with clock going backward
+    /// SAFETY: TTL expiration with clock going backward
     ///
     /// If system clock goes backward after storing a value,
-    /// duration_since() returns None and value won't expire.
+    /// `duration_since()` returns `None` and `is_expired()` returns `false`.
+    /// This is correct: the value persists rather than expiring prematurely.
+    /// Clock-backward means we cannot reliably measure elapsed time, so the
+    /// safe default is to treat the value as unexpired. Items will expire
+    /// normally once the clock catches up past `timestamp + ttl`.
     #[test]
     fn test_ttl_expiration_with_old_timestamp() {
         use strata_core::value::Value;
@@ -2748,10 +2752,14 @@ mod tests {
         );
     }
 
-    /// BUG HUNT: Concurrent snapshot reads during store modifications
+    /// SAFETY: Concurrent snapshot reads during store modifications
     ///
-    /// Test that snapshot isolation holds when the store is being
-    /// actively modified by other threads.
+    /// Snapshots hold an `Arc<ShardedStore>` and a captured version `u64`.
+    /// Reads delegate to `get_versioned()`, which acquires a DashMap read
+    /// lock and walks the version chain for entries <= snapshot version.
+    /// New versions are only prepended (push_front) and old versions are
+    /// never mutated in place, so concurrent writes cannot corrupt a
+    /// snapshot read. DashMap's per-shard RwLock ensures structural safety.
     #[test]
     fn test_snapshot_isolation_under_concurrent_writes() {
         use std::sync::atomic::{AtomicBool, Ordering};
@@ -2829,12 +2837,13 @@ mod tests {
         }
     }
 
-    /// BUG HUNT: Snapshot cache race condition
+    /// SAFETY: Snapshot cache race condition (not applicable)
     ///
-    /// The ShardedSnapshot::get() has a check-then-populate pattern:
-    /// 1. Check cache (read lock)
-    /// 2. If miss, read from store and populate cache (write lock)
-    /// This is NOT atomic - two threads could both miss and both write.
+    /// `ShardedSnapshot` has no cache. It stores only a version `u64` and
+    /// an `Arc<ShardedStore>`, delegating every `get()` call directly to
+    /// `Storage::get_versioned()`. There is no check-then-populate pattern,
+    /// so no race condition is possible. Multiple threads calling `get()`
+    /// concurrently each acquire independent DashMap read locks.
     #[test]
     fn test_snapshot_cache_concurrent_access() {
         use std::sync::Barrier;
@@ -2884,10 +2893,14 @@ mod tests {
         }
     }
 
-    /// BUG HUNT: Version chain GC during concurrent reads
+    /// SAFETY: Version chain GC during concurrent reads
     ///
-    /// If gc() runs while get_at_version() is iterating,
-    /// could we get inconsistent results?
+    /// `gc()` requires `&mut VersionChain`, which means the caller must hold
+    /// a DashMap write lock on the shard (via `entry()` or `get_mut()`).
+    /// `get_at_version()` takes `&self` and is reached through a DashMap read
+    /// lock (via `get()`). DashMap's per-shard RwLock guarantees mutual
+    /// exclusion between readers and writers, so GC cannot run while any
+    /// read is in progress on the same shard, and vice versa.
     #[test]
     fn test_version_chain_gc_concurrent_reads() {
         use std::sync::atomic::{AtomicBool, Ordering};
@@ -2976,10 +2989,16 @@ mod tests {
         assert!(final_version > 101, "Writer thread did some work");
     }
 
-    /// BUG HUNT: apply_batch atomicity under failure
+    /// SAFETY: apply_batch atomicity under failure
     ///
-    /// apply_batch writes multiple keys. If it fails midway,
-    /// are partial writes visible?
+    /// `apply_batch` groups operations by branch_id and holds the DashMap
+    /// shard write lock for each branch's entire batch, making writes
+    /// atomic within a single branch. Across branches, partial application
+    /// is theoretically possible, but acceptable: branches are independent
+    /// domains and each branch's batch is self-consistent. In practice the
+    /// individual `insert`/`push` operations are infallible (no I/O, no
+    /// allocation failure on these small structures), so mid-batch failure
+    /// does not occur.
     #[test]
     fn test_apply_batch_partial_application() {
         use strata_core::traits::Storage;
@@ -3011,10 +3030,12 @@ mod tests {
         }
     }
 
-    /// BUG HUNT: fetch_max semantics for version updates
+    /// SAFETY: fetch_max semantics for version updates
     ///
-    /// apply_batch uses fetch_max for version. Verify it works correctly
-    /// when applied versions arrive out of order.
+    /// `apply_batch` uses `AtomicU64::fetch_max(version, AcqRel)` to advance
+    /// the global version counter. This is a single atomic operation that
+    /// correctly handles out-of-order batch application: the version only
+    /// moves forward, never backward, regardless of arrival order.
     #[test]
     fn test_version_fetch_max_out_of_order() {
         use strata_core::value::Value;
@@ -3046,9 +3067,12 @@ mod tests {
         assert_eq!(store.version(), 150);
     }
 
-    /// BUG HUNT: Empty version chain after multiple deletes
+    /// SAFETY: Empty version chain after multiple deletes
     ///
-    /// What happens if we delete a key that doesn't exist?
+    /// Deleting a nonexistent key is handled gracefully: `Storage::delete`
+    /// returns `Ok(None)` when the key is not found. No version chain is
+    /// created for a key that was never written, so there is no risk of
+    /// an empty or corrupted chain.
     #[test]
     fn test_delete_nonexistent_key_no_panic() {
         use strata_core::traits::Storage;
@@ -3066,9 +3090,11 @@ mod tests {
         assert!(result2.is_none());
     }
 
-    /// BUG HUNT: Scan operations with expired TTL values
+    /// SAFETY: Scan operations with expired TTL values
     ///
-    /// Scan should filter out expired values.
+    /// Both `Storage::scan_prefix` and `SnapshotView::scan_prefix` explicitly
+    /// check `!sv.is_expired() && !sv.is_tombstone()` before including a
+    /// value in results. Expired TTL values are correctly filtered out.
     #[test]
     fn test_scan_filters_expired_ttl() {
         use strata_core::traits::Storage;
@@ -3276,14 +3302,14 @@ mod tests {
         for i in 0..5000 {
             Storage::put(
                 &store,
-                Key::new_kv(ns.clone(), &format!("alpha:{:05}", i)),
+                Key::new_kv(ns.clone(), format!("alpha:{:05}", i)),
                 Value::Int(i),
                 None,
             )
             .unwrap();
             Storage::put(
                 &store,
-                Key::new_kv(ns.clone(), &format!("beta:{:05}", i)),
+                Key::new_kv(ns.clone(), format!("beta:{:05}", i)),
                 Value::Int(i),
                 None,
             )
