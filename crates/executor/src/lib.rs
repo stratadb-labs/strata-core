@@ -50,17 +50,13 @@
 
 mod api;
 pub(crate) mod bridge;
-#[allow(missing_docs)]
 mod command;
 mod convert;
-#[allow(missing_docs)]
 mod error;
 mod executor;
 pub(crate) mod json;
-#[allow(missing_docs)]
 mod output;
 mod session;
-#[allow(missing_docs)]
 mod types;
 
 // Handler modules
