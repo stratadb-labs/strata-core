@@ -481,14 +481,19 @@ fn test_info_parity() {
 
 #[test]
 fn test_flush_compact_parity() {
-    let (executor, _p) = create_test_environment();
+    let (executor, p) = create_test_environment();
 
-    // These should not error
+    // Flush should delegate to db.flush() and succeed (no-op on ephemeral)
     let flush_result = executor.execute(Command::Flush);
     assert!(flush_result.is_ok());
 
-    let compact_result = executor.execute(Command::Compact);
-    assert!(compact_result.is_ok());
+    // The executor result for Compact must match the engine result.
+    // db.compact() returns an error ("not yet implemented"), so the
+    // executor must also return an error — not silently succeed.
+    let engine_result = p.db.compact();
+    let executor_result = executor.execute(Command::Compact);
+    assert_eq!(engine_result.is_err(), executor_result.is_err(),
+        "Executor Compact result must match engine compact() result");
 }
 
 // =============================================================================

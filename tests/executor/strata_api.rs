@@ -38,10 +38,11 @@ fn flush_succeeds() {
 }
 
 #[test]
-fn compact_succeeds() {
+fn compact_returns_not_implemented() {
     let db = create_strata();
 
-    db.compact().unwrap();
+    // compact() correctly delegates to the engine, which is not yet implemented
+    assert!(db.compact().is_err());
 }
 
 // ============================================================================

@@ -48,11 +48,12 @@ fn flush_returns_unit() {
 }
 
 #[test]
-fn compact_returns_unit() {
+fn compact_returns_error() {
     let executor = create_executor();
 
-    let output = executor.execute(Command::Compact).unwrap();
-    assert!(matches!(output, Output::Unit));
+    // Compact correctly delegates to the engine, which is not yet implemented
+    let result = executor.execute(Command::Compact);
+    assert!(result.is_err());
 }
 
 // ============================================================================
