@@ -298,7 +298,7 @@ impl StateCell {
             })?;
 
         // Update inverted index (zero overhead when disabled)
-        let index = self.db.extension::<crate::search::InvertedIndex>();
+        let index = self.db.extension::<crate::search::InvertedIndex>()?;
         if index.is_enabled() {
             let text = format!(
                 "{} {}",

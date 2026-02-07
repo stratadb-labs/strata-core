@@ -383,7 +383,9 @@ impl Database {
                         let _ = wal.sync_if_overdue();
                     }
                 })
-                .expect("Failed to spawn WAL flush thread");
+                .map_err(|e| {
+                    StrataError::internal(format!("failed to spawn WAL flush thread: {}", e))
+                })?;
             Some(handle)
         } else {
             None
@@ -559,7 +561,7 @@ impl Database {
     /// // All VectorStore instances for this Database share the same state
     /// let state = db.extension::<VectorBackendState>();
     /// ```
-    pub fn extension<T: Any + Send + Sync + Default>(&self) -> Arc<T> {
+    pub fn extension<T: Any + Send + Sync + Default>(&self) -> StrataResult<Arc<T>> {
         let type_id = TypeId::of::<T>();
 
         // Use entry API for atomic get-or-insert
@@ -568,12 +570,13 @@ impl Database {
             .entry(type_id)
             .or_insert_with(|| Arc::new(T::default()) as Arc<dyn Any + Send + Sync>);
 
-        // Downcast to concrete type - this cannot fail because we control the insertion
-        entry
-            .value()
-            .clone()
-            .downcast::<T>()
-            .expect("extension type mismatch - this is a bug")
+        // Downcast to concrete type — the TypeId key guarantees this succeeds
+        entry.value().clone().downcast::<T>().map_err(|_| {
+            StrataError::internal(format!(
+                "extension type mismatch for TypeId {:?}",
+                type_id
+            ))
+        })
     }
 
     // ========================================================================
@@ -583,15 +586,15 @@ impl Database {
     /// Check if auto-embedding is enabled.
     pub fn auto_embed_enabled(&self) -> bool {
         self.extension::<AutoEmbedState>()
-            .enabled
-            .load(Ordering::Relaxed)
+            .map(|s| s.enabled.load(Ordering::Relaxed))
+            .unwrap_or(false)
     }
 
     /// Enable or disable auto-embedding.
     pub fn set_auto_embed(&self, enabled: bool) {
-        self.extension::<AutoEmbedState>()
-            .enabled
-            .store(enabled, Ordering::Relaxed);
+        if let Ok(state) = self.extension::<AutoEmbedState>() {
+            state.enabled.store(enabled, Ordering::Relaxed);
+        }
     }
 
     /// Path to the model directory for MiniLM-L6-v2.

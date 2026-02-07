@@ -42,7 +42,7 @@ fn recover_from_db(db: &Database) -> StrataResult<()> {
     }
 
     // Get access to the shared backend state
-    let state = db.extension::<VectorBackendState>();
+    let state = db.extension::<VectorBackendState>()?;
     let factory = IndexBackendFactory::default();
 
     let snapshot = db.storage().create_snapshot();

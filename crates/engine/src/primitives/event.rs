@@ -388,7 +388,7 @@ impl EventLog {
             })?;
 
         // Update inverted index (zero overhead when disabled)
-        let idx = self.db.extension::<crate::search::InvertedIndex>();
+        let idx = self.db.extension::<crate::search::InvertedIndex>()?;
         if idx.is_enabled() {
             let text = format!(
                 "{} {}",

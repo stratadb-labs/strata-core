@@ -93,7 +93,7 @@ impl VectorStore {
             .write_u8(VECTOR_SNAPSHOT_VERSION)
             .map_err(|e| VectorError::Io(e.to_string()))?;
 
-        let state = self.backends();
+        let state = self.backends()?;
         let backends = state.backends.read();
         let collection_count = backends.len() as u32;
         writer
@@ -358,7 +358,7 @@ impl VectorStore {
             backend.restore_snapshot_state(header.next_id, header.free_slots);
 
             // Add backend to store
-            self.backends()
+            self.backends()?
                 .backends
                 .write()
                 .insert(collection_id, backend);
