@@ -38,11 +38,11 @@ fn flush_succeeds() {
 }
 
 #[test]
-fn compact_returns_not_implemented() {
+fn compact_succeeds_on_ephemeral() {
     let db = create_strata();
 
-    // compact() correctly delegates to the engine, which is not yet implemented
-    assert!(db.compact().is_err());
+    // compact() on an ephemeral database is a no-op
+    assert!(db.compact().is_ok());
 }
 
 // ============================================================================

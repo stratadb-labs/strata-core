@@ -48,12 +48,12 @@ fn flush_returns_unit() {
 }
 
 #[test]
-fn compact_returns_error() {
+fn compact_succeeds_on_ephemeral() {
     let executor = create_executor();
 
-    // Compact correctly delegates to the engine, which is not yet implemented
+    // Compact on an ephemeral database is a no-op
     let result = executor.execute(Command::Compact);
-    assert!(result.is_err());
+    assert!(result.is_ok());
 }
 
 // ============================================================================

@@ -39,8 +39,17 @@ use strata_concurrency::{RecoveryCoordinator, TransactionContext};
 use strata_core::types::{BranchId, Key};
 use strata_core::StrataError;
 use strata_core::{StrataResult, VersionedValue};
+use strata_core::types::TypeTag;
 use strata_durability::codec::IdentityCodec;
 use strata_durability::wal::{DurabilityMode, WalConfig, WalWriter};
+use strata_durability::{
+    CheckpointCoordinator, CheckpointData, CheckpointError, CompactionError, ManifestError,
+    ManifestManager, WalOnlyCompactor,
+};
+use strata_durability::{
+    BranchSnapshotEntry, EventSnapshotEntry, JsonSnapshotEntry, KvSnapshotEntry,
+    StateSnapshotEntry,
+};
 use strata_storage::ShardedStore;
 use tracing::{info, warn};
 
@@ -660,20 +669,85 @@ impl Database {
     }
 
     // ========================================================================
-    // Checkpoint & Compaction (future work)
+    // Checkpoint & Compaction
     // ========================================================================
 
     /// Create a snapshot checkpoint of the current database state.
     ///
-    /// Checkpoints serialize all primitive state to a crash-safe snapshot file,
-    /// update the manifest watermark, and optionally trigger WAL compaction.
+    /// Checkpoints serialize all primitive state to a crash-safe snapshot file
+    /// and update the MANIFEST watermark. After a checkpoint, WAL compaction
+    /// can safely remove segments covered by the snapshot.
+    ///
+    /// For ephemeral (cache) databases, this is a no-op.
     ///
     /// See: `docs/architecture/STORAGE_DURABILITY_ARCHITECTURE.md` Section 6.3
-    ///
-    /// TODO: Wire to `DatabaseHandle::checkpoint()` and `CheckpointCoordinator`
-    /// once the full checkpoint flow is implemented.
     pub fn checkpoint(&self) -> StrataResult<()> {
-        Err(StrataError::internal("checkpoint() not yet implemented"))
+        if self.persistence_mode == PersistenceMode::Ephemeral {
+            return Ok(());
+        }
+
+        // Flush WAL first to ensure all buffered writes are on disk
+        self.flush()?;
+
+        let watermark_txn = self.coordinator.current_version();
+
+        // Collect data from storage
+        let data = self.collect_checkpoint_data();
+
+        // Create snapshots directory
+        let snapshots_dir = self.data_dir.join("snapshots");
+        std::fs::create_dir_all(&snapshots_dir).map_err(StrataError::from)?;
+
+        // Load or create MANIFEST
+        let mut manifest = self.load_or_create_manifest()?;
+
+        // Build watermark state from existing MANIFEST if present
+        let existing_watermark = {
+            let m = manifest.manifest();
+            match (m.snapshot_id, m.snapshot_watermark) {
+                (Some(sid), Some(wtxn)) => {
+                    Some(strata_durability::SnapshotWatermark::with_values(sid, wtxn, 0))
+                }
+                _ => None,
+            }
+        };
+
+        // Create CheckpointCoordinator
+        let mut coordinator = if let Some(wm) = existing_watermark {
+            CheckpointCoordinator::with_watermark(
+                snapshots_dir,
+                Box::new(IdentityCodec),
+                [0u8; 16],
+                wm,
+            )
+            .map_err(|e| StrataError::internal(format!("checkpoint coordinator: {}", e)))?
+        } else {
+            CheckpointCoordinator::new(snapshots_dir, Box::new(IdentityCodec), [0u8; 16])
+                .map_err(|e| StrataError::internal(format!("checkpoint coordinator: {}", e)))?
+        };
+
+        // Create the checkpoint
+        let info = coordinator
+            .checkpoint(watermark_txn, data)
+            .map_err(|e: CheckpointError| {
+                StrataError::internal(format!("checkpoint failed: {}", e))
+            })?;
+
+        // Update MANIFEST with snapshot watermark
+        manifest
+            .set_snapshot_watermark(info.snapshot_id, info.watermark_txn)
+            .map_err(|e: ManifestError| {
+                StrataError::internal(format!("manifest update failed: {}", e))
+            })?;
+
+        info!(
+            target: "strata::db",
+            snapshot_id = info.snapshot_id,
+            watermark_txn = info.watermark_txn,
+            "Checkpoint created"
+        );
+
+        Ok(())
     }
 
     /// Compact WAL segments that are no longer needed for recovery.
@@ -681,12 +755,176 @@ impl Database {
     /// Removes closed WAL segments whose max transaction ID is at or below the
     /// latest snapshot watermark. The active segment is never removed.
     ///
-    /// See: `docs/architecture/STORAGE_DURABILITY_ARCHITECTURE.md` Section 5.6
+    /// A checkpoint must exist before compaction can run. For ephemeral (cache)
+    /// databases, this is a no-op.
     ///
-    /// TODO: Wire to `DatabaseHandle::compact()` and `WalOnlyCompactor`
-    /// once the full compaction flow is implemented.
+    /// See: `docs/architecture/STORAGE_DURABILITY_ARCHITECTURE.md` Section 5.6
     pub fn compact(&self) -> StrataResult<()> {
-        Err(StrataError::internal("compact() not yet implemented"))
+        if self.persistence_mode == PersistenceMode::Ephemeral {
+            return Ok(());
+        }
+
+        let wal_dir = self.data_dir.join("wal");
+
+        // Load or create MANIFEST
+        let manifest = self.load_or_create_manifest()?;
+        let manifest_arc = Arc::new(parking_lot::Mutex::new(manifest));
+
+        // Create compactor and run
+        let compactor = WalOnlyCompactor::new(wal_dir, manifest_arc);
+        let compact_info = compactor.compact().map_err(|e: CompactionError| match e {
+            CompactionError::NoSnapshot => StrataError::invalid_input(
+                "No checkpoint exists yet. Run checkpoint() before compact().".to_string(),
+            ),
+            other => StrataError::internal(format!("compaction failed: {}", other)),
+        })?;
+
+        info!(
+            target: "strata::db",
+            segments_removed = compact_info.wal_segments_removed,
+            bytes_reclaimed = compact_info.reclaimed_bytes,
+            "WAL compaction completed"
+        );
+
+        Ok(())
+    }
+
+    /// Collect all primitive data from storage for checkpointing.
+    fn collect_checkpoint_data(&self) -> CheckpointData {
+        let mut kv_entries = Vec::new();
+        let mut event_entries = Vec::new();
+        let mut state_entries = Vec::new();
+        let mut branch_entries = Vec::new();
+        let mut json_entries = Vec::new();
+
+        let now = strata_durability::now_micros();
+
+        for branch_id in self.storage.branch_ids() {
+            // KV entries
+            for (key, vv) in self.storage.list_by_type(&branch_id, TypeTag::KV) {
+                let value_bytes =
+                    serde_json::to_vec(&vv.value).unwrap_or_default();
+                kv_entries.push(KvSnapshotEntry {
+                    key: key.user_key_string().unwrap_or_default(),
+                    value: value_bytes,
+                    version: vv.version.as_u64(),
+                    timestamp: now,
+                });
+            }
+
+            // Event entries
+            for (key, vv) in self.storage.list_by_type(&branch_id, TypeTag::Event) {
+                // Skip metadata keys
+                if key.user_key == b"__meta__" || key.user_key.starts_with(b"__tidx__") {
+                    continue;
+                }
+                let sequence = if key.user_key.len() == 8 {
+                    u64::from_be_bytes(key.user_key.as_slice().try_into().unwrap_or([0; 8]))
+                } else {
+                    0
+                };
+                let payload = serde_json::to_vec(&vv.value).unwrap_or_default();
+                event_entries.push(EventSnapshotEntry {
+                    sequence,
+                    payload,
+                    timestamp: now,
+                });
+            }
+
+            // State entries
+            for (key, vv) in self.storage.list_by_type(&branch_id, TypeTag::State) {
+                let value_bytes =
+                    serde_json::to_vec(&vv.value).unwrap_or_default();
+                state_entries.push(StateSnapshotEntry {
+                    name: key.user_key_string().unwrap_or_default(),
+                    value: value_bytes,
+                    counter: vv.version.as_u64(),
+                    timestamp: now,
+                });
+            }
+
+            // Branch entries
+            for (key, vv) in self.storage.list_by_type(&branch_id, TypeTag::Branch) {
+                // Skip index keys
+                if key.user_key.starts_with(b"__idx_") {
+                    continue;
+                }
+                let branch_id_bytes: [u8; 16] = if key.user_key.len() == 16 {
+                    key.user_key.as_slice().try_into().unwrap_or([0; 16])
+                } else {
+                    [0; 16]
+                };
+                let metadata =
+                    serde_json::to_vec(&vv.value).unwrap_or_default();
+                branch_entries.push(BranchSnapshotEntry {
+                    branch_id: branch_id_bytes,
+                    name: String::new(),
+                    created_at: now,
+                    metadata,
+                });
+            }
+
+            // JSON entries
+            for (key, vv) in self.storage.list_by_type(&branch_id, TypeTag::Json) {
+                let content =
+                    serde_json::to_vec(&vv.value).unwrap_or_default();
+                json_entries.push(JsonSnapshotEntry {
+                    doc_id: key.user_key_string().unwrap_or_default(),
+                    content,
+                    version: vv.version.as_u64(),
+                    timestamp: now,
+                });
+            }
+        }
+
+        let mut data = CheckpointData::new();
+        if !kv_entries.is_empty() {
+            data = data.with_kv(kv_entries);
+        }
+        if !event_entries.is_empty() {
+            data = data.with_events(event_entries);
+        }
+        if !state_entries.is_empty() {
+            data = data.with_states(state_entries);
+        }
+        if !branch_entries.is_empty() {
+            data = data.with_branches(branch_entries);
+        }
+        if !json_entries.is_empty() {
+            data = data.with_json(json_entries);
+        }
+        data
+    }
+
+    /// Load an existing MANIFEST or create a new one.
+    ///
+    /// Also updates the active WAL segment from the current WAL writer.
+    fn load_or_create_manifest(&self) -> StrataResult<ManifestManager> {
+        let manifest_path = self.data_dir.join("MANIFEST");
+
+        let mut manifest = if ManifestManager::exists(&manifest_path) {
+            ManifestManager::load(manifest_path).map_err(|e: ManifestError| {
+                StrataError::internal(format!("failed to load MANIFEST: {}", e))
+            })?
+        } else {
+            ManifestManager::create(manifest_path, [0u8; 16], "identity".to_string()).map_err(
+                |e: ManifestError| {
+                    StrataError::internal(format!("failed to create MANIFEST: {}", e))
+                },
+            )?
+        };
+
+        // Update active WAL segment from the writer
+        if let Some(ref wal) = self.wal_writer {
+            let wal = wal.lock();
+            let current_seg = wal.current_segment();
+            manifest.manifest_mut().active_wal_segment = current_seg;
+            manifest.persist().map_err(|e: ManifestError| {
+                StrataError::internal(format!("failed to persist MANIFEST: {}", e))
+            })?;
+        }
+
+        Ok(manifest)
     }
 
     // ========================================================================
@@ -1634,5 +1872,86 @@ mod tests {
 
         let result = Database::open(&db_path);
         assert!(result.is_err());
+    }
+
+    // ========================================================================
+    // Checkpoint & Compaction Tests
+    // ========================================================================
+
+    #[test]
+    fn test_checkpoint_ephemeral_noop() {
+        let db = Database::cache().unwrap();
+        // checkpoint on ephemeral database is a no-op
+        assert!(db.checkpoint().is_ok());
+    }
+
+    #[test]
+    fn test_compact_ephemeral_noop() {
+        let db = Database::cache().unwrap();
+        // compact on ephemeral database is a no-op
+        assert!(db.compact().is_ok());
+    }
+
+    #[test]
+    fn test_compact_without_checkpoint_fails() {
+        let temp_dir = TempDir::new().unwrap();
+        let db = Database::open(temp_dir.path().join("db")).unwrap();
+
+        // Compact before any checkpoint should fail (no snapshot watermark)
+        let result = db.compact();
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_checkpoint_creates_snapshot() {
+        let temp_dir = TempDir::new().unwrap();
+        let db_path = temp_dir.path().join("db");
+        let db = Database::open(&db_path).unwrap();
+
+        let branch_id = BranchId::new();
+        let ns = create_test_namespace(branch_id);
+        let key = Key::new_kv(ns, "checkpoint_test");
+
+        // Write some data
+        db.transaction(branch_id, |txn| {
+            txn.put(key.clone(), Value::String("hello".to_string()))?;
+            Ok(())
+        })
+        .unwrap();
+
+        // Checkpoint should succeed
+        assert!(db.checkpoint().is_ok());
+
+        // Snapshots directory should exist with files
+        let snapshots_dir = db_path.canonicalize().unwrap().join("snapshots");
+        assert!(snapshots_dir.exists());
+
+        // MANIFEST should exist
+        let manifest_path = db_path.canonicalize().unwrap().join("MANIFEST");
+        assert!(manifest_path.exists());
+    }
+
+    #[test]
+    fn test_checkpoint_then_compact() {
+        let temp_dir = TempDir::new().unwrap();
+        let db_path = temp_dir.path().join("db");
+        let db = Database::open(&db_path).unwrap();
+
+        let branch_id = BranchId::new();
+        let ns = create_test_namespace(branch_id);
+        let key = Key::new_kv(ns, "compact_test");
+
+        // Write data
+        db.transaction(branch_id, |txn| {
+            txn.put(key.clone(), Value::Int(42))?;
+            Ok(())
+        })
+        .unwrap();
+
+        // Checkpoint first
+        assert!(db.checkpoint().is_ok());
+
+        // Now compact should succeed
+        assert!(db.compact().is_ok());
     }
 }

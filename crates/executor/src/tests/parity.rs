@@ -487,12 +487,10 @@ fn test_flush_compact_parity() {
     let flush_result = executor.execute(Command::Flush);
     assert!(flush_result.is_ok());
 
-    // The executor result for Compact must match the engine result.
-    // db.compact() returns an error ("not yet implemented"), so the
-    // executor must also return an error — not silently succeed.
+    // On ephemeral databases, both checkpoint and compact are no-ops (Ok)
     let engine_result = p.db.compact();
     let executor_result = executor.execute(Command::Compact);
-    assert_eq!(engine_result.is_err(), executor_result.is_err(),
+    assert_eq!(engine_result.is_ok(), executor_result.is_ok(),
         "Executor Compact result must match engine compact() result");
 }
 

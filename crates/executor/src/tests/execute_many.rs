@@ -215,8 +215,8 @@ fn test_execute_many_all_database_commands() {
     matches!(&results[0], Ok(Output::Pong { .. }));
     matches!(&results[1], Ok(Output::DatabaseInfo(_)));
     matches!(&results[2], Ok(Output::Unit));
-    // Compact correctly delegates to db.compact(), which is not yet implemented
-    assert!(results[3].is_err(), "Compact should propagate the engine error");
+    // Compact on ephemeral database is a no-op
+    assert!(results[3].is_ok(), "Compact on ephemeral DB should succeed");
 }
 
 #[test]
