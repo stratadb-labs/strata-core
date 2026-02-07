@@ -4,7 +4,7 @@
 
 use std::sync::Arc;
 
-use crate::bridge::{self, Primitives};
+use crate::bridge::{self, validate_value, Primitives};
 use crate::convert::convert_result;
 use crate::types::{BranchId, VersionedValue};
 use crate::{Error, Output, Result};
@@ -41,6 +41,7 @@ pub fn event_append(
 ) -> Result<Output> {
     require_branch_exists(p, &branch)?;
     let core_branch_id = bridge::to_core_branch_id(&branch)?;
+    convert_result(validate_value(&payload, &p.limits))?;
 
     // Extract text before payload is consumed
     let text = super::embed_hook::extract_text(&payload);

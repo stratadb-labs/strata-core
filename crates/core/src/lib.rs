@@ -18,6 +18,7 @@
 pub mod branch_types; // Branch lifecycle types
 pub mod contract; // contract types
 pub mod error;
+pub mod limits; // Size limits for keys, values, and vectors
 pub mod primitive_ext; // extension trait for primitives to integrate with storage/durability
 pub mod primitives; // primitive types (Event, State, Vector, JSON types)
 pub mod search_types; // search types (EntityRef/PrimitiveType re-exports only; types moved to engine)
@@ -30,6 +31,7 @@ pub use branch_types::{BranchEventOffsets, BranchMetadata, BranchStatus};
 pub use error::{
     ConstraintReason, DetailValue, ErrorCode, ErrorDetails, StrataError, StrataResult,
 };
+pub use limits::{LimitError, Limits};
 pub use traits::{SnapshotView, Storage};
 pub use types::{validate_space_name, BranchId, Key, Namespace, TypeTag};
 pub use value::Value;

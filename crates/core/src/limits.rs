@@ -267,6 +267,28 @@ impl LimitError {
             LimitError::VectorDimMismatch { .. } => "vector_dim_mismatch",
         }
     }
+
+    /// Get the actual value that exceeded the limit.
+    pub fn actual(&self) -> usize {
+        match self {
+            LimitError::KeyTooLong { actual, .. }
+            | LimitError::ValueTooLarge { actual, .. }
+            | LimitError::NestingTooDeep { actual, .. }
+            | LimitError::VectorDimExceeded { actual, .. } => *actual,
+            LimitError::VectorDimMismatch { actual, .. } => *actual,
+        }
+    }
+
+    /// Get the maximum allowed value.
+    pub fn max(&self) -> usize {
+        match self {
+            LimitError::KeyTooLong { max, .. }
+            | LimitError::ValueTooLarge { max, .. }
+            | LimitError::NestingTooDeep { max, .. }
+            | LimitError::VectorDimExceeded { max, .. } => *max,
+            LimitError::VectorDimMismatch { expected, .. } => *expected,
+        }
+    }
 }
 
 #[cfg(test)]

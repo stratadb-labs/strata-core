@@ -7,8 +7,8 @@ use std::sync::Arc;
 use strata_core::Value;
 
 use crate::bridge::{
-    extract_version, json_to_value, parse_path, to_core_branch_id, validate_key, value_to_json,
-    Primitives,
+    extract_version, json_to_value, parse_path, to_core_branch_id, validate_key, validate_value,
+    value_to_json, Primitives,
 };
 use crate::convert::convert_result;
 use crate::types::{BranchId, VersionedValue};
@@ -82,6 +82,7 @@ pub fn json_set(
     require_branch_exists(p, &branch)?;
     let branch_id = to_core_branch_id(&branch)?;
     convert_result(validate_key(&key))?;
+    convert_result(validate_value(&value, &p.limits))?;
 
     let json_path = convert_result(parse_path(&path))?;
     let json_value = convert_result(value_to_json(value))?;

@@ -227,6 +227,13 @@ impl VectorStore {
     /// 1. Collection backends with vectors
     /// 2. next_id and free_slots for each collection (CRITICAL for T4)
     /// 3. VectorRecord metadata in KV
+    /// Maximum header size during snapshot deserialization (1 MB).
+    const MAX_SNAPSHOT_HEADER_SIZE: usize = 1_024 * 1_024;
+    /// Maximum key size during snapshot deserialization (64 KB).
+    const MAX_SNAPSHOT_KEY_SIZE: usize = 64 * 1_024;
+    /// Maximum metadata size during snapshot deserialization (64 MB).
+    const MAX_SNAPSHOT_METADATA_SIZE: usize = 64 * 1_024 * 1_024;
+
     pub fn snapshot_deserialize<R: Read>(&self, reader: &mut R) -> VectorResult<()> {
         // Version byte
         let version = reader
@@ -248,6 +255,13 @@ impl VectorStore {
             let header_len = reader
                 .read_u32::<LittleEndian>()
                 .map_err(|e| VectorError::Io(e.to_string()))? as usize;
+            if header_len > Self::MAX_SNAPSHOT_HEADER_SIZE {
+                return Err(VectorError::Serialization(format!(
+                    "Snapshot header length {} exceeds maximum {}",
+                    header_len,
+                    Self::MAX_SNAPSHOT_HEADER_SIZE
+                )));
+            }
             let mut header_bytes = vec![0u8; header_len];
             reader
                 .read_exact(&mut header_bytes)
@@ -302,6 +316,13 @@ impl VectorStore {
                     .read_u32::<LittleEndian>()
                     .map_err(|e| VectorError::Io(e.to_string()))?
                     as usize;
+                if key_len > Self::MAX_SNAPSHOT_KEY_SIZE {
+                    return Err(VectorError::Serialization(format!(
+                        "Snapshot key length {} exceeds maximum {}",
+                        key_len,
+                        Self::MAX_SNAPSHOT_KEY_SIZE
+                    )));
+                }
                 let mut key_bytes = vec![0u8; key_len];
                 reader
                     .read_exact(&mut key_bytes)
@@ -330,6 +351,13 @@ impl VectorStore {
                         .read_u32::<LittleEndian>()
                         .map_err(|e| VectorError::Io(e.to_string()))?
                         as usize;
+                    if meta_len > Self::MAX_SNAPSHOT_METADATA_SIZE {
+                        return Err(VectorError::Serialization(format!(
+                            "Snapshot metadata length {} exceeds maximum {}",
+                            meta_len,
+                            Self::MAX_SNAPSHOT_METADATA_SIZE
+                        )));
+                    }
                     let mut meta_bytes = vec![0u8; meta_len];
                     reader
                         .read_exact(&mut meta_bytes)

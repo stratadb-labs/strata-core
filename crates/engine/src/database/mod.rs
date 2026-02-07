@@ -198,6 +198,12 @@ pub struct Database {
     /// In Standard mode, a background thread periodically calls sync_if_overdue()
     /// to flush WAL data to disk without blocking the write path (#969).
     flush_handle: ParkingMutex<Option<std::thread::JoinHandle<()>>>,
+
+    /// Exclusive lock file preventing concurrent process access to the same database.
+    ///
+    /// Held for the lifetime of the Database. Dropped automatically when the
+    /// Database is dropped, releasing the lock. None for ephemeral databases.
+    _lock_file: Option<std::fs::File>,
 }
 
 impl Database {
@@ -322,6 +328,22 @@ impl Database {
         }
 
         // Not in registry (or expired) - create new instance
+        // Acquire an exclusive filesystem lock to prevent concurrent process access.
+        // This protects against multiple processes opening the same database directory,
+        // which would corrupt WAL files via interleaved writes.
+        let lock_path = canonical_path.join(".lock");
+        let lock_file = std::fs::OpenOptions::new()
+            .create(true)
+            .read(true)
+            .write(true)
+            .open(&lock_path)
+            .map_err(|e| StrataError::storage(format!("failed to open lock file: {}", e)))?;
+        fs2::FileExt::try_lock_exclusive(&lock_file).map_err(|_| {
+            StrataError::storage(format!(
+                "database at '{}' is already in use by another process",
+                canonical_path.display()
+            ))
+        })?;
         // Create WAL directory
         let wal_dir = data_dir.join("wal");
         std::fs::create_dir_all(&wal_dir).map_err(StrataError::from)?;
@@ -402,6 +424,7 @@ impl Database {
             extensions: DashMap::new(),
             flush_shutdown,
             flush_handle: ParkingMutex::new(flush_handle),
+            _lock_file: Some(lock_file),
         });
 
         // Register in global registry (lock already held)
@@ -475,6 +498,7 @@ impl Database {
             extensions: DashMap::new(),
             flush_shutdown: Arc::new(AtomicBool::new(false)),
             flush_handle: ParkingMutex::new(None),
+            _lock_file: None, // No lock for ephemeral databases
         });
 
         // Note: Ephemeral databases are NOT registered in the global registry

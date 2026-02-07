@@ -707,8 +707,13 @@ impl Executor {
     }
 }
 
-// SAFETY: Executor is Send+Sync because:
-// - primitives: Arc<Primitives> is Send+Sync (all fields are Arc<Database>)
-// - access_mode: AccessMode is a Copy enum (trivially Send+Sync)
-unsafe impl Send for Executor {}
-unsafe impl Sync for Executor {}
+// Static assertion: Executor must remain Send+Sync.
+// If a future refactor adds a non-Send/Sync field, this will fail at compile time.
+const _: () = {
+    fn _assert_send<T: Send>() {}
+    fn _assert_sync<T: Sync>() {}
+    fn _check() {
+        _assert_send::<Executor>();
+        _assert_sync::<Executor>();
+    }
+};

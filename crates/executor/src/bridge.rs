@@ -10,6 +10,7 @@
 
 use std::sync::Arc;
 
+use strata_core::limits::Limits;
 use strata_core::primitives::json::{JsonPath, JsonValue};
 use strata_core::{StrataError, StrataResult, Value};
 use strata_engine::{
@@ -47,6 +48,8 @@ pub struct Primitives {
     pub vector: PrimitiveVectorStore,
     /// Space primitive
     pub space: PrimitiveSpaceIndex,
+    /// Size limits for keys, values, and vectors
+    pub limits: Limits,
 }
 
 impl Primitives {
@@ -61,6 +64,7 @@ impl Primitives {
             vector: PrimitiveVectorStore::new(db.clone()),
             space: PrimitiveSpaceIndex::new(db.clone()),
             db,
+            limits: Limits::default(),
         }
     }
 }
@@ -104,22 +108,21 @@ pub fn to_core_branch_id(branch: &BranchId) -> crate::Result<strata_core::types:
 /// Reserved key prefix that users cannot use.
 const RESERVED_KEY_PREFIX: &str = "_strata/";
 
-/// Maximum key length in bytes.
-const MAX_KEY_BYTES: usize = 1024;
-
 /// Validate a KV/JSON key.
 ///
 /// Keys must be non-empty, contain no NUL bytes, not start with `_strata/`,
-/// and not exceed 1024 bytes.
+/// and not exceed the configured maximum key length.
 pub fn validate_key(key: &str) -> StrataResult<()> {
+    validate_key_with_limits(key, &Limits::default())
+}
+
+/// Validate a KV/JSON key against specific limits.
+pub fn validate_key_with_limits(key: &str, limits: &Limits) -> StrataResult<()> {
     if key.is_empty() {
         return Err(StrataError::invalid_input("Key must not be empty"));
     }
-    if key.len() > MAX_KEY_BYTES {
-        return Err(StrataError::invalid_input(format!(
-            "Key exceeds maximum length of {} bytes",
-            MAX_KEY_BYTES
-        )));
+    if let Err(e) = limits.validate_key_length(key) {
+        return Err(StrataError::capacity_exceeded("key", e.max(), e.actual()));
     }
     if key.contains('\0') {
         return Err(StrataError::invalid_input("Key must not contain NUL bytes"));
@@ -131,6 +134,21 @@ pub fn validate_key(key: &str) -> StrataResult<()> {
         )));
     }
     Ok(())
+}
+
+/// Validate a value against size limits.
+pub fn validate_value(value: &Value, limits: &Limits) -> StrataResult<()> {
+    limits.validate_value(value).map_err(limit_error_to_strata)
+}
+
+/// Validate a vector against dimension limits.
+pub fn validate_vector(vec: &[f32], limits: &Limits) -> StrataResult<()> {
+    limits.validate_vector(vec).map_err(limit_error_to_strata)
+}
+
+/// Convert a `LimitError` to a `StrataError`.
+fn limit_error_to_strata(e: strata_core::limits::LimitError) -> StrataError {
+    StrataError::capacity_exceeded(e.reason_code(), e.max(), e.actual())
 }
 /// Check if a collection name is internal (starts with `_`).
 pub fn is_internal_collection(name: &str) -> bool {

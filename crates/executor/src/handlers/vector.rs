@@ -9,7 +9,7 @@ use strata_core::Value;
 use crate::bridge::{
     extract_version, from_engine_metric, is_internal_collection, serde_json_to_value_public,
     to_core_branch_id, to_engine_filter, to_engine_metric, validate_key,
-    validate_not_internal_collection, value_to_serde_json_public, Primitives,
+    validate_not_internal_collection, validate_vector, value_to_serde_json_public, Primitives,
 };
 use crate::convert::convert_result;
 use crate::types::{
@@ -83,6 +83,7 @@ pub fn vector_upsert(
     let branch_id = to_core_branch_id(&branch)?;
     convert_result(validate_key(&key))?;
     convert_result(validate_not_internal_collection(&collection))?;
+    convert_result(validate_vector(&vector, &p.limits))?;
 
     let json_metadata = metadata
         .map(value_to_serde_json_public)
@@ -300,6 +301,7 @@ pub fn vector_batch_upsert(
     let mut engine_entries = Vec::with_capacity(entries.len());
     for entry in entries {
         convert_result(validate_key(&entry.key))?;
+        convert_result(validate_vector(&entry.vector, &p.limits))?;
         let json_metadata = entry
             .metadata
             .map(value_to_serde_json_public)

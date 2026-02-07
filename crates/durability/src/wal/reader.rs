@@ -7,6 +7,10 @@ use crate::format::{WalRecord, WalRecordError, WalSegment};
 use std::io::Read;
 use std::path::Path;
 
+/// Maximum number of bytes to scan forward when searching for the next
+/// valid record after encountering corruption during WAL recovery.
+const MAX_RECOVERY_SCAN_WINDOW: usize = 1_024 * 1_024; // 1 MB
+
 /// WAL reader for iterating over records in segments.
 ///
 /// The reader can read individual segments or scan all segments in order.
@@ -83,26 +87,35 @@ impl WalReader {
                     break;
                 }
                 Err(WalRecordError::ChecksumMismatch { .. }) => {
-                    // Try to skip corrupted record using length field
-                    let remaining = &buffer[offset..];
-                    if remaining.len() >= 4 {
-                        let record_len =
-                            u32::from_le_bytes(remaining[0..4].try_into().unwrap()) as usize;
-                        if record_len > 0
-                            && record_len < 64 * 1024 * 1024
-                            && remaining.len() >= 4 + record_len
-                        {
+                    // Corrupted record detected. Scan forward byte-by-byte to find
+                    // the next valid record instead of trusting the corrupted length
+                    // field (which is itself part of the corrupted data).
+                    let scan_start = offset + 1;
+                    let scan_end =
+                        (offset + MAX_RECOVERY_SCAN_WINDOW).min(buffer.len());
+                    let mut found = false;
+
+                    for scan_offset in scan_start..scan_end {
+                        if WalRecord::from_bytes(&buffer[scan_offset..]).is_ok() {
                             tracing::warn!(
                                 target: "strata::recovery",
-                                offset = offset,
-                                "Skipping corrupted WAL record (checksum mismatch)"
+                                corrupted_offset = offset,
+                                resumed_offset = scan_offset,
+                                skipped_bytes = scan_offset - offset,
+                                "Skipped corrupted WAL region, found valid record"
                             );
-                            offset += 4 + record_len;
+                            offset = scan_offset;
                             skipped_corrupted += 1;
-                            continue;
+                            found = true;
+                            break;
                         }
                     }
-                    // Can't determine boundary — stop
+
+                    if found {
+                        continue;
+                    }
+
+                    // No valid record found within scan window — stop
                     stop_reason = ReadStopReason::ChecksumMismatch { offset };
                     break;
                 }

@@ -8,7 +8,8 @@ use std::sync::Arc;
 use strata_core::Value;
 
 use crate::bridge::{
-    extract_version, to_core_branch_id, to_versioned_value, validate_key, Primitives,
+    extract_version, to_core_branch_id, to_versioned_value, validate_key, validate_value,
+    Primitives,
 };
 use crate::convert::convert_result;
 use crate::types::BranchId;
@@ -67,6 +68,7 @@ pub fn kv_put(
     require_branch_exists(p, &branch)?;
     let branch_id = to_core_branch_id(&branch)?;
     convert_result(validate_key(&key))?;
+    convert_result(validate_value(&value, &p.limits))?;
 
     // Extract text before the value is consumed by put()
     let text = super::embed_hook::extract_text(&value);

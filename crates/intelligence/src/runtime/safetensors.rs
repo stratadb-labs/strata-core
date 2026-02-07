@@ -70,8 +70,12 @@ impl SafeTensors {
                 .and_then(|v| v.as_array())
                 .ok_or_else(|| format!("Tensor '{}' missing shape", name))?
                 .iter()
-                .map(|v| v.as_u64().unwrap_or(0) as usize)
-                .collect();
+                .map(|v| {
+                    v.as_u64()
+                        .ok_or_else(|| format!("Tensor '{}' has non-numeric shape value", name))
+                        .map(|n| n as usize)
+                })
+                .collect::<Result<Vec<_>, _>>()?;
 
             let offsets = obj
                 .get("data_offsets")
@@ -82,8 +86,14 @@ impl SafeTensors {
                 return Err(format!("Tensor '{}' has invalid data_offsets", name));
             }
 
-            let start = offsets[0].as_u64().unwrap_or(0) as usize;
-            let end = offsets[1].as_u64().unwrap_or(0) as usize;
+            let start = offsets[0]
+                .as_u64()
+                .ok_or_else(|| format!("Tensor '{}' has non-numeric start offset", name))?
+                as usize;
+            let end = offsets[1]
+                .as_u64()
+                .ok_or_else(|| format!("Tensor '{}' has non-numeric end offset", name))?
+                as usize;
 
             tensors.insert(
                 name.clone(),

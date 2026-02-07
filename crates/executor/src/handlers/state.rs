@@ -10,7 +10,7 @@ use std::sync::Arc;
 
 use strata_core::{Value, Version};
 
-use crate::bridge::{self, Primitives};
+use crate::bridge::{self, validate_value, Primitives};
 use crate::convert::convert_result;
 use crate::types::BranchId;
 use crate::{Error, Output, Result};
@@ -68,6 +68,7 @@ pub fn state_set(
     require_branch_exists(p, &branch)?;
     let branch_id = bridge::to_core_branch_id(&branch)?;
     convert_result(bridge::validate_key(&cell))?;
+    convert_result(validate_value(&value, &p.limits))?;
 
     // Extract text before value is consumed
     let text = super::embed_hook::extract_text(&value);
@@ -119,6 +120,7 @@ pub fn state_cas(
     require_branch_exists(p, &branch)?;
     let branch_id = bridge::to_core_branch_id(&branch)?;
     convert_result(bridge::validate_key(&cell))?;
+    convert_result(validate_value(&value, &p.limits))?;
 
     // Extract text before value is consumed
     let text = super::embed_hook::extract_text(&value);
@@ -195,6 +197,7 @@ pub fn state_init(
     require_branch_exists(p, &branch)?;
     let branch_id = bridge::to_core_branch_id(&branch)?;
     convert_result(bridge::validate_key(&cell))?;
+    convert_result(validate_value(&value, &p.limits))?;
 
     // Extract text before value is consumed
     let text = super::embed_hook::extract_text(&value);

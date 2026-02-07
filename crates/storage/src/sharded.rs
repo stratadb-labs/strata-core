@@ -535,9 +535,8 @@ impl ShardedStore {
 
     /// List all entries for a branch
     ///
-    /// Uses a two-phase approach to minimize shard lock hold time:
-    /// 1. Collect matching keys under a brief shard read lock
-    /// 2. Read values individually, allowing writers to interleave
+    /// Holds the shard read lock for the entire operation to provide a
+    /// consistent snapshot of keys and values.
     ///
     /// # Arguments
     ///
@@ -547,44 +546,26 @@ impl ShardedStore {
     ///
     /// Vector of (Key, VersionedValue) pairs, sorted by key
     pub fn list_branch(&self, branch_id: &BranchId) -> Vec<(Key, VersionedValue)> {
-        // Phase 1: Collect matching keys from BTreeSet (already sorted)
-        let keys: Vec<Key> = self
-            .shards
+        self.shards
             .get(branch_id)
             .map(|shard| {
                 shard
                     .ordered_keys
                     .iter()
-                    .filter(|k| {
-                        shard
-                            .data
-                            .get(*k)
-                            .and_then(|chain| chain.latest())
-                            .is_some_and(|sv| !sv.is_tombstone())
-                    })
-                    .cloned()
-                    .collect()
-            })
-            .unwrap_or_default();
-        // Shard lock released here
-
-        // Phase 2: Read values individually (brief lock per read)
-        // Results are already sorted — BTreeSet iteration order
-        keys.into_iter()
-            .filter_map(|key| {
-                self.shards.get(branch_id).and_then(|shard| {
-                    shard.data.get(&key).and_then(|chain| {
-                        chain.latest().and_then(|sv| {
-                            if !sv.is_tombstone() {
-                                Some((key, sv.versioned().clone()))
-                            } else {
-                                None
-                            }
+                    .filter_map(|k| {
+                        shard.data.get(k).and_then(|chain| {
+                            chain.latest().and_then(|sv| {
+                                if !sv.is_tombstone() {
+                                    Some((k.clone(), sv.versioned().clone()))
+                                } else {
+                                    None
+                                }
+                            })
                         })
                     })
-                })
+                    .collect()
             })
-            .collect()
+            .unwrap_or_default()
     }
 
     /// List entries matching a key prefix
@@ -605,43 +586,25 @@ impl ShardedStore {
     pub fn list_by_prefix(&self, prefix: &Key) -> Vec<(Key, VersionedValue)> {
         let branch_id = prefix.namespace.branch_id;
 
-        // Phase 1: Collect matching keys via BTreeSet range scan (already sorted)
-        let keys: Vec<Key> = self
-            .shards
+        self.shards
             .get(&branch_id)
             .map(|shard| {
                 shard
                     .keys_with_prefix(prefix)
-                    .filter(|k| {
-                        shard
-                            .data
-                            .get(*k)
-                            .and_then(|chain| chain.latest())
-                            .is_some_and(|sv| !sv.is_tombstone())
-                    })
-                    .cloned()
-                    .collect()
-            })
-            .unwrap_or_default();
-        // Shard lock released here
-
-        // Phase 2: Read values individually (brief lock per read)
-        // Results are already sorted — BTreeSet iteration order
-        keys.into_iter()
-            .filter_map(|key| {
-                self.shards.get(&branch_id).and_then(|shard| {
-                    shard.data.get(&key).and_then(|chain| {
-                        chain.latest().and_then(|sv| {
-                            if !sv.is_tombstone() {
-                                Some((key, sv.versioned().clone()))
-                            } else {
-                                None
-                            }
+                    .filter_map(|k| {
+                        shard.data.get(k).and_then(|chain| {
+                            chain.latest().and_then(|sv| {
+                                if !sv.is_tombstone() {
+                                    Some((k.clone(), sv.versioned().clone()))
+                                } else {
+                                    None
+                                }
+                            })
                         })
                     })
-                })
+                    .collect()
             })
-            .collect()
+            .unwrap_or_default()
     }
 
     /// List entries of a specific type for a branch
@@ -661,45 +624,27 @@ impl ShardedStore {
         branch_id: &BranchId,
         type_tag: strata_core::types::TypeTag,
     ) -> Vec<(Key, VersionedValue)> {
-        // Phase 1: Collect matching keys from BTreeSet (already sorted)
-        let keys: Vec<Key> = self
-            .shards
+        self.shards
             .get(branch_id)
             .map(|shard| {
                 shard
                     .ordered_keys
                     .iter()
                     .filter(|k| k.type_tag == type_tag)
-                    .filter(|k| {
-                        shard
-                            .data
-                            .get(*k)
-                            .and_then(|chain| chain.latest())
-                            .is_some_and(|sv| !sv.is_tombstone())
-                    })
-                    .cloned()
-                    .collect()
-            })
-            .unwrap_or_default();
-        // Shard lock released here
-
-        // Phase 2: Read values individually (brief lock per read)
-        // Results are already sorted — BTreeSet iteration order
-        keys.into_iter()
-            .filter_map(|key| {
-                self.shards.get(branch_id).and_then(|shard| {
-                    shard.data.get(&key).and_then(|chain| {
-                        chain.latest().and_then(|sv| {
-                            if !sv.is_tombstone() {
-                                Some((key, sv.versioned().clone()))
-                            } else {
-                                None
-                            }
+                    .filter_map(|k| {
+                        shard.data.get(k).and_then(|chain| {
+                            chain.latest().and_then(|sv| {
+                                if !sv.is_tombstone() {
+                                    Some((k.clone(), sv.versioned().clone()))
+                                } else {
+                                    None
+                                }
+                            })
                         })
                     })
-                })
+                    .collect()
             })
-            .collect()
+            .unwrap_or_default()
     }
 
     /// Count entries of a specific type for a branch (excludes tombstones)
