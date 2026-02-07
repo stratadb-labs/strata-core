@@ -649,7 +649,7 @@ impl Database {
     /// be called manually to ensure durability at a specific point.
     ///
     /// For ephemeral databases, this is a no-op.
-    pub(crate) fn flush(&self) -> StrataResult<()> {
+    pub fn flush(&self) -> StrataResult<()> {
         if let Some(ref wal) = self.wal_writer {
             let mut wal = wal.lock();
             wal.flush().map_err(StrataError::from)

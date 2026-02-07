@@ -124,11 +124,11 @@ impl Executor {
                 }))
             }
             Command::Flush => {
-                // TODO: Call substrate flush
+                convert_result(self.primitives.db.flush())?;
                 Ok(Output::Unit)
             }
             Command::Compact => {
-                // TODO: Call substrate compact
+                convert_result(self.primitives.db.compact())?;
                 Ok(Output::Unit)
             }
 
