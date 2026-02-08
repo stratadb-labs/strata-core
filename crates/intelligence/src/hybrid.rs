@@ -324,6 +324,78 @@ impl HybridSearch {
         }
     }
 
+    /// Search with query expansion: run multiple queries and fuse with weighted RRF.
+    ///
+    /// Takes the original query plus expanded variants. Each expanded query runs
+    /// through the full HybridSearch pipeline. Results are fused with weighted RRF
+    /// where the original query gets `original_weight` and expansions get 1.0.
+    ///
+    /// # Search mode by query type
+    ///
+    /// - `Lex` expansions: Keyword mode (BM25 only)
+    /// - `Vec` expansions: Hybrid mode (BM25 + vector)
+    /// - `Hyde` expansions: Hybrid mode (embed the hypothetical text)
+    pub fn search_expanded(
+        &self,
+        req: &SearchRequest,
+        expansions: &[crate::expand::ExpandedQuery],
+        original_weight: f32,
+    ) -> StrataResult<SearchResponse> {
+        use crate::expand::QueryType;
+        use crate::fuser::weighted_rrf_fuse;
+
+        let start = Instant::now();
+        let mut result_lists: Vec<(SearchResponse, f32)> = Vec::new();
+
+        // Pass 0: original query with Hybrid mode and original_weight
+        let original_req = req.clone().with_mode(SearchMode::Hybrid);
+        let original_response = self.search(&original_req)?;
+        result_lists.push((original_response, original_weight));
+
+        // Expansion passes
+        for expansion in expansions {
+            let mode = match expansion.query_type {
+                QueryType::Lex => SearchMode::Keyword,
+                QueryType::Vec | QueryType::Hyde => SearchMode::Hybrid,
+            };
+
+            let mut exp_req = SearchRequest::new(req.branch_id, &expansion.text)
+                .with_k(req.k)
+                .with_mode(mode)
+                .with_budget(req.budget.clone());
+
+            if let Some(ref filter) = req.primitive_filter {
+                exp_req = exp_req.with_primitive_filter(filter.clone());
+            }
+
+            match self.search(&exp_req) {
+                Ok(response) => result_lists.push((response, 1.0)),
+                Err(e) => {
+                    tracing::warn!(
+                        target: "strata::search",
+                        error = %e,
+                        expansion = %expansion.text,
+                        "Expansion search failed, skipping"
+                    );
+                }
+            }
+        }
+
+        // Fuse all results with weighted RRF
+        let fused = weighted_rrf_fuse(result_lists, 60, req.k);
+
+        let stats = strata_engine::search::SearchStats::new(
+            start.elapsed().as_micros() as u64,
+            0, // total candidates not tracked across passes
+        );
+
+        Ok(SearchResponse {
+            hits: fused.hits,
+            truncated: fused.truncated,
+            stats,
+        })
+    }
+
     /// Get a reference to the VectorStore for direct semantic search
     ///
     /// Use this when you have an embedding vector and want to perform

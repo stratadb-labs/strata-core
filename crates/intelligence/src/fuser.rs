@@ -250,6 +250,109 @@ impl Fuser for RRFFuser {
 }
 
 // ============================================================================
+// Weighted RRF (for multi-query fusion)
+// ============================================================================
+
+/// Top-rank bonus: #1 in any list gets +0.05, #2-3 gets +0.02.
+/// Prevents dilution of exact matches during multi-list fusion.
+const RANK1_BONUS: f32 = 0.05;
+const TOP3_BONUS: f32 = 0.02;
+
+/// Fuse multiple ranked result lists with per-list weights using RRF.
+///
+/// Used by the multi-query expansion pipeline to combine results from
+/// the original query (weighted 2x) with expansion variants (weighted 1x).
+///
+/// Each `(SearchResponse, f32)` pair is a result list and its weight multiplier.
+/// The weighted RRF score for a document is:
+///   `sum(weight * 1 / (k + rank))` across all lists where it appears,
+/// plus a top-rank bonus (+0.05 for #1, +0.02 for #2-3 in any list).
+pub fn weighted_rrf_fuse(
+    results: Vec<(SearchResponse, f32)>,
+    k_rrf: u32,
+    top_k: usize,
+) -> FusedResult {
+    use std::collections::hash_map::DefaultHasher;
+    use std::collections::HashMap;
+    use std::hash::{Hash, Hasher};
+
+    let mut rrf_scores: HashMap<EntityRef, f32> = HashMap::new();
+    let mut best_rank: HashMap<EntityRef, u32> = HashMap::new();
+    let mut hit_data: HashMap<EntityRef, SearchHit> = HashMap::new();
+
+    for (response, weight) in results {
+        for hit in response.hits {
+            let rrf_contribution = weight / (k_rrf as f32 + hit.rank as f32);
+            *rrf_scores.entry(hit.doc_ref.clone()).or_insert(0.0) += rrf_contribution;
+
+            // Track best (lowest) rank across all lists
+            let entry = best_rank.entry(hit.doc_ref.clone()).or_insert(u32::MAX);
+            if hit.rank < *entry {
+                *entry = hit.rank;
+            }
+
+            hit_data.entry(hit.doc_ref.clone()).or_insert(hit);
+        }
+    }
+
+    // Apply top-rank bonus
+    for (doc_ref, score) in rrf_scores.iter_mut() {
+        if let Some(&rank) = best_rank.get(doc_ref) {
+            if rank == 1 {
+                *score += RANK1_BONUS;
+            } else if rank <= 3 {
+                *score += TOP3_BONUS;
+            }
+        }
+    }
+
+    // Sort by RRF score with deterministic tie-breaking
+    let mut scored: Vec<_> = rrf_scores.into_iter().collect();
+    scored.sort_by(|a, b| {
+        match b.1.partial_cmp(&a.1) {
+            Some(std::cmp::Ordering::Equal) | None => {
+                let orig_a = hit_data.get(&a.0).map(|h| h.score).unwrap_or(0.0);
+                let orig_b = hit_data.get(&b.0).map(|h| h.score).unwrap_or(0.0);
+                match orig_b.partial_cmp(&orig_a) {
+                    Some(std::cmp::Ordering::Equal) | None => {
+                        let hash_a = {
+                            let mut hasher = DefaultHasher::new();
+                            a.0.hash(&mut hasher);
+                            hasher.finish()
+                        };
+                        let hash_b = {
+                            let mut hasher = DefaultHasher::new();
+                            b.0.hash(&mut hasher);
+                            hasher.finish()
+                        };
+                        hash_a.cmp(&hash_b)
+                    }
+                    Some(ord) => ord,
+                }
+            }
+            Some(ord) => ord,
+        }
+    });
+
+    let truncated = scored.len() > top_k;
+    let hits: Vec<SearchHit> = scored
+        .into_iter()
+        .take(top_k)
+        .enumerate()
+        .map(|(i, (doc_ref, rrf_score))| {
+            let mut hit = hit_data
+                .remove(&doc_ref)
+                .expect("invariant violation: scored doc_ref must exist in hit_data");
+            hit.score = rrf_score;
+            hit.rank = (i + 1) as u32;
+            hit
+        })
+        .collect();
+
+    FusedResult::new(hits, truncated)
+}
+
+// ============================================================================
 // Tests
 // ============================================================================
 
@@ -537,5 +640,64 @@ mod tests {
     fn test_rrf_fuser_name() {
         let fuser = RRFFuser::default();
         assert_eq!(fuser.name(), "rrf");
+    }
+
+    // ========================================
+    // Weighted RRF Tests
+    // ========================================
+
+    #[test]
+    fn test_weighted_rrf_top_rank_bonus() {
+        let branch_id = BranchId::new();
+        let doc_a = make_kv_doc_ref(&branch_id, "rank1_doc");
+        let doc_b = make_kv_doc_ref(&branch_id, "rank2_doc");
+        let doc_c = make_kv_doc_ref(&branch_id, "rank4_doc");
+
+        // doc_a is #1 in list 1, doc_b is #2, doc_c is #4
+        let list1 = make_response(vec![
+            make_hit(doc_a.clone(), 0.9, 1),
+            make_hit(doc_b.clone(), 0.8, 2),
+            make_hit(doc_c.clone(), 0.6, 4),
+        ]);
+
+        let results = vec![(list1, 1.0)];
+        let fused = weighted_rrf_fuse(results, 60, 10);
+
+        // doc_a (rank 1): 1/(60+1) + 0.05 bonus = 0.01639 + 0.05
+        let expected_a = 1.0 / 61.0 + 0.05;
+        // doc_b (rank 2): 1/(60+2) + 0.02 bonus = 0.01613 + 0.02
+        let expected_b = 1.0 / 62.0 + 0.02;
+        // doc_c (rank 4): 1/(60+4) = 0.01563, no bonus
+        let expected_c = 1.0 / 64.0;
+
+        assert!((fused.hits[0].score - expected_a).abs() < 0.001);
+        assert!((fused.hits[1].score - expected_b).abs() < 0.001);
+        assert!((fused.hits[2].score - expected_c).abs() < 0.001);
+    }
+
+    #[test]
+    fn test_weighted_rrf_original_gets_higher_weight() {
+        let branch_id = BranchId::new();
+        let doc_a = make_kv_doc_ref(&branch_id, "original_result");
+        let doc_b = make_kv_doc_ref(&branch_id, "expansion_result");
+
+        // doc_a is #1 in original (weight 2.0), doc_b is #1 in expansion (weight 1.0)
+        let original = make_response(vec![make_hit(doc_a.clone(), 0.9, 1)]);
+        let expansion = make_response(vec![make_hit(doc_b.clone(), 0.9, 1)]);
+
+        let results = vec![(original, 2.0), (expansion, 1.0)];
+        let fused = weighted_rrf_fuse(results, 60, 10);
+
+        // Both are rank 1, both get rank1 bonus (+0.05)
+        // doc_a: 2.0/(60+1) + 0.05 = 0.0328 + 0.05
+        // doc_b: 1.0/(60+1) + 0.05 = 0.0164 + 0.05
+        assert_eq!(fused.hits[0].doc_ref, doc_a);
+        assert!(fused.hits[0].score > fused.hits[1].score);
+    }
+
+    #[test]
+    fn test_weighted_rrf_empty() {
+        let fused = weighted_rrf_fuse(vec![], 60, 10);
+        assert!(fused.hits.is_empty());
     }
 }

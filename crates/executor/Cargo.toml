@@ -12,6 +12,7 @@ description = "Command execution layer for Strata database"
 [features]
 default = []
 embed = ["strata-intelligence/embed", "strata-engine/embed"]
+expand = ["strata-intelligence/expand"]
 
 [dependencies]
 # Internal crates

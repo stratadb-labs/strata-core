@@ -767,6 +767,18 @@ impl Executor {
             }
 
             // Intelligence commands
+            Command::ConfigureModel {
+                endpoint,
+                model,
+                api_key,
+                timeout_ms,
+            } => crate::handlers::configure_model::configure_model(
+                &self.primitives,
+                endpoint,
+                model,
+                api_key,
+                timeout_ms,
+            ),
             Command::Search {
                 branch,
                 space,

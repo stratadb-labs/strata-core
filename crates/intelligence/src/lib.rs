@@ -24,6 +24,7 @@
 #![warn(missing_docs)]
 #![warn(clippy::all)]
 
+pub mod expand;
 pub mod fuser;
 pub mod hybrid;
 pub mod index;
@@ -40,7 +41,7 @@ use std::sync::Arc;
 use strata_engine::Database;
 
 // Re-export commonly used types
-pub use fuser::{FusedResult, Fuser, RRFFuser, SimpleFuser};
+pub use fuser::{weighted_rrf_fuse, FusedResult, Fuser, RRFFuser, SimpleFuser};
 pub use hybrid::HybridSearch;
 pub use index::{InvertedIndex, PostingEntry, PostingList};
 pub use scorer::{BM25LiteScorer, Scorer, ScorerContext, SearchDoc};

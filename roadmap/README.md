@@ -40,12 +40,12 @@ PyO3-based Python SDK ([strata-python](https://github.com/strata-systems/strata-
 | [**v0.6: SDKs**](v0.6-sdks.md) | Python (PyO3) and Node.js (NAPI-RS) | v0.5 | **Shipped** |
 | [**v0.7: Auto-Embedding**](v0.7-auto-embedding.md) | MiniLM auto-embedding pipeline | v0.5 |
 | [**v0.8: Enhanced Hybrid Search**](v0.8-enhanced-hybrid-search.md) | MiniLM vectors in RRF, new retrieval signals, internal knowledge graph | v0.7 |
-| [**v0.9: NL Search (Basic)**](v0.9-nl-search-basic.md) | Qwen3 NL→query decomposition | v0.8 |
-| [**v0.10: NL Search (Advanced)**](v0.10-nl-search-advanced.md) | Query expansion, result summarization, multi-step retrieval | v0.9 |
+| [**v0.12: NL Search (Basic)**](v0.12-nl-search-basic.md) | Qwen3 NL→query decomposition | v0.8 |
+| [**v0.13: NL Search (Advanced)**](v0.13-nl-search-advanced.md) | Query expansion, result summarization, multi-step retrieval | v0.12 |
 | [**v0.11: Advanced Branch Workflows**](v0.11-advanced-branch-workflows.md) | Time-travel queries (v0.11.1), branch sandboxing (v0.11.2) | v0.5 |
 | [**Document Primitive**](markdown-documents.md) | Composite document store with section-level search via existing `Search` | v0.7 |
-| [**v0.12: Sophisticated Intelligence**](v0.12-sophisticated-intelligence.md) | Fine-tuned models, multi-turn context, agentic workflows | v0.10 |
-| [**v1.0: Stable Release**](v1.0-stable.md) | Storage efficiency, engine optimizations, format freeze, semver | v0.5–v0.12 |
+| [**v0.14: Sophisticated Intelligence**](v0.14-sophisticated-intelligence.md) | Fine-tuned models, multi-turn context, agentic workflows | v0.13 |
+| [**v1.0: Stable Release**](v1.0-stable.md) | Storage efficiency, engine optimizations, format freeze, semver | v0.5–v0.14 |
 | [**Strata Cloud Sync**](strata-cloud-sync.md) | StrataHub, push/pull branches, multi-agent collaboration | v0.5 |
 | [**Post-1.0: Scaling**](post-1.0-scaling.md) | Server mode, replication, sharding, agent runtime, WASM | v1.0 |
 
@@ -86,15 +86,15 @@ PyO3-based Python SDK ([strata-python](https://github.com/strata-systems/strata-
       (MiniLM)   Hybrid Search
          │     + Knowledge Graph
          │            │
-      Document      v0.9
+      Document      v0.12
      Primitive   NL Search
                   (Basic)
                      │
-                  v0.10
+                  v0.13
                NL Search
                (Advanced)
                      │
-                  v0.12
+                  v0.14
               Sophisticated
               Intelligence
                      │
@@ -107,7 +107,7 @@ PyO3-based Python SDK ([strata-python](https://github.com/strata-systems/strata-
              Scaling
 ```
 
-**Critical path**: v0.5 → v0.6 → v0.7 → v0.8 → v0.9 → v0.10 → v0.12 → v1.0
+**Critical path**: v0.5 → v0.6 → v0.7 → v0.8 → v0.12 → v0.13 → v0.14 → v1.0
 
 **Independent tracks**: v0.11.1 (time-travel) and v0.11.2 (sandboxing) can proceed in parallel once v0.5 is complete; v0.11.1 recommended first as the WAL timestamp index is foundational. Document Primitive can proceed in parallel once v0.7 is complete.
 
