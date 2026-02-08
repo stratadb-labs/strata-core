@@ -32,3 +32,6 @@ docs/internal/
 # Model binaries (downloaded at install time)
 models/
 all-MiniLM-L6-v2/
+
+# Website
+stratadb.org/
