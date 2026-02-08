@@ -130,6 +130,7 @@ pub fn matches_to_action(matches: &ArgMatches, state: &SessionState) -> Result<C
         "flush" => Ok(CliAction::Execute(Command::Flush)),
         "compact" => Ok(CliAction::Execute(Command::Compact)),
         "search" => parse_search(sub_matches, state),
+        "configure-model" => parse_configure_model(sub_matches),
         other => Err(format!("Unknown command: {}", other)),
     }
 }
@@ -914,6 +915,27 @@ fn parse_txn(matches: &ArgMatches) -> Result<CliAction, String> {
 // =========================================================================
 // Search
 // =========================================================================
+
+// =========================================================================
+// Configure Model
+// =========================================================================
+
+fn parse_configure_model(matches: &ArgMatches) -> Result<CliAction, String> {
+    let endpoint = matches.get_one::<String>("endpoint").unwrap().clone();
+    let model = matches.get_one::<String>("model").unwrap().clone();
+    let api_key = matches.get_one::<String>("api-key").cloned();
+    let timeout_ms = matches
+        .get_one::<String>("timeout")
+        .map(|s| s.parse::<u64>())
+        .transpose()
+        .map_err(|e| format!("Invalid timeout: {}", e))?;
+    Ok(CliAction::Execute(Command::ConfigureModel {
+        endpoint,
+        model,
+        api_key,
+        timeout_ms,
+    }))
+}
 
 fn parse_search(matches: &ArgMatches, state: &SessionState) -> Result<CliAction, String> {
     let query = matches.get_one::<String>("query").unwrap().clone();

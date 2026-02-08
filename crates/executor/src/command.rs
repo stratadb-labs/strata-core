@@ -699,7 +699,22 @@ pub enum Command {
         path: String,
     },
 
-    // ==================== Intelligence (1) ====================
+    // ==================== Intelligence (2) ====================
+    /// Configure an external model endpoint for query expansion.
+    /// Returns: `Output::Unit`
+    ConfigureModel {
+        /// OpenAI-compatible API endpoint (e.g. "http://localhost:11434/v1").
+        endpoint: String,
+        /// Model name (e.g. "qwen3:1.7b").
+        model: String,
+        /// Optional API key for authenticated endpoints.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        api_key: Option<String>,
+        /// Request timeout in milliseconds (default: 5000).
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        timeout_ms: Option<u64>,
+    },
+
     /// Search across multiple primitives.
     /// Returns: `Output::SearchResults`
     Search {
@@ -796,6 +811,7 @@ impl Command {
                 | Command::Compact
                 | Command::BranchExport { .. }
                 | Command::BranchImport { .. }
+                | Command::ConfigureModel { .. }
         )
     }
 
@@ -856,6 +872,7 @@ impl Command {
             Command::BranchExport { .. } => "BranchExport",
             Command::BranchImport { .. } => "BranchImport",
             Command::BranchBundleValidate { .. } => "BranchBundleValidate",
+            Command::ConfigureModel { .. } => "ConfigureModel",
             Command::Search { .. } => "Search",
             Command::SpaceList { .. } => "SpaceList",
             Command::SpaceCreate { .. } => "SpaceCreate",
@@ -960,7 +977,8 @@ impl Command {
             | Command::Compact
             | Command::BranchExport { .. }
             | Command::BranchImport { .. }
-            | Command::BranchBundleValidate { .. } => {}
+            | Command::BranchBundleValidate { .. }
+            | Command::ConfigureModel { .. } => {}
         }
     }
 

@@ -151,7 +151,7 @@ No session management, no user table, no OAuth. Just cryptographic verification 
 
 ### 7. NL query inference at the edge
 
-Natural language search (v0.9–v0.10) requires a decoder LLM (Qwen3-1.3B) to decompose user queries into typed sub-queries. Running this model inside the embedded database costs ~1.4 GB RAM and forces a build-time choice between inference runtimes (candle vs llama.cpp). Moving inference to the edge resolves both problems.
+Natural language search (v0.12–v0.13) requires a decoder LLM (Qwen3-1.3B) to decompose user queries into typed sub-queries. Running this model inside the embedded database costs ~1.4 GB RAM and forces a build-time choice between inference runtimes (candle vs llama.cpp). Moving inference to the edge resolves both problems.
 
 **The key insight: query decomposition is a stateless function.** It takes a natural language string and returns typed sub-queries. It doesn't need access to the database — the client executes the sub-queries locally against its own data.
 
@@ -175,13 +175,13 @@ Client (embedded)                       StrataHub Edge
 
 - **Embedded footprint stays small.** MiniLM (~80 MB) stays on-device for auto-embed on writes. Qwen3 (~1.4 GB) moves to the edge, needed only at query time.
 - **The candle vs llama.cpp decision goes away.** The edge runs whatever runtime it wants. Swap models, upgrade quantization, scale GPU — none of it affects the client binary.
-- **v0.10 features (expansion, summarization, multi-step retrieval) become cheaper.** Multi-step retrieval means multiple LLM calls. On-device that's expensive; on the edge it's a few HTTP round-trips.
+- **v0.13 features (expansion, summarization, multi-step retrieval) become cheaper.** Multi-step retrieval means multiple LLM calls. On-device that's expensive; on the edge it's a few HTTP round-trips.
 - **Feature flag simplification.** `intelligence-llm` becomes a client-side HTTP call to the edge, not a 1 GB model download. The feature flag controls whether the client calls the edge, not whether it loads a model.
 
 **What it costs:**
 
 - **Online dependency for NL search.** If the edge is unreachable, NL search is unavailable. Keyword + vector search still work locally. This is an acceptable degradation — you lose the query understanding layer, not the search layer itself.
-- **Latency.** One HTTP round-trip (~50-100ms) before search begins. For multi-step retrieval (v0.10), 2-3 round-trips. Still fast for interactive use.
+- **Latency.** One HTTP round-trip (~50-100ms) before search begins. For multi-step retrieval (v0.13), 2-3 round-trips. Still fast for interactive use.
 - **Query privacy.** The natural language query leaves the device. The data never does (search executes locally), but the query itself goes to the edge. For sensitive workloads, an on-device fallback (loading Qwen3 locally with the `intelligence-llm-local` feature flag) should remain an option.
 
 **Edge deployment options:**

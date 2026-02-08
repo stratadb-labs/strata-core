@@ -77,6 +77,41 @@ impl Default for AutoEmbedState {
 }
 
 // ============================================================================
+// Model Configuration
+// ============================================================================
+
+/// Configuration for an external inference model endpoint.
+///
+/// Stored as a Database extension to share across all search operations.
+/// When present, the search handler uses it to construct a query expander.
+pub struct ModelConfig {
+    /// OpenAI-compatible API endpoint (e.g. "http://localhost:11434/v1")
+    pub endpoint: String,
+    /// Model name (e.g. "qwen3:1.7b")
+    pub model: String,
+    /// Optional API key for authenticated endpoints
+    pub api_key: Option<String>,
+    /// Request timeout in milliseconds (default: 5000)
+    pub timeout_ms: u64,
+}
+
+/// Wrapper for optional ModelConfig stored as a Database extension.
+///
+/// Uses Option because the default state is "no model configured".
+pub struct ModelConfigState {
+    /// The active model configuration, if any
+    pub config: parking_lot::RwLock<Option<ModelConfig>>,
+}
+
+impl Default for ModelConfigState {
+    fn default() -> Self {
+        Self {
+            config: parking_lot::RwLock::new(None),
+        }
+    }
+}
+
+// ============================================================================
 // Persistence Mode (Storage/Durability Split)
 // ============================================================================
 

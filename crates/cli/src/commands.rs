@@ -84,6 +84,7 @@ pub fn build_cli() -> Command {
         .subcommand(build_compact())
         .subcommand(build_search())
         .subcommand(build_setup())
+        .subcommand(build_configure_model())
 }
 
 /// Build a command tree for REPL mode (no global flags).
@@ -107,6 +108,7 @@ pub fn build_repl_cmd() -> Command {
         .subcommand(build_flush())
         .subcommand(build_compact())
         .subcommand(build_search())
+        .subcommand(build_configure_model())
 }
 
 // =========================================================================
@@ -618,4 +620,25 @@ fn build_search() -> Command {
 
 fn build_setup() -> Command {
     Command::new("setup").about("Download model files for auto-embedding")
+}
+
+// =========================================================================
+// Configure Model
+// =========================================================================
+
+fn build_configure_model() -> Command {
+    Command::new("configure-model")
+        .about("Configure an inference model endpoint for intelligent search")
+        .arg(Arg::new("endpoint").required(true).help("OpenAI-compatible API endpoint URL"))
+        .arg(Arg::new("model").required(true).help("Model name (e.g. qwen3:1.7b)"))
+        .arg(
+            Arg::new("api-key")
+                .long("api-key")
+                .help("Bearer token for the endpoint"),
+        )
+        .arg(
+            Arg::new("timeout")
+                .long("timeout")
+                .help("Request timeout in milliseconds (default: 5000)"),
+        )
 }

@@ -15,6 +15,7 @@
 //! | `database` | 4 | Database-level |
 
 pub mod branch;
+pub mod configure_model;
 pub mod embed_hook;
 pub mod event;
 pub mod json;
