@@ -142,6 +142,7 @@ fn read_your_writes_kv() {
             branch: None,
             space: None,
             key: "txn_key".into(),
+            as_of: None,
         })
         .unwrap();
 
@@ -184,6 +185,7 @@ fn read_your_writes_state() {
             branch: None,
             space: None,
             cell: "cell".into(),
+            as_of: None,
         })
         .unwrap();
 
@@ -272,6 +274,7 @@ fn rollback_discards_kv_writes() {
             branch: None,
             space: None,
             key: "rollback_test".into(),
+            as_of: None,
         })
         .unwrap();
 
@@ -312,6 +315,7 @@ fn rollback_discards_state_writes() {
             branch: None,
             space: None,
             cell: "rollback_cell".into(),
+            as_of: None,
         })
         .unwrap();
 
@@ -355,6 +359,7 @@ fn commit_makes_kv_writes_visible() {
             branch: None,
             space: None,
             key: "commit_test".into(),
+            as_of: None,
         })
         .unwrap();
 
@@ -547,6 +552,7 @@ fn multiple_kv_operations_in_transaction() {
                 branch: None,
                 space: None,
                 key: format!("key_{}", i),
+                as_of: None,
             })
             .unwrap();
 
@@ -572,6 +578,7 @@ fn multiple_kv_operations_in_transaction() {
                 branch: None,
                 space: None,
                 key: format!("key_{}", i),
+                as_of: None,
             })
             .unwrap();
 
@@ -634,6 +641,7 @@ fn cross_primitive_transaction() {
             branch: None,
             space: None,
             key: "kv_key".into(),
+            as_of: None,
         })
         .unwrap();
     assert!(matches!(
@@ -646,6 +654,7 @@ fn cross_primitive_transaction() {
             branch: None,
             space: None,
             cell: "state_cell".into(),
+            as_of: None,
         })
         .unwrap();
     assert!(matches!(
@@ -702,6 +711,7 @@ fn session_drop_cleans_up_transaction() {
             branch: None,
             space: None,
             key: "drop_test".into(),
+            as_of: None,
         })
         .unwrap();
 

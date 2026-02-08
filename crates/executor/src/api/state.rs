@@ -31,6 +31,7 @@ impl Strata {
             branch: self.branch_id(),
             space: self.space_id(),
             cell: cell.to_string(),
+            as_of: None,
         })? {
             Output::MaybeVersioned(v) => Ok(v.map(|vv| vv.value)),
             Output::Maybe(v) => Ok(v),
@@ -48,6 +49,7 @@ impl Strata {
         match self.executor.execute(Command::StateGetv {
             branch: self.branch_id(),
             space: self.space_id(),
+            as_of: None,
             cell: cell.to_string(),
         })? {
             Output::VersionHistory(h) => Ok(h),

@@ -275,6 +275,7 @@ fn parse_kv(matches: &ArgMatches, state: &SessionState) -> Result<CliAction, Str
                     branch: branch(state),
                     space: space(state),
                     key: keys[0].clone(),
+                    as_of: None,
                 };
                 if with_version {
                     Ok(CliAction::GetWithVersion {
@@ -338,6 +339,7 @@ fn parse_kv(matches: &ArgMatches, state: &SessionState) -> Result<CliAction, Str
                     prefix,
                     cursor,
                     limit,
+                    as_of: None,
                 }))
             }
         }
@@ -347,6 +349,7 @@ fn parse_kv(matches: &ArgMatches, state: &SessionState) -> Result<CliAction, Str
                 branch: branch(state),
                 space: space(state),
                 key,
+                as_of: None,
             }))
         }
         other => Err(format!("Unknown kv subcommand: {}", other)),
@@ -389,6 +392,7 @@ fn parse_json(matches: &ArgMatches, state: &SessionState) -> Result<CliAction, S
                 space: space(state),
                 key,
                 path,
+                as_of: None,
             };
 
             if with_version {
@@ -435,6 +439,7 @@ fn parse_json(matches: &ArgMatches, state: &SessionState) -> Result<CliAction, S
                     prefix,
                     cursor,
                     limit,
+                    as_of: None,
                 }))
             }
         }
@@ -444,6 +449,7 @@ fn parse_json(matches: &ArgMatches, state: &SessionState) -> Result<CliAction, S
                 branch: branch(state),
                 space: space(state),
                 key,
+                as_of: None,
             }))
         }
         other => Err(format!("Unknown json subcommand: {}", other)),
@@ -484,6 +490,7 @@ fn parse_event(matches: &ArgMatches, state: &SessionState) -> Result<CliAction, 
                 branch: branch(state),
                 space: space(state),
                 sequence,
+                as_of: None,
             }))
         }
         "list" => {
@@ -504,6 +511,7 @@ fn parse_event(matches: &ArgMatches, state: &SessionState) -> Result<CliAction, 
                 event_type,
                 limit,
                 after_sequence,
+                as_of: None,
             }))
         }
         "len" => Ok(CliAction::Execute(Command::EventLen {
@@ -546,6 +554,7 @@ fn parse_state(matches: &ArgMatches, state: &SessionState) -> Result<CliAction, 
                 branch: branch(state),
                 space: space(state),
                 cell,
+                as_of: None,
             };
 
             if with_version {
@@ -614,6 +623,7 @@ fn parse_state(matches: &ArgMatches, state: &SessionState) -> Result<CliAction, 
                     branch: branch(state),
                     space: space(state),
                     prefix,
+                    as_of: None,
                 }))
             }
         }
@@ -623,6 +633,7 @@ fn parse_state(matches: &ArgMatches, state: &SessionState) -> Result<CliAction, 
                 branch: branch(state),
                 space: space(state),
                 cell,
+                as_of: None,
             }))
         }
         other => Err(format!("Unknown state subcommand: {}", other)),
@@ -670,6 +681,7 @@ fn parse_vector_cmd(matches: &ArgMatches, state: &SessionState) -> Result<CliAct
                 space: space(state),
                 collection,
                 key,
+                as_of: None,
             }))
         }
         "del" => {
@@ -708,6 +720,7 @@ fn parse_vector_cmd(matches: &ArgMatches, state: &SessionState) -> Result<CliAct
                 k,
                 filter,
                 metric,
+                as_of: None,
             }))
         }
         "create" => {

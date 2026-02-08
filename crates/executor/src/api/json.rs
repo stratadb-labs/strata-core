@@ -95,6 +95,7 @@ impl Strata {
             space: self.space_id(),
             key: key.to_string(),
             path: path.to_string(),
+            as_of: None,
         })? {
             Output::MaybeVersioned(v) => Ok(v.map(|vv| vv.value)),
             Output::Maybe(v) => Ok(v),
@@ -113,6 +114,7 @@ impl Strata {
             branch: self.branch_id(),
             space: self.space_id(),
             key: key.to_string(),
+            as_of: None,
         })? {
             Output::VersionHistory(h) => Ok(h),
             _ => Err(Error::Internal {
@@ -192,6 +194,7 @@ impl Strata {
             prefix,
             cursor,
             limit,
+            as_of: None,
         })? {
             Output::JsonListResult { keys, cursor } => Ok((keys, cursor)),
             _ => Err(Error::Internal {

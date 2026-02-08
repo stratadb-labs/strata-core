@@ -97,6 +97,13 @@ impl HnswNode {
     fn is_deleted(&self) -> bool {
         self.deleted_at.is_some()
     }
+
+    /// Check if this node was alive at the given timestamp.
+    /// Nodes with created_at == 0 are treated as always-existing (legacy nodes).
+    fn is_alive_at(&self, as_of_ts: u64) -> bool {
+        (self.created_at == 0 || self.created_at <= as_of_ts)
+            && self.deleted_at.map_or(true, |d| d > as_of_ts)
+    }
 }
 
 /// Scored candidate for search (max-heap by score, tie-break by VectorId asc)
@@ -844,6 +851,37 @@ impl VectorIndexBackend for HnswBackend {
             .map(|s| (s.id, s.score))
             .collect();
 
+        results
+    }
+
+    fn search_at(&self, query: &[f32], k: usize, as_of_ts: u64) -> Vec<(VectorId, f32)> {
+        if self.nodes.is_empty() || k == 0 {
+            return Vec::new();
+        }
+
+        if query.len() != self.heap.dimension() {
+            return Vec::new();
+        }
+
+        // Early exit: if no nodes were alive at as_of_ts, no results possible.
+        let has_alive = self.nodes.values().any(|n| n.is_alive_at(as_of_ts));
+        if !has_alive {
+            return Vec::new();
+        }
+
+        // Strategy: traverse the *full* current graph (including nodes created after
+        // as_of_ts) and filter results temporally. This is correct because:
+        //   - Graph edges are never removed, so newer nodes provide additional
+        //     shortcuts that improve traversal quality.
+        //   - The over-fetch (k * 2) compensates for nodes filtered out.
+        //   - Final results are restricted to nodes alive at as_of_ts.
+        let mut results = self.search(query, k * 2);
+
+        results.retain(|(id, _)| {
+            self.nodes.get(id).is_some_and(|n| n.is_alive_at(as_of_ts))
+        });
+
+        results.truncate(k);
         results
     }
 

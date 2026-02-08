@@ -422,6 +422,7 @@ impl VectorStore {
     }
 
     /// Common insert implementation used by both `insert()` and `system_insert_with_source()`.
+    #[allow(clippy::too_many_arguments)]
     fn insert_inner(
         &self,
         branch_id: BranchId,
@@ -585,6 +586,68 @@ impl VectorStore {
             versioned_value.version,
             versioned_value.timestamp,
         )))
+    }
+
+    /// Get a vector as of a past timestamp.
+    ///
+    /// Returns the vector if it existed at as_of_ts.
+    /// This is a non-transactional read directly from the storage version chain.
+    pub fn get_at(
+        &self,
+        branch_id: BranchId,
+        space: &str,
+        collection: &str,
+        key: &str,
+        as_of_ts: u64,
+    ) -> VectorResult<Option<VectorEntry>> {
+        let kv_key = Key::new_vector(self.namespace_for(branch_id, space), collection, key);
+
+        // Get historical record from storage
+        let result = self.db.get_at_timestamp(&kv_key, as_of_ts)
+            .map_err(|e| VectorError::Storage(e.to_string()))?;
+
+        let Some(vv) = result else {
+            return Ok(None);
+        };
+
+        let bytes = match &vv.value {
+            Value::Bytes(b) => b,
+            _ => {
+                return Err(VectorError::Serialization(
+                    "Expected Bytes value for vector record".to_string(),
+                ))
+            }
+        };
+
+        let record = VectorRecord::from_bytes(bytes)?;
+
+        // Use the embedding stored in the VectorRecord (historical snapshot).
+        // The backend only holds the *current* embedding, which may differ if the
+        // vector was re-upserted after as_of_ts.
+        let embedding = if record.embedding.is_empty() {
+            // Legacy records without stored embeddings: fall back to backend
+            let collection_id = CollectionId::new(branch_id, collection);
+            let vector_id = VectorId(record.vector_id);
+            let state = self.state()?;
+            let backends = state.backends.read();
+            let backend = backends.get(&collection_id).ok_or_else(|| VectorError::CollectionNotFound {
+                name: collection.to_string(),
+            })?;
+            backend.get(vector_id)
+                .ok_or_else(|| VectorError::Internal("Embedding missing from backend".to_string()))?
+                .to_vec()
+        } else {
+            record.embedding
+        };
+
+        Ok(Some(VectorEntry {
+            key: key.to_string(),
+            embedding,
+            metadata: record.metadata,
+            vector_id: VectorId(record.vector_id),
+            version: strata_core::contract::Version::counter(record.version),
+            source_ref: record.source_ref,
+        }))
     }
 
     /// Delete a vector by key
@@ -866,6 +929,111 @@ impl VectorStore {
         debug!(target: "strata::vector", collection, k, results = matches.len(), duration_us = start.elapsed().as_micros() as u64, branch_id = %branch_id, "Vector search completed");
 
         Ok(matches)
+    }
+
+    /// Search for k nearest neighbors as of a given timestamp.
+    ///
+    /// Uses temporal filtering in the backend (HNSW nodes alive at as_of_ts)
+    /// and historical metadata from the version chain.
+    #[allow(clippy::too_many_arguments)]
+    pub fn search_at(
+        &self,
+        branch_id: BranchId,
+        space: &str,
+        collection: &str,
+        query: &[f32],
+        k: usize,
+        filter: Option<MetadataFilter>,
+        as_of_ts: u64,
+    ) -> VectorResult<Vec<VectorMatch>> {
+        // Ensure collection is loaded
+        self.ensure_collection_loaded(branch_id, space, collection)?;
+
+        let collection_id = CollectionId::new(branch_id, collection);
+
+        // Validate dimension
+        let config = self.get_collection_config_required(branch_id, space, collection)?;
+        if query.len() != config.dimension {
+            return Err(VectorError::DimensionMismatch {
+                expected: config.dimension,
+                got: query.len(),
+            });
+        }
+
+        // Validate query values
+        if query.iter().any(|v| v.is_nan() || v.is_infinite()) {
+            return Err(VectorError::InvalidEmbedding {
+                reason: "query contains NaN or Infinity values".to_string(),
+            });
+        }
+
+        // Search backend with temporal filtering
+        let fetch_k = if filter.is_some() { k * 4 } else { k };
+        let state = self.state()?;
+        let backends = state.backends.read();
+        let backend = backends.get(&collection_id).ok_or_else(|| VectorError::CollectionNotFound {
+            name: collection.to_string(),
+        })?;
+
+        let candidates = backend.search_at(query, fetch_k, as_of_ts);
+        drop(backends);
+
+        // Resolve keys and metadata from historical records
+        let mut matches = Vec::new();
+        for (vector_id, score) in candidates {
+            // Find the key for this vector_id by scanning KV at timestamp
+            if let Some((key, metadata)) = self.find_vector_key_metadata_at(branch_id, space, collection, vector_id, as_of_ts)? {
+                // Apply metadata filter
+                if let Some(ref f) = filter {
+                    if !f.matches(&metadata) {
+                        continue;
+                    }
+                }
+                matches.push(VectorMatch {
+                    key,
+                    score,
+                    metadata,
+                });
+                if matches.len() >= k {
+                    break;
+                }
+            }
+        }
+
+        Ok(matches)
+    }
+
+    /// Find a vector's key and metadata by VectorId at a given timestamp (internal helper).
+    fn find_vector_key_metadata_at(
+        &self,
+        branch_id: BranchId,
+        space: &str,
+        collection: &str,
+        target_id: VectorId,
+        as_of_ts: u64,
+    ) -> VectorResult<Option<(String, Option<JsonValue>)>> {
+        let namespace = self.namespace_for(branch_id, space);
+        let prefix = Key::vector_collection_prefix(namespace, collection);
+        let results = self.db.scan_prefix_at_timestamp(&prefix, as_of_ts)
+            .map_err(|e| VectorError::Storage(e.to_string()))?;
+
+        for (key, vv) in results {
+            let bytes = match &vv.value {
+                Value::Bytes(b) => b,
+                _ => continue,
+            };
+            let record = match VectorRecord::from_bytes(bytes) {
+                Ok(r) => r,
+                Err(_) => continue,
+            };
+            if VectorId(record.vector_id) == target_id {
+                let user_key = String::from_utf8(key.user_key.clone()).unwrap_or_default();
+                // Strip the collection prefix to get just the vector key
+                let vector_key = user_key.strip_prefix(&format!("{}/", collection)).unwrap_or(&user_key).to_string();
+                return Ok(Some((vector_key, record.metadata)));
+            }
+        }
+        Ok(None)
     }
 
     // ========================================================================
@@ -1236,7 +1404,8 @@ impl VectorStore {
     /// IMPORTANT: This method is for WAL replay during recovery.
     /// It does NOT write to WAL.
     ///
-    /// Uses insert_with_id to maintain VectorId monotonicity (Invariant T4).
+    /// Uses `insert_with_id_and_timestamp` to maintain VectorId monotonicity
+    /// (Invariant T4) and preserve temporal metadata for `search_at()` queries.
     ///
     /// Note: `_key`, `_metadata`, and `_source_ref` parameters are not used here because
     /// they are stored in the KV layer (via VectorRecord), which has its own WAL entries.
@@ -1251,6 +1420,7 @@ impl VectorStore {
         embedding: &[f32],
         _metadata: Option<serde_json::Value>,
         _source_ref: Option<strata_core::EntityRef>,
+        created_at: u64,
     ) -> VectorResult<()> {
         let collection_id = CollectionId::new(branch_id, collection);
 
@@ -1263,8 +1433,9 @@ impl VectorStore {
                     name: collection.to_string(),
                 })?;
 
-        // Use insert_with_id to maintain VectorId monotonicity
-        backend.insert_with_id(vector_id, embedding)?;
+        // Use insert_with_id_and_timestamp to maintain VectorId monotonicity
+        // and preserve temporal data for time-travel queries after recovery.
+        backend.insert_with_id_and_timestamp(vector_id, embedding, created_at)?;
 
         Ok(())
     }
@@ -1273,19 +1444,23 @@ impl VectorStore {
     ///
     /// IMPORTANT: This method is for WAL replay during recovery.
     /// It does NOT write to WAL.
+    ///
+    /// Passes the original deletion timestamp to preserve temporal metadata
+    /// for `search_at()` queries after recovery.
     pub fn replay_delete(
         &self,
         branch_id: BranchId,
         collection: &str,
         _key: &str,
         vector_id: VectorId,
+        deleted_at: u64,
     ) -> VectorResult<()> {
         let collection_id = CollectionId::new(branch_id, collection);
 
         let state = self.state()?;
         let mut backends = state.backends.write();
         if let Some(backend) = backends.get_mut(&collection_id) {
-            backend.delete(vector_id)?;
+            backend.delete_with_timestamp(vector_id, deleted_at)?;
         }
         // Note: If collection doesn't exist, that's OK - it may have been deleted
 
@@ -2416,6 +2591,7 @@ mod tests {
                 &[1.0, 0.0, 0.0],
                 None,
                 None,
+                1000,
             )
             .unwrap();
 
@@ -2449,6 +2625,7 @@ mod tests {
                 &[1.0, 0.0, 0.0],
                 None,
                 None,
+                1000,
             )
             .unwrap();
 
@@ -2481,6 +2658,7 @@ mod tests {
                 &[1.0, 0.0, 0.0],
                 None,
                 None,
+                1000,
             )
             .unwrap();
 
@@ -2493,7 +2671,7 @@ mod tests {
 
         // Replay deletion
         store
-            .replay_delete(branch_id, "test", "doc", vector_id)
+            .replay_delete(branch_id, "test", "doc", vector_id, 2000)
             .unwrap();
 
         {
@@ -2509,7 +2687,7 @@ mod tests {
         let branch_id = BranchId::new();
 
         // Replay delete on non-existent collection should succeed (idempotent)
-        let result = store.replay_delete(branch_id, "nonexistent", "doc", VectorId::new(1));
+        let result = store.replay_delete(branch_id, "nonexistent", "doc", VectorId::new(1), 1000);
         assert!(result.is_ok());
     }
 
@@ -2534,6 +2712,7 @@ mod tests {
                 &[1.0, 0.0, 0.0],
                 None,
                 None,
+                1000,
             )
             .unwrap();
 
@@ -2546,11 +2725,12 @@ mod tests {
                 &[0.0, 1.0, 0.0],
                 None,
                 None,
+                2000,
             )
             .unwrap();
 
         store
-            .replay_delete(branch_id, "col1", "v1", VectorId::new(1))
+            .replay_delete(branch_id, "col1", "v1", VectorId::new(1), 3000)
             .unwrap();
 
         // Verify final state

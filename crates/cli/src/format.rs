@@ -293,6 +293,14 @@ fn format_raw(output: &Output) -> String {
                 "0".to_string()
             }
         }
+        Output::TimeRange { oldest_ts, latest_ts } => {
+            match (oldest_ts, latest_ts) {
+                (Some(o), Some(l)) => format!("{}\t{}", o, l),
+                (Some(o), None) => format!("{}\t", o),
+                (None, Some(l)) => format!("\t{}", l),
+                (None, None) => String::new(),
+            }
+        }
     }
 }
 
@@ -525,6 +533,14 @@ fn format_human(output: &Output) -> String {
                 r.entry_count,
                 if r.checksums_valid { "OK" } else { "FAILED" }
             )
+        }
+        Output::TimeRange { oldest_ts, latest_ts } => {
+            match (oldest_ts, latest_ts) {
+                (Some(o), Some(l)) => format!("oldest: {}  latest: {}", o, l),
+                (Some(o), None) => format!("oldest: {}  latest: (none)", o),
+                (None, Some(l)) => format!("oldest: (none)  latest: {}", l),
+                (None, None) => "(no data)".to_string(),
+            }
         }
     }
 }

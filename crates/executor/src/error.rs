@@ -257,4 +257,13 @@ pub enum Error {
         /// Details about what is missing.
         reason: String,
     },
+
+    /// The requested timestamp is before the oldest available data
+    #[error("history unavailable: requested timestamp {requested_ts} is before oldest available {oldest_available_ts}")]
+    HistoryUnavailable {
+        /// The timestamp that was requested.
+        requested_ts: u64,
+        /// The oldest available timestamp.
+        oldest_available_ts: u64,
+    },
 }

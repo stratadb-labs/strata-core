@@ -521,6 +521,49 @@ impl EventLog {
             Ok(filtered)
         })
     }
+    // ========== Time-Travel API ==========
+
+    /// List events up to a given timestamp.
+    ///
+    /// Returns all events whose timestamp <= as_of_ts.
+    /// Optionally filtered by event_type.
+    pub fn list_at(
+        &self,
+        branch_id: &BranchId,
+        space: &str,
+        event_type: Option<&str>,
+        as_of_ts: u64,
+    ) -> StrataResult<Vec<Event>> {
+        // Read metadata to get the total event count
+        use strata_core::Storage;
+        let ns = self.namespace_for(branch_id, space);
+        let meta_key = Key::new_event_meta(ns.clone());
+        let meta: EventLogMeta = match self.db.storage().get(&meta_key)? {
+            Some(vv) => from_stored_value(&vv.value).unwrap_or_else(|_| EventLogMeta::default()),
+            None => return Ok(Vec::new()),
+        };
+
+        let mut events = Vec::new();
+        for seq in 0..meta.next_sequence {
+            let event_key = Key::new_event(ns.clone(), seq);
+            // Use get_at_timestamp to get the event as it existed at that time
+            if let Some(vv) = self.db.get_at_timestamp(&event_key, as_of_ts)? {
+                let event: Event = from_stored_value(&vv.value)
+                    .map_err(|e| strata_core::StrataError::serialization(e.to_string()))?;
+                // Filter by event's own timestamp (when the event was appended)
+                if event.timestamp <= as_of_ts {
+                    if let Some(et) = event_type {
+                        if event.event_type == et {
+                            events.push(event);
+                        }
+                    } else {
+                        events.push(event);
+                    }
+                }
+            }
+        }
+        Ok(events)
+    }
 }
 
 // ========== Searchable Trait Implementation ==========

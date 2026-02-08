@@ -63,6 +63,7 @@ fn branch_data_is_isolated() {
             branch: Some(branch_b.clone()),
             space: None,
             key: "secret".into(),
+            as_of: None,
         })
         .unwrap();
     assert!(
@@ -75,6 +76,7 @@ fn branch_data_is_isolated() {
             branch: Some(branch_b.clone()),
             space: None,
             cell: "state".into(),
+            as_of: None,
         })
         .unwrap();
     assert!(
@@ -88,6 +90,7 @@ fn branch_data_is_isolated() {
             branch: Some(branch_a.clone()),
             space: None,
             key: "secret".into(),
+            as_of: None,
         })
         .unwrap();
     match output {
@@ -153,6 +156,7 @@ fn branch_delete_removes_all_data() {
             branch: Some(branch_id.clone()),
             space: None,
             key: "key1".into(),
+            as_of: None,
         })
         .unwrap();
     assert!(matches!(
@@ -190,6 +194,7 @@ fn branch_delete_removes_all_data() {
             branch: Some(branch_id.clone()),
             space: None,
             key: "key1".into(),
+            as_of: None,
         })
         .unwrap();
     assert!(
@@ -245,6 +250,7 @@ fn branch_delete_cleans_up_data() {
             branch: Some(branch_id),
             space: None,
             key: "persistent_key".into(),
+            as_of: None,
         })
         .unwrap();
 
@@ -279,6 +285,7 @@ fn default_branch_always_works() {
             branch: None,
             space: None,
             key: "default_key".into(),
+            as_of: None,
         })
         .unwrap();
     match output {
@@ -295,6 +302,7 @@ fn default_branch_always_works() {
             branch: Some(BranchId::from("default")),
             space: None,
             key: "default_key".into(),
+            as_of: None,
         })
         .unwrap();
     match output {

@@ -89,6 +89,15 @@ pub trait VectorIndexBackend: Send + Sync {
     /// Results are sorted by (score desc, VectorId asc) for determinism (Invariant R4).
     fn search(&self, query: &[f32], k: usize) -> Vec<(VectorId, f32)>;
 
+    /// Search for k nearest neighbors as of a given timestamp.
+    ///
+    /// Backends that support temporal tracking override this. Default: delegates to
+    /// regular search (ignoring timestamp), which is correct for backends without
+    /// temporal data.
+    fn search_at(&self, query: &[f32], k: usize, _as_of_ts: u64) -> Vec<(VectorId, f32)> {
+        self.search(query, k)
+    }
+
     /// Get number of indexed vectors
     fn len(&self) -> usize;
 

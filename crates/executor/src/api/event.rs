@@ -32,6 +32,7 @@ impl Strata {
             branch: self.branch_id(),
             space: self.space_id(),
             sequence,
+            as_of: None,
         })? {
             Output::MaybeVersioned(v) => Ok(v),
             _ => Err(Error::Internal {
@@ -48,6 +49,7 @@ impl Strata {
             event_type: event_type.to_string(),
             limit: None,
             after_sequence: None,
+            as_of: None,
         })? {
             Output::VersionedValues(events) => Ok(events),
             _ => Err(Error::Internal {

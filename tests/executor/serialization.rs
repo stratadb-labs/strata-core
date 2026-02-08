@@ -46,6 +46,7 @@ fn kv_get_roundtrip() {
         branch: None,
         space: None,
         key: "key".into(),
+        as_of: None,
     };
 
     let json = serde_json::to_string(&cmd).unwrap();
@@ -83,6 +84,7 @@ fn vector_search_roundtrip() {
         k: 10,
         filter: None,
         metric: Some(DistanceMetric::Cosine),
+        as_of: None,
     };
 
     let json = serde_json::to_string(&cmd).unwrap();

@@ -334,6 +334,7 @@ impl<'a> VectorWalReplayer<'a> {
                     &wal.embedding,
                     wal.metadata,
                     wal.source_ref,
+                    wal.timestamp,
                 )
             }
             VECTOR_DELETE => {
@@ -343,6 +344,7 @@ impl<'a> VectorWalReplayer<'a> {
                     &wal.collection,
                     &wal.key,
                     VectorId::new(wal.vector_id),
+                    wal.timestamp,
                 )
             }
             _ => {

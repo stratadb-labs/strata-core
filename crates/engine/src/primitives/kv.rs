@@ -197,6 +197,43 @@ impl KVStore {
                 .collect())
         })
     }
+
+    // ========== Time-Travel API ==========
+
+    /// Get a value by key as of a past timestamp (microseconds since epoch).
+    ///
+    /// Returns the latest value whose commit timestamp <= as_of_ts, or None.
+    /// This is a non-transactional read directly from the storage version chain.
+    pub fn get_at(
+        &self,
+        branch_id: &BranchId,
+        space: &str,
+        key: &str,
+        as_of_ts: u64,
+    ) -> StrataResult<Option<Value>> {
+        let storage_key = self.key_for(branch_id, space, key);
+        let result = self.db.get_at_timestamp(&storage_key, as_of_ts)?;
+        Ok(result.map(|vv| vv.value))
+    }
+
+    /// List keys as of a past timestamp.
+    ///
+    /// Returns keys whose values existed at the given timestamp.
+    pub fn list_at(
+        &self,
+        branch_id: &BranchId,
+        space: &str,
+        prefix: Option<&str>,
+        as_of_ts: u64,
+    ) -> StrataResult<Vec<String>> {
+        let ns = self.namespace_for(branch_id, space);
+        let scan_prefix = Key::new_kv(ns, prefix.unwrap_or(""));
+        let results = self.db.scan_prefix_at_timestamp(&scan_prefix, as_of_ts)?;
+        Ok(results
+            .into_iter()
+            .filter_map(|(key, _)| key.user_key_string())
+            .collect())
+    }
 }
 
 // ========== Searchable Trait Implementation ==========

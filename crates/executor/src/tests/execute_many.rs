@@ -82,16 +82,19 @@ fn test_execute_many_preserves_order() {
             branch: Some(BranchId::from("default")),
             space: None,
             key: "key3".to_string(),
+            as_of: None,
         },
         Command::KvGet {
             branch: Some(BranchId::from("default")),
             space: None,
             key: "key1".to_string(),
+            as_of: None,
         },
         Command::KvGet {
             branch: Some(BranchId::from("default")),
             space: None,
             key: "key2".to_string(),
+            as_of: None,
         },
     ]);
 
@@ -131,6 +134,7 @@ fn test_execute_many_continues_after_error() {
             branch: Some(BranchId::from("default")),
             space: None,
             key: "".to_string(), // Empty key should fail validation
+            as_of: None,
         },
         Command::Ping, // Should succeed even after previous failure
     ]);
@@ -161,6 +165,7 @@ fn test_execute_many_mixed_operations() {
             branch: Some(BranchId::from("default")),
             space: None,
             key: "counter".to_string(),
+            as_of: None,
         },
         // Delete it
         Command::KvDelete {
@@ -173,6 +178,7 @@ fn test_execute_many_mixed_operations() {
             branch: Some(BranchId::from("default")),
             space: None,
             key: "counter".to_string(),
+            as_of: None,
         },
     ]);
 

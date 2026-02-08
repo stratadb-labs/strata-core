@@ -81,6 +81,7 @@ fn test_command_kv_get() {
         branch: Some(BranchId::from("default")),
         space: None,
         key: "test-key".to_string(),
+        as_of: None,
     });
 }
 
@@ -101,6 +102,7 @@ fn test_command_kv_list() {
         prefix: Some("user:".to_string()),
         cursor: None,
         limit: None,
+        as_of: None,
     });
 }
 
@@ -126,6 +128,7 @@ fn test_command_json_get() {
         space: None,
         key: "doc1".to_string(),
         path: "$.name".to_string(),
+        as_of: None,
     });
 }
 
@@ -153,6 +156,7 @@ fn test_command_event_get() {
         branch: Some(BranchId::from("default")),
         space: None,
         sequence: 42,
+        as_of: None,
     });
 }
 
@@ -164,6 +168,7 @@ fn test_command_event_get_by_type() {
         event_type: "events".to_string(),
         limit: None,
         after_sequence: None,
+        as_of: None,
     });
 }
 
@@ -230,6 +235,7 @@ fn test_command_vector_search() {
         k: 10,
         filter: None,
         metric: Some(DistanceMetric::Cosine),
+        as_of: None,
     });
 }
 
@@ -481,6 +487,7 @@ fn test_command_with_branch_some_round_trip() {
         branch: Some(BranchId::from("my-branch")),
         space: None,
         key: "test".to_string(),
+        as_of: None,
     };
     let json = serde_json::to_string(&cmd).unwrap();
     assert!(

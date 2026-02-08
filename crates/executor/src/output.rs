@@ -143,4 +143,12 @@ pub enum Output {
 
     /// Bundle validation result
     BundleValidated(BundleValidateResult),
+
+    /// Time range for a branch (oldest and latest timestamps in microseconds since epoch)
+    TimeRange {
+        /// Oldest timestamp, or None if branch has no data.
+        oldest_ts: Option<u64>,
+        /// Latest timestamp, or None if branch has no data.
+        latest_ts: Option<u64>,
+    },
 }

@@ -92,6 +92,9 @@ pub enum Command {
         space: Option<String>,
         /// Key to look up.
         key: String,
+        /// Optional timestamp for time-travel reads (microseconds since epoch).
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        as_of: Option<u64>,
     },
 
     /// Delete a key.
@@ -124,6 +127,9 @@ pub enum Command {
         /// Maximum number of keys to return.
         #[serde(default, skip_serializing_if = "Option::is_none")]
         limit: Option<u64>,
+        /// Optional timestamp for time-travel reads (microseconds since epoch).
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        as_of: Option<u64>,
     },
 
     /// Get full version history for a key.
@@ -137,6 +143,9 @@ pub enum Command {
         space: Option<String>,
         /// Key to retrieve history for.
         key: String,
+        /// Optional timestamp for time-travel reads (microseconds since epoch).
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        as_of: Option<u64>,
     },
 
     // ==================== JSON (4 MVP) ====================
@@ -170,6 +179,9 @@ pub enum Command {
         key: String,
         /// JSON path to read.
         path: String,
+        /// Optional timestamp for time-travel reads (microseconds since epoch).
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        as_of: Option<u64>,
     },
 
     /// Delete a value at a path from a JSON document.
@@ -198,6 +210,9 @@ pub enum Command {
         space: Option<String>,
         /// Document key.
         key: String,
+        /// Optional timestamp for time-travel reads (microseconds since epoch).
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        as_of: Option<u64>,
     },
 
     /// List JSON documents with cursor-based pagination.
@@ -215,6 +230,9 @@ pub enum Command {
         cursor: Option<String>,
         /// Maximum number of documents to return.
         limit: u64,
+        /// Optional timestamp for time-travel reads (microseconds since epoch).
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        as_of: Option<u64>,
     },
 
     // ==================== Event (4 MVP) ====================
@@ -245,6 +263,9 @@ pub enum Command {
         space: Option<String>,
         /// Event sequence number.
         sequence: u64,
+        /// Optional timestamp for time-travel reads (microseconds since epoch).
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        as_of: Option<u64>,
     },
 
     /// Read all events of a specific type.
@@ -264,6 +285,9 @@ pub enum Command {
         /// Only return events after this sequence number.
         #[serde(default, skip_serializing_if = "Option::is_none")]
         after_sequence: Option<u64>,
+        /// Optional timestamp for time-travel reads (microseconds since epoch).
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        as_of: Option<u64>,
     },
 
     /// Get the total count of events in the log.
@@ -305,6 +329,9 @@ pub enum Command {
         space: Option<String>,
         /// Cell name.
         cell: String,
+        /// Optional timestamp for time-travel reads (microseconds since epoch).
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        as_of: Option<u64>,
     },
 
     /// Compare-and-swap on a state cell.
@@ -335,6 +362,9 @@ pub enum Command {
         space: Option<String>,
         /// Cell name.
         cell: String,
+        /// Optional timestamp for time-travel reads (microseconds since epoch).
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        as_of: Option<u64>,
     },
 
     /// Initialize a state cell (only if it doesn't exist).
@@ -376,6 +406,9 @@ pub enum Command {
         space: Option<String>,
         /// Optional cell name prefix filter.
         prefix: Option<String>,
+        /// Optional timestamp for time-travel reads (microseconds since epoch).
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        as_of: Option<u64>,
     },
 
     // ==================== Vector (7 MVP) ====================
@@ -412,6 +445,9 @@ pub enum Command {
         collection: String,
         /// Vector key.
         key: String,
+        /// Optional timestamp for time-travel reads (microseconds since epoch).
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        as_of: Option<u64>,
     },
 
     /// Delete a vector.
@@ -448,6 +484,9 @@ pub enum Command {
         filter: Option<Vec<MetadataFilter>>,
         /// Optional distance metric override.
         metric: Option<DistanceMetric>,
+        /// Optional timestamp for time-travel reads (microseconds since epoch).
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        as_of: Option<u64>,
     },
 
     /// Create a collection with explicit configuration.
@@ -628,6 +667,14 @@ pub enum Command {
     /// Trigger compaction
     Compact,
 
+    /// Get the available time range for a branch.
+    /// Returns: `Output::TimeRange`
+    TimeRange {
+        /// Target branch (defaults to "default").
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        branch: Option<BranchId>,
+    },
+
     // ==================== Bundle (3) ====================
     /// Export a branch to a .branchbundle.tar.zst archive.
     /// Returns: `Output::BranchExported`
@@ -805,6 +852,7 @@ impl Command {
             Command::Info => "Info",
             Command::Flush => "Flush",
             Command::Compact => "Compact",
+            Command::TimeRange { .. } => "TimeRange",
             Command::BranchExport { .. } => "BranchExport",
             Command::BranchImport { .. } => "BranchImport",
             Command::BranchBundleValidate { .. } => "BranchBundleValidate",
@@ -878,11 +926,12 @@ impl Command {
                 resolve_space!(space);
             }
 
-            // Retention, Transaction begin — only have branch, no space
+            // Retention, Transaction begin, TimeRange — only have branch, no space
             Command::RetentionApply { branch, .. }
             | Command::RetentionStats { branch, .. }
             | Command::RetentionPreview { branch, .. }
-            | Command::TxnBegin { branch, .. } => {
+            | Command::TxnBegin { branch, .. }
+            | Command::TimeRange { branch, .. } => {
                 resolve_branch!(branch);
             }
 

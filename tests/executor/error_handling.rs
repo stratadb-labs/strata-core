@@ -50,6 +50,7 @@ fn vector_search_in_nonexistent_collection_fails() {
         k: 10,
         filter: None,
         metric: None,
+        as_of: None,
     });
 
     match result {
@@ -262,6 +263,7 @@ fn json_get_nonexistent_returns_none() {
             space: None,
             key: "nonexistent".into(),
             path: "$".into(),
+            as_of: None,
         })
         .unwrap();
 
@@ -340,6 +342,7 @@ fn state_get_nonexistent_returns_none() {
             branch: None,
             space: None,
             cell: "nonexistent".into(),
+            as_of: None,
         })
         .unwrap();
 

@@ -88,6 +88,36 @@ pub fn event_get(
     Ok(Output::MaybeVersioned(result))
 }
 
+/// Handle EventGet with as_of timestamp (time-travel read).
+///
+/// Returns the event at the given sequence number only if it existed at or
+/// before the given timestamp. Events are immutable, so this checks whether
+/// the event's timestamp <= as_of_ts.
+pub fn event_get_at(
+    p: &Arc<Primitives>,
+    branch: BranchId,
+    space: String,
+    sequence: u64,
+    as_of_ts: u64,
+) -> Result<Output> {
+    let core_branch_id = bridge::to_core_branch_id(&branch)?;
+    let event = convert_result(p.event.get(&core_branch_id, &space, sequence))?;
+
+    let result = event.and_then(|e| {
+        if e.value.timestamp <= as_of_ts {
+            Some(VersionedValue {
+                value: e.value.payload,
+                version: bridge::extract_version(&e.version),
+                timestamp: strata_core::Timestamp::from_micros(e.value.timestamp).into(),
+            })
+        } else {
+            None // Event was appended after as_of_ts
+        }
+    });
+
+    Ok(Output::MaybeVersioned(result))
+}
+
 /// Handle EventGetByType command.
 pub fn event_get_by_type(
     p: &Arc<Primitives>,
@@ -125,6 +155,33 @@ pub fn event_get_by_type(
 
     let versioned: Vec<VersionedValue> = limited
         .into_iter()
+        .map(|e| VersionedValue {
+            value: e.value.payload.clone(),
+            version: bridge::extract_version(&e.version),
+            timestamp: strata_core::Timestamp::from_micros(e.value.timestamp).into(),
+        })
+        .collect();
+
+    Ok(Output::VersionedValues(versioned))
+}
+
+/// Handle EventGetByType with as_of timestamp (time-travel read).
+///
+/// Returns only events whose timestamp <= as_of_ts.
+pub fn event_get_by_type_at(
+    p: &Arc<Primitives>,
+    branch: BranchId,
+    space: String,
+    event_type: String,
+    as_of_ts: u64,
+) -> Result<Output> {
+    let core_branch_id = bridge::to_core_branch_id(&branch)?;
+    let events = convert_result(p.event.get_by_type(&core_branch_id, &space, &event_type))?;
+
+    // Filter events by timestamp
+    let versioned: Vec<VersionedValue> = events
+        .into_iter()
+        .filter(|e| e.value.timestamp <= as_of_ts)
         .map(|e| VersionedValue {
             value: e.value.payload.clone(),
             version: bridge::extract_version(&e.version),

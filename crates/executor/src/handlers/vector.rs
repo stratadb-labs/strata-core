@@ -128,6 +128,46 @@ pub fn vector_get(
     }
 }
 
+/// Handle VectorGet with as_of timestamp (time-travel read).
+pub fn vector_get_at(
+    p: &Arc<Primitives>,
+    branch: BranchId,
+    space: String,
+    collection: String,
+    key: String,
+    as_of_ts: u64,
+) -> Result<Output> {
+    let branch_id = to_core_branch_id(&branch)?;
+    convert_result(validate_key(&key))?;
+    convert_result(validate_not_internal_collection(&collection))?;
+
+    let result = convert_vector_result(
+        p.vector
+            .get_at(branch_id, &space, &collection, &key, as_of_ts),
+        branch_id,
+    )?;
+    match result {
+        Some(entry) => {
+            let version = extract_version(&entry.version);
+            let metadata = entry
+                .metadata
+                .map(serde_json_to_value_public)
+                .transpose()
+                .map_err(crate::Error::from)?;
+            Ok(Output::VectorData(Some(VersionedVectorData {
+                key: entry.key,
+                data: VectorData {
+                    embedding: entry.embedding,
+                    metadata,
+                },
+                version,
+                timestamp: as_of_ts,
+            })))
+        }
+        None => Ok(Output::VectorData(None)),
+    }
+}
+
 /// Handle VectorDelete command.
 pub fn vector_delete(
     p: &Arc<Primitives>,
@@ -322,6 +362,56 @@ pub fn vector_batch_upsert(
 
     let version_nums: Vec<u64> = versions.iter().map(extract_version).collect();
     Ok(Output::Versions(version_nums))
+}
+
+/// Handle VectorSearch with as_of timestamp (time-travel search).
+#[allow(clippy::too_many_arguments)]
+pub fn vector_search_at(
+    p: &Arc<Primitives>,
+    branch: BranchId,
+    space: String,
+    collection: String,
+    query: Vec<f32>,
+    k: u64,
+    filter: Option<Vec<MetadataFilter>>,
+    _metric: Option<DistanceMetric>,
+    as_of_ts: u64,
+) -> Result<Output> {
+    let branch_id = to_core_branch_id(&branch)?;
+    convert_result(validate_not_internal_collection(&collection))?;
+
+    let engine_filter = filter.as_ref().and_then(|f| to_engine_filter(f));
+    let matches = convert_vector_result(
+        p.vector.search_at(
+            branch_id,
+            &space,
+            &collection,
+            &query,
+            k as usize,
+            engine_filter,
+            as_of_ts,
+        ),
+        branch_id,
+    )?;
+
+    let results: Result<Vec<VectorMatch>> = matches.into_iter().map(to_vector_match).collect();
+    Ok(Output::VectorMatches(results?))
+}
+
+/// Handle TimeRange command — get the available time range for a branch.
+pub fn time_range(p: &Arc<Primitives>, branch: BranchId) -> Result<Output> {
+    let branch_id = to_core_branch_id(&branch)?;
+    let range = convert_result(p.db.time_range(branch_id))?;
+    match range {
+        Some((oldest, latest)) => Ok(Output::TimeRange {
+            oldest_ts: Some(oldest),
+            latest_ts: Some(latest),
+        }),
+        None => Ok(Output::TimeRange {
+            oldest_ts: None,
+            latest_ts: None,
+        }),
+    }
 }
 
 #[cfg(test)]

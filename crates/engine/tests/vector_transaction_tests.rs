@@ -525,6 +525,7 @@ fn test_wal_replayer() {
             &[1.0, 0.0, 0.0],
             None,
             None,
+            1000,
         )
         .unwrap();
 
@@ -537,6 +538,7 @@ fn test_wal_replayer() {
             &[0.0, 1.0, 0.0],
             None,
             None,
+            2000,
         )
         .unwrap();
 
@@ -549,12 +551,13 @@ fn test_wal_replayer() {
             &[0.0, 0.0, 1.0],
             None,
             None,
+            3000,
         )
         .unwrap();
 
     // Replay delete
     store
-        .replay_delete(branch_id, "replayed", "key2", VectorId::new(2))
+        .replay_delete(branch_id, "replayed", "key2", VectorId::new(2), 5000)
         .unwrap();
 
     // Verify final state
@@ -594,6 +597,7 @@ fn test_replay_maintains_id_ordering() {
             &[1.0, 0.0, 0.0, 0.0],
             None,
             None,
+            1000,
         )
         .unwrap();
 
@@ -606,6 +610,7 @@ fn test_replay_maintains_id_ordering() {
             &[0.0, 1.0, 0.0, 0.0],
             None,
             None,
+            2000,
         )
         .unwrap();
 
@@ -618,6 +623,7 @@ fn test_replay_maintains_id_ordering() {
             &[0.0, 0.0, 1.0, 0.0],
             None,
             None,
+            3000,
         )
         .unwrap();
 
@@ -646,7 +652,7 @@ fn test_replay_delete_missing_collection() {
     use strata_engine::vector::VectorId;
 
     // Should not error - idempotent operation
-    let result = store.replay_delete(branch_id, "nonexistent", "key", VectorId::new(1));
+    let result = store.replay_delete(branch_id, "nonexistent", "key", VectorId::new(1), 5000);
     assert!(result.is_ok());
 }
 

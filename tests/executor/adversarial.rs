@@ -49,6 +49,7 @@ fn concurrent_sessions_isolated_views() {
             branch: None,
             space: None,
             key: "isolated_key".into(),
+            as_of: None,
         })
         .unwrap();
 
@@ -71,6 +72,7 @@ fn concurrent_sessions_isolated_views() {
             branch: None,
             space: None,
             key: "isolated_key".into(),
+            as_of: None,
         })
         .unwrap();
 
@@ -133,6 +135,7 @@ fn concurrent_session_increments() {
                         branch: None,
                         space: None,
                         key: "counter".into(),
+                        as_of: None,
                     }) {
                         Ok(Output::MaybeVersioned(Some(vv))) => match vv.value {
                             Value::Int(n) => n,
@@ -173,6 +176,7 @@ fn concurrent_session_increments() {
             branch: None,
             space: None,
             key: "counter".into(),
+            as_of: None,
         })
         .unwrap()
     {
@@ -229,6 +233,7 @@ fn session_drop_rolls_back_transaction() {
             branch: None,
             space: None,
             key: "drop_test".into(),
+            as_of: None,
         })
         .unwrap();
 
@@ -270,6 +275,7 @@ fn session_drop_after_commit_preserves_data() {
             branch: None,
             space: None,
             key: "commit_drop_test".into(),
+            as_of: None,
         })
         .unwrap();
 
@@ -371,6 +377,7 @@ fn new_transaction_after_commit() {
             branch: None,
             space: None,
             key: "txn1".into(),
+            as_of: None,
         })
         .unwrap();
     assert!(matches!(
@@ -383,6 +390,7 @@ fn new_transaction_after_commit() {
             branch: None,
             space: None,
             key: "txn2".into(),
+            as_of: None,
         })
         .unwrap();
     assert!(matches!(
@@ -436,6 +444,7 @@ fn new_transaction_after_rollback() {
             branch: None,
             space: None,
             key: "rolled_back".into(),
+            as_of: None,
         })
         .unwrap();
     assert!(matches!(
@@ -448,6 +457,7 @@ fn new_transaction_after_rollback() {
             branch: None,
             space: None,
             key: "committed".into(),
+            as_of: None,
         })
         .unwrap();
     assert!(matches!(
@@ -479,6 +489,7 @@ fn empty_string_preserved() {
             branch: None,
             space: None,
             key: "empty".into(),
+            as_of: None,
         })
         .unwrap();
 
@@ -512,6 +523,7 @@ fn null_value_is_storable() {
             branch: None,
             space: None,
             key: "null_key".into(),
+            as_of: None,
         })
         .unwrap();
     assert!(matches!(
@@ -535,6 +547,7 @@ fn null_value_is_storable() {
             branch: None,
             space: None,
             key: "null_key".into(),
+            as_of: None,
         })
         .unwrap();
 
@@ -550,6 +563,7 @@ fn null_value_is_storable() {
             branch: None,
             space: None,
             key: "missing_key".into(),
+            as_of: None,
         })
         .unwrap();
 
@@ -586,6 +600,7 @@ fn integer_boundaries_preserved() {
                 branch: None,
                 space: None,
                 key: key.into(),
+                as_of: None,
             })
             .unwrap();
 
@@ -624,6 +639,7 @@ fn float_special_values() {
             branch: None,
             space: None,
             key: "pi".into(),
+            as_of: None,
         })
         .unwrap();
 
@@ -652,6 +668,7 @@ fn float_special_values() {
             branch: None,
             space: None,
             key: "inf".into(),
+            as_of: None,
         })
         .unwrap();
 
@@ -680,6 +697,7 @@ fn float_special_values() {
             branch: None,
             space: None,
             key: "nan".into(),
+            as_of: None,
         })
         .unwrap();
 
@@ -726,6 +744,7 @@ fn large_nested_object() {
             branch: None,
             space: None,
             key: "large_object".into(),
+            as_of: None,
         })
         .unwrap();
 
@@ -777,6 +796,7 @@ fn concurrent_reads_consistent() {
                             branch: None,
                             space: None,
                             key: "concurrent_read".into(),
+                            as_of: None,
                         })
                         .unwrap();
 
@@ -844,6 +864,7 @@ fn concurrent_writes_different_keys() {
                     branch: None,
                     space: None,
                     key,
+                    as_of: None,
                 })
                 .unwrap();
 
@@ -919,6 +940,7 @@ fn kv_put_atomic() {
             branch: None,
             space: None,
             key: "atomic_test".into(),
+            as_of: None,
         })
         .unwrap();
 
@@ -994,6 +1016,7 @@ fn executor_branch_isolation() {
             branch: Some(branch_a),
             space: None,
             key: "shared_key".into(),
+            as_of: None,
         })
         .unwrap();
 
@@ -1002,6 +1025,7 @@ fn executor_branch_isolation() {
             branch: Some(branch_b),
             space: None,
             key: "shared_key".into(),
+            as_of: None,
         })
         .unwrap();
 
@@ -1070,6 +1094,7 @@ fn error_recovery() {
         k: 10,
         filter: None,
         metric: None,
+        as_of: None,
     });
     assert!(result.is_err());
 
@@ -1088,6 +1113,7 @@ fn error_recovery() {
             branch: None,
             space: None,
             key: "recovery_test".into(),
+            as_of: None,
         })
         .unwrap();
 

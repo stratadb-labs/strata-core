@@ -227,6 +227,7 @@ impl VectorStore {
     /// 1. Collection backends with vectors
     /// 2. next_id and free_slots for each collection (CRITICAL for T4)
     /// 3. VectorRecord metadata in KV
+    ///
     /// Maximum header size during snapshot deserialization (1 MB).
     const MAX_SNAPSHOT_HEADER_SIZE: usize = 1_024 * 1_024;
     /// Maximum key size during snapshot deserialization (64 KB).
@@ -234,6 +235,7 @@ impl VectorStore {
     /// Maximum metadata size during snapshot deserialization (64 MB).
     const MAX_SNAPSHOT_METADATA_SIZE: usize = 64 * 1_024 * 1_024;
 
+    /// Deserialize snapshot data from reader.
     pub fn snapshot_deserialize<R: Read>(&self, reader: &mut R) -> VectorResult<()> {
         // Version byte
         let version = reader

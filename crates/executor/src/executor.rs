@@ -131,6 +131,12 @@ impl Executor {
                 convert_result(self.primitives.db.compact())?;
                 Ok(Output::Unit)
             }
+            Command::TimeRange { branch } => {
+                let branch = branch.ok_or(Error::InvalidInput {
+                    reason: "Branch must be specified or resolved to default".into(),
+                })?;
+                crate::handlers::vector::time_range(&self.primitives, branch)
+            }
 
             // KV commands (MVP: 4 commands)
             Command::KvPut {
@@ -146,12 +152,21 @@ impl Executor {
                 self.ensure_space_registered(&branch, &space)?;
                 crate::handlers::kv::kv_put(&self.primitives, branch, space, key, value)
             }
-            Command::KvGet { branch, space, key } => {
+            Command::KvGet {
+                branch,
+                space,
+                key,
+                as_of,
+            } => {
                 let branch = branch.ok_or(Error::InvalidInput {
                     reason: "Branch must be specified or resolved to default".into(),
                 })?;
                 let space = space.unwrap_or_else(|| "default".to_string());
-                crate::handlers::kv::kv_get(&self.primitives, branch, space, key)
+                if let Some(ts) = as_of {
+                    crate::handlers::kv::kv_get_at(&self.primitives, branch, space, key, ts)
+                } else {
+                    crate::handlers::kv::kv_get(&self.primitives, branch, space, key)
+                }
             }
             Command::KvDelete { branch, space, key } => {
                 let branch = branch.ok_or(Error::InvalidInput {
@@ -167,14 +182,39 @@ impl Executor {
                 prefix,
                 cursor,
                 limit,
+                as_of,
             } => {
                 let branch = branch.ok_or(Error::InvalidInput {
                     reason: "Branch must be specified or resolved to default".into(),
                 })?;
                 let space = space.unwrap_or_else(|| "default".to_string());
-                crate::handlers::kv::kv_list(&self.primitives, branch, space, prefix, cursor, limit)
+                if let Some(ts) = as_of {
+                    crate::handlers::kv::kv_list_at(
+                        &self.primitives,
+                        branch,
+                        space,
+                        prefix,
+                        ts,
+                    )
+                } else {
+                    crate::handlers::kv::kv_list(
+                        &self.primitives,
+                        branch,
+                        space,
+                        prefix,
+                        cursor,
+                        limit,
+                    )
+                }
             }
-            Command::KvGetv { branch, space, key } => {
+            // Note: as_of is intentionally ignored for getv — version history
+            // always returns all versions, not a point-in-time snapshot.
+            Command::KvGetv {
+                branch,
+                space,
+                key,
+                as_of: _,
+            } => {
                 let branch = branch.ok_or(Error::InvalidInput {
                     reason: "Branch must be specified or resolved to default".into(),
                 })?;
@@ -202,14 +242,33 @@ impl Executor {
                 space,
                 key,
                 path,
+                as_of,
             } => {
                 let branch = branch.ok_or(Error::InvalidInput {
                     reason: "Branch must be specified or resolved to default".into(),
                 })?;
                 let space = space.unwrap_or_else(|| "default".to_string());
-                crate::handlers::json::json_get(&self.primitives, branch, space, key, path)
+                if let Some(ts) = as_of {
+                    crate::handlers::json::json_get_at(
+                        &self.primitives,
+                        branch,
+                        space,
+                        key,
+                        path,
+                        ts,
+                    )
+                } else {
+                    crate::handlers::json::json_get(&self.primitives, branch, space, key, path)
+                }
             }
-            Command::JsonGetv { branch, space, key } => {
+            // Note: as_of is intentionally ignored for getv — version history
+            // always returns all versions, not a point-in-time snapshot.
+            Command::JsonGetv {
+                branch,
+                space,
+                key,
+                as_of: _,
+            } => {
                 let branch = branch.ok_or(Error::InvalidInput {
                     reason: "Branch must be specified or resolved to default".into(),
                 })?;
@@ -235,19 +294,30 @@ impl Executor {
                 prefix,
                 cursor,
                 limit,
+                as_of,
             } => {
                 let branch = branch.ok_or(Error::InvalidInput {
                     reason: "Branch must be specified or resolved to default".into(),
                 })?;
                 let space = space.unwrap_or_else(|| "default".to_string());
-                crate::handlers::json::json_list(
-                    &self.primitives,
-                    branch,
-                    space,
-                    prefix,
-                    cursor,
-                    limit,
-                )
+                if let Some(ts) = as_of {
+                    crate::handlers::json::json_list_at(
+                        &self.primitives,
+                        branch,
+                        space,
+                        prefix,
+                        ts,
+                    )
+                } else {
+                    crate::handlers::json::json_list(
+                        &self.primitives,
+                        branch,
+                        space,
+                        prefix,
+                        cursor,
+                        limit,
+                    )
+                }
             }
 
             // Event commands (4 MVP)
@@ -274,12 +344,23 @@ impl Executor {
                 branch,
                 space,
                 sequence,
+                as_of,
             } => {
                 let branch = branch.ok_or(Error::InvalidInput {
                     reason: "Branch must be specified or resolved to default".into(),
                 })?;
                 let space = space.unwrap_or_else(|| "default".to_string());
-                crate::handlers::event::event_get(&self.primitives, branch, space, sequence)
+                if let Some(ts) = as_of {
+                    crate::handlers::event::event_get_at(
+                        &self.primitives,
+                        branch,
+                        space,
+                        sequence,
+                        ts,
+                    )
+                } else {
+                    crate::handlers::event::event_get(&self.primitives, branch, space, sequence)
+                }
             }
             Command::EventGetByType {
                 branch,
@@ -287,19 +368,30 @@ impl Executor {
                 event_type,
                 limit,
                 after_sequence,
+                as_of,
             } => {
                 let branch = branch.ok_or(Error::InvalidInput {
                     reason: "Branch must be specified or resolved to default".into(),
                 })?;
                 let space = space.unwrap_or_else(|| "default".to_string());
-                crate::handlers::event::event_get_by_type(
-                    &self.primitives,
-                    branch,
-                    space,
-                    event_type,
-                    limit,
-                    after_sequence,
-                )
+                if let Some(ts) = as_of {
+                    crate::handlers::event::event_get_by_type_at(
+                        &self.primitives,
+                        branch,
+                        space,
+                        event_type,
+                        ts,
+                    )
+                } else {
+                    crate::handlers::event::event_get_by_type(
+                        &self.primitives,
+                        branch,
+                        space,
+                        event_type,
+                        limit,
+                        after_sequence,
+                    )
+                }
             }
             Command::EventLen { branch, space } => {
                 let branch = branch.ok_or(Error::InvalidInput {
@@ -327,17 +419,25 @@ impl Executor {
                 branch,
                 space,
                 cell,
+                as_of,
             } => {
                 let branch = branch.ok_or(Error::InvalidInput {
                     reason: "Branch must be specified or resolved to default".into(),
                 })?;
                 let space = space.unwrap_or_else(|| "default".to_string());
-                crate::handlers::state::state_get(&self.primitives, branch, space, cell)
+                if let Some(ts) = as_of {
+                    crate::handlers::state::state_get_at(&self.primitives, branch, space, cell, ts)
+                } else {
+                    crate::handlers::state::state_get(&self.primitives, branch, space, cell)
+                }
             }
+            // Note: as_of is intentionally ignored for getv — version history
+            // always returns all versions, not a point-in-time snapshot.
             Command::StateGetv {
                 branch,
                 space,
                 cell,
+                as_of: _,
             } => {
                 let branch = branch.ok_or(Error::InvalidInput {
                     reason: "Branch must be specified or resolved to default".into(),
@@ -395,12 +495,23 @@ impl Executor {
                 branch,
                 space,
                 prefix,
+                as_of,
             } => {
                 let branch = branch.ok_or(Error::InvalidInput {
                     reason: "Branch must be specified or resolved to default".into(),
                 })?;
                 let space = space.unwrap_or_else(|| "default".to_string());
-                crate::handlers::state::state_list(&self.primitives, branch, space, prefix)
+                if let Some(ts) = as_of {
+                    crate::handlers::state::state_list_at(
+                        &self.primitives,
+                        branch,
+                        space,
+                        prefix,
+                        ts,
+                    )
+                } else {
+                    crate::handlers::state::state_list(&self.primitives, branch, space, prefix)
+                }
             }
 
             // Vector commands
@@ -432,18 +543,30 @@ impl Executor {
                 space,
                 collection,
                 key,
+                as_of,
             } => {
                 let branch = branch.ok_or(Error::InvalidInput {
                     reason: "Branch must be specified or resolved to default".into(),
                 })?;
                 let space = space.unwrap_or_else(|| "default".to_string());
-                crate::handlers::vector::vector_get(
-                    &self.primitives,
-                    branch,
-                    space,
-                    collection,
-                    key,
-                )
+                if let Some(ts) = as_of {
+                    crate::handlers::vector::vector_get_at(
+                        &self.primitives,
+                        branch,
+                        space,
+                        collection,
+                        key,
+                        ts,
+                    )
+                } else {
+                    crate::handlers::vector::vector_get(
+                        &self.primitives,
+                        branch,
+                        space,
+                        collection,
+                        key,
+                    )
+                }
             }
             Command::VectorDelete {
                 branch,
@@ -472,21 +595,36 @@ impl Executor {
                 k,
                 filter,
                 metric,
+                as_of,
             } => {
                 let branch = branch.ok_or(Error::InvalidInput {
                     reason: "Branch must be specified or resolved to default".into(),
                 })?;
                 let space = space.unwrap_or_else(|| "default".to_string());
-                crate::handlers::vector::vector_search(
-                    &self.primitives,
-                    branch,
-                    space,
-                    collection,
-                    query,
-                    k,
-                    filter,
-                    metric,
-                )
+                if let Some(ts) = as_of {
+                    crate::handlers::vector::vector_search_at(
+                        &self.primitives,
+                        branch,
+                        space,
+                        collection,
+                        query,
+                        k,
+                        filter,
+                        metric,
+                        ts,
+                    )
+                } else {
+                    crate::handlers::vector::vector_search(
+                        &self.primitives,
+                        branch,
+                        space,
+                        collection,
+                        query,
+                        k,
+                        filter,
+                        metric,
+                    )
+                }
             }
             Command::VectorCreateCollection {
                 branch,

@@ -352,6 +352,47 @@ impl StateCell {
                 .collect())
         })
     }
+    // ========== Time-Travel API ==========
+
+    /// Get a state cell value as of a past timestamp (microseconds since epoch).
+    ///
+    /// Returns the value at the given timestamp, or None if the cell didn't exist then.
+    /// This is a non-transactional read directly from the storage version chain.
+    pub fn get_at(
+        &self,
+        branch_id: &BranchId,
+        space: &str,
+        name: &str,
+        as_of_ts: u64,
+    ) -> StrataResult<Option<Value>> {
+        let key = self.key_for(branch_id, space, name);
+        let result = self.db.get_at_timestamp(&key, as_of_ts)?;
+        match result {
+            Some(vv) => {
+                let state: State = from_stored_value(&vv.value)
+                    .map_err(|e| strata_core::StrataError::serialization(e.to_string()))?;
+                Ok(Some(state.value))
+            }
+            None => Ok(None),
+        }
+    }
+
+    /// List state cell names as of a past timestamp.
+    pub fn list_at(
+        &self,
+        branch_id: &BranchId,
+        space: &str,
+        prefix: Option<&str>,
+        as_of_ts: u64,
+    ) -> StrataResult<Vec<String>> {
+        let ns = self.namespace_for(branch_id, space);
+        let scan_prefix = Key::new_state(ns, prefix.unwrap_or(""));
+        let results = self.db.scan_prefix_at_timestamp(&scan_prefix, as_of_ts)?;
+        Ok(results
+            .into_iter()
+            .filter_map(|(key, _)| key.user_key_string())
+            .collect())
+    }
 }
 
 // ========== Searchable Trait Implementation ==========

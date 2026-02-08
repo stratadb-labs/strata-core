@@ -101,6 +101,20 @@ pub fn kv_get(p: &Arc<Primitives>, branch: BranchId, space: String, key: String)
     Ok(Output::MaybeVersioned(result.map(to_versioned_value)))
 }
 
+/// Handle KvGet with as_of timestamp (time-travel read).
+pub fn kv_get_at(
+    p: &Arc<Primitives>,
+    branch: BranchId,
+    space: String,
+    key: String,
+    as_of_ts: u64,
+) -> Result<Output> {
+    let branch_id = to_core_branch_id(&branch)?;
+    convert_result(validate_key(&key))?;
+    let result = convert_result(p.kv.get_at(&branch_id, &space, &key, as_of_ts))?;
+    Ok(Output::Maybe(result))
+}
+
 /// Handle KvDelete command.
 pub fn kv_delete(
     p: &Arc<Primitives>,
@@ -157,4 +171,22 @@ pub fn kv_list(
     } else {
         Ok(Output::Keys(keys))
     }
+}
+
+/// Handle KvList with as_of timestamp (time-travel read).
+pub fn kv_list_at(
+    p: &Arc<Primitives>,
+    branch: BranchId,
+    space: String,
+    prefix: Option<String>,
+    as_of_ts: u64,
+) -> Result<Output> {
+    let branch_id = to_core_branch_id(&branch)?;
+    if let Some(ref pfx) = prefix {
+        if !pfx.is_empty() {
+            convert_result(validate_key(pfx))?;
+        }
+    }
+    let keys = convert_result(p.kv.list_at(&branch_id, &space, prefix.as_deref(), as_of_ts))?;
+    Ok(Output::Keys(keys))
 }

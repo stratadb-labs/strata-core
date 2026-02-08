@@ -65,6 +65,7 @@ fn test_kv_get_nonexistent_determinism() {
                 branch: Some(BranchId::from("default")),
                 space: None,
                 key: "nonexistent-key".to_string(),
+                as_of: None,
             })
         })
         .collect();
@@ -102,6 +103,7 @@ fn test_kv_write_read_determinism() {
                 branch: Some(BranchId::from("default")),
                 space: None,
                 key: "test-key".to_string(),
+                as_of: None,
             })
         })
         .collect();
@@ -137,6 +139,7 @@ fn test_state_write_read_determinism() {
                 branch: Some(BranchId::from("default")),
                 space: None,
                 cell: "counter".to_string(),
+                as_of: None,
             })
         })
         .collect();
@@ -211,6 +214,7 @@ fn test_sequential_writes_determinism() {
             branch: Some(BranchId::from("default")),
             space: None,
             key: format!("key-{}", i),
+            as_of: None,
         });
 
         match result {
@@ -248,6 +252,7 @@ fn test_kv_list_determinism() {
                 prefix: Some("user:".to_string()),
                 cursor: None,
                 limit: None,
+                as_of: None,
             })
         })
         .collect();
@@ -320,6 +325,7 @@ fn test_vector_search_determinism() {
                 k: 3,
                 filter: None,
                 metric: None,
+                as_of: None,
             })
         })
         .collect();
@@ -372,6 +378,7 @@ fn test_event_get_by_type_determinism() {
                 event_type: "events".to_string(),
                 after_sequence: None,
                 limit: None,
+                as_of: None,
             })
         })
         .collect();
@@ -421,6 +428,7 @@ fn test_json_get_determinism() {
                 space: None,
                 key: "doc".to_string(),
                 path: ".name".to_string(),
+                as_of: None,
             })
         })
         .collect();

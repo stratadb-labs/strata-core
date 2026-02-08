@@ -271,6 +271,7 @@ fn execute_action(
                     branch: branch.clone(),
                     space: space.clone(),
                     key,
+                    as_of: None,
                 }) {
                     Ok(output) => outputs.push(output),
                     Err(e) => {
@@ -327,6 +328,7 @@ fn execute_action(
                         prefix: prefix.clone(),
                         cursor: cursor.clone(),
                         limit: Some(1000),
+                        as_of: None,
                     }),
                     Primitive::Json => state.execute(Command::JsonList {
                         branch: branch.clone(),
@@ -334,6 +336,7 @@ fn execute_action(
                         prefix: prefix.clone(),
                         cursor: cursor.clone(),
                         limit: 1000,
+                        as_of: None,
                     }),
                     Primitive::State => {
                         // State list doesn't have pagination, just execute once
@@ -341,6 +344,7 @@ fn execute_action(
                             branch: branch.clone(),
                             space: space.clone(),
                             prefix: prefix.clone(),
+                            as_of: None,
                         }) {
                             Ok(output) => {
                                 let formatted = format_output(&output, mode);

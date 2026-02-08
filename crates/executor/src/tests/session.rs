@@ -176,6 +176,7 @@ fn test_ryw_kv_put_get_inside_txn() {
             branch: None,
             space: None,
             key: "ryw_key".to_string(),
+            as_of: None,
         })
         .unwrap();
 
@@ -222,6 +223,7 @@ fn test_ryw_kv_get_inside_txn() {
             branch: None,
             space: None,
             key: "exists_key".to_string(),
+            as_of: None,
         })
         .unwrap();
 
@@ -326,6 +328,7 @@ fn test_data_commands_without_txn_delegate() {
             branch: None,
             space: None,
             key: "no_txn_key".to_string(),
+            as_of: None,
         })
         .unwrap();
 

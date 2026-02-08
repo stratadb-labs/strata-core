@@ -55,6 +55,7 @@ fn test_read_only_allows_kv_get() {
         branch: None,
         space: None,
         key: "k".into(),
+        as_of: None,
     });
 
     assert!(result.is_ok(), "read should succeed, got {:?}", result);
@@ -184,6 +185,7 @@ fn test_read_only_allows_all_reads() {
             branch: None,
             space: None,
             key: "k".into(),
+            as_of: None,
         },
         Command::KvList {
             branch: None,
@@ -191,22 +193,26 @@ fn test_read_only_allows_all_reads() {
             prefix: None,
             cursor: None,
             limit: None,
+            as_of: None,
         },
         Command::KvGetv {
             branch: None,
             space: None,
             key: "k".into(),
+            as_of: None,
         },
         Command::JsonGet {
             branch: None,
             space: None,
             key: "k".into(),
             path: "$".into(),
+            as_of: None,
         },
         Command::JsonGetv {
             branch: None,
             space: None,
             key: "k".into(),
+            as_of: None,
         },
         Command::JsonList {
             branch: None,
@@ -214,11 +220,13 @@ fn test_read_only_allows_all_reads() {
             prefix: None,
             cursor: None,
             limit: 10,
+            as_of: None,
         },
         Command::EventGet {
             branch: None,
             space: None,
             sequence: 0,
+            as_of: None,
         },
         Command::EventGetByType {
             branch: None,
@@ -226,6 +234,7 @@ fn test_read_only_allows_all_reads() {
             event_type: "t".into(),
             limit: None,
             after_sequence: None,
+            as_of: None,
         },
         Command::EventLen {
             branch: None,
@@ -235,16 +244,19 @@ fn test_read_only_allows_all_reads() {
             branch: None,
             space: None,
             cell: "c".into(),
+            as_of: None,
         },
         Command::StateGetv {
             branch: None,
             space: None,
             cell: "c".into(),
+            as_of: None,
         },
         Command::StateList {
             branch: None,
             space: None,
             prefix: None,
+            as_of: None,
         },
         Command::VectorListCollections {
             branch: None,
@@ -336,6 +348,7 @@ fn test_read_only_session_allows_reads() {
         branch: None,
         space: None,
         key: "k".into(),
+        as_of: None,
     });
 
     assert!(result.is_ok(), "read should succeed, got {:?}", result);
@@ -466,6 +479,7 @@ fn test_is_write_classification() {
             branch: None,
             space: None,
             key: "".into(),
+            as_of: None,
         },
         Command::KvList {
             branch: None,
@@ -473,22 +487,26 @@ fn test_is_write_classification() {
             prefix: None,
             cursor: None,
             limit: None,
+            as_of: None,
         },
         Command::KvGetv {
             branch: None,
             space: None,
             key: "".into(),
+            as_of: None,
         },
         Command::JsonGet {
             branch: None,
             space: None,
             key: "".into(),
             path: "".into(),
+            as_of: None,
         },
         Command::JsonGetv {
             branch: None,
             space: None,
             key: "".into(),
+            as_of: None,
         },
         Command::JsonList {
             branch: None,
@@ -496,11 +514,13 @@ fn test_is_write_classification() {
             prefix: None,
             cursor: None,
             limit: 10,
+            as_of: None,
         },
         Command::EventGet {
             branch: None,
             space: None,
             sequence: 0,
+            as_of: None,
         },
         Command::EventGetByType {
             branch: None,
@@ -508,6 +528,7 @@ fn test_is_write_classification() {
             event_type: "".into(),
             limit: None,
             after_sequence: None,
+            as_of: None,
         },
         Command::EventLen {
             branch: None,
@@ -517,22 +538,26 @@ fn test_is_write_classification() {
             branch: None,
             space: None,
             cell: "".into(),
+            as_of: None,
         },
         Command::StateGetv {
             branch: None,
             space: None,
             cell: "".into(),
+            as_of: None,
         },
         Command::StateList {
             branch: None,
             space: None,
             prefix: None,
+            as_of: None,
         },
         Command::VectorGet {
             branch: None,
             space: None,
             collection: "".into(),
             key: "".into(),
+            as_of: None,
         },
         Command::VectorSearch {
             branch: None,
@@ -542,6 +567,7 @@ fn test_is_write_classification() {
             k: 0,
             filter: None,
             metric: None,
+            as_of: None,
         },
         Command::VectorListCollections {
             branch: None,

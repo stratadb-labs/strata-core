@@ -59,6 +59,7 @@ fn test_kv_put_get_parity() {
         branch: None,
         space: None,
         key: "key2".to_string(),
+        as_of: None,
     });
 
     assert_eq!(direct_value.unwrap(), Value::String("direct".into()));
@@ -75,6 +76,7 @@ fn test_kv_put_get_parity() {
         branch: None,
         space: None,
         key: "key1".to_string(),
+        as_of: None,
     });
     match cross_read_exec {
         Ok(Output::MaybeVersioned(Some(vv))) => {
@@ -135,6 +137,7 @@ fn test_kv_list_parity() {
         prefix: Some("user:".to_string()),
         cursor: None,
         limit: None,
+        as_of: None,
     });
 
     match result {
@@ -153,6 +156,7 @@ fn test_kv_list_parity() {
         prefix: None,
         cursor: None,
         limit: None,
+        as_of: None,
     });
 
     match result_all {
@@ -196,6 +200,7 @@ fn test_json_set_get_parity() {
         space: None,
         key: "doc1".to_string(),
         path: ".name".to_string(),
+        as_of: None,
     });
 
     match exec_get {
@@ -256,6 +261,7 @@ fn test_event_append_get_by_type_parity() {
         event_type: "events".to_string(),
         after_sequence: None,
         limit: None,
+        as_of: None,
     });
 
     match read_result {
@@ -308,6 +314,7 @@ fn test_state_set_get_parity() {
         branch: None,
         space: None,
         cell: "cell2".to_string(),
+        as_of: None,
     });
 
     match exec_get {
@@ -395,6 +402,7 @@ fn test_vector_upsert_search_parity() {
         k: 10,
         filter: None,
         metric: None,
+        as_of: None,
     });
 
     match search_result {
@@ -542,6 +550,7 @@ fn test_branch_isolation_parity() {
         branch: Some(BranchId::from("550e8400-e29b-41d4-a716-446655440003")),
         space: None,
         key: "shared-key".to_string(),
+        as_of: None,
     });
 
     match result_a {
@@ -557,6 +566,7 @@ fn test_branch_isolation_parity() {
         branch: Some(BranchId::from("550e8400-e29b-41d4-a716-446655440004")),
         space: None,
         key: "shared-key".to_string(),
+        as_of: None,
     });
 
     match result_b {

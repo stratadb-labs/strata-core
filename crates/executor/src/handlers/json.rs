@@ -129,6 +129,29 @@ pub fn json_get(
     }
 }
 
+/// Handle JsonGet with as_of timestamp (time-travel read).
+pub fn json_get_at(
+    p: &Arc<Primitives>,
+    branch: BranchId,
+    space: String,
+    key: String,
+    path: String,
+    as_of_ts: u64,
+) -> Result<Output> {
+    let branch_id = to_core_branch_id(&branch)?;
+    convert_result(validate_key(&key))?;
+    let json_path = convert_result(parse_path(&path))?;
+
+    let result = convert_result(p.json.get_at(&branch_id, &space, &key, &json_path, as_of_ts))?;
+    match result {
+        Some(json_val) => {
+            let value = convert_result(json_to_value(json_val))?;
+            Ok(Output::Maybe(Some(value)))
+        }
+        None => Ok(Output::Maybe(None)),
+    }
+}
+
 /// Handle JsonDelete command.
 ///
 /// - Root path: destroy entire document (returns 1 if existed, 0 otherwise).
@@ -245,6 +268,25 @@ fn embed_full_doc(
             );
         }
     }
+}
+
+/// Handle JsonList with as_of timestamp (time-travel list).
+///
+/// Returns only document IDs that existed at or before the given timestamp.
+/// Does not support cursor-based pagination (returns all matching docs).
+pub fn json_list_at(
+    p: &Arc<Primitives>,
+    branch: BranchId,
+    space: String,
+    prefix: Option<String>,
+    as_of_ts: u64,
+) -> Result<Output> {
+    let branch_id = to_core_branch_id(&branch)?;
+    let keys = convert_result(p.json.list_at(&branch_id, &space, prefix.as_deref(), as_of_ts))?;
+    Ok(Output::JsonListResult {
+        keys,
+        cursor: None,
+    })
 }
 
 #[cfg(test)]

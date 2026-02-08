@@ -334,6 +334,7 @@ impl Database {
         let lock_path = canonical_path.join(".lock");
         let lock_file = std::fs::OpenOptions::new()
             .create(true)
+            .truncate(false)
             .read(true)
             .write(true)
             .open(&lock_path)
@@ -534,6 +535,28 @@ impl Database {
     ) -> StrataResult<Vec<VersionedValue>> {
         use strata_core::Storage;
         self.storage.get_history(key, limit, before_version)
+    }
+
+    /// Get value at or before the given timestamp directly from storage.
+    ///
+    /// This is a non-transactional read for time-travel queries.
+    pub(crate) fn get_at_timestamp(&self, key: &Key, max_timestamp: u64) -> StrataResult<Option<VersionedValue>> {
+        self.storage.get_at_timestamp(key, max_timestamp)
+    }
+
+    /// Scan keys matching a prefix at or before the given timestamp.
+    ///
+    /// This is a non-transactional read for time-travel queries.
+    pub(crate) fn scan_prefix_at_timestamp(&self, prefix: &Key, max_timestamp: u64) -> StrataResult<Vec<(Key, VersionedValue)>> {
+        self.storage.scan_prefix_at_timestamp(prefix, max_timestamp)
+    }
+
+    /// Get the available time range for a branch.
+    ///
+    /// Returns (oldest_ts, latest_ts) in microseconds since epoch.
+    /// Returns None if the branch has no data.
+    pub fn time_range(&self, branch_id: BranchId) -> StrataResult<Option<(u64, u64)>> {
+        self.storage.time_range(branch_id)
     }
 
     /// Check if this is a cache (no-disk) database

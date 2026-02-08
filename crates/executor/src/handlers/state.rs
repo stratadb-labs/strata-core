@@ -108,6 +108,20 @@ pub fn state_get(
     ))
 }
 
+/// Handle StateGet with as_of timestamp (time-travel read).
+pub fn state_get_at(
+    p: &Arc<Primitives>,
+    branch: BranchId,
+    space: String,
+    cell: String,
+    as_of_ts: u64,
+) -> Result<Output> {
+    let branch_id = bridge::to_core_branch_id(&branch)?;
+    convert_result(bridge::validate_key(&cell))?;
+    let result = convert_result(p.state.get_at(&branch_id, &space, &cell, as_of_ts))?;
+    Ok(Output::Maybe(result))
+}
+
 /// Handle StateCas command.
 pub fn state_cas(
     p: &Arc<Primitives>,
@@ -260,5 +274,25 @@ pub fn state_list(
         }
     }
     let keys = convert_result(p.state.list(&branch_id, &space, prefix.as_deref()))?;
+    Ok(Output::Keys(keys))
+}
+
+/// Handle StateList with as_of timestamp (time-travel list).
+///
+/// Returns only state cell names that existed at or before the given timestamp.
+pub fn state_list_at(
+    p: &Arc<Primitives>,
+    branch: BranchId,
+    space: String,
+    prefix: Option<String>,
+    as_of_ts: u64,
+) -> Result<Output> {
+    let branch_id = bridge::to_core_branch_id(&branch)?;
+    if let Some(ref pfx) = prefix {
+        if !pfx.is_empty() {
+            convert_result(bridge::validate_key(pfx))?;
+        }
+    }
+    let keys = convert_result(p.state.list_at(&branch_id, &space, prefix.as_deref(), as_of_ts))?;
     Ok(Output::Keys(keys))
 }

@@ -484,6 +484,7 @@ fn test_command_without_space_uses_default() {
         branch: None,
         space: Some("default".to_string()),
         key: "compat-key".to_string(),
+        as_of: None,
     });
     match result {
         Ok(Output::MaybeVersioned(Some(vv))) => {
@@ -512,6 +513,7 @@ fn test_explicit_space_in_command() {
         branch: None,
         space: Some("explicit".to_string()),
         key: "key1".to_string(),
+        as_of: None,
     });
     match result {
         Ok(Output::MaybeVersioned(Some(vv))) => {
@@ -525,6 +527,7 @@ fn test_explicit_space_in_command() {
         branch: None,
         space: None,
         key: "key1".to_string(),
+        as_of: None,
     });
     match result {
         Ok(Output::MaybeVersioned(None)) => {}

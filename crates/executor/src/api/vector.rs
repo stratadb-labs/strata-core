@@ -89,6 +89,7 @@ impl Strata {
             space: self.space_id(),
             collection: collection.to_string(),
             key: key.to_string(),
+            as_of: None,
         })? {
             Output::VectorData(data) => Ok(data),
             _ => Err(Error::Internal {
@@ -162,6 +163,7 @@ impl Strata {
             k,
             filter: None,
             metric: None,
+            as_of: None,
         })? {
             Output::VectorMatches(matches) => Ok(matches),
             _ => Err(Error::Internal {

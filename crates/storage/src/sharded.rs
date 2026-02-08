@@ -93,6 +93,16 @@ impl VersionChain {
             .find(|sv| sv.version().as_u64() <= max_version)
     }
 
+    /// Get the version at or before the given timestamp (microseconds since epoch).
+    ///
+    /// Versions are stored newest-first, so we scan until we find one with timestamp <= max_timestamp.
+    /// Returns None if no version exists at or before the given timestamp.
+    pub fn get_at_timestamp(&self, max_timestamp: u64) -> Option<&StoredValue> {
+        self.versions
+            .iter()
+            .find(|sv| u64::from(sv.timestamp()) <= max_timestamp)
+    }
+
     /// Get the latest version
     #[inline]
     pub fn latest(&self) -> Option<&StoredValue> {
@@ -513,6 +523,78 @@ impl ShardedStore {
             .get(branch_id)
             .map(|shard| shard.len())
             .unwrap_or(0)
+    }
+
+    /// Get value at or before the given timestamp.
+    /// Returns None if key doesn't exist, has no version at that time, is expired, or is a tombstone.
+    pub fn get_at_timestamp(&self, key: &Key, max_timestamp: u64) -> strata_core::StrataResult<Option<VersionedValue>> {
+        let branch_id = key.namespace.branch_id;
+        Ok(self.shards.get(&branch_id).and_then(|shard| {
+            shard.data.get(key).and_then(|chain| {
+                chain.get_at_timestamp(max_timestamp).and_then(|sv| {
+                    if !sv.is_expired() && !sv.is_tombstone() {
+                        Some(sv.versioned().clone())
+                    } else {
+                        None
+                    }
+                })
+            })
+        }))
+    }
+
+    /// Scan keys matching a prefix, returning values at or before the given timestamp.
+    pub fn scan_prefix_at_timestamp(
+        &self,
+        prefix: &Key,
+        max_timestamp: u64,
+    ) -> strata_core::StrataResult<Vec<(Key, VersionedValue)>> {
+        let branch_id = prefix.namespace.branch_id;
+        Ok(self.shards.get(&branch_id).map(|shard| {
+            shard.keys_with_prefix(prefix)
+                .filter_map(|k| {
+                    shard.data.get(k).and_then(|chain| {
+                        chain.get_at_timestamp(max_timestamp).and_then(|sv| {
+                            if !sv.is_expired() && !sv.is_tombstone() {
+                                Some((k.clone(), sv.versioned().clone()))
+                            } else {
+                                None
+                            }
+                        })
+                    })
+                })
+                .collect()
+        }).unwrap_or_default())
+    }
+
+    /// Get the available time range for a branch.
+    ///
+    /// Scans all keys in the branch shard to find min/max timestamps.
+    /// Returns `None` if the branch has no data or doesn't exist.
+    ///
+    /// Note: Entries with timestamp 0 are excluded. In normal operation,
+    /// `Timestamp::now()` always returns values > 0 (microseconds since Unix
+    /// epoch). A timestamp of 0 indicates uninitialized or legacy data that
+    /// predates timestamp tracking, so it is not meaningful for time-range
+    /// queries.
+    pub fn time_range(&self, branch_id: BranchId) -> strata_core::StrataResult<Option<(u64, u64)>> {
+        Ok(self.shards.get(&branch_id).and_then(|shard| {
+            let mut min_ts = u64::MAX;
+            let mut max_ts = 0u64;
+            for chain in shard.data.values() {
+                if let Some(sv) = chain.latest() {
+                    let ts: u64 = sv.timestamp().into();
+                    if ts > 0 && !sv.is_tombstone() {
+                        min_ts = min_ts.min(ts);
+                        max_ts = max_ts.max(ts);
+                    }
+                }
+            }
+            if max_ts == 0 {
+                None
+            } else {
+                Some((min_ts, max_ts))
+            }
+        }))
     }
 
     /// Garbage-collect old versions from all entries for a given branch.

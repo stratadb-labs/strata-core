@@ -678,6 +678,58 @@ impl JsonStore {
             })
         })
     }
+    // ========== Time-Travel API ==========
+
+    /// Get value at path in a document as of a past timestamp.
+    ///
+    /// Returns the document value at the given timestamp, or None if the
+    /// document didn't exist then or path wasn't found.
+    pub fn get_at(
+        &self,
+        branch_id: &BranchId,
+        space: &str,
+        doc_id: &str,
+        path: &JsonPath,
+        as_of_ts: u64,
+    ) -> StrataResult<Option<JsonValue>> {
+        path.validate().map_err(limit_error_to_error)?;
+
+        let key = self.key_for(branch_id, space, doc_id);
+        let result = self.db.get_at_timestamp(&key, as_of_ts)?;
+        match result {
+            Some(vv) => {
+                let doc = Self::deserialize_doc(&vv.value)?;
+                Ok(get_at_path(&doc.value, path).cloned())
+            }
+            None => Ok(None),
+        }
+    }
+
+    /// List document IDs as of a past timestamp.
+    pub fn list_at(
+        &self,
+        branch_id: &BranchId,
+        space: &str,
+        prefix: Option<&str>,
+        as_of_ts: u64,
+    ) -> StrataResult<Vec<String>> {
+        let ns = self.namespace_for(branch_id, space);
+        let scan_prefix = Key::new_json_prefix(ns);
+        let results = self.db.scan_prefix_at_timestamp(&scan_prefix, as_of_ts)?;
+        let mut doc_ids = Vec::new();
+        for (_, vv) in results {
+            if let Ok(doc) = Self::deserialize_doc(&vv.value) {
+                if let Some(p) = prefix {
+                    if doc.id.starts_with(p) {
+                        doc_ids.push(doc.id);
+                    }
+                } else {
+                    doc_ids.push(doc.id);
+                }
+            }
+        }
+        Ok(doc_ids)
+    }
 }
 
 // ========== Searchable Trait Implementation ==========

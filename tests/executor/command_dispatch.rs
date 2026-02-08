@@ -99,6 +99,7 @@ fn kv_get_returns_maybe_versioned() {
             branch: None,
             space: None,
             key: "k".into(),
+            as_of: None,
         })
         .unwrap();
 
@@ -120,6 +121,7 @@ fn kv_get_missing_returns_none() {
             branch: None,
             space: None,
             key: "nonexistent".into(),
+            as_of: None,
         })
         .unwrap();
 
@@ -236,6 +238,7 @@ fn state_set_read_cycle() {
             branch: None,
             space: None,
             cell: "status".into(),
+            as_of: None,
         })
         .unwrap();
 
@@ -329,6 +332,7 @@ fn vector_search_returns_matches() {
             k: 10,
             filter: None,
             metric: None,
+            as_of: None,
         })
         .unwrap();
 
@@ -569,6 +573,7 @@ fn commands_with_none_branch_use_default() {
             branch: Some(BranchId::default()),
             space: None,
             key: "default_test".into(),
+            as_of: None,
         })
         .unwrap();
 
@@ -635,6 +640,7 @@ fn different_branches_are_isolated() {
             branch: Some(branch_a),
             space: None,
             key: "shared_key".into(),
+            as_of: None,
         })
         .unwrap();
 
@@ -652,6 +658,7 @@ fn different_branches_are_isolated() {
             branch: Some(branch_b),
             space: None,
             key: "shared_key".into(),
+            as_of: None,
         })
         .unwrap();
 
