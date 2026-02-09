@@ -854,24 +854,47 @@ active = db.txn_is_active()
 
 ## Search
 
-### search(query, k=None, primitives=None)
+### search(query, k=None, primitives=None, time_range=None, mode=None, expand=None, rerank=None)
 
-Search across multiple primitives.
+Search across multiple primitives with optional time filtering, query expansion, and reranking.
 
 ```python
+# Basic search
 results = db.search("hello world", k=10, primitives=["kv", "json"])
 for hit in results:
     print(f"{hit['entity']} ({hit['primitive']}): {hit['score']}")
+
+# Time-scoped search
+results = db.search(
+    "deployment failures",
+    k=10,
+    time_range={
+        "start": "2026-02-07T00:00:00Z",
+        "end": "2026-02-09T23:59:59Z",
+    },
+)
+
+# Keyword-only mode, disable expansion
+results = db.search("auth login", mode="keyword", expand=False)
+
+# Force reranking on
+results = db.search("database issues", rerank=True)
 ```
 
 **Parameters:**
 | Name | Type | Description |
 |------|------|-------------|
 | `query` | str | Search query |
-| `k` | int, optional | Maximum results |
-| `primitives` | list[str], optional | Primitives to search |
+| `k` | int, optional | Maximum results (default: 10) |
+| `primitives` | list[str], optional | Primitives to search (e.g., `["kv", "json"]`) |
+| `time_range` | dict, optional | `{"start": "ISO8601", "end": "ISO8601"}` time filter |
+| `mode` | str, optional | `"hybrid"` (default) or `"keyword"` |
+| `expand` | bool, optional | Enable query expansion (default: auto) |
+| `rerank` | bool, optional | Enable result reranking (default: auto) |
 
 **Returns:** `list[dict]` with `entity`, `primitive`, `score`, `rank`, `snippet`
+
+When `expand` or `rerank` are not specified, they are automatically enabled if a model is configured via `configure_model`. Set to `False` to force off, or `True` to force on (silently skipped if no model).
 
 ---
 

@@ -99,6 +99,14 @@ Every method on the `Strata` struct, grouped by category.
 | `vector_search` | `(collection: &str, query: Vec<f32>, k: u64) -> Result<Vec<VectorMatch>>` | Top-k matches | 8 metadata filter operators |
 | `vector_search_at` | `(collection: &str, query: Vec<f32>, k: u64, as_of_ts: u64) -> Result<Vec<VectorMatch>>` | Historical top-k matches | Temporal HNSW filtering |
 
+## Search
+
+| Method | Signature | Returns | Notes |
+|--------|-----------|---------|-------|
+| `search` | `(query: &str, k: Option<u64>, primitives: Option<Vec<String>>, time_range: Option<TimeRangeInput>, mode: Option<String>, expand: Option<bool>, rerank: Option<bool>) -> Result<Vec<SearchResultHit>>` | Search hits | Cross-primitive search |
+
+`TimeRangeInput` has `start` and `end` fields (ISO 8601 strings). `mode` can be `"keyword"` or `"hybrid"` (default). `expand` and `rerank` default to auto (enabled when a model is configured).
+
 ## Branch Operations (Low-Level)
 
 | Method | Signature | Returns |

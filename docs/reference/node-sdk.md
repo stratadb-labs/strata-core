@@ -957,16 +957,45 @@ Release all database resources.
 await db.close();
 ```
 
-### search(query, k?, primitives?)
+### search(query, options?)
 
-Search across multiple primitives.
+Search across multiple primitives with optional time filtering, query expansion, and reranking.
 
 ```typescript
-const results = await db.search('hello world', 10, ['kv', 'json']);
+// Basic search
+const results = await db.search('hello world', { k: 10, primitives: ['kv', 'json'] });
 for (const hit of results) {
   console.log(`${hit.entity} (${hit.primitive}): ${hit.score}`);
 }
+
+// Time-scoped search
+const recent = await db.search('deployment failures', {
+  k: 10,
+  timeRange: {
+    start: '2026-02-07T00:00:00Z',
+    end: '2026-02-09T23:59:59Z',
+  },
+});
+
+// Keyword-only mode, disable expansion
+const keywordResults = await db.search('auth login', { mode: 'keyword', expand: false });
+
+// Force reranking on
+const reranked = await db.search('database issues', { rerank: true });
 ```
+
+**Parameters:**
+| Name | Type | Description |
+|------|------|-------------|
+| `query` | string | Search query |
+| `options.k` | number? | Maximum results (default: 10) |
+| `options.primitives` | string[]? | Primitives to search (e.g., `['kv', 'json']`) |
+| `options.timeRange` | TimeRangeInput? | `{ start: string, end: string }` ISO 8601 time filter |
+| `options.mode` | string? | `'hybrid'` (default) or `'keyword'` |
+| `options.expand` | boolean? | Enable query expansion (default: auto) |
+| `options.rerank` | boolean? | Enable result reranking (default: auto) |
+
+When `expand` or `rerank` are not specified, they are automatically enabled if a model is configured. Set to `false` to force off, or `true` to force on (silently skipped if no model).
 
 **Returns:** `Promise<SearchHit[]>`
 
@@ -1090,6 +1119,20 @@ interface SearchHit {
   score: number;
   rank: number;
   snippet?: string;
+}
+
+interface TimeRangeInput {
+  start: string;  // ISO 8601 datetime
+  end: string;    // ISO 8601 datetime
+}
+
+interface SearchOptions {
+  k?: number;
+  primitives?: string[];
+  timeRange?: TimeRangeInput;
+  mode?: 'keyword' | 'hybrid';
+  expand?: boolean;
+  rerank?: boolean;
 }
 
 interface TimeRange {

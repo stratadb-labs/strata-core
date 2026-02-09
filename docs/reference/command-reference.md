@@ -134,7 +134,28 @@ This reference is primarily for SDK builders and contributors. Most users should
 
 | Command | Fields | Output |
 |---------|--------|--------|
-| `Search` | `branch?`, `query`, `k?`, `primitives?` | `SearchResults(Vec<SearchResultHit>)` |
+| `Search` | `branch?`, `space?`, `search: SearchQuery` | `SearchResults(Vec<SearchResultHit>)` |
+
+### SearchQuery Object
+
+The `search` field is a structured `SearchQuery` object:
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `query` | string | *required* | Natural-language or keyword query |
+| `k` | integer? | 10 | Number of results to return |
+| `primitives` | string[]? | all | Restrict to specific primitives |
+| `time_range` | TimeRangeInput? | none | Filter results to a time window |
+| `mode` | string? | `"hybrid"` | Search mode: `"keyword"` or `"hybrid"` |
+| `expand` | boolean? | auto | Enable query expansion (requires model) |
+| `rerank` | boolean? | auto | Enable result reranking (requires model) |
+
+### TimeRangeInput Object
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `start` | string | Range start (inclusive), ISO 8601 datetime |
+| `end` | string | Range end (inclusive), ISO 8601 datetime |
 
 ## Branch Field Convention
 
@@ -158,6 +179,8 @@ All commands implement `Serialize` and `Deserialize` with `deny_unknown_fields`.
 {"KvPut": {"key": "foo", "value": {"Int": 42}}}
 {"KvGet": {"key": "foo"}}
 {"KvGet": {"key": "foo", "as_of": 1700002000}}
+{"Search": {"search": {"query": "error handling", "k": 10}}}
+{"Search": {"search": {"query": "errors", "time_range": {"start": "2026-02-07T00:00:00Z", "end": "2026-02-09T00:00:00Z"}}}}
 {"TimeRange": {"branch": "default"}}
 {"TxnCommit": null}
 ```
