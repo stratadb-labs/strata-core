@@ -817,7 +817,8 @@ mod tests {
 
         // Create 3 closed segments (without .meta files — legacy scenario)
         for seg_num in 1..=3 {
-            let mut segment = crate::format::WalSegment::create(&wal_dir, seg_num, test_uuid()).unwrap();
+            let mut segment =
+                crate::format::WalSegment::create(&wal_dir, seg_num, test_uuid()).unwrap();
             for i in 0..3 {
                 let txn_id = (seg_num - 1) * 3 + i + 1;
                 let record = WalRecord::new(txn_id, test_uuid(), txn_id * 1000, vec![txn_id as u8]);
@@ -869,7 +870,8 @@ mod tests {
 
         // Create 2 segments without .meta
         for seg_num in 1..=2 {
-            let mut segment = crate::format::WalSegment::create(&wal_dir, seg_num, test_uuid()).unwrap();
+            let mut segment =
+                crate::format::WalSegment::create(&wal_dir, seg_num, test_uuid()).unwrap();
             let record = WalRecord::new(seg_num, test_uuid(), seg_num * 1000, vec![seg_num as u8]);
             segment.write(&record.to_bytes()).unwrap();
             segment.close().unwrap();
@@ -901,19 +903,17 @@ mod tests {
         let db_dir = dir.path().to_path_buf();
 
         // Create manifest with active_wal_segment=3 (segments 1-2 are closed)
-        let mut manager = ManifestManager::create(
-            db_dir.join("MANIFEST"),
-            test_uuid(),
-            "identity".to_string(),
-        )
-        .unwrap();
+        let mut manager =
+            ManifestManager::create(db_dir.join("MANIFEST"), test_uuid(), "identity".to_string())
+                .unwrap();
         manager.set_active_segment(3).unwrap();
 
         // Create segments 1-2 with records (no .meta — legacy)
         let wal_dir = db_dir.join("WAL");
         std::fs::create_dir_all(&wal_dir).unwrap();
         for seg_num in 1..=2u64 {
-            let mut segment = crate::format::WalSegment::create(&wal_dir, seg_num, test_uuid()).unwrap();
+            let mut segment =
+                crate::format::WalSegment::create(&wal_dir, seg_num, test_uuid()).unwrap();
             let record = WalRecord::new(seg_num, test_uuid(), seg_num * 1000, vec![seg_num as u8]);
             segment.write(&record.to_bytes()).unwrap();
             segment.close().unwrap();
@@ -922,9 +922,7 @@ mod tests {
         crate::format::WalSegment::create(&wal_dir, 3, test_uuid()).unwrap();
 
         let coordinator = RecoveryCoordinator::new(db_dir, make_codec());
-        let result = coordinator
-            .recover(|_| Ok(()), |_| Ok(()))
-            .unwrap();
+        let result = coordinator.recover(|_| Ok(()), |_| Ok(())).unwrap();
 
         // Recovery should have rebuilt .meta for closed segments 1-2
         assert_eq!(result.meta_files_rebuilt, 2);
@@ -933,7 +931,10 @@ mod tests {
         for seg_num in 1..=2u64 {
             let meta = crate::format::segment_meta::SegmentMeta::read_from_file(&wal_dir, seg_num)
                 .unwrap()
-                .expect(&format!("Segment {} should have .meta after recovery", seg_num));
+                .expect(&format!(
+                    "Segment {} should have .meta after recovery",
+                    seg_num
+                ));
             assert_eq!(meta.segment_number, seg_num);
             assert_eq!(meta.record_count, 1);
         }

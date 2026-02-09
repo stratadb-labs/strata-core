@@ -108,8 +108,9 @@ fn is_float(s: &str) -> bool {
         return false;
     }
     // All characters must be digits, dot, e, E, +, -
-    s.bytes()
-        .all(|b| b.is_ascii_digit() || b == b'.' || b == b'e' || b == b'E' || b == b'+' || b == b'-')
+    s.bytes().all(|b| {
+        b.is_ascii_digit() || b == b'.' || b == b'e' || b == b'E' || b == b'+' || b == b'-'
+    })
 }
 
 #[cfg(test)]
@@ -151,10 +152,7 @@ mod tests {
     fn test_parse_json_object() {
         match parse_value(r#"{"name":"Alice"}"#) {
             Value::Object(map) => {
-                assert_eq!(
-                    map.get("name"),
-                    Some(&Value::String("Alice".into()))
-                );
+                assert_eq!(map.get("name"), Some(&Value::String("Alice".into())));
             }
             other => panic!("Expected Object, got {:?}", other),
         }

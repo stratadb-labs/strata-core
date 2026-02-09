@@ -10,16 +10,14 @@ use strata_intelligence::embed::model::EmbedModel;
 use strata_intelligence::embed::EmbedModelState;
 
 fn model_dir() -> std::path::PathBuf {
-    Path::new(env!("CARGO_MANIFEST_DIR"))
-        .join("../../models/minilm-l6-v2")
+    Path::new(env!("CARGO_MANIFEST_DIR")).join("../../models/minilm-l6-v2")
 }
 
 fn load_model() -> EmbedModel {
     let dir = model_dir();
     let safetensors_bytes =
         std::fs::read(dir.join("model.safetensors")).expect("model.safetensors not found");
-    let vocab_text =
-        std::fs::read_to_string(dir.join("vocab.txt")).expect("vocab.txt not found");
+    let vocab_text = std::fs::read_to_string(dir.join("vocab.txt")).expect("vocab.txt not found");
     EmbedModel::load(&safetensors_bytes, &vocab_text).expect("failed to load model")
 }
 

@@ -498,8 +498,11 @@ fn test_flush_compact_parity() {
     // On ephemeral databases, both checkpoint and compact are no-ops (Ok)
     let engine_result = p.db.compact();
     let executor_result = executor.execute(Command::Compact);
-    assert_eq!(engine_result.is_ok(), executor_result.is_ok(),
-        "Executor Compact result must match engine compact() result");
+    assert_eq!(
+        engine_result.is_ok(),
+        executor_result.is_ok(),
+        "Executor Compact result must match engine compact() result"
+    );
 }
 
 // =============================================================================

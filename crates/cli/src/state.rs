@@ -5,8 +5,8 @@
 //! `Arc<Database>`.
 
 use strata_executor::{
-    BranchDiffResult, Branches, Command, Error, ForkInfo, MergeInfo, MergeStrategy, Output,
-    Result, Session, Strata,
+    BranchDiffResult, Branches, Command, Error, ForkInfo, MergeInfo, MergeStrategy, Output, Result,
+    Session, Strata,
 };
 
 /// Wraps the database handles and tracks current context.

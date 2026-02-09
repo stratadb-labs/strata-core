@@ -63,20 +63,18 @@ pub fn run_repl(state: &mut SessionState, mode: OutputMode) {
                         MetaCommand::Help { command } => {
                             print_help(command.as_deref());
                         }
-                        MetaCommand::Use { branch, space } => {
-                            match state.set_branch(&branch) {
-                                Ok(()) => {
-                                    if let Some(s) = space {
-                                        state.set_space(&s);
-                                    } else {
-                                        state.set_space("default");
-                                    }
-                                }
-                                Err(e) => {
-                                    eprintln!("{}", format_error(&e, mode));
+                        MetaCommand::Use { branch, space } => match state.set_branch(&branch) {
+                            Ok(()) => {
+                                if let Some(s) = space {
+                                    state.set_space(&s);
+                                } else {
+                                    state.set_space("default");
                                 }
                             }
-                        }
+                            Err(e) => {
+                                eprintln!("{}", format_error(&e, mode));
+                            }
+                        },
                     }
                     continue;
                 }
@@ -175,11 +173,7 @@ pub fn run_pipe(state: &mut SessionState, mode: OutputMode) -> i32 {
 }
 
 /// Execute a parsed action. Returns true on success, false on error.
-fn execute_action(
-    matches: &clap::ArgMatches,
-    state: &mut SessionState,
-    mode: OutputMode,
-) -> bool {
+fn execute_action(matches: &clap::ArgMatches, state: &mut SessionState, mode: OutputMode) -> bool {
     match matches_to_action(matches, state) {
         Ok(CliAction::Execute(cmd)) => match state.execute(cmd) {
             Ok(output) => {
@@ -205,19 +199,18 @@ fn execute_action(
                     false
                 }
             },
-            BranchOp::Diff {
-                branch_a,
-                branch_b,
-            } => match state.diff_branches(&branch_a, &branch_b) {
-                Ok(diff) => {
-                    println!("{}", format_diff(&diff, mode));
-                    true
+            BranchOp::Diff { branch_a, branch_b } => {
+                match state.diff_branches(&branch_a, &branch_b) {
+                    Ok(diff) => {
+                        println!("{}", format_diff(&diff, mode));
+                        true
+                    }
+                    Err(e) => {
+                        eprintln!("{}", format_error(&e, mode));
+                        false
+                    }
                 }
-                Err(e) => {
-                    eprintln!("{}", format_error(&e, mode));
-                    false
-                }
-            },
+            }
             BranchOp::Merge { source, strategy } => match state.merge_branch(&source, strategy) {
                 Ok(info) => {
                     println!("{}", format_merge_info(&info, mode));

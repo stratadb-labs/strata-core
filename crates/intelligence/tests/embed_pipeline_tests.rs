@@ -43,7 +43,10 @@ fn test_extract_then_tokenize_roundtrip() {
 fn test_extract_complex_value_tokenizable() {
     let mut map = HashMap::new();
     map.insert("name".to_string(), Value::String("Alice".into()));
-    map.insert("scores".to_string(), Value::Array(vec![Value::Int(10), Value::Int(20)]));
+    map.insert(
+        "scores".to_string(),
+        Value::Array(vec![Value::Int(10), Value::Int(20)]),
+    );
     let nested = Value::Object(map);
 
     let text = extract_text(&nested).unwrap();
@@ -76,7 +79,11 @@ fn test_tokenizer_output_contract() {
             input
         );
         // CLS/SEP invariant
-        assert_eq!(result.input_ids[0], 101, "missing CLS for input: {:?}", input);
+        assert_eq!(
+            result.input_ids[0], 101,
+            "missing CLS for input: {:?}",
+            input
+        );
         assert_eq!(
             *result.input_ids.last().unwrap(),
             102,

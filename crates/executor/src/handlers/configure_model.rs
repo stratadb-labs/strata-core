@@ -18,10 +18,9 @@ pub fn configure_model(
     api_key: Option<String>,
     timeout_ms: Option<u64>,
 ) -> Result<Output> {
-    let state = p
-        .db
-        .extension::<ModelConfigState>()
-        .map_err(crate::Error::from)?;
+    let state =
+        p.db.extension::<ModelConfigState>()
+            .map_err(crate::Error::from)?;
 
     let config = ModelConfig {
         endpoint,

@@ -139,48 +139,47 @@ pub fn state_cas(
     // Extract text before value is consumed
     let text = super::embed_hook::extract_text(&value);
 
-    let result = match expected_counter {
-        None => {
-            // Init semantics: create only if cell doesn't exist.
-            // Check existence first since init() is idempotent.
-            if convert_result(p.state.get(&branch_id, &space, &cell))?.is_some() {
-                return Ok(Output::MaybeVersion(None));
-            }
-            match p.state.init(&branch_id, &space, &cell, value) {
-                Ok(version) => Ok(Output::MaybeVersion(Some(bridge::extract_version(
-                    &version,
-                )))),
-                Err(e) => {
-                    let err = crate::Error::from(e);
-                    match err {
-                        crate::Error::VersionConflict { .. } | crate::Error::Conflict { .. } => {
-                            Ok(Output::MaybeVersion(None))
+    let result =
+        match expected_counter {
+            None => {
+                // Init semantics: create only if cell doesn't exist.
+                // Check existence first since init() is idempotent.
+                if convert_result(p.state.get(&branch_id, &space, &cell))?.is_some() {
+                    return Ok(Output::MaybeVersion(None));
+                }
+                match p.state.init(&branch_id, &space, &cell, value) {
+                    Ok(version) => Ok(Output::MaybeVersion(Some(bridge::extract_version(
+                        &version,
+                    )))),
+                    Err(e) => {
+                        let err = crate::Error::from(e);
+                        match err {
+                            crate::Error::VersionConflict { .. }
+                            | crate::Error::Conflict { .. } => Ok(Output::MaybeVersion(None)),
+                            other => Err(other),
                         }
-                        other => Err(other),
                     }
                 }
             }
-        }
-        Some(expected) => {
-            match p
-                .state
-                .cas(&branch_id, &space, &cell, Version::Counter(expected), value)
-            {
-                Ok(version) => Ok(Output::MaybeVersion(Some(bridge::extract_version(
-                    &version,
-                )))),
-                Err(e) => {
-                    let err = crate::Error::from(e);
-                    match err {
-                        crate::Error::VersionConflict { .. } | crate::Error::Conflict { .. } => {
-                            Ok(Output::MaybeVersion(None))
+            Some(expected) => {
+                match p
+                    .state
+                    .cas(&branch_id, &space, &cell, Version::Counter(expected), value)
+                {
+                    Ok(version) => Ok(Output::MaybeVersion(Some(bridge::extract_version(
+                        &version,
+                    )))),
+                    Err(e) => {
+                        let err = crate::Error::from(e);
+                        match err {
+                            crate::Error::VersionConflict { .. }
+                            | crate::Error::Conflict { .. } => Ok(Output::MaybeVersion(None)),
+                            other => Err(other),
                         }
-                        other => Err(other),
                     }
                 }
             }
-        }
-    };
+        };
 
     // Best-effort auto-embed only if the CAS/init actually succeeded (returned a version)
     if let Ok(Output::MaybeVersion(Some(_))) = &result {
@@ -293,6 +292,9 @@ pub fn state_list_at(
             convert_result(bridge::validate_key(pfx))?;
         }
     }
-    let keys = convert_result(p.state.list_at(&branch_id, &space, prefix.as_deref(), as_of_ts))?;
+    let keys = convert_result(
+        p.state
+            .list_at(&branch_id, &space, prefix.as_deref(), as_of_ts),
+    )?;
     Ok(Output::Keys(keys))
 }

@@ -142,7 +142,10 @@ pub fn json_get_at(
     convert_result(validate_key(&key))?;
     let json_path = convert_result(parse_path(&path))?;
 
-    let result = convert_result(p.json.get_at(&branch_id, &space, &key, &json_path, as_of_ts))?;
+    let result = convert_result(
+        p.json
+            .get_at(&branch_id, &space, &key, &json_path, as_of_ts),
+    )?;
     match result {
         Some(json_val) => {
             let value = convert_result(json_to_value(json_val))?;
@@ -282,11 +285,11 @@ pub fn json_list_at(
     as_of_ts: u64,
 ) -> Result<Output> {
     let branch_id = to_core_branch_id(&branch)?;
-    let keys = convert_result(p.json.list_at(&branch_id, &space, prefix.as_deref(), as_of_ts))?;
-    Ok(Output::JsonListResult {
-        keys,
-        cursor: None,
-    })
+    let keys = convert_result(
+        p.json
+            .list_at(&branch_id, &space, prefix.as_deref(), as_of_ts),
+    )?;
+    Ok(Output::JsonListResult { keys, cursor: None })
 }
 
 #[cfg(test)]

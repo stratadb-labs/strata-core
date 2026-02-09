@@ -25,11 +25,7 @@ pub fn parse_expansion(text: &str) -> ExpandedQueries {
 /// that may describe the topic without using the exact query terms.
 pub fn parse_expansion_with_filter(text: &str, original_query: Option<&str>) -> ExpandedQueries {
     let query_terms: Vec<String> = original_query
-        .map(|q| {
-            q.split_whitespace()
-                .map(|t| t.to_lowercase())
-                .collect()
-        })
+        .map(|q| q.split_whitespace().map(|t| t.to_lowercase()).collect())
         .unwrap_or_default();
 
     let mut queries = Vec::new();
@@ -40,16 +36,15 @@ pub fn parse_expansion_with_filter(text: &str, original_query: Option<&str>) -> 
             continue;
         }
 
-        let (query_type, expansion_text) =
-            if let Some(text) = trimmed.strip_prefix("lex:") {
-                (QueryType::Lex, text.trim())
-            } else if let Some(text) = trimmed.strip_prefix("vec:") {
-                (QueryType::Vec, text.trim())
-            } else if let Some(text) = trimmed.strip_prefix("hyde:") {
-                (QueryType::Hyde, text.trim())
-            } else {
-                continue; // Lines without valid prefix are silently ignored
-            };
+        let (query_type, expansion_text) = if let Some(text) = trimmed.strip_prefix("lex:") {
+            (QueryType::Lex, text.trim())
+        } else if let Some(text) = trimmed.strip_prefix("vec:") {
+            (QueryType::Vec, text.trim())
+        } else if let Some(text) = trimmed.strip_prefix("hyde:") {
+            (QueryType::Hyde, text.trim())
+        } else {
+            continue; // Lines without valid prefix are silently ignored
+        };
 
         if expansion_text.is_empty() {
             continue;
@@ -59,7 +54,9 @@ pub fn parse_expansion_with_filter(text: &str, original_query: Option<&str>) -> 
         // Hyde is exempt (hypothetical docs may use different vocabulary).
         if !query_terms.is_empty() && query_type != QueryType::Hyde {
             let expansion_lower = expansion_text.to_lowercase();
-            let has_overlap = query_terms.iter().any(|term| expansion_lower.contains(term.as_str()));
+            let has_overlap = query_terms
+                .iter()
+                .any(|term| expansion_lower.contains(term.as_str()));
             if !has_overlap {
                 continue;
             }

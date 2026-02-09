@@ -115,16 +115,11 @@ fn open_database(matches: &clap::ArgMatches) -> Result<Strata, String> {
             opts = opts.auto_embed(true);
         }
 
-        Strata::open_with(path, opts)
-            .map_err(|e| format!("Failed to open database: {}", e))
+        Strata::open_with(path, opts).map_err(|e| format!("Failed to open database: {}", e))
     }
 }
 
-fn run_shell_mode(
-    matches: &clap::ArgMatches,
-    state: &mut SessionState,
-    mode: OutputMode,
-) -> i32 {
+fn run_shell_mode(matches: &clap::ArgMatches, state: &mut SessionState, mode: OutputMode) -> i32 {
     match matches_to_action(matches, state) {
         Ok(CliAction::Execute(cmd)) => match state.execute(cmd) {
             Ok(output) => {
@@ -150,19 +145,18 @@ fn run_shell_mode(
                     1
                 }
             },
-            BranchOp::Diff {
-                branch_a,
-                branch_b,
-            } => match state.diff_branches(&branch_a, &branch_b) {
-                Ok(diff) => {
-                    println!("{}", format_diff(&diff, mode));
-                    0
+            BranchOp::Diff { branch_a, branch_b } => {
+                match state.diff_branches(&branch_a, &branch_b) {
+                    Ok(diff) => {
+                        println!("{}", format_diff(&diff, mode));
+                        0
+                    }
+                    Err(e) => {
+                        eprintln!("{}", format_error(&e, mode));
+                        1
+                    }
                 }
-                Err(e) => {
-                    eprintln!("{}", format_error(&e, mode));
-                    1
-                }
-            },
+            }
             BranchOp::Merge { source, strategy } => match state.merge_branch(&source, strategy) {
                 Ok(info) => {
                     println!("{}", format_merge_info(&info, mode));

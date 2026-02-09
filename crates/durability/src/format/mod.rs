@@ -38,5 +38,7 @@ pub use primitives::{
     PrimitiveSerializeError, SnapshotSerializer, StateSnapshotEntry, VectorCollectionSnapshotEntry,
     VectorSnapshotEntry,
 };
-pub use segment_meta::{SegmentMeta, SegmentMetaError, SEGMENT_META_MAGIC, SEGMENT_META_SIZE, SEGMENT_META_VERSION};
+pub use segment_meta::{
+    SegmentMeta, SegmentMetaError, SEGMENT_META_MAGIC, SEGMENT_META_SIZE, SEGMENT_META_VERSION,
+};
 pub use watermark::{CheckpointInfo, SnapshotWatermark, WatermarkError};

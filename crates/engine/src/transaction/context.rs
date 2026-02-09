@@ -1182,5 +1182,4 @@ mod tests {
         let result = txn.json_get_path("doc", &JsonPath::root()).unwrap();
         assert_eq!(result, Some(doc));
     }
-
 }

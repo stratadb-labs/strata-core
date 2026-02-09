@@ -90,14 +90,8 @@ pub fn vector_upsert(
         .transpose()
         .map_err(crate::Error::from)?;
     let version = convert_vector_result(
-        p.vector.insert(
-            branch_id,
-            &space,
-            &collection,
-            &key,
-            &vector,
-            json_metadata,
-        ),
+        p.vector
+            .insert(branch_id, &space, &collection, &key, &vector, json_metadata),
         branch_id,
     )?;
     Ok(Output::Version(extract_version(&version)))
@@ -115,8 +109,10 @@ pub fn vector_get(
     convert_result(validate_key(&key))?;
     convert_result(validate_not_internal_collection(&collection))?;
 
-    let result =
-        convert_vector_result(p.vector.get(branch_id, &space, &collection, &key), branch_id)?;
+    let result = convert_vector_result(
+        p.vector.get(branch_id, &space, &collection, &key),
+        branch_id,
+    )?;
     match result {
         Some(versioned) => {
             let version = extract_version(&versioned.version);
@@ -179,8 +175,10 @@ pub fn vector_delete(
     let branch_id = to_core_branch_id(&branch)?;
     convert_result(validate_key(&key))?;
     convert_result(validate_not_internal_collection(&collection))?;
-    let existed =
-        convert_vector_result(p.vector.delete(branch_id, &space, &collection, &key), branch_id)?;
+    let existed = convert_vector_result(
+        p.vector.delete(branch_id, &space, &collection, &key),
+        branch_id,
+    )?;
     Ok(Output::Bool(existed))
 }
 
@@ -351,12 +349,8 @@ pub fn vector_batch_upsert(
     }
 
     let versions = convert_vector_result(
-        p.vector.batch_insert(
-            branch_id,
-            &space,
-            &collection,
-            engine_entries,
-        ),
+        p.vector
+            .batch_insert(branch_id, &space, &collection, engine_entries),
         branch_id,
     )?;
 

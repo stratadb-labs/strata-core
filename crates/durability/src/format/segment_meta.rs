@@ -173,7 +173,8 @@ impl SegmentMeta {
 
         // Validate CRC (over first SEGMENT_META_SIZE - 4 bytes)
         let crc_offset = SEGMENT_META_SIZE - 4;
-        let stored_crc = u32::from_le_bytes(data[crc_offset..SEGMENT_META_SIZE].try_into().unwrap());
+        let stored_crc =
+            u32::from_le_bytes(data[crc_offset..SEGMENT_META_SIZE].try_into().unwrap());
         let computed_crc = crc32fast::hash(&data[..crc_offset]);
         if stored_crc != computed_crc {
             return Err(SegmentMetaError::ChecksumMismatch {

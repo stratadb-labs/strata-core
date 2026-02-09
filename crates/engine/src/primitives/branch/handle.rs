@@ -28,9 +28,7 @@
 //! ## BranchHandle Pattern Implementation
 
 use crate::database::Database;
-use crate::primitives::extensions::{
-    EventLogExt, JsonStoreExt, KVStoreExt, StateCellExt,
-};
+use crate::primitives::extensions::{EventLogExt, JsonStoreExt, KVStoreExt, StateCellExt};
 use std::sync::Arc;
 use strata_concurrency::TransactionContext;
 use strata_core::contract::{Timestamp, Version, Versioned};

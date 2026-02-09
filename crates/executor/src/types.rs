@@ -14,8 +14,10 @@ use strata_core::Value;
 ///
 /// Can be "default" for the default branch, or a UUID string for named branches.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
-pub struct BranchId(/// The underlying string identifier.
-pub String);
+pub struct BranchId(
+    /// The underlying string identifier.
+    pub String,
+);
 
 impl Default for BranchId {
     fn default() -> Self {

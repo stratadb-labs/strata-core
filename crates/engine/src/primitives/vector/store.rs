@@ -24,6 +24,7 @@
 //! All VectorStore instances for the same Database share backend state
 //! through `Database::extension::<VectorBackendState>()`.
 
+use crate::database::Database;
 use crate::primitives::extensions::VectorStoreExt;
 use crate::primitives::vector::collection::{validate_collection_name, validate_vector_key};
 use crate::primitives::vector::{
@@ -31,16 +32,15 @@ use crate::primitives::vector::{
     VectorConfig, VectorEntry, VectorError, VectorId, VectorIndexBackend, VectorMatch,
     VectorMatchWithSource, VectorRecord, VectorResult,
 };
-use strata_concurrency::TransactionContext;
-use strata_core::contract::{Timestamp, Version, Versioned};
-use strata_core::EntityRef;
-use crate::database::Database;
 use parking_lot::RwLock;
 use serde_json::Value as JsonValue;
 use std::collections::BTreeMap;
 use std::sync::Arc;
+use strata_concurrency::TransactionContext;
+use strata_core::contract::{Timestamp, Version, Versioned};
 use strata_core::types::{BranchId, Key, Namespace};
 use strata_core::value::Value;
+use strata_core::EntityRef;
 use tracing::{debug, info};
 
 /// Statistics from vector recovery
@@ -494,7 +494,9 @@ impl VectorStore {
             // New vector: allocate VectorId from backend's per-collection counter
             let vector_id = backend.allocate_id();
             let record = match source_ref {
-                Some(sr) => VectorRecord::new_with_source(vector_id, embedding.to_vec(), metadata, sr),
+                Some(sr) => {
+                    VectorRecord::new_with_source(vector_id, embedding.to_vec(), metadata, sr)
+                }
                 None => VectorRecord::new(vector_id, embedding.to_vec(), metadata),
             };
             (vector_id, record)
@@ -603,7 +605,9 @@ impl VectorStore {
         let kv_key = Key::new_vector(self.namespace_for(branch_id, space), collection, key);
 
         // Get historical record from storage
-        let result = self.db.get_at_timestamp(&kv_key, as_of_ts)
+        let result = self
+            .db
+            .get_at_timestamp(&kv_key, as_of_ts)
             .map_err(|e| VectorError::Storage(e.to_string()))?;
 
         let Some(vv) = result else {
@@ -630,10 +634,14 @@ impl VectorStore {
             let vector_id = VectorId(record.vector_id);
             let state = self.state()?;
             let backends = state.backends.read();
-            let backend = backends.get(&collection_id).ok_or_else(|| VectorError::CollectionNotFound {
-                name: collection.to_string(),
-            })?;
-            backend.get(vector_id)
+            let backend =
+                backends
+                    .get(&collection_id)
+                    .ok_or_else(|| VectorError::CollectionNotFound {
+                        name: collection.to_string(),
+                    })?;
+            backend
+                .get(vector_id)
                 .ok_or_else(|| VectorError::Internal("Embedding missing from backend".to_string()))?
                 .to_vec()
         } else {
@@ -971,9 +979,12 @@ impl VectorStore {
         let fetch_k = if filter.is_some() { k * 4 } else { k };
         let state = self.state()?;
         let backends = state.backends.read();
-        let backend = backends.get(&collection_id).ok_or_else(|| VectorError::CollectionNotFound {
-            name: collection.to_string(),
-        })?;
+        let backend =
+            backends
+                .get(&collection_id)
+                .ok_or_else(|| VectorError::CollectionNotFound {
+                    name: collection.to_string(),
+                })?;
 
         let candidates = backend.search_at(query, fetch_k, as_of_ts);
         drop(backends);
@@ -982,7 +993,9 @@ impl VectorStore {
         let mut matches = Vec::new();
         for (vector_id, score) in candidates {
             // Find the key for this vector_id by scanning KV at timestamp
-            if let Some((key, metadata)) = self.find_vector_key_metadata_at(branch_id, space, collection, vector_id, as_of_ts)? {
+            if let Some((key, metadata)) =
+                self.find_vector_key_metadata_at(branch_id, space, collection, vector_id, as_of_ts)?
+            {
                 // Apply metadata filter
                 if let Some(ref f) = filter {
                     if !f.matches(&metadata) {
@@ -1014,7 +1027,9 @@ impl VectorStore {
     ) -> VectorResult<Option<(String, Option<JsonValue>)>> {
         let namespace = self.namespace_for(branch_id, space);
         let prefix = Key::vector_collection_prefix(namespace, collection);
-        let results = self.db.scan_prefix_at_timestamp(&prefix, as_of_ts)
+        let results = self
+            .db
+            .scan_prefix_at_timestamp(&prefix, as_of_ts)
             .map_err(|e| VectorError::Storage(e.to_string()))?;
 
         for (key, vv) in results {
@@ -1029,7 +1044,10 @@ impl VectorStore {
             if VectorId(record.vector_id) == target_id {
                 let user_key = String::from_utf8(key.user_key.clone()).unwrap_or_default();
                 // Strip the collection prefix to get just the vector key
-                let vector_key = user_key.strip_prefix(&format!("{}/", collection)).unwrap_or(&user_key).to_string();
+                let vector_key = user_key
+                    .strip_prefix(&format!("{}/", collection))
+                    .unwrap_or(&user_key)
+                    .to_string();
                 return Ok(Some((vector_key, record.metadata)));
             }
         }
@@ -1147,7 +1165,12 @@ impl VectorStore {
         space: &str,
         collection: &str,
         target_id: VectorId,
-    ) -> VectorResult<(String, Option<JsonValue>, Option<strata_core::EntityRef>, u64)> {
+    ) -> VectorResult<(
+        String,
+        Option<JsonValue>,
+        Option<strata_core::EntityRef>,
+        u64,
+    )> {
         use strata_core::traits::SnapshotView;
 
         let namespace = self.namespace_for(branch_id, space);
@@ -1178,7 +1201,12 @@ impl VectorStore {
                     .unwrap_or(&user_key)
                     .to_string();
 
-                return Ok((vector_key, record.metadata, record.source_ref, record.version));
+                return Ok((
+                    vector_key,
+                    record.metadata,
+                    record.source_ref,
+                    record.version,
+                ));
             }
         }
 
@@ -1556,7 +1584,15 @@ impl VectorStore {
     ) -> VectorResult<Version> {
         use crate::primitives::vector::collection::validate_system_collection_name;
         validate_system_collection_name(collection)?;
-        self.insert_inner(branch_id, "default", collection, key, embedding, metadata, Some(source_ref))
+        self.insert_inner(
+            branch_id,
+            "default",
+            collection,
+            key,
+            embedding,
+            metadata,
+            Some(source_ref),
+        )
     }
 
     /// Search a system collection (internal use only)
@@ -1624,11 +1660,12 @@ impl VectorStore {
         let candidates = {
             let state = self.state()?;
             let backends = state.backends.read();
-            let backend = backends.get(&collection_id).ok_or_else(|| {
-                VectorError::CollectionNotFound {
-                    name: collection.to_string(),
-                }
-            })?;
+            let backend =
+                backends
+                    .get(&collection_id)
+                    .ok_or_else(|| VectorError::CollectionNotFound {
+                        name: collection.to_string(),
+                    })?;
             backend.search(query, k)
         };
 
@@ -1637,7 +1674,9 @@ impl VectorStore {
         for (vector_id, score) in candidates {
             let (key, metadata, source_ref, version) =
                 self.get_key_metadata_and_source(branch_id, space, collection, vector_id)?;
-            matches.push(VectorMatchWithSource::new(key, score, metadata, source_ref, version));
+            matches.push(VectorMatchWithSource::new(
+                key, score, metadata, source_ref, version,
+            ));
         }
 
         // Facade-level tie-breaking (score desc, key asc)
@@ -1668,7 +1707,9 @@ impl VectorStore {
     ) -> VectorResult<Vec<VectorMatchWithSource>> {
         use crate::primitives::vector::collection::validate_system_collection_name;
         validate_system_collection_name(collection)?;
-        self.search_with_sources_in_range(branch_id, "default", collection, query, k, start_ts, end_ts)
+        self.search_with_sources_in_range(
+            branch_id, "default", collection, query, k, start_ts, end_ts,
+        )
     }
 
     /// Search returning results with source references, filtered by time range.
@@ -1704,11 +1745,12 @@ impl VectorStore {
         let candidates = {
             let state = self.state()?;
             let backends = state.backends.read();
-            let backend = backends.get(&collection_id).ok_or_else(|| {
-                VectorError::CollectionNotFound {
-                    name: collection.to_string(),
-                }
-            })?;
+            let backend =
+                backends
+                    .get(&collection_id)
+                    .ok_or_else(|| VectorError::CollectionNotFound {
+                        name: collection.to_string(),
+                    })?;
             backend.search_in_range(query, k, start_ts, end_ts)
         };
 
@@ -1717,7 +1759,9 @@ impl VectorStore {
         for (vector_id, score) in candidates {
             let (key, metadata, source_ref, version) =
                 self.get_key_metadata_and_source(branch_id, space, collection, vector_id)?;
-            matches.push(VectorMatchWithSource::new(key, score, metadata, source_ref, version));
+            matches.push(VectorMatchWithSource::new(
+                key, score, metadata, source_ref, version,
+            ));
         }
 
         // Facade-level tie-breaking (score desc, key asc)
@@ -1904,9 +1948,9 @@ impl strata_storage::PrimitiveStorageExt for VectorStore {
     /// For BruteForce backend, no indexes need rebuilding.
     /// HNSW backend rebuilds its graph structure here.
     fn rebuild_indexes(&mut self) -> Result<(), strata_storage::PrimitiveExtError> {
-        let state = self.state().map_err(|e| {
-            strata_storage::PrimitiveExtError::InvalidOperation(e.to_string())
-        })?;
+        let state = self
+            .state()
+            .map_err(|e| strata_storage::PrimitiveExtError::InvalidOperation(e.to_string()))?;
         let mut backends = state.backends.write();
 
         for (_collection_id, backend) in backends.iter_mut() {

@@ -29,12 +29,10 @@ pub fn format_output(output: &Output, mode: OutputMode) -> String {
 /// Format an error.
 pub fn format_error(err: &Error, mode: OutputMode) -> String {
     match mode {
-        OutputMode::Json => {
-            serde_json::to_string_pretty(&serde_json::json!({
-                "error": format!("{}", err)
-            }))
-            .unwrap_or_else(|_| format!("{{\"error\": \"{}\"}}", err))
-        }
+        OutputMode::Json => serde_json::to_string_pretty(&serde_json::json!({
+            "error": format!("{}", err)
+        }))
+        .unwrap_or_else(|_| format!("{{\"error\": \"{}\"}}", err)),
         OutputMode::Raw => format!("{}", err),
         OutputMode::Human => format!("(error) {}", err),
     }
@@ -64,14 +62,12 @@ fn format_versioned_value(vv: &VersionedValue, mode: OutputMode) -> String {
                 vv.timestamp
             )
         }
-        OutputMode::Json => {
-            serde_json::to_string_pretty(&serde_json::json!({
-                "value": vv.value,
-                "version": vv.version,
-                "timestamp": vv.timestamp
-            }))
-            .unwrap()
-        }
+        OutputMode::Json => serde_json::to_string_pretty(&serde_json::json!({
+            "value": vv.value,
+            "version": vv.version,
+            "timestamp": vv.timestamp
+        }))
+        .unwrap(),
         OutputMode::Raw => format_value_raw(&vv.value),
     }
 }
@@ -147,9 +143,7 @@ pub fn format_diff(diff: &BranchDiffResult, mode: OutputMode) -> String {
             ));
             lines.push(format!(
                 "  +{} added, -{} removed, ~{} modified",
-                diff.summary.total_added,
-                diff.summary.total_removed,
-                diff.summary.total_modified
+                diff.summary.total_added, diff.summary.total_removed, diff.summary.total_modified
             ));
             for sd in &diff.spaces {
                 if !sd.added.is_empty() || !sd.removed.is_empty() || !sd.modified.is_empty() {
@@ -293,14 +287,15 @@ fn format_raw(output: &Output) -> String {
                 "0".to_string()
             }
         }
-        Output::TimeRange { oldest_ts, latest_ts } => {
-            match (oldest_ts, latest_ts) {
-                (Some(o), Some(l)) => format!("{}\t{}", o, l),
-                (Some(o), None) => format!("{}\t", o),
-                (None, Some(l)) => format!("\t{}", l),
-                (None, None) => String::new(),
-            }
-        }
+        Output::TimeRange {
+            oldest_ts,
+            latest_ts,
+        } => match (oldest_ts, latest_ts) {
+            (Some(o), Some(l)) => format!("{}\t{}", o, l),
+            (Some(o), None) => format!("{}\t", o),
+            (None, Some(l)) => format!("\t{}", l),
+            (None, None) => String::new(),
+        },
     }
 }
 
@@ -350,7 +345,12 @@ fn format_human(output: &Output) -> String {
                 vals.iter()
                     .enumerate()
                     .map(|(i, vv)| {
-                        format!("{}) {} (v{})", i + 1, format_value_human(&vv.value), vv.version)
+                        format!(
+                            "{}) {} (v{})",
+                            i + 1,
+                            format_value_human(&vv.value),
+                            vv.version
+                        )
                     })
                     .collect::<Vec<_>>()
                     .join("\n")
@@ -368,7 +368,12 @@ fn format_human(output: &Output) -> String {
                     .iter()
                     .enumerate()
                     .map(|(i, vv)| {
-                        format!("{}) v{}: {}", i + 1, vv.version, format_value_human(&vv.value))
+                        format!(
+                            "{}) v{}: {}",
+                            i + 1,
+                            vv.version,
+                            format_value_human(&vv.value)
+                        )
                     })
                     .collect::<Vec<_>>()
                     .join("\n")
@@ -534,14 +539,15 @@ fn format_human(output: &Output) -> String {
                 if r.checksums_valid { "OK" } else { "FAILED" }
             )
         }
-        Output::TimeRange { oldest_ts, latest_ts } => {
-            match (oldest_ts, latest_ts) {
-                (Some(o), Some(l)) => format!("oldest: {}  latest: {}", o, l),
-                (Some(o), None) => format!("oldest: {}  latest: (none)", o),
-                (None, Some(l)) => format!("oldest: (none)  latest: {}", l),
-                (None, None) => "(no data)".to_string(),
-            }
-        }
+        Output::TimeRange {
+            oldest_ts,
+            latest_ts,
+        } => match (oldest_ts, latest_ts) {
+            (Some(o), Some(l)) => format!("oldest: {}  latest: {}", o, l),
+            (Some(o), None) => format!("oldest: {}  latest: (none)", o),
+            (None, Some(l)) => format!("oldest: (none)  latest: {}", l),
+            (None, None) => "(no data)".to_string(),
+        },
     }
 }
 

@@ -46,8 +46,13 @@ pub fn model_files_present(dir: &Path) -> bool {
 /// if another process is already downloading, this function waits for it
 /// to finish (up to 120 seconds).
 pub fn download_model(target_dir: &Path) -> Result<(), String> {
-    fs::create_dir_all(target_dir)
-        .map_err(|e| format!("Failed to create model directory '{}': {}", target_dir.display(), e))?;
+    fs::create_dir_all(target_dir).map_err(|e| {
+        format!(
+            "Failed to create model directory '{}': {}",
+            target_dir.display(),
+            e
+        )
+    })?;
 
     let lock_path = target_dir.join(".downloading");
 
@@ -67,7 +72,11 @@ pub fn download_model(target_dir: &Path) -> Result<(), String> {
         if model_files_present(target_dir) {
             return Ok(());
         }
-        return Err(format!("Failed to create lock file '{}': {}", lock_path.display(), e));
+        return Err(format!(
+            "Failed to create lock file '{}': {}",
+            lock_path.display(),
+            e
+        ));
     }
 
     let result = do_download(target_dir);
@@ -174,10 +183,7 @@ fn do_download(target_dir: &Path) -> Result<(), String> {
             .into_owned();
 
         // Only extract known files to prevent path traversal.
-        let file_name = path
-            .file_name()
-            .and_then(|n| n.to_str())
-            .unwrap_or("");
+        let file_name = path.file_name().and_then(|n| n.to_str()).unwrap_or("");
 
         let tmp_dest = match file_name {
             "model.safetensors" => &tmp_safetensors,

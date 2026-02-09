@@ -26,12 +26,7 @@ impl ApiReranker {
     ///
     /// `endpoint` should be the base URL (e.g. "http://localhost:11434/v1").
     /// The `/chat/completions` path is appended automatically.
-    pub fn new(
-        endpoint: &str,
-        model: &str,
-        api_key: Option<&str>,
-        timeout_ms: u64,
-    ) -> Self {
+    pub fn new(endpoint: &str, model: &str, api_key: Option<&str>, timeout_ms: u64) -> Self {
         let base = endpoint.trim_end_matches('/');
         let url = format!("{}/chat/completions", base);
         Self {
@@ -62,23 +57,22 @@ impl ApiReranker {
             .build();
         let agent = ureq::Agent::new_with_config(config);
 
-        let mut request = agent.post(&self.url)
+        let mut request = agent
+            .post(&self.url)
             .header("Content-Type", "application/json");
 
         if let Some(ref key) = self.api_key {
             request = request.header("Authorization", &format!("Bearer {}", key));
         }
 
-        let mut response = request
-            .send(&body_bytes[..])
-            .map_err(|e| {
-                let msg = e.to_string();
-                if msg.contains("timed out") || msg.contains("Timeout") {
-                    RerankError::Timeout
-                } else {
-                    RerankError::Network(msg)
-                }
-            })?;
+        let mut response = request.send(&body_bytes[..]).map_err(|e| {
+            let msg = e.to_string();
+            if msg.contains("timed out") || msg.contains("Timeout") {
+                RerankError::Timeout
+            } else {
+                RerankError::Network(msg)
+            }
+        })?;
 
         let response_text = response
             .body_mut()
@@ -118,10 +112,7 @@ impl ApiReranker {
 ///
 /// Expects lines like "1: 8" or "2: 5.5". Maps 1-based line numbers back
 /// to the original snippet indices. Scores are normalized to [0.0, 1.0].
-pub fn parse_rerank_response(
-    text: &str,
-    snippets: &[(usize, &str)],
-) -> Vec<RerankScore> {
+pub fn parse_rerank_response(text: &str, snippets: &[(usize, &str)]) -> Vec<RerankScore> {
     let mut scores = Vec::new();
 
     for line in text.lines() {
@@ -135,10 +126,9 @@ pub fn parse_rerank_response(
             let num_part = num_part.trim();
             let score_part = score_part.trim();
 
-            if let (Ok(line_num), Ok(raw_score)) = (
-                num_part.parse::<usize>(),
-                score_part.parse::<f32>(),
-            ) {
+            if let (Ok(line_num), Ok(raw_score)) =
+                (num_part.parse::<usize>(), score_part.parse::<f32>())
+            {
                 // line_num is 1-based, convert to 0-based index into snippets
                 if line_num >= 1 && line_num <= snippets.len() {
                     let (orig_index, _) = snippets[line_num - 1];
@@ -216,23 +206,13 @@ mod tests {
 
     #[test]
     fn test_api_reranker_url_construction() {
-        let reranker = ApiReranker::new(
-            "http://localhost:11434/v1",
-            "qwen3:1.7b",
-            None,
-            5000,
-        );
+        let reranker = ApiReranker::new("http://localhost:11434/v1", "qwen3:1.7b", None, 5000);
         assert_eq!(reranker.url, "http://localhost:11434/v1/chat/completions");
     }
 
     #[test]
     fn test_api_reranker_strips_trailing_slash() {
-        let reranker = ApiReranker::new(
-            "http://localhost:11434/v1/",
-            "qwen3:1.7b",
-            None,
-            5000,
-        );
+        let reranker = ApiReranker::new("http://localhost:11434/v1/", "qwen3:1.7b", None, 5000);
         assert_eq!(reranker.url, "http://localhost:11434/v1/chat/completions");
     }
 
@@ -325,7 +305,7 @@ mod tests {
         let text = "1: 9\n2: 4\n3: 7\n";
         let scores = parse_rerank_response(text, &snippets);
         assert_eq!(scores.len(), 3);
-        assert_eq!(scores[0].index, 3);   // maps back to original index
+        assert_eq!(scores[0].index, 3); // maps back to original index
         assert_eq!(scores[1].index, 7);
         assert_eq!(scores[2].index, 12);
     }

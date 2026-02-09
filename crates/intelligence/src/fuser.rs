@@ -232,9 +232,9 @@ impl Fuser for RRFFuser {
             .map(|(i, (doc_ref, rrf_score))| {
                 // Invariant: every doc_ref in scored was inserted into hit_data
                 // in the same loop (lines 188-191), so this key always exists.
-                let mut hit = hit_data.remove(&doc_ref).expect(
-                    "invariant violation: scored doc_ref must exist in hit_data",
-                );
+                let mut hit = hit_data
+                    .remove(&doc_ref)
+                    .expect("invariant violation: scored doc_ref must exist in hit_data");
                 hit.score = rrf_score;
                 hit.rank = (i + 1) as u32;
                 hit
@@ -308,30 +308,28 @@ pub fn weighted_rrf_fuse(
 
     // Sort by RRF score with deterministic tie-breaking
     let mut scored: Vec<_> = rrf_scores.into_iter().collect();
-    scored.sort_by(|a, b| {
-        match b.1.partial_cmp(&a.1) {
-            Some(std::cmp::Ordering::Equal) | None => {
-                let orig_a = hit_data.get(&a.0).map(|h| h.score).unwrap_or(0.0);
-                let orig_b = hit_data.get(&b.0).map(|h| h.score).unwrap_or(0.0);
-                match orig_b.partial_cmp(&orig_a) {
-                    Some(std::cmp::Ordering::Equal) | None => {
-                        let hash_a = {
-                            let mut hasher = DefaultHasher::new();
-                            a.0.hash(&mut hasher);
-                            hasher.finish()
-                        };
-                        let hash_b = {
-                            let mut hasher = DefaultHasher::new();
-                            b.0.hash(&mut hasher);
-                            hasher.finish()
-                        };
-                        hash_a.cmp(&hash_b)
-                    }
-                    Some(ord) => ord,
+    scored.sort_by(|a, b| match b.1.partial_cmp(&a.1) {
+        Some(std::cmp::Ordering::Equal) | None => {
+            let orig_a = hit_data.get(&a.0).map(|h| h.score).unwrap_or(0.0);
+            let orig_b = hit_data.get(&b.0).map(|h| h.score).unwrap_or(0.0);
+            match orig_b.partial_cmp(&orig_a) {
+                Some(std::cmp::Ordering::Equal) | None => {
+                    let hash_a = {
+                        let mut hasher = DefaultHasher::new();
+                        a.0.hash(&mut hasher);
+                        hasher.finish()
+                    };
+                    let hash_b = {
+                        let mut hasher = DefaultHasher::new();
+                        b.0.hash(&mut hasher);
+                        hasher.finish()
+                    };
+                    hash_a.cmp(&hash_b)
                 }
+                Some(ord) => ord,
             }
-            Some(ord) => ord,
         }
+        Some(ord) => ord,
     });
 
     let truncated = scored.len() > top_k;

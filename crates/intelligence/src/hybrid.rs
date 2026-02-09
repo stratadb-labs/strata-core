@@ -20,9 +20,9 @@ use std::sync::Arc;
 use std::time::Instant;
 use strata_core::PrimitiveType;
 use strata_core::StrataResult;
-use strata_engine::search::{SearchBudget, SearchMode, SearchRequest, SearchResponse, SearchStats};
 #[cfg(feature = "embed")]
 use strata_engine::search::SearchHit;
+use strata_engine::search::{SearchBudget, SearchMode, SearchRequest, SearchResponse, SearchStats};
 use strata_engine::Database;
 use strata_engine::{BranchIndex, EventLog, JsonStore, KVStore, StateCell, VectorStore};
 
@@ -190,9 +190,7 @@ impl HybridSearch {
         // 4. Vector search for Hybrid mode
         #[cfg(feature = "embed")]
         if req.mode == SearchMode::Hybrid {
-            if let Some(query_embedding) =
-                crate::embed::embed_query(&self.db, &req.query)
-            {
+            if let Some(query_embedding) = crate::embed::embed_query(&self.db, &req.query) {
                 let shadow_collections = [SHADOW_KV, SHADOW_JSON, SHADOW_EVENT, SHADOW_STATE];
                 let mut vector_hits: Vec<SearchHit> = Vec::new();
 
@@ -219,8 +217,7 @@ impl HybridSearch {
                         for m in results {
                             if let Some(source_ref) = m.source_ref {
                                 vector_hits.push(SearchHit::new(
-                                    source_ref,
-                                    m.score,
+                                    source_ref, m.score,
                                     0, // placeholder — re-assigned after global sort
                                 ));
                             }
@@ -242,11 +239,8 @@ impl HybridSearch {
                     }
 
                     total_candidates += vector_hits.len();
-                    let vector_response = SearchResponse::new(
-                        vector_hits,
-                        false,
-                        SearchStats::new(0, 0),
-                    );
+                    let vector_response =
+                        SearchResponse::new(vector_hits, false, SearchStats::new(0, 0));
                     primitive_results.push((PrimitiveType::Vector, vector_response));
                 }
             }

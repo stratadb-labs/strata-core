@@ -11,7 +11,7 @@ use std::io::Read;
 
 use clap::ArgMatches;
 use strata_executor::{
-    BranchId, BatchVectorEntry, Command, DistanceMetric, MergeStrategy, MetadataFilter,
+    BatchVectorEntry, BranchId, Command, DistanceMetric, MergeStrategy, MetadataFilter,
     SearchQuery, TimeRangeInput, TxnOptions, Value,
 };
 
@@ -70,15 +70,28 @@ pub enum Primitive {
 
 /// Branch operations that bypass the Command enum.
 pub enum BranchOp {
-    Fork { destination: String },
-    Diff { branch_a: String, branch_b: String },
-    Merge { source: String, strategy: MergeStrategy },
+    Fork {
+        destination: String,
+    },
+    Diff {
+        branch_a: String,
+        branch_b: String,
+    },
+    Merge {
+        source: String,
+        strategy: MergeStrategy,
+    },
 }
 
 /// REPL meta-commands.
 pub enum MetaCommand {
-    Use { branch: String, space: Option<String> },
-    Help { command: Option<String> },
+    Use {
+        branch: String,
+        space: Option<String>,
+    },
+    Help {
+        command: Option<String>,
+    },
     Quit,
     Clear,
 }
@@ -264,11 +277,7 @@ fn parse_kv(matches: &ArgMatches, state: &SessionState) -> Result<CliAction, Str
             }
         }
         "get" => {
-            let keys: Vec<String> = m
-                .get_many::<String>("keys")
-                .unwrap()
-                .cloned()
-                .collect();
+            let keys: Vec<String> = m.get_many::<String>("keys").unwrap().cloned().collect();
             let with_version = m.get_flag("with-version");
 
             if keys.len() == 1 {
@@ -296,11 +305,7 @@ fn parse_kv(matches: &ArgMatches, state: &SessionState) -> Result<CliAction, Str
             }
         }
         "del" => {
-            let keys: Vec<String> = m
-                .get_many::<String>("keys")
-                .unwrap()
-                .cloned()
-                .collect();
+            let keys: Vec<String> = m.get_many::<String>("keys").unwrap().cloned().collect();
 
             if keys.len() == 1 {
                 Ok(CliAction::Execute(Command::KvDelete {
@@ -650,7 +655,10 @@ fn parse_metric(s: &str) -> Result<DistanceMetric, String> {
         "cosine" => Ok(DistanceMetric::Cosine),
         "euclidean" => Ok(DistanceMetric::Euclidean),
         "dotproduct" | "dot_product" | "dot" => Ok(DistanceMetric::DotProduct),
-        other => Err(format!("Unknown metric: {}. Use cosine, euclidean, or dotproduct", other)),
+        other => Err(format!(
+            "Unknown metric: {}. Use cosine, euclidean, or dotproduct",
+            other
+        )),
     }
 }
 
@@ -840,7 +848,10 @@ fn parse_branch(matches: &ArgMatches, _state: &SessionState) -> Result<CliAction
         "export" => {
             let branch_id = m.get_one::<String>("branch").unwrap().clone();
             let path = m.get_one::<String>("path").unwrap().clone();
-            Ok(CliAction::Execute(Command::BranchExport { branch_id, path }))
+            Ok(CliAction::Execute(Command::BranchExport {
+                branch_id,
+                path,
+            }))
         }
         "import" => {
             let path = m.get_one::<String>("path").unwrap().clone();

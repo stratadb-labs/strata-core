@@ -299,11 +299,12 @@ mod tests {
             expected: Version,
             value: Value,
         ) -> Result<Version, StrataError> {
-            let current = self.state_data.get(name).ok_or_else(|| {
-                StrataError::Internal {
+            let current = self
+                .state_data
+                .get(name)
+                .ok_or_else(|| StrataError::Internal {
                     message: format!("state '{}' not found", name),
-                }
-            })?;
+                })?;
             if current.version != expected {
                 return Err(StrataError::Internal {
                     message: format!(
@@ -318,11 +319,7 @@ mod tests {
             Ok(new_version)
         }
 
-        fn json_create(
-            &mut self,
-            doc_id: &str,
-            value: JsonValue,
-        ) -> Result<Version, StrataError> {
+        fn json_create(&mut self, doc_id: &str, value: JsonValue) -> Result<Version, StrataError> {
             if self.json_data.contains_key(doc_id) {
                 return Err(StrataError::invalid_input(format!(
                     "document '{}' already exists",

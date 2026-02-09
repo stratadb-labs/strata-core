@@ -262,7 +262,7 @@ mod tests {
         lines[100] = "[UNK]".into();
         lines.push("[CLS]".into()); // 101
         lines.push("[SEP]".into()); // 102
-        // Add single letters a-z
+                                    // Add single letters a-z
         for c in b'a'..=b'z' {
             lines.push(String::from(c as char));
         }

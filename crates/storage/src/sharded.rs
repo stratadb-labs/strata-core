@@ -527,7 +527,11 @@ impl ShardedStore {
 
     /// Get value at or before the given timestamp.
     /// Returns None if key doesn't exist, has no version at that time, is expired, or is a tombstone.
-    pub fn get_at_timestamp(&self, key: &Key, max_timestamp: u64) -> strata_core::StrataResult<Option<VersionedValue>> {
+    pub fn get_at_timestamp(
+        &self,
+        key: &Key,
+        max_timestamp: u64,
+    ) -> strata_core::StrataResult<Option<VersionedValue>> {
         let branch_id = key.namespace.branch_id;
         Ok(self.shards.get(&branch_id).and_then(|shard| {
             shard.data.get(key).and_then(|chain| {
@@ -549,21 +553,26 @@ impl ShardedStore {
         max_timestamp: u64,
     ) -> strata_core::StrataResult<Vec<(Key, VersionedValue)>> {
         let branch_id = prefix.namespace.branch_id;
-        Ok(self.shards.get(&branch_id).map(|shard| {
-            shard.keys_with_prefix(prefix)
-                .filter_map(|k| {
-                    shard.data.get(k).and_then(|chain| {
-                        chain.get_at_timestamp(max_timestamp).and_then(|sv| {
-                            if !sv.is_expired() && !sv.is_tombstone() {
-                                Some((k.clone(), sv.versioned().clone()))
-                            } else {
-                                None
-                            }
+        Ok(self
+            .shards
+            .get(&branch_id)
+            .map(|shard| {
+                shard
+                    .keys_with_prefix(prefix)
+                    .filter_map(|k| {
+                        shard.data.get(k).and_then(|chain| {
+                            chain.get_at_timestamp(max_timestamp).and_then(|sv| {
+                                if !sv.is_expired() && !sv.is_tombstone() {
+                                    Some((k.clone(), sv.versioned().clone()))
+                                } else {
+                                    None
+                                }
+                            })
                         })
                     })
-                })
-                .collect()
-        }).unwrap_or_default())
+                    .collect()
+            })
+            .unwrap_or_default())
     }
 
     /// Get the available time range for a branch.

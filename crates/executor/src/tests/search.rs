@@ -5,8 +5,8 @@
 //! These tests verify the Search command infrastructure works correctly,
 //! even when primitives return empty results.
 
-use crate::Value;
 use crate::types::SearchQuery;
+use crate::Value;
 use crate::{Command, Executor, Output};
 use strata_engine::Database;
 

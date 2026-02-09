@@ -54,7 +54,10 @@ impl EmbedModel {
         let tokenizer = WordPieceTokenizer::from_vocab(vocab_text);
 
         // Detect naming convention: try with "bert." prefix first, fall back to without.
-        let prefix = if st.tensor("bert.embeddings.word_embeddings.weight").is_some() {
+        let prefix = if st
+            .tensor("bert.embeddings.word_embeddings.weight")
+            .is_some()
+        {
             "bert."
         } else {
             ""
@@ -76,7 +79,10 @@ impl EmbedModel {
             .ok_or("Missing position_embeddings")?;
 
         let token_type_embeddings = st
-            .tensor(&format!("{}embeddings.token_type_embeddings.weight", prefix))
+            .tensor(&format!(
+                "{}embeddings.token_type_embeddings.weight",
+                prefix
+            ))
             .ok_or("Missing token_type_embeddings")?;
 
         let embed_ln_weight = st
@@ -93,7 +99,9 @@ impl EmbedModel {
             let layer = TransformerLayer {
                 q_weight: st
                     .tensor(&format!("{}.attention.self.query.weight", layer_prefix))
-                    .ok_or_else(|| format!("Missing {}.attention.self.query.weight", layer_prefix))?,
+                    .ok_or_else(|| {
+                        format!("Missing {}.attention.self.query.weight", layer_prefix)
+                    })?,
                 q_bias: st
                     .tensor_1d(&format!("{}.attention.self.query.bias", layer_prefix))
                     .ok_or_else(|| format!("Missing {}.attention.self.query.bias", layer_prefix))?,
@@ -105,7 +113,9 @@ impl EmbedModel {
                     .ok_or_else(|| format!("Missing {}.attention.self.key.bias", layer_prefix))?,
                 v_weight: st
                     .tensor(&format!("{}.attention.self.value.weight", layer_prefix))
-                    .ok_or_else(|| format!("Missing {}.attention.self.value.weight", layer_prefix))?,
+                    .ok_or_else(|| {
+                        format!("Missing {}.attention.self.value.weight", layer_prefix)
+                    })?,
                 v_bias: st
                     .tensor_1d(&format!("{}.attention.self.value.bias", layer_prefix))
                     .ok_or_else(|| format!("Missing {}.attention.self.value.bias", layer_prefix))?,
@@ -120,7 +130,10 @@ impl EmbedModel {
                         format!("Missing {}.attention.output.dense.bias", layer_prefix)
                     })?,
                 attn_ln_weight: st
-                    .tensor_1d(&format!("{}.attention.output.LayerNorm.weight", layer_prefix))
+                    .tensor_1d(&format!(
+                        "{}.attention.output.LayerNorm.weight",
+                        layer_prefix
+                    ))
                     .ok_or_else(|| {
                         format!("Missing {}.attention.output.LayerNorm.weight", layer_prefix)
                     })?,
@@ -131,14 +144,10 @@ impl EmbedModel {
                     })?,
                 intermediate_weight: st
                     .tensor(&format!("{}.intermediate.dense.weight", layer_prefix))
-                    .ok_or_else(|| {
-                        format!("Missing {}.intermediate.dense.weight", layer_prefix)
-                    })?,
+                    .ok_or_else(|| format!("Missing {}.intermediate.dense.weight", layer_prefix))?,
                 intermediate_bias: st
                     .tensor_1d(&format!("{}.intermediate.dense.bias", layer_prefix))
-                    .ok_or_else(|| {
-                        format!("Missing {}.intermediate.dense.bias", layer_prefix)
-                    })?,
+                    .ok_or_else(|| format!("Missing {}.intermediate.dense.bias", layer_prefix))?,
                 output_weight: st
                     .tensor(&format!("{}.output.dense.weight", layer_prefix))
                     .ok_or_else(|| format!("Missing {}.output.dense.weight", layer_prefix))?,
@@ -175,7 +184,8 @@ impl EmbedModel {
         let hidden = self.gather_embeddings(&input, seq_len);
 
         // 2. Layer norm
-        let mut hidden = hidden.layer_norm(&self.embed_ln_weight, &self.embed_ln_bias, LAYER_NORM_EPS);
+        let mut hidden =
+            hidden.layer_norm(&self.embed_ln_weight, &self.embed_ln_bias, LAYER_NORM_EPS);
 
         // 3. Transformer layers
         for layer in &self.layers {
@@ -298,7 +308,11 @@ impl EmbedModel {
 
         // Residual + LayerNorm
         let post_ffn = output.add_tensor(&normed_attn);
-        post_ffn.layer_norm(&layer.output_ln_weight, &layer.output_ln_bias, LAYER_NORM_EPS)
+        post_ffn.layer_norm(
+            &layer.output_ln_weight,
+            &layer.output_ln_bias,
+            LAYER_NORM_EPS,
+        )
     }
 
     fn mean_pool(&self, hidden: &Tensor, attention_mask: &[u32]) -> Vec<f32> {
@@ -361,11 +375,7 @@ mod tests {
         let v = vec![1.0, 2.0, 3.0, 4.0, 5.0];
         let n = l2_normalize(&v);
         let norm: f32 = n.iter().map(|x| x * x).sum::<f32>().sqrt();
-        assert!(
-            (norm - 1.0).abs() < 1e-5,
-            "norm = {}, expected 1.0",
-            norm
-        );
+        assert!((norm - 1.0).abs() < 1e-5, "norm = {}, expected 1.0", norm);
     }
 
     #[test]
@@ -411,8 +421,7 @@ mod tests {
             offset = end;
         }
 
-        let header_json =
-            serde_json::to_string(&serde_json::Value::Object(header_map)).unwrap();
+        let header_json = serde_json::to_string(&serde_json::Value::Object(header_map)).unwrap();
         let header_bytes = header_json.as_bytes();
         let header_len = header_bytes.len() as u64;
 
@@ -529,8 +538,8 @@ mod tests {
     fn test_embed_produces_384_dim_unit_vector() {
         let workspace = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
         let model_dir = workspace.join("models/minilm-l6-v2");
-        let safetensors_bytes =
-            std::fs::read(model_dir.join("model.safetensors")).expect("model.safetensors not found");
+        let safetensors_bytes = std::fs::read(model_dir.join("model.safetensors"))
+            .expect("model.safetensors not found");
         let vocab_text =
             std::fs::read_to_string(model_dir.join("vocab.txt")).expect("vocab.txt not found");
 

@@ -93,8 +93,7 @@ impl WalReader {
                     // the next valid record instead of trusting the corrupted length
                     // field (which is itself part of the corrupted data).
                     let scan_start = offset + 1;
-                    let scan_end =
-                        (offset + MAX_RECOVERY_SCAN_WINDOW).min(buffer.len());
+                    let scan_end = (offset + MAX_RECOVERY_SCAN_WINDOW).min(buffer.len());
                     let mut found = false;
 
                     for scan_offset in scan_start..scan_end {
@@ -709,7 +708,10 @@ mod tests {
         assert!(segments_with_meta.len() > 1, "Should have rotated");
 
         // At least some segments should have metadata
-        let with_meta_count = segments_with_meta.iter().filter(|(_, m)| m.is_some()).count();
+        let with_meta_count = segments_with_meta
+            .iter()
+            .filter(|(_, m)| m.is_some())
+            .count();
         assert!(
             with_meta_count > 0,
             "At least one segment should have .meta"
@@ -762,7 +764,9 @@ mod tests {
         assert!(result.is_empty());
 
         // Far future: matches nothing
-        let result = reader.find_segments_for_timestamp(&wal_dir, 999_999).unwrap();
+        let result = reader
+            .find_segments_for_timestamp(&wal_dir, 999_999)
+            .unwrap();
         assert!(result.is_empty());
     }
 
@@ -847,7 +851,11 @@ mod tests {
 
         // Between segments: segment 2 (no meta) should be conservatively included
         let result = reader.find_segments_for_timestamp(&wal_dir, 2500).unwrap();
-        assert_eq!(result, vec![2], "Segment without .meta should be conservatively included");
+        assert_eq!(
+            result,
+            vec![2],
+            "Segment without .meta should be conservatively included"
+        );
     }
 
     #[test]
@@ -865,7 +873,9 @@ mod tests {
                 make_codec(),
             )
             .unwrap();
-            writer.append(&WalRecord::new(1, [1u8; 16], 1000, vec![1])).unwrap();
+            writer
+                .append(&WalRecord::new(1, [1u8; 16], 1000, vec![1]))
+                .unwrap();
             writer.flush().unwrap();
             // Drop without close — no .meta written
         }
@@ -890,7 +900,9 @@ mod tests {
             assert_eq!(meta.record_count, 1);
 
             // Append another record
-            writer.append(&WalRecord::new(2, [1u8; 16], 2000, vec![2])).unwrap();
+            writer
+                .append(&WalRecord::new(2, [1u8; 16], 2000, vec![2]))
+                .unwrap();
 
             // Metadata should track both records
             let meta = writer.current_segment_meta().unwrap();

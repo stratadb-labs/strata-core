@@ -18,7 +18,10 @@ pub fn blend_scores(mut hits: Vec<SearchHit>, scores: &[RerankScore]) -> Vec<Sea
     }
 
     // Normalize RRF scores to [0, 1]
-    let max_rrf = hits.iter().map(|h| h.score).fold(f32::NEG_INFINITY, f32::max);
+    let max_rrf = hits
+        .iter()
+        .map(|h| h.score)
+        .fold(f32::NEG_INFINITY, f32::max);
     let min_rrf = hits.iter().map(|h| h.score).fold(f32::INFINITY, f32::min);
     let rrf_range = max_rrf - min_rrf;
 
@@ -39,7 +42,11 @@ pub fn blend_scores(mut hits: Vec<SearchHit>, scores: &[RerankScore]) -> Vec<Sea
     }
 
     // Re-sort by blended score (descending)
-    hits.sort_by(|a, b| b.score.partial_cmp(&a.score).unwrap_or(std::cmp::Ordering::Equal));
+    hits.sort_by(|a, b| {
+        b.score
+            .partial_cmp(&a.score)
+            .unwrap_or(std::cmp::Ordering::Equal)
+    });
 
     // Reassign ranks (1-indexed)
     for (i, hit) in hits.iter_mut().enumerate() {
@@ -54,9 +61,9 @@ pub fn blend_scores(mut hits: Vec<SearchHit>, scores: &[RerankScore]) -> Vec<Sea
 /// Lower-ranked results give more influence to the reranker.
 fn position_weights(position: usize) -> (f32, f32) {
     match position {
-        0..=2 => (0.75, 0.25),  // ranks 1-3
-        3..=9 => (0.60, 0.40),  // ranks 4-10
-        _ => (0.40, 0.60),      // ranks 11+
+        0..=2 => (0.75, 0.25), // ranks 1-3
+        3..=9 => (0.60, 0.40), // ranks 4-10
+        _ => (0.40, 0.60),     // ranks 11+
     }
 }
 
@@ -101,27 +108,47 @@ mod tests {
         // Hits 10 and 11 (0-indexed) are in the tail tier
         // hit10: RRF ~0.50, hit11: RRF ~0.45
         let scores = vec![
-            RerankScore { index: 10, relevance_score: 0.1 },  // low reranker
-            RerankScore { index: 11, relevance_score: 1.0 },  // high reranker
+            RerankScore {
+                index: 10,
+                relevance_score: 0.1,
+            }, // low reranker
+            RerankScore {
+                index: 11,
+                relevance_score: 1.0,
+            }, // high reranker
         ];
         let result = blend_scores(hits, &scores);
         // hit11 should outrank hit10 due to high reranker score in tail tier
-        let pos_hit11 = result.iter().position(|h| h.snippet.as_deref() == Some("snippet 12")).unwrap();
-        let pos_hit10 = result.iter().position(|h| h.snippet.as_deref() == Some("snippet 11")).unwrap();
-        assert!(pos_hit11 < pos_hit10, "High reranker score should boost hit11 above hit10");
+        let pos_hit11 = result
+            .iter()
+            .position(|h| h.snippet.as_deref() == Some("snippet 12"))
+            .unwrap();
+        let pos_hit10 = result
+            .iter()
+            .position(|h| h.snippet.as_deref() == Some("snippet 11"))
+            .unwrap();
+        assert!(
+            pos_hit11 < pos_hit10,
+            "High reranker score should boost hit11 above hit10"
+        );
     }
 
     #[test]
     fn test_blend_all_same_rrf_score() {
-        let hits = vec![
-            make_hit(0.5, 1),
-            make_hit(0.5, 2),
-            make_hit(0.5, 3),
-        ];
+        let hits = vec![make_hit(0.5, 1), make_hit(0.5, 2), make_hit(0.5, 3)];
         let scores = vec![
-            RerankScore { index: 0, relevance_score: 0.3 },
-            RerankScore { index: 1, relevance_score: 0.9 },
-            RerankScore { index: 2, relevance_score: 0.1 },
+            RerankScore {
+                index: 0,
+                relevance_score: 0.3,
+            },
+            RerankScore {
+                index: 1,
+                relevance_score: 0.9,
+            },
+            RerankScore {
+                index: 2,
+                relevance_score: 0.1,
+            },
         ];
         let result = blend_scores(hits, &scores);
         // With same RRF, reranker scores dominate
@@ -133,7 +160,10 @@ mod tests {
     #[test]
     fn test_blend_single_hit() {
         let hits = vec![make_hit(1.0, 1)];
-        let scores = vec![RerankScore { index: 0, relevance_score: 0.5 }];
+        let scores = vec![RerankScore {
+            index: 0,
+            relevance_score: 0.5,
+        }];
         let result = blend_scores(hits, &scores);
         assert_eq!(result.len(), 1);
         assert_eq!(result[0].rank, 1);
@@ -142,15 +172,17 @@ mod tests {
     #[test]
     fn test_blend_partial_scores() {
         // Only some hits have reranker scores
-        let hits = vec![
-            make_hit(1.0, 1),
-            make_hit(0.8, 2),
-            make_hit(0.6, 3),
-        ];
+        let hits = vec![make_hit(1.0, 1), make_hit(0.8, 2), make_hit(0.6, 3)];
         let scores = vec![
-            RerankScore { index: 0, relevance_score: 0.2 },
+            RerankScore {
+                index: 0,
+                relevance_score: 0.2,
+            },
             // index 1 has no reranker score
-            RerankScore { index: 2, relevance_score: 0.9 },
+            RerankScore {
+                index: 2,
+                relevance_score: 0.9,
+            },
         ];
         let result = blend_scores(hits, &scores);
         assert_eq!(result.len(), 3);
@@ -162,17 +194,22 @@ mod tests {
     #[test]
     fn test_blend_deterministic_sort_on_ties() {
         // When blended scores are equal, stable sort preserves original order
-        let hits = vec![
-            make_hit(0.8, 1),
-            make_hit(0.6, 2),
-            make_hit(0.4, 3),
-        ];
+        let hits = vec![make_hit(0.8, 1), make_hit(0.6, 2), make_hit(0.4, 3)];
         // Give all three the same reranker score → blended scores differ
         // only by RRF, so ordering should match original RRF order
         let scores = vec![
-            RerankScore { index: 0, relevance_score: 0.5 },
-            RerankScore { index: 1, relevance_score: 0.5 },
-            RerankScore { index: 2, relevance_score: 0.5 },
+            RerankScore {
+                index: 0,
+                relevance_score: 0.5,
+            },
+            RerankScore {
+                index: 1,
+                relevance_score: 0.5,
+            },
+            RerankScore {
+                index: 2,
+                relevance_score: 0.5,
+            },
         ];
         let result = blend_scores(hits, &scores);
         assert_eq!(result[0].snippet.as_deref(), Some("snippet 1"));

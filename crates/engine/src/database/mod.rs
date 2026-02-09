@@ -36,19 +36,18 @@ use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use strata_concurrency::{RecoveryCoordinator, TransactionContext};
+use strata_core::types::TypeTag;
 use strata_core::types::{BranchId, Key};
 use strata_core::StrataError;
 use strata_core::{StrataResult, VersionedValue};
-use strata_core::types::TypeTag;
 use strata_durability::codec::IdentityCodec;
 use strata_durability::wal::{DurabilityMode, WalConfig, WalWriter};
 use strata_durability::{
-    CheckpointCoordinator, CheckpointData, CheckpointError, CompactionError, ManifestError,
-    ManifestManager, WalOnlyCompactor,
+    BranchSnapshotEntry, EventSnapshotEntry, JsonSnapshotEntry, KvSnapshotEntry, StateSnapshotEntry,
 };
 use strata_durability::{
-    BranchSnapshotEntry, EventSnapshotEntry, JsonSnapshotEntry, KvSnapshotEntry,
-    StateSnapshotEntry,
+    CheckpointCoordinator, CheckpointData, CheckpointError, CompactionError, ManifestError,
+    ManifestManager, WalOnlyCompactor,
 };
 use strata_storage::ShardedStore;
 use tracing::{info, warn};
@@ -575,14 +574,22 @@ impl Database {
     /// Get value at or before the given timestamp directly from storage.
     ///
     /// This is a non-transactional read for time-travel queries.
-    pub(crate) fn get_at_timestamp(&self, key: &Key, max_timestamp: u64) -> StrataResult<Option<VersionedValue>> {
+    pub(crate) fn get_at_timestamp(
+        &self,
+        key: &Key,
+        max_timestamp: u64,
+    ) -> StrataResult<Option<VersionedValue>> {
         self.storage.get_at_timestamp(key, max_timestamp)
     }
 
     /// Scan keys matching a prefix at or before the given timestamp.
     ///
     /// This is a non-transactional read for time-travel queries.
-    pub(crate) fn scan_prefix_at_timestamp(&self, prefix: &Key, max_timestamp: u64) -> StrataResult<Vec<(Key, VersionedValue)>> {
+    pub(crate) fn scan_prefix_at_timestamp(
+        &self,
+        prefix: &Key,
+        max_timestamp: u64,
+    ) -> StrataResult<Vec<(Key, VersionedValue)>> {
         self.storage.scan_prefix_at_timestamp(prefix, max_timestamp)
     }
 
@@ -654,10 +661,7 @@ impl Database {
 
         // Downcast to concrete type — the TypeId key guarantees this succeeds
         entry.value().clone().downcast::<T>().map_err(|_| {
-            StrataError::internal(format!(
-                "extension type mismatch for TypeId {:?}",
-                type_id
-            ))
+            StrataError::internal(format!("extension type mismatch for TypeId {:?}", type_id))
         })
     }
 
@@ -790,9 +794,9 @@ impl Database {
         let existing_watermark = {
             let m = manifest.manifest();
             match (m.snapshot_id, m.snapshot_watermark) {
-                (Some(sid), Some(wtxn)) => {
-                    Some(strata_durability::SnapshotWatermark::with_values(sid, wtxn, 0))
-                }
+                (Some(sid), Some(wtxn)) => Some(strata_durability::SnapshotWatermark::with_values(
+                    sid, wtxn, 0,
+                )),
                 _ => None,
             }
         };
@@ -887,8 +891,7 @@ impl Database {
         for branch_id in self.storage.branch_ids() {
             // KV entries
             for (key, vv) in self.storage.list_by_type(&branch_id, TypeTag::KV) {
-                let value_bytes =
-                    serde_json::to_vec(&vv.value).unwrap_or_default();
+                let value_bytes = serde_json::to_vec(&vv.value).unwrap_or_default();
                 kv_entries.push(KvSnapshotEntry {
                     key: key.user_key_string().unwrap_or_default(),
                     value: value_bytes,
@@ -918,8 +921,7 @@ impl Database {
 
             // State entries
             for (key, vv) in self.storage.list_by_type(&branch_id, TypeTag::State) {
-                let value_bytes =
-                    serde_json::to_vec(&vv.value).unwrap_or_default();
+                let value_bytes = serde_json::to_vec(&vv.value).unwrap_or_default();
                 state_entries.push(StateSnapshotEntry {
                     name: key.user_key_string().unwrap_or_default(),
                     value: value_bytes,
@@ -939,8 +941,7 @@ impl Database {
                 } else {
                     [0; 16]
                 };
-                let metadata =
-                    serde_json::to_vec(&vv.value).unwrap_or_default();
+                let metadata = serde_json::to_vec(&vv.value).unwrap_or_default();
                 branch_entries.push(BranchSnapshotEntry {
                     branch_id: branch_id_bytes,
                     name: String::new(),
@@ -951,8 +952,7 @@ impl Database {
 
             // JSON entries
             for (key, vv) in self.storage.list_by_type(&branch_id, TypeTag::Json) {
-                let content =
-                    serde_json::to_vec(&vv.value).unwrap_or_default();
+                let content = serde_json::to_vec(&vv.value).unwrap_or_default();
                 json_entries.push(JsonSnapshotEntry {
                     doc_id: key.user_key_string().unwrap_or_default(),
                     content,

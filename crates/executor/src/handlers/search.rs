@@ -197,7 +197,11 @@ fn has_model_configured(db: &Arc<strata_engine::Database>) -> bool {
         .ok()
         .and_then(|state| {
             let guard = state.config.read();
-            if guard.is_some() { Some(()) } else { None }
+            if guard.is_some() {
+                Some(())
+            } else {
+                None
+            }
         })
         .is_some()
 }
@@ -291,10 +295,7 @@ fn try_rerank(
         timeout_ms,
     );
 
-    let snippet_refs: Vec<(usize, &str)> = snippets
-        .iter()
-        .map(|(i, s)| (*i, s.as_str()))
-        .collect();
+    let snippet_refs: Vec<(usize, &str)> = snippets.iter().map(|(i, s)| (*i, s.as_str())).collect();
 
     match strata_intelligence::rerank::Reranker::rerank(&reranker, query, &snippet_refs) {
         Ok(scores) if !scores.is_empty() => {
@@ -338,15 +339,11 @@ fn format_entity_ref(doc_ref: &strata_engine::search::EntityRef) -> (String, Str
         strata_engine::search::EntityRef::Event { sequence, .. } => {
             (format!("seq:{}", sequence), "event".to_string())
         }
-        strata_engine::search::EntityRef::State { name, .. } => {
-            (name.clone(), "state".to_string())
-        }
+        strata_engine::search::EntityRef::State { name, .. } => (name.clone(), "state".to_string()),
         strata_engine::search::EntityRef::Branch { branch_id } => {
             let uuid = uuid::Uuid::from_bytes(*branch_id.as_bytes());
             (uuid.to_string(), "branch".to_string())
         }
-        strata_engine::search::EntityRef::Vector { key, .. } => {
-            (key.clone(), "vector".to_string())
-        }
+        strata_engine::search::EntityRef::Vector { key, .. } => (key.clone(), "vector".to_string()),
     }
 }

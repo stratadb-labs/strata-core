@@ -116,7 +116,11 @@ impl Tensor {
 
     /// Element-wise add (residual connections).
     pub fn add_tensor(&self, other: &Tensor) -> Tensor {
-        assert_eq!(self.data.len(), other.data.len(), "add_tensor size mismatch");
+        assert_eq!(
+            self.data.len(),
+            other.data.len(),
+            "add_tensor size mismatch"
+        );
         let data: Vec<f32> = self
             .data
             .iter()
@@ -303,11 +307,7 @@ mod tests {
     fn test_matmul_identity() {
         // Multiplying by 3x3 identity should return the original matrix.
         let a = Tensor::from_slice(&[1.0, 2.0, 3.0, 4.0, 5.0, 6.0], 2, 3);
-        let identity = Tensor::from_slice(
-            &[1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0],
-            3,
-            3,
-        );
+        let identity = Tensor::from_slice(&[1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0], 3, 3);
         let result = a.matmul(&identity);
         assert_eq!(result.rows, 2);
         assert_eq!(result.cols, 3);
@@ -368,11 +368,7 @@ mod tests {
         let mut t = Tensor::from_slice(&[5.0, 5.0, 5.0, 5.0], 1, 4);
         t.softmax_rows();
         for &v in &t.data {
-            assert!(
-                (v - 0.25).abs() < 1e-5,
-                "expected uniform 0.25, got {}",
-                v
-            );
+            assert!((v - 0.25).abs() < 1e-5, "expected uniform 0.25, got {}", v);
         }
     }
 

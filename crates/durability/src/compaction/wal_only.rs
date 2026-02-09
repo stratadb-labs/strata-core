@@ -105,8 +105,7 @@ impl WalOnlyCompactor {
                             }
 
                             // Also remove the .meta sidecar (non-fatal if missing)
-                            let meta_path =
-                                SegmentMeta::meta_path(&self.wal_dir, segment_number);
+                            let meta_path = SegmentMeta::meta_path(&self.wal_dir, segment_number);
                             if meta_path.exists() {
                                 if let Err(e) = std::fs::remove_file(&meta_path) {
                                     warn!(

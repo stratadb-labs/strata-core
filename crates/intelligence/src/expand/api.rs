@@ -27,12 +27,7 @@ impl ApiExpander {
     ///
     /// `endpoint` should be the base URL (e.g. "http://localhost:11434/v1").
     /// The `/chat/completions` path is appended automatically.
-    pub fn new(
-        endpoint: &str,
-        model: &str,
-        api_key: Option<&str>,
-        timeout_ms: u64,
-    ) -> Self {
+    pub fn new(endpoint: &str, model: &str, api_key: Option<&str>, timeout_ms: u64) -> Self {
         let base = endpoint.trim_end_matches('/');
         let url = format!("{}/chat/completions", base);
         Self {
@@ -61,23 +56,22 @@ impl ApiExpander {
             .build();
         let agent = ureq::Agent::new_with_config(config);
 
-        let mut request = agent.post(&self.url)
+        let mut request = agent
+            .post(&self.url)
             .header("Content-Type", "application/json");
 
         if let Some(ref key) = self.api_key {
             request = request.header("Authorization", &format!("Bearer {}", key));
         }
 
-        let mut response = request
-            .send(&body_bytes[..])
-            .map_err(|e| {
-                let msg = e.to_string();
-                if msg.contains("timed out") || msg.contains("Timeout") {
-                    ExpandError::Timeout
-                } else {
-                    ExpandError::Network(msg)
-                }
-            })?;
+        let mut response = request.send(&body_bytes[..]).map_err(|e| {
+            let msg = e.to_string();
+            if msg.contains("timed out") || msg.contains("Timeout") {
+                ExpandError::Timeout
+            } else {
+                ExpandError::Network(msg)
+            }
+        })?;
 
         let response_text = response
             .body_mut()
@@ -171,23 +165,13 @@ mod tests {
 
     #[test]
     fn test_api_expander_url_construction() {
-        let expander = ApiExpander::new(
-            "http://localhost:11434/v1",
-            "qwen3:1.7b",
-            None,
-            5000,
-        );
+        let expander = ApiExpander::new("http://localhost:11434/v1", "qwen3:1.7b", None, 5000);
         assert_eq!(expander.url, "http://localhost:11434/v1/chat/completions");
     }
 
     #[test]
     fn test_api_expander_strips_trailing_slash() {
-        let expander = ApiExpander::new(
-            "http://localhost:11434/v1/",
-            "qwen3:1.7b",
-            None,
-            5000,
-        );
+        let expander = ApiExpander::new("http://localhost:11434/v1/", "qwen3:1.7b", None, 5000);
         assert_eq!(expander.url, "http://localhost:11434/v1/chat/completions");
     }
 }

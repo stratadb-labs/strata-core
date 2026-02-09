@@ -155,27 +155,35 @@ fn build_kv() -> Command {
                 ),
         )
         .subcommand(
-            Command::new("del")
-                .about("Delete one or more keys")
-                .arg(
-                    Arg::new("keys")
-                        .required(true)
-                        .num_args(1..)
-                        .value_name("KEY")
-                        .help("Key(s) to delete"),
-                ),
+            Command::new("del").about("Delete one or more keys").arg(
+                Arg::new("keys")
+                    .required(true)
+                    .num_args(1..)
+                    .value_name("KEY")
+                    .help("Key(s) to delete"),
+            ),
         )
         .subcommand(
             Command::new("list")
                 .about("List keys")
-                .arg(Arg::new("prefix").long("prefix").short('p').help("Key prefix filter"))
+                .arg(
+                    Arg::new("prefix")
+                        .long("prefix")
+                        .short('p')
+                        .help("Key prefix filter"),
+                )
                 .arg(
                     Arg::new("limit")
                         .long("limit")
                         .short('n')
                         .help("Maximum keys to return"),
                 )
-                .arg(Arg::new("cursor").long("cursor").short('c').help("Pagination cursor"))
+                .arg(
+                    Arg::new("cursor")
+                        .long("cursor")
+                        .short('c')
+                        .help("Pagination cursor"),
+                )
                 .arg(
                     Arg::new("all")
                         .long("all")
@@ -222,7 +230,11 @@ fn build_json() -> Command {
             Command::new("get")
                 .about("Get a value from a JSON document")
                 .arg(Arg::new("key").required(true).help("Document key"))
-                .arg(Arg::new("path").default_value("$").help("JSON path (default: $)"))
+                .arg(
+                    Arg::new("path")
+                        .default_value("$")
+                        .help("JSON path (default: $)"),
+                )
                 .arg(
                     Arg::new("with-version")
                         .long("with-version")
@@ -240,9 +252,24 @@ fn build_json() -> Command {
         .subcommand(
             Command::new("list")
                 .about("List JSON documents")
-                .arg(Arg::new("prefix").long("prefix").short('p').help("Key prefix filter"))
-                .arg(Arg::new("cursor").long("cursor").short('c').help("Pagination cursor"))
-                .arg(Arg::new("limit").long("limit").short('n').help("Maximum documents to return"))
+                .arg(
+                    Arg::new("prefix")
+                        .long("prefix")
+                        .short('p')
+                        .help("Key prefix filter"),
+                )
+                .arg(
+                    Arg::new("cursor")
+                        .long("cursor")
+                        .short('c')
+                        .help("Pagination cursor"),
+                )
+                .arg(
+                    Arg::new("limit")
+                        .long("limit")
+                        .short('n')
+                        .help("Maximum documents to return"),
+                )
                 .arg(
                     Arg::new("all")
                         .long("all")
@@ -294,7 +321,11 @@ fn build_event() -> Command {
                 .about("List events by type")
                 .arg(Arg::new("type").required(true).help("Event type"))
                 .arg(Arg::new("limit").long("limit").help("Maximum events"))
-                .arg(Arg::new("after").long("after").help("After sequence number")),
+                .arg(
+                    Arg::new("after")
+                        .long("after")
+                        .help("After sequence number"),
+                ),
         )
         .subcommand(Command::new("len").about("Get total event count"))
 }
@@ -361,7 +392,12 @@ fn build_state() -> Command {
         .subcommand(
             Command::new("list")
                 .about("List state cells")
-                .arg(Arg::new("prefix").long("prefix").short('p').help("Cell name prefix filter"))
+                .arg(
+                    Arg::new("prefix")
+                        .long("prefix")
+                        .short('p')
+                        .help("Cell name prefix filter"),
+                )
                 .arg(
                     Arg::new("all")
                         .long("all")
@@ -388,38 +424,79 @@ fn build_vector() -> Command {
         .subcommand(
             Command::new("upsert")
                 .about("Insert or update a vector")
-                .arg(Arg::new("collection").required(true).help("Collection name"))
+                .arg(
+                    Arg::new("collection")
+                        .required(true)
+                        .help("Collection name"),
+                )
                 .arg(Arg::new("key").required(true).help("Vector key"))
-                .arg(Arg::new("vector").required(true).help("Vector as JSON array, e.g. [1.0,2.0,3.0]"))
-                .arg(Arg::new("metadata").long("metadata").help("Metadata as JSON")),
+                .arg(
+                    Arg::new("vector")
+                        .required(true)
+                        .help("Vector as JSON array, e.g. [1.0,2.0,3.0]"),
+                )
+                .arg(
+                    Arg::new("metadata")
+                        .long("metadata")
+                        .help("Metadata as JSON"),
+                ),
         )
         .subcommand(
             Command::new("get")
                 .about("Get a vector by key")
-                .arg(Arg::new("collection").required(true).help("Collection name"))
+                .arg(
+                    Arg::new("collection")
+                        .required(true)
+                        .help("Collection name"),
+                )
                 .arg(Arg::new("key").required(true).help("Vector key")),
         )
         .subcommand(
             Command::new("del")
                 .about("Delete a vector")
-                .arg(Arg::new("collection").required(true).help("Collection name"))
+                .arg(
+                    Arg::new("collection")
+                        .required(true)
+                        .help("Collection name"),
+                )
                 .arg(Arg::new("key").required(true).help("Vector key")),
         )
         .subcommand(
             Command::new("search")
                 .about("Search for similar vectors")
-                .arg(Arg::new("collection").required(true).help("Collection name"))
-                .arg(Arg::new("query").required(true).help("Query vector as JSON array"))
+                .arg(
+                    Arg::new("collection")
+                        .required(true)
+                        .help("Collection name"),
+                )
+                .arg(
+                    Arg::new("query")
+                        .required(true)
+                        .help("Query vector as JSON array"),
+                )
                 .arg(Arg::new("k").default_value("10").help("Number of results"))
-                .arg(Arg::new("metric").long("metric").help("Distance metric: cosine, euclidean, dotproduct"))
-                .arg(Arg::new("filter").long("filter").help("Metadata filter as JSON")),
+                .arg(
+                    Arg::new("metric")
+                        .long("metric")
+                        .help("Distance metric: cosine, euclidean, dotproduct"),
+                )
+                .arg(
+                    Arg::new("filter")
+                        .long("filter")
+                        .help("Metadata filter as JSON"),
+                ),
         )
         .subcommand(
             Command::new("create")
                 .about("Create a vector collection")
                 .arg(Arg::new("name").required(true).help("Collection name"))
                 .arg(Arg::new("dim").required(true).help("Vector dimension"))
-                .arg(Arg::new("metric").long("metric").default_value("cosine").help("Distance metric")),
+                .arg(
+                    Arg::new("metric")
+                        .long("metric")
+                        .default_value("cosine")
+                        .help("Distance metric"),
+                ),
         )
         .subcommand(
             Command::new("drop")
@@ -431,13 +508,25 @@ fn build_vector() -> Command {
         .subcommand(
             Command::new("stats")
                 .about("Get collection statistics")
-                .arg(Arg::new("collection").required(true).help("Collection name")),
+                .arg(
+                    Arg::new("collection")
+                        .required(true)
+                        .help("Collection name"),
+                ),
         )
         .subcommand(
             Command::new("batch-upsert")
                 .about("Batch insert/update vectors")
-                .arg(Arg::new("collection").required(true).help("Collection name"))
-                .arg(Arg::new("json").required(true).help("JSON array of {key, vector, metadata?}")),
+                .arg(
+                    Arg::new("collection")
+                        .required(true)
+                        .help("Collection name"),
+                )
+                .arg(
+                    Arg::new("json")
+                        .required(true)
+                        .help("JSON array of {key, vector, metadata?}"),
+                ),
         )
 }
 
@@ -478,7 +567,11 @@ fn build_branch() -> Command {
         .subcommand(
             Command::new("fork")
                 .about("Fork current branch to a new branch")
-                .arg(Arg::new("dest").required(true).help("Destination branch name")),
+                .arg(
+                    Arg::new("dest")
+                        .required(true)
+                        .help("Destination branch name"),
+                ),
         )
         .subcommand(
             Command::new("diff")
@@ -552,14 +645,12 @@ fn build_space() -> Command {
 // =========================================================================
 
 fn build_txn_begin() -> Command {
-    Command::new("begin")
-        .about("Begin a new transaction")
-        .arg(
-            Arg::new("txn-read-only")
-                .long("read-only")
-                .action(clap::ArgAction::SetTrue)
-                .help("Start a read-only transaction"),
-        )
+    Command::new("begin").about("Begin a new transaction").arg(
+        Arg::new("txn-read-only")
+            .long("read-only")
+            .action(clap::ArgAction::SetTrue)
+            .help("Start a read-only transaction"),
+    )
 }
 
 fn build_txn_commit() -> Command {
@@ -654,8 +745,16 @@ fn build_setup() -> Command {
 fn build_configure_model() -> Command {
     Command::new("configure-model")
         .about("Configure an inference model endpoint for intelligent search")
-        .arg(Arg::new("endpoint").required(true).help("OpenAI-compatible API endpoint URL"))
-        .arg(Arg::new("model").required(true).help("Model name (e.g. qwen3:1.7b)"))
+        .arg(
+            Arg::new("endpoint")
+                .required(true)
+                .help("OpenAI-compatible API endpoint URL"),
+        )
+        .arg(
+            Arg::new("model")
+                .required(true)
+                .help("Model name (e.g. qwen3:1.7b)"),
+        )
         .arg(
             Arg::new("api-key")
                 .long("api-key")

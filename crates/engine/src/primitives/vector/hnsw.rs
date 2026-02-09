@@ -846,7 +846,12 @@ impl VectorIndexBackend for HnswBackend {
         // Filter out deleted nodes and take top-k
         let results: Vec<(VectorId, f32)> = candidates
             .into_iter()
-            .filter(|s| self.nodes.get(&s.id).map(|n| !n.is_deleted()).unwrap_or(false))
+            .filter(|s| {
+                self.nodes
+                    .get(&s.id)
+                    .map(|n| !n.is_deleted())
+                    .unwrap_or(false)
+            })
             .take(k)
             .map(|s| (s.id, s.score))
             .collect();
@@ -877,9 +882,7 @@ impl VectorIndexBackend for HnswBackend {
         //   - Final results are restricted to nodes alive at as_of_ts.
         let mut results = self.search(query, k * 2);
 
-        results.retain(|(id, _)| {
-            self.nodes.get(id).is_some_and(|n| n.is_alive_at(as_of_ts))
-        });
+        results.retain(|(id, _)| self.nodes.get(id).is_some_and(|n| n.is_alive_at(as_of_ts)));
 
         results.truncate(k);
         results
