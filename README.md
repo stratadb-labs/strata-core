@@ -1,164 +1,185 @@
 # StrataDB
 
-**An embedded database for AI agents — six primitives, branch isolation, and deterministic replay.**
+**The embedded database with git-like powers.**
 
-```
-$ strata --cache
-strata:default/default> kv put agent:status thinking
-(version) 1
-strata:default/default> event append tool_call '{"tool":"search","query":"docs"}'
-(seq) 1
-strata:default/default> state cas lock none acquired
-(version) 1
-```
+Branch, time-travel, merge, and search — across six built-in data primitives. Zero dependencies. Built in Rust.
 
-## Primitives
+[Documentation](https://stratadb.org/docs/getting-started) | [Playground](https://stratadb.org/playground) | [Changelog](https://stratadb.org/changelog)
 
-| Primitive | Purpose | CLI Commands |
-|-----------|---------|-------------|
-| **KV Store** | Working memory, config, scratchpads | `kv put`, `kv get`, `kv del`, `kv list` |
-| **Event Log** | Immutable audit trail, tool call history | `event append`, `event get`, `event list` |
-| **State Cell** | CAS-based coordination, counters, locks | `state set`, `state get`, `state cas`, `state init` |
-| **JSON Store** | Structured documents with path-level mutations | `json set`, `json get`, `json del`, `json list` |
-| **Vector Store** | Embeddings and similarity search (brute-force + HNSW) | `vector upsert`, `vector search`, `vector batch-upsert` |
-| **Branch** | Data isolation (like git branches) | `branch create`, `branch list`, `branch del`, `use` |
+---
 
-## Spaces
-
-Spaces are organizational namespaces within branches. Each space has its own independent instance of every primitive:
-
-```
-$ strata --cache
-strata:default/default> kv put key value
-(version) 1
-strata:default/default> use default conversations
-strata:default/conversations> kv put msg_001 hello
-(version) 1
-strata:default/conversations> space list
-- conversations
-- default
-strata:default/conversations> use default
-strata:default/default>
-```
-
-Spaces are auto-created on first write. The `default` space always exists.
-
-## Installation
+## Install
 
 ```bash
-# Install the CLI (requires Rust toolchain)
-cargo install strata-cli
-
-# Or build from source
-git clone https://github.com/anibjoshi/strata.git
-cd strata
-cargo build --release
+pip install stratadb            # Python
+npm install @stratadb/core      # Node.js
+cargo install strata-cli        # Rust CLI
+brew install stratadb/tap/strata  # Homebrew
 ```
 
-## Quick Example
+## Quick Start
 
-```
-$ strata --db ./my-data
-strata:default/default> kv put user:name Alice
-(version) 1
-strata:default/default> kv put user:score 42
-(version) 1
-strata:default/default> branch create experiment-1
-OK
-strata:default/default> use experiment-1
-strata:experiment-1/default> kv get user:name
-(nil)
-strata:experiment-1/default> use default
-strata:default/default> kv get user:name
-"Alice"
-```
+```python
+from stratadb import Strata
 
-Or from the shell:
+db = Strata.open("./mydb")          # persistent (or Strata.cache() for in-memory)
 
-```bash
-strata --db ./my-data kv put user:name Alice
-strata --db ./my-data kv put user:score 42
-strata --db ./my-data branch create experiment-1
-strata --db ./my-data --branch experiment-1 kv get user:name   # → (nil)
-strata --db ./my-data kv get user:name                         # → "Alice"
-```
+# KV — working memory
+db.kv.put("user:1", {"name": "Alice", "role": "engineer"})
+db.kv.get("user:1")                 # {"name": "Alice", "role": "engineer"}
 
-## Vector Search
+# Event log — immutable audit trail
+db.events.append("actions", {"tool": "search", "query": "docs"})
 
-StrataDB includes a built-in vector store with two index backends for similarity search:
+# State cell — CAS-based coordination
+db.state.set("status", "idle")
+db.state.cas("status", "running", expected="idle")
 
-| Backend | Complexity | Best For |
-|---------|-----------|----------|
-| **Brute Force** | O(n) exact search | Small collections (< 10K vectors) |
-| **HNSW** | O(log n) approximate search | Large collections (10K+ vectors) |
+# JSON — structured documents with path-level mutations
+db.json.set("config", "$.model", "gpt-4")
+db.json.get("config", "$.model")    # "gpt-4"
 
-```
-$ strata --cache
-strata:default/default> vector create embeddings 384 --metric cosine
-OK
-strata:default/default> vector upsert embeddings doc-1 [0.1,0.2,...] --metadata '{"type":"article"}'
-OK
-strata:default/default> vector search embeddings [0.1,0.2,...] 10
-key=doc-1 score=0.9823
-...
-strata:default/default> vector stats embeddings
-count: 1, memory_bytes: 1536, index_type: flat
+# Vectors — similarity search
+coll = db.vectors.create("docs", dimension=384)
+coll.upsert("d1", embedding, metadata={"title": "Hello"})
+coll.search(query_vec, k=5)
+
+# Branches — git-like data isolation
+db.branches.create("experiment")
+db.checkout("experiment")
+# ...make changes safely, then merge or delete
+db.merge("experiment")
 ```
 
-**Metadata filtering** supports 8 operators: `eq`, `ne`, `gt`, `gte`, `lt`, `lte`, `in`, `contains`.
+## Six Primitives
 
-## Durability
+| Primitive | Purpose | Example |
+|-----------|---------|---------|
+| **KV Store** | Versioned key-value pairs with prefix scan | `db.kv.put("key", value)` |
+| **Event Log** | Append-only streams for replay and audit | `db.events.append("stream", event)` |
+| **State Cell** | Compare-and-swap for locks and counters | `db.state.cas("lock", new, expected=old)` |
+| **JSON Store** | Documents with atomic path-level updates | `db.json.set("doc", "$.path", value)` |
+| **Vector Store** | HNSW-indexed embeddings + metadata filtering | `coll.search(query_vec, k=10)` |
+| **Branch** | Fork, diff, and merge entire data states | `db.branches.create("experiment")` |
 
-Choose your speed/safety trade-off:
+Every primitive supports **version history** and **time-travel queries** out of the box.
 
-| Mode | Latency | Throughput | Data Loss on Crash |
-|------|---------|------------|-------------------|
-| **Ephemeral** | <3 us | 250K+ ops/sec | All |
-| **Buffered** | <30 us | 50K+ ops/sec | Last ~100ms |
-| **Strict** | ~2 ms | ~500 ops/sec | None |
+## Key Features
+
+### Branch and Merge
+
+Fork your data state in microseconds. Run experiments in isolation. Merge successful results back — production data stays untouched.
+
+```python
+db.branches.create("redesign")
+db.checkout("redesign")
+
+db.kv.put("config", {"theme": "new-look"})
+# main is completely untouched
+
+db.merge("redesign")  # worked? merge it
+```
+
+### Time Travel
+
+Query any past state with point-in-time snapshots. Every change is versioned with timestamps.
+
+```python
+snapshot = db.at(yesterday)
+old_config = snapshot.kv.get("config")
+
+db.kv.history("config")
+# [{"value": ..., "version": 3, "timestamp": ...}, ...]
+```
+
+### Intelligent Search
+
+Natural language search across all data types with automatic query expansion and reranking.
+
+```python
+db.search("what changed before the deploy failed?",
+          mode="hybrid", expand=True, rerank=True)
+```
+
+### Auto Embedding
+
+One flag makes every write searchable via built-in MiniLM embeddings.
+
+```python
+db = Strata.open("./mydb", auto_embed=True)
+
+db.kv.put("user:1", {"name": "Alice", "role": "engineer"})
+db.search("who is an engineer?")  # finds user:1
+```
+
+### Transactions
+
+OCC with snapshot isolation. Atomic commits across multiple primitives.
+
+```python
+with db.transaction():
+    db.kv.put("balance:alice", 50)
+    db.kv.put("balance:bob", 150)
+    db.events.append("transfers", {"from": "bob", "to": "alice", "amount": 100})
+```
+
+## Performance
+
+| Durability Mode | Throughput | Latency | Data Loss on Crash |
+|-----------------|-----------|---------|-------------------|
+| **Cache** | 250K+ ops/sec | <3 us | All (in-memory) |
+| **Standard** | 50K+ ops/sec | <30 us | Last ~100ms |
+| **Always** | ~500 ops/sec | ~2 ms | None |
+
+- **P99 read latency:** <10 microseconds
+- **Branch creation:** <1 millisecond
+- **Multi-threaded:** 800K+ ops/sec across 4 threads
 
 ## Architecture
 
 ```
 +-----------------------------------------------------------+
-|  Strata API (KV, Event, State, JSON, Vector, Branch, Space)|
+|  Strata API (KV, Event, State, JSON, Vector, Branch)      |
 +-----------------------------------------------------------+
-|  Executor (Command dispatch) / Session (Transactions)     |
+|  Executor (Command dispatch, Session management)          |
 +-----------------------------------------------------------+
 |  Engine (Database, Primitives, Transaction coordination)  |
 +-----+-----------------------+-----------------------------+
-      |                       |
-+-----v-------+  +------------v----------+  +--------------+
+      |                       |                       |
++-----v-------+  +------------v----------+  +---------v----+
 | Concurrency |  |  Durability           |  | Intelligence |
-| (OCC, CAS)  |  |  (WAL, Snapshots)     |  | (Search,BM25)|
-+-------------+  +----------+------------+  +--------------+
-                             |
-                   +---------v---------+  +--------------+
-                   |  Storage          |  |  Security    |
-                   |  (ShardedStore)   |  |  (Access)    |
-                   +-------------------+  +--------------+
+| (OCC, CAS)  |  |  (WAL, Snapshots)     |  | (BM25, RRF)  |
++------+------+  +----------+------------+  +--------------+
+       |                     |
++------v---------------------v---------+  +--------------+
+|  Storage (ShardedStore, DashMap)     |  |  Security    |
++--------------------------------------+  +--------------+
+|  Core (Value types, BranchId, etc.)  |
++--------------------------------------+
 ```
 
-**Key design choices:**
+**Design choices:** unified storage for multi-primitive atomicity, branch-tagged keys for O(branch) isolation, optimistic concurrency (lock-free transactions), pluggable vector indexing (brute-force or HNSW per collection).
 
-- **Unified storage** — all primitives share one sharded map, enabling atomic multi-primitive transactions
-- **Branch-tagged keys** — every key includes its branch ID, making replay O(branch size)
-- **Optimistic concurrency** — lock-free transactions via compare-and-swap; agents rarely conflict
-- **Batched durability** — fsync batched by default; losing 100ms of work is acceptable for most agents
-- **Pluggable vector indexing** — swap between brute-force O(n) and HNSW O(log n) per collection
-- **Space-scoped data** — within each branch, data is further organized into spaces, enabling logical separation without branch overhead
+## SDKs
+
+| Language | Package | Install |
+|----------|---------|---------|
+| **Python** | [stratadb](https://pypi.org/project/stratadb/) | `pip install stratadb` |
+| **Node.js** | [@stratadb/core](https://www.npmjs.com/package/@stratadb/core) | `npm install @stratadb/core` |
+| **Rust** | [stratadb](https://crates.io/crates/stratadb) | `cargo add stratadb` |
 
 ## Documentation
 
-- [Documentation Hub](docs/index.md) — start here
-- [Getting Started](docs/getting-started/installation.md) — installation and first database
-- [Concepts](docs/concepts/index.md) — branches, primitives, value types, transactions, durability
-- [Guides](docs/guides/kv-store.md) — per-primitive walkthroughs
-- [Cookbook](docs/cookbook/index.md) — real-world patterns
+- [Getting Started](https://stratadb.org/docs/getting-started) — installation and first database
+- [Concepts](docs/concepts/index.md) — branches, primitives, transactions, durability, time-travel
+- [Guides](docs/guides/index.md) — per-primitive walkthroughs
+- [Cookbook](docs/cookbook/index.md) — agent state, multi-agent coordination, RAG, A/B testing, replay
 - [API Reference](docs/reference/api-quick-reference.md) — every method at a glance
-- [Architecture](docs/architecture/index.md) — how StrataDB works internally
-- [Roadmap](roadmap/README.md) — feature roadmap from v0.2 to v1.0+
+- [Python SDK](docs/reference/python-sdk.md) | [Node.js SDK](docs/reference/node-sdk.md) | [MCP Server](docs/reference/mcp-reference.md)
+- [Architecture](docs/architecture/index.md) — storage engine, durability, concurrency model
+- [FAQ](docs/faq.md) | [Troubleshooting](docs/troubleshooting.md)
 - [Contributing](CONTRIBUTING.md) — development setup and PR process
+- [Roadmap](roadmap/README.md)
 
 ## License
 
