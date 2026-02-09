@@ -11,8 +11,8 @@ use std::io::Read;
 
 use clap::ArgMatches;
 use strata_executor::{
-    BranchId, BatchVectorEntry, Command, DistanceMetric, MergeStrategy, MetadataFilter, TxnOptions,
-    Value,
+    BranchId, BatchVectorEntry, Command, DistanceMetric, MergeStrategy, MetadataFilter,
+    SearchQuery, TimeRangeInput, TxnOptions, Value,
 };
 
 use crate::state::SessionState;
@@ -947,11 +947,36 @@ fn parse_search(matches: &ArgMatches, state: &SessionState) -> Result<CliAction,
     let primitives = matches
         .get_one::<String>("primitives")
         .map(|s| s.split(',').map(|p| p.trim().to_string()).collect());
+
+    // Build time_range from --time-start and --time-end
+    let time_start = matches.get_one::<String>("time-start").cloned();
+    let time_end = matches.get_one::<String>("time-end").cloned();
+    let time_range = match (time_start, time_end) {
+        (Some(start), Some(end)) => Some(TimeRangeInput { start, end }),
+        (Some(_), None) => return Err("--time-start requires --time-end".to_string()),
+        (None, Some(_)) => return Err("--time-end requires --time-start".to_string()),
+        (None, None) => None,
+    };
+
+    let mode = matches.get_one::<String>("mode").cloned();
+    let expand = matches
+        .get_one::<String>("expand")
+        .map(|s| s.eq_ignore_ascii_case("true"));
+    let rerank = matches
+        .get_one::<String>("rerank")
+        .map(|s| s.eq_ignore_ascii_case("true"));
+
     Ok(CliAction::Execute(Command::Search {
         branch: branch(state),
         space: space(state),
-        query,
-        k,
-        primitives,
+        search: SearchQuery {
+            query,
+            k,
+            primitives,
+            time_range,
+            mode,
+            expand,
+            rerank,
+        },
     }))
 }

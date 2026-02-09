@@ -197,12 +197,23 @@ impl HybridSearch {
                 let mut vector_hits: Vec<SearchHit> = Vec::new();
 
                 for collection in &shadow_collections {
-                    let matches = self.vector.system_search_with_sources(
-                        req.branch_id,
-                        collection,
-                        &query_embedding,
-                        req.k,
-                    );
+                    let matches = if let Some((start, end)) = req.time_range {
+                        self.vector.system_search_with_sources_in_range(
+                            req.branch_id,
+                            collection,
+                            &query_embedding,
+                            req.k,
+                            start,
+                            end,
+                        )
+                    } else {
+                        self.vector.system_search_with_sources(
+                            req.branch_id,
+                            collection,
+                            &query_embedding,
+                            req.k,
+                        )
+                    };
 
                     if let Ok(results) = matches {
                         for m in results {
@@ -366,6 +377,9 @@ impl HybridSearch {
 
             if let Some(ref filter) = req.primitive_filter {
                 exp_req = exp_req.with_primitive_filter(filter.clone());
+            }
+            if let Some((start, end)) = req.time_range {
+                exp_req = exp_req.with_time_range(start, end);
             }
 
             match self.search(&exp_req) {

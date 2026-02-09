@@ -280,9 +280,15 @@ fn test_read_only_allows_all_reads() {
         Command::Search {
             branch: None,
             space: None,
-            query: "test".into(),
-            k: None,
-            primitives: None,
+            search: crate::types::SearchQuery {
+                query: "test".into(),
+                k: None,
+                primitives: None,
+                time_range: None,
+                mode: None,
+                expand: None,
+                rerank: None,
+            },
         },
     ];
 
@@ -594,9 +600,15 @@ fn test_is_write_classification() {
         Command::Search {
             branch: None,
             space: None,
-            query: "".into(),
-            k: None,
-            primitives: None,
+            search: crate::types::SearchQuery {
+                query: "".into(),
+                k: None,
+                primitives: None,
+                time_range: None,
+                mode: None,
+                expand: None,
+                rerank: None,
+            },
         },
     ];
 

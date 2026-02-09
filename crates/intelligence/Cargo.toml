@@ -13,6 +13,7 @@ description = "Intelligence layer for Strata — derived operations over primiti
 default = []
 embed = ["dep:ureq", "dep:tar", "dep:zstd"]
 expand = ["dep:ureq"]
+rerank = ["dep:ureq"]
 
 [dependencies]
 strata-core = { path = "../core" }

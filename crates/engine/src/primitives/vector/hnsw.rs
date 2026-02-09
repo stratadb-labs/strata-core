@@ -885,6 +885,32 @@ impl VectorIndexBackend for HnswBackend {
         results
     }
 
+    fn search_in_range(
+        &self,
+        query: &[f32],
+        k: usize,
+        start_ts: u64,
+        end_ts: u64,
+    ) -> Vec<(VectorId, f32)> {
+        if self.nodes.is_empty() || k == 0 {
+            return Vec::new();
+        }
+
+        if query.len() != self.heap.dimension() {
+            return Vec::new();
+        }
+
+        // Over-fetch and filter by created_at range
+        let mut results = self.search(query, k * 2);
+        results.retain(|(id, _)| {
+            self.nodes.get(id).is_some_and(|n| {
+                n.created_at >= start_ts && n.created_at <= end_ts && !n.is_deleted()
+            })
+        });
+        results.truncate(k);
+        results
+    }
+
     fn len(&self) -> usize {
         self.heap.len()
     }

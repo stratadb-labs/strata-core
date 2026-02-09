@@ -13,6 +13,7 @@ description = "Command execution layer for Strata database"
 default = []
 embed = ["strata-intelligence/embed", "strata-engine/embed"]
 expand = ["strata-intelligence/expand"]
+rerank = ["strata-intelligence/rerank"]
 
 [dependencies]
 # Internal crates
@@ -34,6 +35,9 @@ base64 = { workspace = true }
 
 # UUIDs for RunId
 uuid = { workspace = true }
+
+# Datetime parsing
+chrono = { workspace = true }
 
 # Logging
 tracing = { workspace = true }

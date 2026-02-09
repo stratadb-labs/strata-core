@@ -98,6 +98,21 @@ pub trait VectorIndexBackend: Send + Sync {
         self.search(query, k)
     }
 
+    /// Search for k nearest neighbors created within a time range.
+    ///
+    /// Backends that support temporal tracking override this. Default: delegates to
+    /// regular search (ignoring time range), which is correct for backends without
+    /// temporal data.
+    fn search_in_range(
+        &self,
+        query: &[f32],
+        k: usize,
+        _start_ts: u64,
+        _end_ts: u64,
+    ) -> Vec<(VectorId, f32)> {
+        self.search(query, k)
+    }
+
     /// Get number of indexed vectors
     fn len(&self) -> usize;
 

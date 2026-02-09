@@ -1653,6 +1653,86 @@ impl VectorStore {
         Ok(matches)
     }
 
+    /// System search with sources, filtered by time range.
+    ///
+    /// Mirrors `system_search_with_sources()` but uses `search_in_range()` to
+    /// restrict results to vectors created within the given timestamp range.
+    pub fn system_search_with_sources_in_range(
+        &self,
+        branch_id: BranchId,
+        collection: &str,
+        query: &[f32],
+        k: usize,
+        start_ts: u64,
+        end_ts: u64,
+    ) -> VectorResult<Vec<VectorMatchWithSource>> {
+        use crate::primitives::vector::collection::validate_system_collection_name;
+        validate_system_collection_name(collection)?;
+        self.search_with_sources_in_range(branch_id, "default", collection, query, k, start_ts, end_ts)
+    }
+
+    /// Search returning results with source references, filtered by time range.
+    fn search_with_sources_in_range(
+        &self,
+        branch_id: BranchId,
+        space: &str,
+        collection: &str,
+        query: &[f32],
+        k: usize,
+        start_ts: u64,
+        end_ts: u64,
+    ) -> VectorResult<Vec<VectorMatchWithSource>> {
+        if k == 0 {
+            return Ok(Vec::new());
+        }
+
+        // Ensure collection is loaded
+        self.ensure_collection_loaded(branch_id, space, collection)?;
+
+        let collection_id = CollectionId::new(branch_id, collection);
+
+        // Validate query dimension
+        let config = self.get_collection_config_required(branch_id, space, collection)?;
+        if query.len() != config.dimension {
+            return Err(VectorError::DimensionMismatch {
+                expected: config.dimension,
+                got: query.len(),
+            });
+        }
+
+        // Search backend with time range
+        let candidates = {
+            let state = self.state()?;
+            let backends = state.backends.read();
+            let backend = backends.get(&collection_id).ok_or_else(|| {
+                VectorError::CollectionNotFound {
+                    name: collection.to_string(),
+                }
+            })?;
+            backend.search_in_range(query, k, start_ts, end_ts)
+        };
+
+        let mut matches: Vec<VectorMatchWithSource> = Vec::with_capacity(candidates.len());
+
+        for (vector_id, score) in candidates {
+            let (key, metadata, source_ref, version) =
+                self.get_key_metadata_and_source(branch_id, space, collection, vector_id)?;
+            matches.push(VectorMatchWithSource::new(key, score, metadata, source_ref, version));
+        }
+
+        // Facade-level tie-breaking (score desc, key asc)
+        matches.sort_by(|a, b| {
+            b.score
+                .partial_cmp(&a.score)
+                .unwrap_or(std::cmp::Ordering::Equal)
+                .then_with(|| a.key.cmp(&b.key))
+        });
+
+        matches.truncate(k);
+
+        Ok(matches)
+    }
+
     /// Delete from a system collection (internal use only)
     pub fn system_delete(
         &self,

@@ -612,6 +612,31 @@ fn build_search() -> Command {
                 .long("primitives")
                 .help("Comma-separated list of primitives to search"),
         )
+        .arg(
+            Arg::new("time-start")
+                .long("time-start")
+                .help("Time range start (ISO 8601, e.g. 2026-02-07T00:00:00Z)"),
+        )
+        .arg(
+            Arg::new("time-end")
+                .long("time-end")
+                .help("Time range end (ISO 8601, e.g. 2026-02-09T00:00:00Z)"),
+        )
+        .arg(
+            Arg::new("mode")
+                .long("mode")
+                .help("Search mode: keyword, hybrid (default: hybrid)"),
+        )
+        .arg(
+            Arg::new("expand")
+                .long("expand")
+                .help("Enable/disable query expansion (true/false)"),
+        )
+        .arg(
+            Arg::new("rerank")
+                .long("rerank")
+                .help("Enable/disable reranking (true/false)"),
+        )
 }
 
 // =========================================================================

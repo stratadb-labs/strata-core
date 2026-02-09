@@ -715,7 +715,7 @@ pub enum Command {
         timeout_ms: Option<u64>,
     },
 
-    /// Search across multiple primitives.
+    /// Search across multiple primitives using a structured query.
     /// Returns: `Output::SearchResults`
     Search {
         /// Target branch (defaults to "default").
@@ -724,14 +724,8 @@ pub enum Command {
         /// Target space (defaults to "default").
         #[serde(default, skip_serializing_if = "Option::is_none")]
         space: Option<String>,
-        /// Natural-language or keyword query string.
-        query: String,
-        /// Number of results to return.
-        #[serde(default, skip_serializing_if = "Option::is_none")]
-        k: Option<u64>,
-        /// Restrict search to specific primitives (e.g. "kv", "json").
-        #[serde(default, skip_serializing_if = "Option::is_none")]
-        primitives: Option<Vec<String>>,
+        /// Structured search query.
+        search: SearchQuery,
     },
 
     // ==================== Space (4) ====================

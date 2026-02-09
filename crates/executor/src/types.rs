@@ -311,6 +311,62 @@ pub struct BundleValidateResult {
 // Intelligence Types
 // =============================================================================
 
+/// Time range specified as ISO 8601 datetime strings.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct TimeRangeInput {
+    /// Range start (inclusive). ISO 8601, e.g. "2026-02-07T00:00:00Z".
+    pub start: String,
+    /// Range end (inclusive). ISO 8601, e.g. "2026-02-09T23:59:59Z".
+    pub end: String,
+}
+
+/// Structured search query — the canonical JSON interface for search.
+///
+/// All fields except `query` are optional with sensible defaults.
+///
+/// # Example JSON
+///
+/// ```json
+/// {
+///   "query": "user authentication errors",
+///   "k": 10,
+///   "primitives": ["kv", "json", "event"],
+///   "time_range": { "start": "2026-02-07T00:00:00Z", "end": "2026-02-09T00:00:00Z" },
+///   "mode": "hybrid",
+///   "expand": true,
+///   "rerank": true
+/// }
+/// ```
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct SearchQuery {
+    /// Natural-language or keyword query string.
+    pub query: String,
+
+    /// Number of results to return (default: 10).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub k: Option<u64>,
+
+    /// Restrict to specific primitives (e.g. ["kv", "json", "event"]).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub primitives: Option<Vec<String>>,
+
+    /// Time range filter (ISO 8601 datetime strings).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub time_range: Option<TimeRangeInput>,
+
+    /// Search mode: "keyword" or "hybrid" (default: "hybrid").
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub mode: Option<String>,
+
+    /// Enable/disable query expansion. Absent = auto (use if model configured).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub expand: Option<bool>,
+
+    /// Enable/disable reranking. Absent = auto (use if model configured).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub rerank: Option<bool>,
+}
+
 /// A single hit from a cross-primitive search
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct SearchResultHit {

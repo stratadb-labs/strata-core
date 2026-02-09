@@ -28,6 +28,7 @@ pub mod expand;
 pub mod fuser;
 pub mod hybrid;
 pub mod index;
+pub mod rerank;
 pub mod scorer;
 pub mod tokenizer;
 

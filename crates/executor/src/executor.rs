@@ -782,22 +782,13 @@ impl Executor {
             Command::Search {
                 branch,
                 space,
-                query,
-                k,
-                primitives,
+                search,
             } => {
                 let branch = branch.ok_or(Error::InvalidInput {
                     reason: "Branch must be specified or resolved to default".into(),
                 })?;
                 let space = space.unwrap_or_else(|| "default".to_string());
-                crate::handlers::search::search(
-                    &self.primitives,
-                    branch,
-                    space,
-                    query,
-                    k,
-                    primitives,
-                )
+                crate::handlers::search::search(&self.primitives, branch, space, search)
             }
 
             // Space commands

@@ -1,38 +1,68 @@
 //! Search command handler.
 //!
 //! Handles cross-primitive search via the intelligence layer's HybridSearch.
-//! When a model is configured, transparently expands queries for better recall.
+//! When a model is configured, transparently expands queries for better recall
+//! and re-ranks results for better precision.
 
 use std::sync::Arc;
 
+use chrono::DateTime;
 use strata_engine::database::ModelConfigState;
-use strata_engine::search::PrimitiveType;
+use strata_engine::search::{PrimitiveType, SearchResponse};
 use strata_engine::{SearchBudget, SearchMode, SearchRequest};
 use strata_intelligence::HybridSearch;
 use tracing::debug;
 
 use crate::bridge::{to_core_branch_id, Primitives};
-use crate::types::{BranchId, SearchResultHit};
-use crate::{Output, Result};
+use crate::types::{BranchId, SearchQuery, SearchResultHit, TimeRangeInput};
+use crate::{Error, Output, Result};
 
 /// Strong signal threshold: if top BM25 score >= this, skip expansion.
 const STRONG_SIGNAL_SCORE: f32 = 0.85;
 /// Strong signal gap: top score must exceed #2 by at least this much.
 const STRONG_SIGNAL_GAP: f32 = 0.15;
+/// Maximum number of candidates to send for re-ranking.
+const MAX_RERANK_CANDIDATES: usize = 20;
+/// Minimum number of snippets required to attempt re-ranking.
+const MIN_RERANK_CANDIDATES: usize = 3;
+
+/// Parse an ISO 8601 datetime string to microseconds since epoch.
+fn parse_iso8601_to_micros(s: &str) -> Result<u64> {
+    let dt = DateTime::parse_from_rfc3339(s).map_err(|e| Error::InvalidInput {
+        reason: format!("Invalid ISO 8601 datetime '{}': {}", s, e),
+    })?;
+    let micros = dt.timestamp_micros();
+    if micros < 0 {
+        return Err(Error::InvalidInput {
+            reason: format!("Datetime '{}' is before Unix epoch", s),
+        });
+    }
+    Ok(micros as u64)
+}
+
+/// Parse a TimeRangeInput into (start_micros, end_micros).
+fn parse_time_range(input: &TimeRangeInput) -> Result<(u64, u64)> {
+    let start = parse_iso8601_to_micros(&input.start)?;
+    let end = parse_iso8601_to_micros(&input.end)?;
+    if start > end {
+        return Err(Error::InvalidInput {
+            reason: "time_range.start must be <= time_range.end".into(),
+        });
+    }
+    Ok((start, end))
+}
 
 /// Handle Search command: cross-primitive search
 pub fn search(
     p: &Arc<Primitives>,
     branch: BranchId,
     _space: String,
-    query: String,
-    k: Option<u64>,
-    primitives: Option<Vec<String>>,
+    sq: SearchQuery,
 ) -> Result<Output> {
     let core_branch_id = to_core_branch_id(&branch)?;
 
     // Build primitive filter from string names
-    let primitive_filter = primitives.map(|names| {
+    let primitive_filter = sq.primitives.as_ref().map(|names| {
         names
             .iter()
             .filter_map(|name| match name.to_lowercase().as_str() {
@@ -47,8 +77,15 @@ pub fn search(
             .collect::<Vec<_>>()
     });
 
-    let mut req = SearchRequest::new(core_branch_id, &query);
-    if let Some(top_k) = k {
+    // Parse time_range
+    let parsed_time_range = sq
+        .time_range
+        .as_ref()
+        .map(|tr| parse_time_range(tr))
+        .transpose()?;
+
+    let mut req = SearchRequest::new(core_branch_id, &sq.query);
+    if let Some(top_k) = sq.k {
         req = req.with_k(top_k as usize);
     }
     req.budget = SearchBudget::default();
@@ -58,12 +95,37 @@ pub fn search(
         }
     }
 
+    // Apply time range
+    if let Some((start, end)) = parsed_time_range {
+        req = req.with_time_range(start, end);
+    }
+
+    // Set search mode (default: hybrid for cross-primitive search)
+    let mode = match sq.mode.as_deref() {
+        Some("keyword") => SearchMode::Keyword,
+        Some("hybrid") | None => SearchMode::Hybrid,
+        Some(_) => SearchMode::Hybrid, // unrecognized mode, use default
+    };
+    req = req.with_mode(mode);
+
     let hybrid = HybridSearch::new(p.db.clone());
 
     // Check if a model is configured for query expansion
     let has_model = has_model_configured(&p.db);
 
-    let response = if has_model {
+    // Honor expand/rerank toggles
+    let should_expand = match sq.expand {
+        Some(true) => has_model,
+        Some(false) => false,
+        None => has_model,
+    };
+    let should_rerank = match sq.rerank {
+        Some(true) => has_model,
+        Some(false) => false,
+        None => has_model,
+    };
+
+    let response = if should_expand {
         // Strong signal detection: cheap BM25 probe BEFORE calling LLM
         let probe_req = req.clone().with_mode(SearchMode::Keyword);
         let probe = hybrid.search(&probe_req).map_err(crate::Error::from)?;
@@ -71,28 +133,42 @@ pub fn search(
         if has_strong_signal(&probe) {
             debug!(
                 target: "strata::search",
-                query = %query,
+                query = %sq.query,
                 top_score = probe.hits.first().map(|h| h.score).unwrap_or(0.0),
-                "Strong BM25 signal, skipping expansion"
+                "Strong BM25 signal, skipping expansion and reranking"
             );
             // Strong signal: return full hybrid search (skip LLM entirely)
             hybrid.search(&req).map_err(crate::Error::from)?
-        } else if let Some(expansions) = try_expand(&p.db, &query) {
+        } else if let Some(expansions) = try_expand(&p.db, &sq.query) {
             debug!(
                 target: "strata::search",
-                query = %query,
+                query = %sq.query,
                 expansion_count = expansions.len(),
                 "Using query expansion"
             );
-            hybrid
+            let expanded_response = hybrid
                 .search_expanded(&req, &expansions, 2.0)
-                .map_err(crate::Error::from)?
+                .map_err(crate::Error::from)?;
+            if should_rerank {
+                try_rerank(&p.db, &sq.query, expanded_response)
+            } else {
+                expanded_response
+            }
         } else {
-            // Expansion failed — fall back to normal search
-            hybrid.search(&req).map_err(crate::Error::from)?
+            // Expansion failed — fall back to normal search + optional reranking
+            let base_response = hybrid.search(&req).map_err(crate::Error::from)?;
+            if should_rerank {
+                try_rerank(&p.db, &sq.query, base_response)
+            } else {
+                base_response
+            }
         }
+    } else if should_rerank {
+        // No expansion but reranking enabled
+        let base_response = hybrid.search(&req).map_err(crate::Error::from)?;
+        try_rerank(&p.db, &sq.query, base_response)
     } else {
-        // No model configured — existing search path
+        // No model configured or both disabled — plain search
         hybrid.search(&req).map_err(crate::Error::from)?
     };
 
@@ -154,6 +230,90 @@ fn try_expand(
         Err(e) => {
             debug!(target: "strata::search", error = %e, "Expansion failed, falling back");
             None
+        }
+    }
+}
+
+/// Try to re-rank search results using the configured model.
+///
+/// Extracts snippets from the top-N hits, sends them to the model for relevance
+/// scoring, and blends the reranker scores with RRF scores using position-aware
+/// weights. Returns results unchanged if:
+/// - No model is configured
+/// - Fewer than MIN_RERANK_CANDIDATES snippets available
+/// - Reranking fails (graceful degradation)
+fn try_rerank(
+    db: &Arc<strata_engine::Database>,
+    query: &str,
+    mut response: SearchResponse,
+) -> SearchResponse {
+    let state = match db.extension::<ModelConfigState>().ok() {
+        Some(s) => s,
+        None => return response,
+    };
+
+    // Read config and drop lock before HTTP call
+    let (endpoint, model, api_key, timeout_ms) = {
+        let config_guard = state.config.read();
+        match config_guard.as_ref() {
+            Some(config) => (
+                config.endpoint.clone(),
+                config.model.clone(),
+                config.api_key.clone(),
+                config.timeout_ms,
+            ),
+            None => return response,
+        }
+    };
+
+    // Extract (index, snippet) pairs from top-N hits
+    let snippets: Vec<(usize, String)> = response
+        .hits
+        .iter()
+        .take(MAX_RERANK_CANDIDATES)
+        .enumerate()
+        .filter_map(|(i, hit)| hit.snippet.as_ref().map(|s| (i, s.clone())))
+        .collect();
+
+    if snippets.len() < MIN_RERANK_CANDIDATES {
+        debug!(
+            target: "strata::search",
+            snippet_count = snippets.len(),
+            "Too few snippets for reranking, skipping"
+        );
+        return response;
+    }
+
+    let reranker = strata_intelligence::rerank::ApiReranker::new(
+        &endpoint,
+        &model,
+        api_key.as_deref(),
+        timeout_ms,
+    );
+
+    let snippet_refs: Vec<(usize, &str)> = snippets
+        .iter()
+        .map(|(i, s)| (*i, s.as_str()))
+        .collect();
+
+    match strata_intelligence::rerank::Reranker::rerank(&reranker, query, &snippet_refs) {
+        Ok(scores) if !scores.is_empty() => {
+            debug!(
+                target: "strata::search",
+                query = %query,
+                score_count = scores.len(),
+                "Re-ranking applied"
+            );
+            response.hits = strata_intelligence::rerank::blend_scores(response.hits, &scores);
+            response
+        }
+        Ok(_) => {
+            debug!(target: "strata::search", "Reranking returned no scores, using RRF results");
+            response
+        }
+        Err(e) => {
+            debug!(target: "strata::search", error = %e, "Reranking failed, using RRF results");
+            response
         }
     }
 }
