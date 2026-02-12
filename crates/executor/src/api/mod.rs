@@ -312,8 +312,8 @@ impl Strata {
         }
     }
 
-    /// Get the underlying executor (crate-internal only).
-    pub(crate) fn executor(&self) -> &Executor {
+    /// Get the underlying executor.
+    pub fn executor(&self) -> &Executor {
         &self.executor
     }
 
