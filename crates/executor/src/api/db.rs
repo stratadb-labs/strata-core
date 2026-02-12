@@ -138,7 +138,15 @@ impl Strata {
     }
 
     /// Enable or disable auto-embedding of text values.
-    pub fn set_auto_embed(&self, enabled: bool) {
-        self.executor.primitives().db.set_auto_embed(enabled);
+    ///
+    /// Persisted to `strata.toml` for disk-backed databases.
+    pub fn set_auto_embed(&self, enabled: bool) -> Result<()> {
+        self.executor
+            .primitives()
+            .db
+            .update_config(|cfg| {
+                cfg.auto_embed = enabled;
+            })
+            .map_err(Error::from)
     }
 }

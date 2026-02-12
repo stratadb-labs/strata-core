@@ -700,8 +700,14 @@ impl Database {
     }
 
     /// Enable or disable auto-embedding.
+    ///
+    /// Persists to `strata.toml` for disk-backed databases.
     pub fn set_auto_embed(&self, enabled: bool) {
-        self.config.write().auto_embed = enabled;
+        // Use update_config for persistence; ignore error since
+        // auto_embed never triggers the durability rejection.
+        let _ = self.update_config(|cfg| {
+            cfg.auto_embed = enabled;
+        });
     }
 
     /// Path to the model directory for MiniLM-L6-v2.

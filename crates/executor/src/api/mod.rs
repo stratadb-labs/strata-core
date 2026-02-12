@@ -1037,10 +1037,32 @@ mod tests {
         let db = create_strata();
         assert!(!db.auto_embed_enabled());
 
-        db.set_auto_embed(true);
+        db.set_auto_embed(true).unwrap();
         assert!(db.auto_embed_enabled());
 
-        db.set_auto_embed(false);
+        db.set_auto_embed(false).unwrap();
         assert!(!db.auto_embed_enabled());
+    }
+
+    #[test]
+    fn test_config_persists_across_reopen() {
+        let dir = tempfile::tempdir().unwrap();
+
+        // Open, configure model, close
+        {
+            let db = Strata::open(dir.path()).unwrap();
+            db.configure_model("http://localhost:11434/v1", "qwen3:1.7b", None, None)
+                .unwrap();
+        }
+
+        // Reopen — model config should survive via strata.toml
+        {
+            let db = Strata::open(dir.path()).unwrap();
+            let cfg = db.config();
+            let model = cfg.model.expect("model config should persist across reopen");
+            assert_eq!(model.endpoint, "http://localhost:11434/v1");
+            assert_eq!(model.model, "qwen3:1.7b");
+            assert_eq!(model.timeout_ms, 5000);
+        }
     }
 }
