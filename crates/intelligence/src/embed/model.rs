@@ -201,6 +201,15 @@ impl EmbedModel {
         })
     }
 
+    /// Embed multiple texts, returning one 384-dimensional vector per input.
+    ///
+    /// Currently iterates sequentially (back-to-back forward passes keep the
+    /// GPU warm). True tensor batching (padding + batched matmul) is a
+    /// follow-up optimisation.
+    pub fn embed_batch(&self, texts: &[&str]) -> Vec<Vec<f32>> {
+        texts.iter().map(|t| self.embed(t)).collect()
+    }
+
     /// Embed a text string into a 384-dimensional vector.
     pub fn embed(&self, text: &str) -> Vec<f32> {
         let input = self.tokenizer.tokenize(text);

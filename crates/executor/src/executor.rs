@@ -124,6 +124,7 @@ impl Executor {
                 }))
             }
             Command::Flush => {
+                crate::handlers::embed_hook::flush_embed_buffer(&self.primitives);
                 convert_result(self.primitives.db.flush())?;
                 Ok(Output::Unit)
             }
@@ -833,6 +834,14 @@ impl Executor {
     /// Get a reference to the underlying primitives.
     pub fn primitives(&self) -> &Arc<Primitives> {
         &self.primitives
+    }
+}
+
+impl Drop for Executor {
+    fn drop(&mut self) {
+        // Drain any pending embeddings so they aren't silently lost when the
+        // executor is dropped without an explicit flush.
+        crate::handlers::embed_hook::flush_embed_buffer(&self.primitives);
     }
 }
 
