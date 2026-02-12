@@ -5,13 +5,10 @@
 //! vector indexing, and other composite intelligence.
 //!
 //! This crate provides:
-//! - Scorer trait for pluggable scoring algorithms
-//! - ScorerContext for corpus-level statistics
-//! - BM25LiteScorer default implementation
-//! - Basic tokenizer
-//! - Fuser trait for result fusion
+//! - Fuser trait for result fusion (SimpleFuser, RRFFuser)
 //! - HybridSearch for composite search orchestration
 //! - DatabaseSearchExt extension trait for db.hybrid() accessor
+//! - Query expansion and re-ranking via external LLM endpoints
 //!
 //! # Usage
 //!
@@ -27,10 +24,8 @@
 pub mod expand;
 pub mod fuser;
 pub mod hybrid;
-pub mod index;
+pub mod llm_client;
 pub mod rerank;
-pub mod scorer;
-pub mod tokenizer;
 
 #[cfg(feature = "embed")]
 pub mod runtime;
@@ -44,9 +39,6 @@ use strata_engine::Database;
 // Re-export commonly used types
 pub use fuser::{weighted_rrf_fuse, FusedResult, Fuser, RRFFuser, SimpleFuser};
 pub use hybrid::HybridSearch;
-pub use index::{InvertedIndex, PostingEntry, PostingList};
-pub use scorer::{BM25LiteScorer, Scorer, ScorerContext, SearchDoc};
-pub use tokenizer::{tokenize, tokenize_unique};
 
 // ============================================================================
 // Database Extension

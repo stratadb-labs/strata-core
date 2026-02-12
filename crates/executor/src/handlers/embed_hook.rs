@@ -8,16 +8,51 @@ use std::sync::Arc;
 
 use crate::bridge::Primitives;
 
-/// Shadow collection names for each primitive type.
-pub const SHADOW_KV: &str = "_system_embed_kv";
-pub const SHADOW_JSON: &str = "_system_embed_json";
-pub const SHADOW_EVENT: &str = "_system_embed_event";
-pub const SHADOW_STATE: &str = "_system_embed_state";
+// Re-export shadow collection names from engine (single source of truth).
+pub use strata_engine::database::{SHADOW_EVENT, SHADOW_JSON, SHADOW_KV, SHADOW_STATE};
 
 /// Separator for composite shadow keys (ASCII Unit Separator).
 /// Avoids ambiguity since "/" is allowed in both space and key names.
 #[cfg(feature = "embed")]
 const SHADOW_KEY_SEP: char = '\x1f';
+
+/// In-memory state for auto-embedding shadow collection tracking.
+///
+/// Stored as a Database extension to share the created-collections cache
+/// across all handles. Uses `Mutex<HashSet>` to avoid adding a `dashmap`
+/// dependency to the executor crate.
+#[cfg(feature = "embed")]
+pub struct AutoEmbedState {
+    /// Tracks which shadow collections have been created (keyed by "branch_id/collection_name").
+    /// Prevents repeated `create_system_collection` calls on every write.
+    shadow_collections_created: std::sync::Mutex<std::collections::HashSet<String>>,
+}
+
+#[cfg(feature = "embed")]
+impl Default for AutoEmbedState {
+    fn default() -> Self {
+        Self {
+            shadow_collections_created: std::sync::Mutex::new(std::collections::HashSet::new()),
+        }
+    }
+}
+
+#[cfg(feature = "embed")]
+impl AutoEmbedState {
+    fn contains(&self, key: &str) -> bool {
+        self.shadow_collections_created
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .contains(key)
+    }
+
+    fn insert(&self, key: String) {
+        self.shadow_collections_created
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .insert(key);
+    }
+}
 
 /// Attempt to embed text and store in a shadow vector collection.
 ///
@@ -178,7 +213,6 @@ fn ensure_shadow_collection(
     name: &str,
 ) {
     use strata_core::primitives::vector::VectorConfig;
-    use strata_engine::database::AutoEmbedState;
 
     let cache_key = format!("{:?}{}{}", branch_id.as_bytes(), SHADOW_KEY_SEP, name);
     let state = match p.db.extension::<AutoEmbedState>() {
@@ -190,7 +224,7 @@ fn ensure_shadow_collection(
     };
 
     // Fast path: already created in this process lifetime
-    if state.shadow_collections_created.contains_key(&cache_key) {
+    if state.contains(&cache_key) {
         return;
     }
 
@@ -199,11 +233,11 @@ fn ensure_shadow_collection(
     match p.vector.create_system_collection(branch_id, name, config) {
         Ok(_) => {
             tracing::info!(target: "strata::embed", collection = name, "Created shadow embedding collection");
-            state.shadow_collections_created.insert(cache_key, ());
+            state.insert(cache_key);
         }
         Err(strata_engine::vector::VectorError::CollectionAlreadyExists { .. }) => {
             // Already exists from a previous process run — mark as created
-            state.shadow_collections_created.insert(cache_key, ());
+            state.insert(cache_key);
         }
         Err(e) => {
             tracing::warn!(

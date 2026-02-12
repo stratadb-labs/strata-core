@@ -4,7 +4,6 @@
 //! to score each document 0-10, parses scores, and returns normalized results.
 
 use super::{RerankError, RerankScore, Reranker};
-use tracing::warn;
 
 /// Reranker that calls an OpenAI-compatible chat completions endpoint.
 ///
@@ -19,7 +18,16 @@ pub struct ApiReranker {
     api_key: Option<String>,
     /// Request timeout
     timeout: std::time::Duration,
+    /// Sampling temperature (default: 0.0 for deterministic scoring)
+    temperature: f32,
+    /// Maximum response tokens (default: 200)
+    max_tokens: u32,
 }
+
+/// Default rerank temperature — deterministic for consistent scoring.
+const DEFAULT_RERANK_TEMPERATURE: f32 = 0.0;
+/// Default max tokens for rerank responses.
+const DEFAULT_RERANK_MAX_TOKENS: u32 = 200;
 
 impl ApiReranker {
     /// Create a new ApiReranker.
@@ -34,7 +42,21 @@ impl ApiReranker {
             model: model.to_string(),
             api_key: api_key.map(|s| s.to_string()),
             timeout: std::time::Duration::from_millis(timeout_ms),
+            temperature: DEFAULT_RERANK_TEMPERATURE,
+            max_tokens: DEFAULT_RERANK_MAX_TOKENS,
         }
+    }
+
+    /// Override the sampling temperature.
+    pub fn with_temperature(mut self, temperature: f32) -> Self {
+        self.temperature = temperature;
+        self
+    }
+
+    /// Override the maximum response tokens.
+    pub fn with_max_tokens(mut self, max_tokens: u32) -> Self {
+        self.max_tokens = max_tokens;
+        self
     }
 
     /// Make the HTTP call and return the raw response text.
@@ -45,66 +67,22 @@ impl ApiReranker {
         let body = serde_json::json!({
             "model": self.model,
             "messages": build_rerank_messages(query, snippets),
-            "temperature": 0.0,
-            "max_tokens": 200,
+            "temperature": self.temperature,
+            "max_tokens": self.max_tokens,
         });
 
-        let body_bytes = serde_json::to_vec(&body)
-            .map_err(|e| RerankError::Parse(format!("failed to serialize request: {}", e)))?;
-
-        let config = ureq::Agent::config_builder()
-            .timeout_global(Some(self.timeout))
-            .build();
-        let agent = ureq::Agent::new_with_config(config);
-
-        let mut request = agent
-            .post(&self.url)
-            .header("Content-Type", "application/json");
-
-        if let Some(ref key) = self.api_key {
-            request = request.header("Authorization", &format!("Bearer {}", key));
-        }
-
-        let mut response = request.send(&body_bytes[..]).map_err(|e| {
-            let msg = e.to_string();
-            if msg.contains("timed out") || msg.contains("Timeout") {
-                RerankError::Timeout
-            } else {
-                RerankError::Network(msg)
-            }
-        })?;
-
-        let response_text = response
-            .body_mut()
-            .read_to_string()
-            .map_err(|e| RerankError::Network(format!("failed to read response: {}", e)))?;
-
-        // Parse the OpenAI-format response to extract the content
-        let json: serde_json::Value = serde_json::from_str(&response_text)
-            .map_err(|e| RerankError::Parse(format!("invalid JSON response: {}", e)))?;
-
-        let content = json
-            .get("choices")
-            .and_then(|c| c.get(0))
-            .and_then(|c| c.get("message"))
-            .and_then(|m| m.get("content"))
-            .and_then(|c| c.as_str())
-            .ok_or_else(|| {
-                RerankError::Parse(format!(
-                    "unexpected response format: {}",
-                    &response_text[..response_text.len().min(200)]
-                ))
-            })?;
-
-        Ok(content.to_string())
+        crate::llm_client::call_chat_completions(
+            &self.url,
+            self.api_key.as_deref(),
+            self.timeout,
+            &body,
+        )
     }
 
     /// Placeholder for when the `rerank` feature is not enabled.
     #[cfg(not(feature = "rerank"))]
     fn call_api(&self, _query: &str, _snippets: &[(usize, &str)]) -> Result<String, RerankError> {
-        Err(RerankError::Network(
-            "rerank feature not enabled".to_string(),
-        ))
+        Err(RerankError::FeatureDisabled("rerank"))
     }
 }
 
@@ -151,52 +129,27 @@ impl Reranker for ApiReranker {
         query: &str,
         snippets: &[(usize, &str)],
     ) -> Result<Vec<RerankScore>, RerankError> {
-        // First attempt
-        match self.call_api(query, snippets) {
-            Ok(text) => {
-                let result = parse_rerank_response(&text, snippets);
-                if !result.is_empty() {
-                    return Ok(result);
-                }
-                // Zero valid scores — retry once
-                warn!(
-                    target: "strata::rerank",
-                    "First rerank returned no valid scores, retrying"
-                );
-            }
-            Err(e) => {
-                warn!(
-                    target: "strata::rerank",
-                    error = %e,
-                    "First rerank call failed, retrying"
-                );
-            }
-        }
+        // Capture snippets for the closure (need owned copies for lifetime)
+        let snippets_owned: Vec<(usize, String)> =
+            snippets.iter().map(|(i, s)| (*i, s.to_string())).collect();
 
-        // Retry once
-        match self.call_api(query, snippets) {
-            Ok(text) => {
-                let result = parse_rerank_response(&text, snippets);
-                if result.is_empty() {
-                    warn!(
-                        target: "strata::rerank",
-                        "Retry also returned no valid scores, falling back"
-                    );
-                    // Return empty — caller will use RRF results unchanged
-                    Ok(vec![])
-                } else {
-                    Ok(result)
-                }
-            }
-            Err(e) => {
-                warn!(
-                    target: "strata::rerank",
-                    error = %e,
-                    "Retry also failed, falling back"
-                );
-                Err(e)
-            }
-        }
+        crate::llm_client::retry_once(
+            || {
+                let snippet_refs: Vec<(usize, &str)> = snippets_owned
+                    .iter()
+                    .map(|(i, s)| (*i, s.as_str()))
+                    .collect();
+                self.call_api(query, &snippet_refs)
+            },
+            |text| parse_rerank_response(text, snippets),
+            |result| result.is_empty(),
+            || {
+                // Return empty vec on exhausted retries — caller uses RRF results unchanged
+                // We signal this as a parse error
+                RerankError::Parse("model returned no valid scores after retry".to_string())
+            },
+            "strata::rerank",
+        )
     }
 }
 

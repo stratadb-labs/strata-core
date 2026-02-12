@@ -4,7 +4,7 @@
 
 use strata_core::search_types::DocRef;
 use strata_core::types::BranchId;
-use strata_intelligence::InvertedIndex;
+use strata_engine::search::InvertedIndex;
 
 // ============================================================================
 // Index Enable/Disable Tests

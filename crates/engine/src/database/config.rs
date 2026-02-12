@@ -9,6 +9,19 @@ use std::path::Path;
 use strata_core::{StrataError, StrataResult};
 use strata_durability::wal::DurabilityMode;
 
+// ============================================================================
+// Shadow Collection Names
+// ============================================================================
+
+/// Shadow vector collection name for KV store auto-embeddings.
+pub const SHADOW_KV: &str = "_system_embed_kv";
+/// Shadow vector collection name for JSON store auto-embeddings.
+pub const SHADOW_JSON: &str = "_system_embed_json";
+/// Shadow vector collection name for event log auto-embeddings.
+pub const SHADOW_EVENT: &str = "_system_embed_event";
+/// Shadow vector collection name for state cell auto-embeddings.
+pub const SHADOW_STATE: &str = "_system_embed_state";
+
 /// Config file name placed in the database data directory.
 pub const CONFIG_FILE_NAME: &str = "strata.toml";
 
@@ -159,9 +172,8 @@ auto_embed = false
 
     /// Serialize this config to TOML and write it to the given path.
     pub fn write_to_file(&self, path: &Path) -> StrataResult<()> {
-        let content = toml::to_string_pretty(self).map_err(|e| {
-            StrataError::internal(format!("Failed to serialize config: {}", e))
-        })?;
+        let content = toml::to_string_pretty(self)
+            .map_err(|e| StrataError::internal(format!("Failed to serialize config: {}", e)))?;
         std::fs::write(path, content).map_err(|e| {
             StrataError::internal(format!(
                 "Failed to write config file '{}': {}",

@@ -173,7 +173,7 @@ fn test_tier1_rule4_snapshot_consistent() {
 /// Index is disabled by default
 #[test]
 fn test_tier1_rule5_index_disabled_by_default() {
-    use strata_intelligence::InvertedIndex;
+    use strata_engine::search::InvertedIndex;
 
     let index = InvertedIndex::new();
     assert!(!index.is_enabled(), "Index should be disabled by default");
@@ -183,7 +183,7 @@ fn test_tier1_rule5_index_disabled_by_default() {
 #[test]
 fn test_tier1_rule5_no_overhead_when_disabled() {
     use strata_core::search_types::DocRef;
-    use strata_intelligence::InvertedIndex;
+    use strata_engine::search::InvertedIndex;
 
     let index = InvertedIndex::new();
     let branch_id = BranchId::new();

@@ -15,13 +15,14 @@
 
 pub mod api;
 pub mod error;
-pub mod mock;
 pub mod parser;
 pub mod prompt;
 
+#[cfg(test)]
+pub(crate) mod mock;
+
 pub use api::ApiExpander;
 pub use error::ExpandError;
-pub use mock::MockExpander;
 
 /// Type of expanded query — determines how it is searched.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -57,7 +58,6 @@ pub struct ExpandedQueries {
 ///
 /// # Implementations
 ///
-/// - `MockExpander` — deterministic expansions for testing
 /// - `ApiExpander` — calls an OpenAI-compatible endpoint
 pub trait QueryExpander: Send + Sync {
     /// Expand a query into multiple typed search variants.
@@ -67,6 +67,7 @@ pub trait QueryExpander: Send + Sync {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::expand::mock::MockExpander;
     use std::sync::Arc;
 
     #[test]

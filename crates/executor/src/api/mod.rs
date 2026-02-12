@@ -130,8 +130,7 @@ impl Strata {
         })?;
 
         // Read existing config (or defaults)
-        let config_path =
-            data_dir.join(strata_engine::database::config::CONFIG_FILE_NAME);
+        let config_path = data_dir.join(strata_engine::database::config::CONFIG_FILE_NAME);
         strata_engine::database::config::StrataConfig::write_default_if_missing(&config_path)
             .map_err(|e| Error::Internal {
                 reason: format!("Failed to write default config: {}", e),
@@ -177,10 +176,9 @@ impl Strata {
             }
         }
 
-        let db =
-            Database::open_with_config(&data_dir, cfg).map_err(|e| Error::Internal {
-                reason: format!("Failed to open database: {}", e),
-            })?;
+        let db = Database::open_with_config(&data_dir, cfg).map_err(|e| Error::Internal {
+            reason: format!("Failed to open database: {}", e),
+        })?;
 
         let access_mode = opts.access_mode;
         let executor = Executor::new_with_mode(db, access_mode);

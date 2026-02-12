@@ -15,27 +15,18 @@
 //!
 //! HybridSearch is STATELESS. It holds only references to Database and primitives.
 
-use crate::fuser::{Fuser, RRFFuser, SimpleFuser};
+use crate::fuser::{Fuser, RRFFuser};
 use std::sync::Arc;
 use std::time::Instant;
 use strata_core::PrimitiveType;
 use strata_core::StrataResult;
 #[cfg(feature = "embed")]
+use strata_engine::database::{SHADOW_EVENT, SHADOW_JSON, SHADOW_KV, SHADOW_STATE};
+#[cfg(feature = "embed")]
 use strata_engine::search::SearchHit;
 use strata_engine::search::{SearchBudget, SearchMode, SearchRequest, SearchResponse, SearchStats};
 use strata_engine::Database;
 use strata_engine::{BranchIndex, EventLog, JsonStore, KVStore, StateCell, VectorStore};
-
-// Shadow vector collection names (duplicated from executor::embed_hook to avoid
-// cross-crate dependency from intelligence → executor).
-#[cfg(feature = "embed")]
-const SHADOW_KV: &str = "_system_embed_kv";
-#[cfg(feature = "embed")]
-const SHADOW_JSON: &str = "_system_embed_json";
-#[cfg(feature = "embed")]
-const SHADOW_EVENT: &str = "_system_embed_event";
-#[cfg(feature = "embed")]
-const SHADOW_STATE: &str = "_system_embed_state";
 
 // ============================================================================
 // HybridSearch
@@ -81,8 +72,8 @@ const SHADOW_STATE: &str = "_system_embed_state";
 /// All search state is ephemeral per-request.
 #[derive(Clone)]
 pub struct HybridSearch {
-    /// Database reference (kept for future snapshot consistency)
-    #[allow(dead_code)]
+    /// Database reference — used for embed queries and snapshot consistency
+    #[cfg_attr(not(feature = "embed"), allow(dead_code))]
     db: Arc<Database>,
     /// Fuser for combining results
     fuser: Arc<dyn Fuser>,
@@ -99,7 +90,7 @@ impl HybridSearch {
     /// Create a new HybridSearch orchestrator
     ///
     /// Creates all primitive facades internally.
-    /// Uses SimpleFuser by default.
+    /// Uses RRFFuser by default (appropriate for cross-primitive fusion).
     pub fn new(db: Arc<Database>) -> Self {
         HybridSearch {
             kv: KVStore::new(db.clone()),
@@ -109,7 +100,7 @@ impl HybridSearch {
             branch_index: BranchIndex::new(db.clone()),
             vector: VectorStore::new(db.clone()),
             db,
-            fuser: Arc::new(SimpleFuser),
+            fuser: Arc::new(RRFFuser::default()),
         }
     }
 
@@ -246,13 +237,8 @@ impl HybridSearch {
             }
         }
 
-        // 5. Fuse results — use RRF for Hybrid mode to properly merge keyword + vector
-        let fuser: &dyn Fuser = if req.mode == SearchMode::Hybrid {
-            &RRFFuser::default()
-        } else {
-            self.fuser.as_ref()
-        };
-        let fused = fuser.fuse(primitive_results, req.k);
+        // 5. Fuse results
+        let fused = self.fuser.fuse(primitive_results, req.k);
 
         // 6. Build stats
         let stats = SearchStats::new(start.elapsed().as_micros() as u64, total_candidates);
@@ -403,15 +389,6 @@ impl HybridSearch {
             stats,
         })
     }
-
-    /// Get a reference to the VectorStore for direct semantic search
-    ///
-    /// Use this when you have an embedding vector and want to perform
-    /// semantic search. The Searchable::search() method returns empty
-    /// for keyword queries because Vector requires explicit embeddings.
-    pub fn vector(&self) -> &VectorStore {
-        &self.vector
-    }
 }
 
 // ============================================================================
@@ -423,6 +400,7 @@ mod tests {
     use super::*;
     use strata_core::types::BranchId;
     use strata_core::value::Value;
+    use strata_engine::search::{EntityRef, SearchHit};
 
     fn test_db() -> Arc<Database> {
         Database::cache().expect("Failed to create test database")
@@ -436,7 +414,7 @@ mod tests {
     }
 
     #[test]
-    fn test_hybrid_search_empty() {
+    fn test_hybrid_search_empty_db_returns_no_hits() {
         let db = test_db();
         let hybrid = HybridSearch::new(db);
         let branch_id = BranchId::new();
@@ -449,12 +427,14 @@ mod tests {
     }
 
     #[test]
-    fn test_hybrid_search_kv_only() {
+    fn test_orchestration_does_not_crash_with_data() {
+        // Primitives' Searchable impls return empty (search is done at executor layer
+        // via InvertedIndex). This test verifies the orchestration pipeline completes
+        // without errors when data exists in primitives.
         let db = test_db();
         let kv = KVStore::new(db.clone());
         let branch_id = BranchId::new();
 
-        // Add test data
         kv.put(
             &branch_id,
             "default",
@@ -475,20 +455,18 @@ mod tests {
             SearchRequest::new(branch_id, "test").with_primitive_filter(vec![PrimitiveType::Kv]);
         let response = hybrid.search(&req).unwrap();
 
-        // Note: MVP simplification - primitives' Searchable implementations return empty results.
-        // Full-text search should use InvertedIndex directly. This test verifies the orchestration
-        // works correctly even when primitives return empty results.
-        assert!(response.hits.is_empty());
+        // Primitives return empty SearchResponses — actual text search is done at
+        // the executor layer via build_search_response + InvertedIndex. See
+        // tests/intelligence/search_correctness.rs for end-to-end verification.
         assert!(!response.truncated);
     }
 
     #[test]
-    fn test_hybrid_search_primitive_filter() {
+    fn test_primitive_filter_selects_correct_primitives() {
         let db = test_db();
         let hybrid = HybridSearch::new(db);
         let branch_id = BranchId::new();
 
-        // Test with filter
         let req_filtered = SearchRequest::new(branch_id, "test")
             .with_primitive_filter(vec![PrimitiveType::Kv, PrimitiveType::Json]);
 
@@ -497,25 +475,23 @@ mod tests {
         assert!(primitives.contains(&PrimitiveType::Kv));
         assert!(primitives.contains(&PrimitiveType::Json));
 
-        // Test without filter (all primitives)
+        // Without filter selects all 6 primitives
         let req_all = SearchRequest::new(branch_id, "test");
         let all_primitives = hybrid.select_primitives(&req_all);
-        assert_eq!(all_primitives.len(), 6); // Kv, Event, State, Branch, Json, Vector
+        assert_eq!(all_primitives.len(), 6);
     }
 
     #[test]
-    fn test_hybrid_search_budget_allocation() {
+    fn test_budget_allocation_divides_evenly() {
         let db = test_db();
         let hybrid = HybridSearch::new(db);
         let branch_id = BranchId::new();
 
         let req = SearchRequest::new(branch_id, "test");
 
-        // Allocate for 3 primitives
         let budgets = hybrid.allocate_budgets(&req, 3);
         assert_eq!(budgets.len(), 3);
 
-        // Each should get ~1/3 of time budget
         let expected_time = req.budget.max_wall_time_micros / 3;
         for budget in &budgets {
             assert_eq!(budget.max_wall_time_micros, expected_time);
@@ -527,47 +503,107 @@ mod tests {
     }
 
     #[test]
-    fn test_hybrid_search_with_custom_fuser() {
+    fn test_with_fuser_is_respected() {
+        use crate::fuser::SimpleFuser;
         let db = test_db();
         let hybrid = HybridSearch::new(db).with_fuser(Arc::new(SimpleFuser::new()));
-        // Should compile and not panic
         let _ = hybrid;
     }
 
     #[test]
     fn test_hybrid_search_is_send_sync() {
-        // HybridSearch should be Send + Sync for concurrent use
-        // Note: Currently may not be due to Arc<dyn Fuser>
-        // fn assert_send_sync<T: Send + Sync>() {}
-        // assert_send_sync::<HybridSearch>();
+        fn assert_send_sync<T: Send + Sync>() {}
+        assert_send_sync::<HybridSearch>();
     }
 
+    /// Verify that fuser produces ranked results when primitives return hits.
+    ///
+    /// This directly tests the fuse → response path that's opaque in orchestration
+    /// tests (since engine-level Searchable impls return empty).
     #[test]
-    fn test_hybrid_search_multiple_primitives() {
-        let db = test_db();
-        let kv = KVStore::new(db.clone());
-        let branch_index = BranchIndex::new(db.clone());
+    fn test_fuser_produces_ranked_output() {
         let branch_id = BranchId::new();
 
-        // Create the branch in branch_index
-        branch_index.create_branch(&branch_id.to_string()).unwrap();
+        // Simulate two primitives returning overlapping hits.
+        // doc_b appears in both — RRF should merge it and boost its score.
+        let kv_hits = vec![
+            SearchHit::new(
+                EntityRef::Kv {
+                    branch_id,
+                    key: "doc_a".into(),
+                },
+                0.9,
+                1,
+            ),
+            SearchHit::new(
+                EntityRef::Kv {
+                    branch_id,
+                    key: "doc_b".into(),
+                },
+                0.7,
+                2,
+            ),
+        ];
+        let event_hits = vec![
+            SearchHit::new(
+                EntityRef::Kv {
+                    branch_id,
+                    key: "doc_b".into(),
+                },
+                0.8,
+                1,
+            ),
+            SearchHit::new(
+                EntityRef::Kv {
+                    branch_id,
+                    key: "doc_c".into(),
+                },
+                0.6,
+                2,
+            ),
+        ];
 
-        // Add data to KV primitive
-        kv.put(
-            &branch_id,
-            "default",
-            "hello",
-            Value::String("hello world data".into()),
-        )
-        .unwrap();
+        let primitive_results = vec![
+            (
+                PrimitiveType::Kv,
+                SearchResponse::new(kv_hits, false, SearchStats::new(100, 2)),
+            ),
+            (
+                PrimitiveType::Event,
+                SearchResponse::new(event_hits, false, SearchStats::new(100, 2)),
+            ),
+        ];
 
-        let hybrid = HybridSearch::new(db);
-        let req = SearchRequest::new(branch_id, "hello");
-        let response = hybrid.search(&req).unwrap();
+        let fuser = RRFFuser::default();
+        let fused = fuser.fuse(primitive_results, 10);
 
-        // Note: MVP simplification - primitives' Searchable implementations return empty results.
-        // Full-text search should use InvertedIndex directly. This test verifies orchestration.
-        assert!(response.hits.is_empty());
-        assert!(!response.truncated);
+        // 3 unique entities: doc_a, doc_b (merged from both), doc_c
+        assert_eq!(fused.hits.len(), 3, "Expected 3 fused hits");
+
+        // Ranks should be 1, 2, 3
+        for (i, hit) in fused.hits.iter().enumerate() {
+            assert_eq!(hit.rank, (i + 1) as u32);
+            assert!(hit.score > 0.0, "RRF scores should be positive");
+        }
+
+        // Scores should be in descending order
+        for window in fused.hits.windows(2) {
+            assert!(
+                window[0].score >= window[1].score,
+                "Hits should be sorted by score descending"
+            );
+        }
+
+        // doc_b appeared in both result lists → its RRF score should be highest
+        // (boosted by appearing at rank 2 + rank 1 across two lists)
+        let top_hit = &fused.hits[0];
+        assert_eq!(
+            top_hit.doc_ref,
+            EntityRef::Kv {
+                branch_id,
+                key: "doc_b".into()
+            },
+            "doc_b should be top-ranked (appears in both primitive results)"
+        );
     }
 }

@@ -70,8 +70,8 @@ impl TestDb {
         ensure_recovery_registered();
         let dir = tempfile::tempdir().expect("Failed to create temp dir");
         let config = always_config();
-        let db = Database::open_with_config(dir.path(), config)
-            .expect("Failed to create test database");
+        let db =
+            Database::open_with_config(dir.path(), config).expect("Failed to create test database");
         let branch_id = BranchId::new();
         TestDb { db, dir, branch_id }
     }
