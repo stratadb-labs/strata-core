@@ -202,6 +202,48 @@ impl Fuser for RRFFuser {
 }
 
 // ============================================================================
+// Score-based merge (for single-signal keyword search)
+// ============================================================================
+
+/// Merge multiple primitive result lists by raw score (no fusion).
+///
+/// Used for keyword-only search where all primitives use the same BM25 scorer
+/// and scores are directly comparable. Simply concatenates, deduplicates,
+/// sorts by score descending, and truncates to top_k.
+pub fn merge_by_score(
+    results: Vec<(PrimitiveType, SearchResponse)>,
+    top_k: usize,
+) -> FusedResult {
+    let mut hit_map: HashMap<EntityRef, SearchHit> = HashMap::new();
+
+    for (_primitive, response) in results {
+        for hit in response.hits {
+            hit_map
+                .entry(hit.doc_ref.clone())
+                .and_modify(|existing| {
+                    // Keep the higher score if doc appears in multiple primitives
+                    if hit.score > existing.score {
+                        *existing = hit.clone();
+                    }
+                })
+                .or_insert(hit);
+        }
+    }
+
+    let mut hits: Vec<SearchHit> = hit_map.into_values().collect();
+    hits.sort_by(|a, b| b.score.partial_cmp(&a.score).unwrap_or(std::cmp::Ordering::Equal));
+
+    let truncated = hits.len() > top_k;
+    hits.truncate(top_k);
+
+    for (i, hit) in hits.iter_mut().enumerate() {
+        hit.rank = (i + 1) as u32;
+    }
+
+    FusedResult::new(hits, truncated)
+}
+
+// ============================================================================
 // Weighted RRF (for multi-query fusion)
 // ============================================================================
 
@@ -523,5 +565,78 @@ mod tests {
     fn test_weighted_rrf_empty() {
         let fused = weighted_rrf_fuse(vec![], 60, 10);
         assert!(fused.hits.is_empty());
+    }
+
+    // ========================================
+    // merge_by_score Tests
+    // ========================================
+
+    #[test]
+    fn test_merge_by_score_preserves_raw_scores() {
+        let branch_id = BranchId::new();
+        let doc_a = make_kv_doc_ref(&branch_id, "a");
+        let doc_b = make_kv_doc_ref(&branch_id, "b");
+
+        let hits = vec![make_hit(doc_a, 2.5, 1), make_hit(doc_b, 1.8, 2)];
+        let results = vec![(PrimitiveType::Kv, make_response(hits))];
+
+        let fused = merge_by_score(results, 10);
+        assert_eq!(fused.hits.len(), 2);
+        assert!((fused.hits[0].score - 2.5).abs() < 0.0001);
+        assert!((fused.hits[1].score - 1.8).abs() < 0.0001);
+        assert_eq!(fused.hits[0].rank, 1);
+        assert_eq!(fused.hits[1].rank, 2);
+    }
+
+    #[test]
+    fn test_merge_by_score_across_primitives() {
+        let branch_id = BranchId::new();
+        let doc_a = make_kv_doc_ref(&branch_id, "a");
+        let doc_b = make_kv_doc_ref(&branch_id, "b");
+        let doc_c = make_kv_doc_ref(&branch_id, "c");
+
+        // doc_b appears in both lists with different scores — keep the higher one
+        let list1 = vec![make_hit(doc_a.clone(), 3.0, 1), make_hit(doc_b.clone(), 1.5, 2)];
+        let list2 = vec![make_hit(doc_b.clone(), 2.0, 1), make_hit(doc_c.clone(), 1.0, 2)];
+
+        let results = vec![
+            (PrimitiveType::Kv, make_response(list1)),
+            (PrimitiveType::Json, make_response(list2)),
+        ];
+
+        let fused = merge_by_score(results, 10);
+        assert_eq!(fused.hits.len(), 3);
+
+        // Sorted by raw score: doc_a(3.0), doc_b(2.0), doc_c(1.0)
+        assert_eq!(fused.hits[0].doc_ref, doc_a);
+        assert!((fused.hits[0].score - 3.0).abs() < 0.0001);
+        assert_eq!(fused.hits[1].doc_ref, doc_b);
+        assert!((fused.hits[1].score - 2.0).abs() < 0.0001);
+        assert_eq!(fused.hits[2].doc_ref, doc_c);
+        assert!((fused.hits[2].score - 1.0).abs() < 0.0001);
+    }
+
+    #[test]
+    fn test_merge_by_score_respects_top_k() {
+        let branch_id = BranchId::new();
+        let hits: Vec<_> = (0..10)
+            .map(|i| {
+                let doc_ref = make_kv_doc_ref(&branch_id, &format!("key{}", i));
+                make_hit(doc_ref, 1.0 - i as f32 * 0.1, (i + 1) as u32)
+            })
+            .collect();
+
+        let results = vec![(PrimitiveType::Kv, make_response(hits))];
+
+        let fused = merge_by_score(results, 3);
+        assert_eq!(fused.hits.len(), 3);
+        assert!(fused.truncated);
+    }
+
+    #[test]
+    fn test_merge_by_score_empty() {
+        let fused = merge_by_score(vec![], 10);
+        assert!(fused.hits.is_empty());
+        assert!(!fused.truncated);
     }
 }

@@ -231,8 +231,13 @@ impl HybridSearch {
             }
         }
 
-        // 5. Fuse results
-        let fused = self.fuser.fuse(primitive_results, req.k);
+        // 5. Combine results: keyword mode merges by raw score,
+        //    hybrid mode fuses with RRF across BM25 + vector lists.
+        let fused = if req.mode == SearchMode::Keyword {
+            crate::fuser::merge_by_score(primitive_results, req.k)
+        } else {
+            self.fuser.fuse(primitive_results, req.k)
+        };
 
         // 6. Build stats
         let stats = SearchStats::new(start.elapsed().as_micros() as u64, total_candidates);
