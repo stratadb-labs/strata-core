@@ -5,7 +5,7 @@
 //! vector indexing, and other composite intelligence.
 //!
 //! This crate provides:
-//! - Fuser trait for result fusion (SimpleFuser, RRFFuser)
+//! - Fuser trait for result fusion (RRFFuser)
 //! - HybridSearch for composite search orchestration
 //! - DatabaseSearchExt extension trait for db.hybrid() accessor
 //! - Query expansion and re-ranking via external LLM endpoints
@@ -37,7 +37,7 @@ use std::sync::Arc;
 use strata_engine::Database;
 
 // Re-export commonly used types
-pub use fuser::{weighted_rrf_fuse, FusedResult, Fuser, RRFFuser, SimpleFuser};
+pub use fuser::{weighted_rrf_fuse, FusedResult, Fuser, RRFFuser};
 pub use hybrid::HybridSearch;
 
 // ============================================================================

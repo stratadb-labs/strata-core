@@ -10,7 +10,7 @@ use strata_intelligence::embed::extract::extract_text;
 use strata_intelligence::embed::tokenizer::WordPieceTokenizer;
 use strata_intelligence::runtime::safetensors::SafeTensors;
 use strata_intelligence::runtime::tensor::Tensor;
-use strata_intelligence::{Fuser, RRFFuser, SimpleFuser};
+use strata_intelligence::{Fuser, RRFFuser};
 
 use strata_engine::search::{EntityRef, SearchHit, SearchResponse, SearchStats};
 
@@ -176,21 +176,6 @@ fn test_fuser_handles_realistic_search_results() {
         truncated: false,
         stats: SearchStats::new(0, 0),
     };
-
-    // Test SimpleFuser
-    let simple = SimpleFuser::new();
-    let simple_results = vec![
-        (PrimitiveType::Kv, make_response(kv_hits.clone())),
-        (PrimitiveType::Json, make_response(json_hits.clone())),
-        (PrimitiveType::Event, make_response(event_hits.clone())),
-    ];
-    let simple_fused = simple.fuse(simple_results, 10);
-    assert_eq!(simple_fused.hits.len(), 10);
-    assert!(simple_fused.truncated);
-    // Scores should be non-increasing
-    for w in simple_fused.hits.windows(2) {
-        assert!(w[0].score >= w[1].score);
-    }
 
     // Test RRFFuser
     let rrf = RRFFuser::default();

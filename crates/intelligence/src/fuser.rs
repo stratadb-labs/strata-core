@@ -2,8 +2,8 @@
 //!
 //! This module provides:
 //! - Fuser trait for pluggable fusion algorithms
-//! - SimpleFuser: basic concatenation + sort (M6 default)
-//! - RRFFuser: Reciprocal Rank Fusion (advanced fusion)
+//! - RRFFuser: Reciprocal Rank Fusion (default)
+//! - weighted_rrf_fuse: multi-query fusion with per-list weights
 //!
 //! See `docs/architecture/M6_ARCHITECTURE.md` for authoritative specification.
 
@@ -48,8 +48,7 @@ impl FusedResult {
 ///
 /// # Implementation Notes
 ///
-/// SimpleFuser is the default (sort by score). advanced fusion adds RRFFuser
-/// which uses Reciprocal Rank Fusion.
+/// RRFFuser (Reciprocal Rank Fusion) is the default and only built-in fuser.
 pub trait Fuser: Send + Sync {
     /// Fuse results from multiple primitives
     ///
@@ -121,62 +120,7 @@ fn build_ranked_result(
 }
 
 // ============================================================================
-// SimpleFuser (M6 Default)
-// ============================================================================
-
-/// Simple fusion: concatenate and sort by score
-///
-/// This is the M6 default fuser. It simply combines all hits from
-/// all primitives, sorts by score descending, and takes top-k.
-///
-/// No rank normalization or primitive weighting.
-#[derive(Debug, Clone, Default)]
-pub struct SimpleFuser;
-
-impl SimpleFuser {
-    /// Create a new SimpleFuser
-    pub fn new() -> Self {
-        SimpleFuser
-    }
-}
-
-impl Fuser for SimpleFuser {
-    fn fuse(&self, results: Vec<(PrimitiveType, SearchResponse)>, k: usize) -> FusedResult {
-        // Collect all hits
-        let mut all_hits: Vec<SearchHit> = results
-            .into_iter()
-            .flat_map(|(_, response)| response.hits)
-            .collect();
-
-        // Sort by score descending
-        all_hits.sort_by(|a, b| {
-            b.score
-                .partial_cmp(&a.score)
-                .unwrap_or(std::cmp::Ordering::Equal)
-        });
-
-        // Take top-k and update ranks
-        let truncated = all_hits.len() > k;
-        let hits: Vec<SearchHit> = all_hits
-            .into_iter()
-            .take(k)
-            .enumerate()
-            .map(|(i, mut hit)| {
-                hit.rank = (i + 1) as u32;
-                hit
-            })
-            .collect();
-
-        FusedResult::new(hits, truncated)
-    }
-
-    fn name(&self) -> &str {
-        "simple"
-    }
-}
-
-// ============================================================================
-// RRFFuser (advanced fusion)
+// RRFFuser
 // ============================================================================
 
 /// Reciprocal Rank Fusion (RRF)
@@ -184,8 +128,8 @@ impl Fuser for SimpleFuser {
 /// RRF Score = sum(1 / (k + rank)) across all lists
 /// Where k is a smoothing constant (default 60).
 ///
-/// This fuser is better than SimpleFuser when combining results from
-/// different ranking algorithms (e.g., keyword + vector search).
+/// This fuser excels at combining results from different ranking algorithms
+/// (e.g., keyword + vector search).
 ///
 /// # Algorithm
 ///
@@ -351,93 +295,10 @@ mod tests {
     }
 
     #[test]
-    fn test_simple_fuser_empty() {
-        let fuser = SimpleFuser::new();
-        let result = fuser.fuse(vec![], 10);
-        assert!(result.hits.is_empty());
-        assert!(!result.truncated);
-    }
-
-    #[test]
-    fn test_simple_fuser_single_primitive() {
-        let fuser = SimpleFuser::new();
-
-        let branch_id = BranchId::new();
-        let doc_ref = make_kv_doc_ref(&branch_id, "test");
-        let hits = vec![
-            make_hit(doc_ref.clone(), 0.8, 1),
-            make_hit(doc_ref.clone(), 0.5, 2),
-        ];
-        let results = vec![(PrimitiveType::Kv, make_response(hits))];
-
-        let result = fuser.fuse(results, 10);
-        assert_eq!(result.hits.len(), 2);
-        assert_eq!(result.hits[0].rank, 1);
-        assert_eq!(result.hits[1].rank, 2);
-        assert!(result.hits[0].score >= result.hits[1].score);
-    }
-
-    #[test]
-    fn test_simple_fuser_multiple_primitives() {
-        let fuser = SimpleFuser::new();
-
-        let branch_id = BranchId::new();
-
-        let kv_ref = make_kv_doc_ref(&branch_id, "test");
-        let branch_ref = EntityRef::Branch {
-            branch_id: branch_id.clone(),
-        };
-
-        let kv_hits = vec![make_hit(kv_ref, 0.7, 1)];
-        let branch_hits = vec![make_hit(branch_ref, 0.9, 1)];
-
-        let results = vec![
-            (PrimitiveType::Kv, make_response(kv_hits)),
-            (PrimitiveType::Branch, make_response(branch_hits)),
-        ];
-
-        let result = fuser.fuse(results, 10);
-        assert_eq!(result.hits.len(), 2);
-        // Higher score should be first
-        assert!(result.hits[0].score > result.hits[1].score);
-        // Ranks should be updated
-        assert_eq!(result.hits[0].rank, 1);
-        assert_eq!(result.hits[1].rank, 2);
-    }
-
-    #[test]
-    fn test_simple_fuser_respects_k() {
-        let fuser = SimpleFuser::new();
-
-        let branch_id = BranchId::new();
-        let doc_ref = make_kv_doc_ref(&branch_id, "test");
-        let hits: Vec<_> = (0..10)
-            .map(|i| make_hit(doc_ref.clone(), 1.0 - i as f32 * 0.1, i + 1))
-            .collect();
-
-        let results = vec![(PrimitiveType::Kv, make_response(hits))];
-
-        let result = fuser.fuse(results, 3);
-        assert_eq!(result.hits.len(), 3);
-        assert!(result.truncated);
-    }
-
-    #[test]
-    fn test_simple_fuser_name() {
-        let fuser = SimpleFuser::new();
-        assert_eq!(fuser.name(), "simple");
-    }
-
-    #[test]
     fn test_fuser_is_send_sync() {
         fn assert_send_sync<T: Send + Sync>() {}
-        assert_send_sync::<SimpleFuser>();
         assert_send_sync::<RRFFuser>();
     }
-
-    // ========================================
-    // RRFFuser Tests
-    // ========================================
 
     #[test]
     fn test_rrf_fuser_empty() {

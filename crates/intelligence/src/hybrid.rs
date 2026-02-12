@@ -503,14 +503,6 @@ mod tests {
     }
 
     #[test]
-    fn test_with_fuser_is_respected() {
-        use crate::fuser::SimpleFuser;
-        let db = test_db();
-        let hybrid = HybridSearch::new(db).with_fuser(Arc::new(SimpleFuser::new()));
-        let _ = hybrid;
-    }
-
-    #[test]
     fn test_hybrid_search_is_send_sync() {
         fn assert_send_sync<T: Send + Sync>() {}
         assert_send_sync::<HybridSearch>();
