@@ -350,9 +350,6 @@ fn session_from_strata() {
     let db = create_db();
     let strata = strata_executor::Strata::from_database(db.clone()).unwrap();
 
-    // Strata provides executor access
-    let _executor = strata.executor();
-
     // Session can be created from the strata instance
     let _session = strata.session();
 }

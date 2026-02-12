@@ -94,5 +94,9 @@ pub use strata_engine::WalCounters;
 // Re-export configuration types so users don't need strata-engine directly
 pub use strata_engine::{ModelConfig, StrataConfig};
 
+// Re-export Database and DurabilityMode so users can open/create databases
+// and create sessions without depending on strata-engine directly
+pub use strata_engine::{Database, DurabilityMode};
+
 /// Result type for executor operations
 pub type Result<T> = std::result::Result<T, Error>;
