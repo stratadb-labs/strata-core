@@ -987,4 +987,82 @@ mod tests {
             Some(Value::String("base-value".into()))
         );
     }
+
+    // =========================================================================
+    // Configuration Tests
+    // =========================================================================
+
+    #[test]
+    fn test_config_defaults() {
+        let db = create_strata();
+        let cfg = db.config();
+        assert_eq!(cfg.durability, "standard");
+        assert!(!cfg.auto_embed);
+        assert!(cfg.model.is_none());
+    }
+
+    #[test]
+    fn test_configure_model() {
+        let db = create_strata();
+        db.configure_model("http://localhost:11434/v1", "qwen3:1.7b", None, None)
+            .unwrap();
+
+        let cfg = db.config();
+        let model = cfg.model.unwrap();
+        assert_eq!(model.endpoint, "http://localhost:11434/v1");
+        assert_eq!(model.model, "qwen3:1.7b");
+        assert!(model.api_key.is_none());
+        assert_eq!(model.timeout_ms, 5000);
+    }
+
+    #[test]
+    fn test_configure_model_with_api_key() {
+        let db = create_strata();
+        db.configure_model(
+            "https://api.openai.com/v1",
+            "gpt-4",
+            Some("sk-test-key"),
+            Some(10000),
+        )
+        .unwrap();
+
+        let cfg = db.config();
+        let model = cfg.model.unwrap();
+        assert_eq!(model.api_key.as_deref(), Some("sk-test-key"));
+        assert_eq!(model.timeout_ms, 10000);
+    }
+
+    #[test]
+    fn test_auto_embed_toggle() {
+        let db = create_strata();
+        assert!(!db.auto_embed_enabled());
+
+        db.set_auto_embed(true).unwrap();
+        assert!(db.auto_embed_enabled());
+
+        db.set_auto_embed(false).unwrap();
+        assert!(!db.auto_embed_enabled());
+    }
+
+    #[test]
+    fn test_config_persists_across_reopen() {
+        let dir = tempfile::tempdir().unwrap();
+
+        // Open, configure model, close
+        {
+            let db = Strata::open(dir.path()).unwrap();
+            db.configure_model("http://localhost:11434/v1", "qwen3:1.7b", None, None)
+                .unwrap();
+        }
+
+        // Reopen — model config should survive via strata.toml
+        {
+            let db = Strata::open(dir.path()).unwrap();
+            let cfg = db.config();
+            let model = cfg.model.expect("model config should persist across reopen");
+            assert_eq!(model.endpoint, "http://localhost:11434/v1");
+            assert_eq!(model.model, "qwen3:1.7b");
+            assert_eq!(model.timeout_ms, 5000);
+        }
+    }
 }

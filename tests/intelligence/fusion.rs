@@ -1,10 +1,10 @@
 //! Tier 5: Fusion Correctness
 //!
-//! Tests for RRF and SimpleFuser correctness.
+//! Tests for RRF fusion correctness.
 
 use strata_core::search_types::{DocRef, PrimitiveType, SearchHit, SearchResponse, SearchStats};
 use strata_core::types::BranchId;
-use strata_intelligence::{Fuser, RRFFuser, SimpleFuser};
+use strata_intelligence::{Fuser, RRFFuser};
 
 // ============================================================================
 // Test Helpers
@@ -27,105 +27,12 @@ fn make_response(hits: Vec<SearchHit>) -> SearchResponse {
     }
 }
 
-/// Returns (branch_id, DocRef) for a KV entity
-fn make_kv_doc_ref(name: &str) -> (BranchId, DocRef) {
-    let branch_id = BranchId::new();
-    let doc_ref = DocRef::Kv {
-        branch_id: branch_id.clone(),
-        key: name.to_string(),
-    };
-    (branch_id, doc_ref)
-}
-
 /// Returns DocRef for a KV entity with a given branch_id
 fn make_kv_doc_ref_with_branch(branch_id: &BranchId, name: &str) -> DocRef {
     DocRef::Kv {
         branch_id: branch_id.clone(),
         key: name.to_string(),
     }
-}
-
-// ============================================================================
-// SimpleFuser Tests
-// ============================================================================
-
-/// SimpleFuser handles empty input
-#[test]
-fn test_tier5_simple_fuser_empty() {
-    let fuser = SimpleFuser::new();
-    let result = fuser.fuse(vec![], 10);
-    assert!(result.hits.is_empty());
-    assert!(!result.truncated);
-}
-
-/// SimpleFuser merges single primitive
-#[test]
-fn test_tier5_simple_fuser_single() {
-    let fuser = SimpleFuser::new();
-
-    let (branch_id, _) = make_kv_doc_ref("test");
-    let doc_ref = make_kv_doc_ref_with_branch(&branch_id, "test");
-    let hits = vec![
-        make_hit(doc_ref.clone(), 0.8, 1),
-        make_hit(doc_ref.clone(), 0.5, 2),
-    ];
-    let results = vec![(PrimitiveType::Kv, make_response(hits))];
-
-    let result = fuser.fuse(results, 10);
-    assert_eq!(result.hits.len(), 2);
-    assert_eq!(result.hits[0].rank, 1);
-    assert_eq!(result.hits[1].rank, 2);
-}
-
-/// SimpleFuser sorts by score descending
-#[test]
-fn test_tier5_simple_fuser_sorts_by_score() {
-    let fuser = SimpleFuser::new();
-
-    let branch_id = BranchId::new();
-
-    let doc_ref_a = make_kv_doc_ref_with_branch(&branch_id, "a");
-    let branch_ref = DocRef::Run {
-        branch_id: branch_id.clone(),
-    };
-
-    let kv_hits = vec![make_hit(doc_ref_a, 0.7, 1)];
-    let branch_hits = vec![make_hit(branch_ref, 0.9, 1)];
-
-    let results = vec![
-        (PrimitiveType::Kv, make_response(kv_hits)),
-        (PrimitiveType::Branch, make_response(branch_hits)),
-    ];
-
-    let result = fuser.fuse(results, 10);
-    assert_eq!(result.hits.len(), 2);
-    // Higher score should be first
-    assert!(result.hits[0].score > result.hits[1].score);
-}
-
-/// SimpleFuser respects k limit
-#[test]
-fn test_tier5_simple_fuser_respects_k() {
-    let fuser = SimpleFuser::new();
-
-    let branch_id = BranchId::new();
-    let doc_ref = make_kv_doc_ref_with_branch(&branch_id, "test");
-    let hits: Vec<_> = (0..10)
-        .map(|i| make_hit(doc_ref.clone(), 1.0 - i as f32 * 0.1, i + 1))
-        .collect();
-
-    let results = vec![(PrimitiveType::Kv, make_response(hits))];
-
-    let result = fuser.fuse(results, 3);
-    assert_eq!(result.hits.len(), 3);
-    assert!(result.truncated);
-}
-
-/// SimpleFuser has correct name
-#[test]
-fn test_tier5_simple_fuser_name() {
-    let fuser = SimpleFuser::new();
-    assert_eq!(fuser.name(), "simple");
 }
 
 // ============================================================================
@@ -312,6 +219,5 @@ fn test_tier5_rrf_fuser_name() {
 #[test]
 fn test_tier5_fusers_send_sync() {
     fn assert_send_sync<T: Send + Sync>() {}
-    assert_send_sync::<SimpleFuser>();
     assert_send_sync::<RRFFuser>();
 }

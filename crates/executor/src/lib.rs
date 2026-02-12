@@ -91,5 +91,8 @@ pub use strata_security::{AccessMode, OpenOptions};
 // Re-export WAL counters (return type of Strata::durability_counters)
 pub use strata_engine::WalCounters;
 
+// Re-export configuration types so users don't need strata-engine directly
+pub use strata_engine::{ModelConfig, StrataConfig};
+
 /// Result type for executor operations
 pub type Result<T> = std::result::Result<T, Error>;
