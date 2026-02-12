@@ -142,8 +142,7 @@ fn standard_mode_is_persistent() {
 #[test]
 fn always_mode_is_persistent() {
     let temp_dir = tempfile::tempdir().unwrap();
-    write_always_config(temp_dir.path());
-    let db = Database::open(temp_dir.path()).expect("always database");
+    let db = Database::open_with_config(temp_dir.path(), always_config()).expect("always database");
 
     assert!(!db.is_cache());
 }
@@ -206,8 +205,7 @@ fn transaction_atomicity_standard() {
 #[test]
 fn transaction_atomicity_always() {
     let temp_dir = tempfile::tempdir().unwrap();
-    write_always_config(temp_dir.path());
-    let db = Database::open(temp_dir.path()).expect("always database");
+    let db = Database::open_with_config(temp_dir.path(), always_config()).expect("always database");
     let branch_id = BranchId::new();
 
     db.transaction(branch_id, |txn| {

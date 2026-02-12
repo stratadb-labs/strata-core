@@ -7,7 +7,6 @@
 use std::sync::Arc;
 
 use chrono::DateTime;
-use strata_engine::database::ModelConfigState;
 use strata_engine::search::{PrimitiveType, SearchResponse};
 use strata_engine::{SearchBudget, SearchMode, SearchRequest};
 use strata_intelligence::HybridSearch;
@@ -193,17 +192,7 @@ pub fn search(
 
 /// Check if a model is configured (cheap — no LLM call).
 fn has_model_configured(db: &Arc<strata_engine::Database>) -> bool {
-    db.extension::<ModelConfigState>()
-        .ok()
-        .and_then(|state| {
-            let guard = state.config.read();
-            if guard.is_some() {
-                Some(())
-            } else {
-                None
-            }
-        })
-        .is_some()
+    db.config().model.is_some()
 }
 
 /// Try to expand a query using the configured model.
@@ -214,9 +203,7 @@ fn try_expand(
     db: &Arc<strata_engine::Database>,
     query: &str,
 ) -> Option<Vec<strata_intelligence::expand::ExpandedQuery>> {
-    let state = db.extension::<ModelConfigState>().ok()?;
-    let config_guard = state.config.read();
-    let config = config_guard.as_ref()?;
+    let config = db.config().model?;
 
     let expander = strata_intelligence::expand::ApiExpander::new(
         &config.endpoint,
@@ -251,23 +238,9 @@ fn try_rerank(
     query: &str,
     mut response: SearchResponse,
 ) -> SearchResponse {
-    let state = match db.extension::<ModelConfigState>().ok() {
-        Some(s) => s,
+    let config = match db.config().model {
+        Some(c) => c,
         None => return response,
-    };
-
-    // Read config and drop lock before HTTP call
-    let (endpoint, model, api_key, timeout_ms) = {
-        let config_guard = state.config.read();
-        match config_guard.as_ref() {
-            Some(config) => (
-                config.endpoint.clone(),
-                config.model.clone(),
-                config.api_key.clone(),
-                config.timeout_ms,
-            ),
-            None => return response,
-        }
     };
 
     // Extract (index, snippet) pairs from top-N hits
@@ -289,10 +262,10 @@ fn try_rerank(
     }
 
     let reranker = strata_intelligence::rerank::ApiReranker::new(
-        &endpoint,
-        &model,
-        api_key.as_deref(),
-        timeout_ms,
+        &config.endpoint,
+        &config.model,
+        config.api_key.as_deref(),
+        config.timeout_ms,
     );
 
     let snippet_refs: Vec<(usize, &str)> = snippets.iter().map(|(i, s)| (*i, s.as_str())).collect();

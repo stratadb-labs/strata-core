@@ -133,9 +133,8 @@ fn open_creates_persistent_database() {
 #[test]
 fn open_with_always_config() {
     let temp_dir = tempfile::tempdir().unwrap();
-    write_always_config(temp_dir.path());
 
-    let db = Database::open(temp_dir.path()).unwrap();
+    let db = Database::open_with_config(temp_dir.path(), always_config()).unwrap();
 
     // Verify it works
     let branch_id = BranchId::new();

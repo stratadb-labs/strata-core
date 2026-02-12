@@ -19,12 +19,15 @@ pub enum AccessMode {
 
 /// Options for opening a database.
 ///
-/// Use the builder pattern to configure options:
+/// Use the builder pattern to configure options. Any field set to `Some`
+/// overrides the corresponding value in `strata.toml`.
 ///
 /// ```ignore
 /// use strata_security::{OpenOptions, AccessMode};
 ///
-/// let opts = OpenOptions::new().access_mode(AccessMode::ReadOnly);
+/// let opts = OpenOptions::new()
+///     .access_mode(AccessMode::ReadOnly)
+///     .durability("always");
 /// ```
 #[derive(Debug, Clone)]
 pub struct OpenOptions {
@@ -33,6 +36,17 @@ pub struct OpenOptions {
     /// Enable automatic text embedding for semantic search.
     /// `None` means "use the config file default".
     pub auto_embed: Option<bool>,
+    /// Override durability mode: `"standard"` or `"always"`.
+    /// `None` means "use the config file default".
+    pub durability: Option<String>,
+    /// Override model endpoint (OpenAI-compatible URL).
+    pub model_endpoint: Option<String>,
+    /// Override model name.
+    pub model_name: Option<String>,
+    /// Override model API key.
+    pub model_api_key: Option<String>,
+    /// Override model request timeout in milliseconds.
+    pub model_timeout_ms: Option<u64>,
 }
 
 impl OpenOptions {
@@ -52,6 +66,31 @@ impl OpenOptions {
         self.auto_embed = Some(enabled);
         self
     }
+
+    /// Set the durability mode (`"standard"` or `"always"`).
+    pub fn durability(mut self, mode: &str) -> Self {
+        self.durability = Some(mode.to_string());
+        self
+    }
+
+    /// Set the model endpoint and name for query expansion / re-ranking.
+    pub fn model(mut self, endpoint: &str, name: &str) -> Self {
+        self.model_endpoint = Some(endpoint.to_string());
+        self.model_name = Some(name.to_string());
+        self
+    }
+
+    /// Set the model API key.
+    pub fn model_api_key(mut self, key: &str) -> Self {
+        self.model_api_key = Some(key.to_string());
+        self
+    }
+
+    /// Set the model request timeout in milliseconds.
+    pub fn model_timeout_ms(mut self, ms: u64) -> Self {
+        self.model_timeout_ms = Some(ms);
+        self
+    }
 }
 
 impl Default for OpenOptions {
@@ -59,6 +98,11 @@ impl Default for OpenOptions {
         Self {
             access_mode: AccessMode::ReadWrite,
             auto_embed: None,
+            durability: None,
+            model_endpoint: None,
+            model_name: None,
+            model_api_key: None,
+            model_timeout_ms: None,
         }
     }
 }

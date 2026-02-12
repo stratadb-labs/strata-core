@@ -21,8 +21,7 @@ fn create_persistent_standard(dir: &TempDir) -> Arc<Database> {
 }
 
 fn create_persistent_always(dir: &TempDir) -> Arc<Database> {
-    write_always_config(dir.path());
-    Database::open(dir.path()).expect("always db")
+    Database::open_with_config(dir.path(), always_config()).expect("always db")
 }
 
 // ============================================================================

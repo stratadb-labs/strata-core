@@ -54,7 +54,7 @@ pub use strata_engine::branch_ops::{
 use std::path::Path;
 use std::sync::Arc;
 
-use strata_engine::Database;
+use strata_engine::{Database, ModelConfig};
 use strata_security::{AccessMode, OpenOptions};
 
 use std::sync::Once;
@@ -123,20 +123,64 @@ impl Strata {
     /// ```
     pub fn open_with<P: AsRef<Path>>(path: P, opts: OpenOptions) -> Result<Self> {
         ensure_vector_recovery();
-        let db = Database::open(path).map_err(|e| Error::Internal {
-            reason: format!("Failed to open database: {}", e),
+
+        let data_dir = path.as_ref().to_path_buf();
+        std::fs::create_dir_all(&data_dir).map_err(|e| Error::Internal {
+            reason: format!("Failed to create data directory: {}", e),
         })?;
 
-        // Override auto_embed if explicitly set in OpenOptions
-        if let Some(enabled) = opts.auto_embed {
-            if enabled {
-                #[cfg(not(feature = "embed"))]
-                return Err(Error::Internal {
-                    reason: "auto_embed requires the 'embed' feature to be compiled in".into(),
-                });
-            }
-            db.set_auto_embed(enabled);
+        // Read existing config (or defaults)
+        let config_path =
+            data_dir.join(strata_engine::database::config::CONFIG_FILE_NAME);
+        strata_engine::database::config::StrataConfig::write_default_if_missing(&config_path)
+            .map_err(|e| Error::Internal {
+                reason: format!("Failed to write default config: {}", e),
+            })?;
+        let mut cfg = strata_engine::database::config::StrataConfig::from_file(&config_path)
+            .map_err(|e| Error::Internal {
+                reason: format!("Failed to read config: {}", e),
+            })?;
+
+        // Merge OpenOptions overrides into config
+        if let Some(ref dur) = opts.durability {
+            cfg.durability = dur.clone();
         }
+        if let Some(enabled) = opts.auto_embed {
+            cfg.auto_embed = enabled;
+        }
+        if let Some(ref endpoint) = opts.model_endpoint {
+            let model = cfg.model.get_or_insert_with(|| ModelConfig {
+                endpoint: String::new(),
+                model: String::new(),
+                api_key: None,
+                timeout_ms: 5000,
+            });
+            model.endpoint = endpoint.clone();
+        }
+        if let Some(ref name) = opts.model_name {
+            let model = cfg.model.get_or_insert_with(|| ModelConfig {
+                endpoint: String::new(),
+                model: String::new(),
+                api_key: None,
+                timeout_ms: 5000,
+            });
+            model.model = name.clone();
+        }
+        if let Some(ref key) = opts.model_api_key {
+            if let Some(ref mut model) = cfg.model {
+                model.api_key = Some(key.clone());
+            }
+        }
+        if let Some(ms) = opts.model_timeout_ms {
+            if let Some(ref mut model) = cfg.model {
+                model.timeout_ms = ms;
+            }
+        }
+
+        let db =
+            Database::open_with_config(&data_dir, cfg).map_err(|e| Error::Internal {
+                reason: format!("Failed to open database: {}", e),
+            })?;
 
         let access_mode = opts.access_mode;
         let executor = Executor::new_with_mode(db, access_mode);

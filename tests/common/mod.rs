@@ -18,7 +18,7 @@ use std::time::{Duration, Instant};
 pub use strata_core::{BranchId, JsonPath, JsonValue, Value, Version};
 pub use strata_engine::{
     register_vector_recovery, BranchIndex, Database, DistanceMetric, EventLog, JsonStore, KVStore,
-    StateCell, StorageDtype, VectorConfig, VectorStore,
+    StateCell, StorageDtype, StrataConfig, VectorConfig, VectorStore,
 };
 use tempfile::TempDir;
 
@@ -34,13 +34,12 @@ fn ensure_recovery_registered() {
     });
 }
 
-/// Write an always-durability config to the given directory.
-///
-/// Used by test helpers that need to open databases in Always mode.
-pub fn write_always_config(path: &Path) {
-    std::fs::create_dir_all(path).expect("create dir for config");
-    std::fs::write(path.join("strata.toml"), "durability = \"always\"\n")
-        .expect("write always config");
+/// Create a StrataConfig with always durability mode.
+pub fn always_config() -> StrataConfig {
+    StrataConfig {
+        durability: "always".to_string(),
+        ..StrataConfig::default()
+    }
 }
 
 static COUNTER: AtomicU64 = AtomicU64::new(0);
@@ -70,8 +69,9 @@ impl TestDb {
     pub fn new_strict() -> Self {
         ensure_recovery_registered();
         let dir = tempfile::tempdir().expect("Failed to create temp dir");
-        write_always_config(dir.path());
-        let db = Database::open(dir.path()).expect("Failed to create test database");
+        let config = always_config();
+        let db = Database::open_with_config(dir.path(), config)
+            .expect("Failed to create test database");
         let branch_id = BranchId::new();
         TestDb { db, dir, branch_id }
     }
@@ -196,8 +196,8 @@ fn all_mode_databases() -> Vec<(&'static str, Arc<Database>, Option<TempDir>)> {
     let standard_dir = tempfile::tempdir().expect("Failed to create temp dir for standard db");
     let standard_db = Database::open(standard_dir.path()).expect("standard db");
     let always_dir = tempfile::tempdir().expect("Failed to create temp dir for always db");
-    write_always_config(always_dir.path());
-    let always_db = Database::open(always_dir.path()).expect("always db");
+    let always_db =
+        Database::open_with_config(always_dir.path(), always_config()).expect("always db");
     vec![
         ("in_memory", create_test_db(), None),
         ("standard", standard_db, Some(standard_dir)),

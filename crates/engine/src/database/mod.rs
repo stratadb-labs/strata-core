@@ -23,7 +23,7 @@ pub mod config;
 mod registry;
 mod transactions;
 
-pub use config::StrataConfig;
+pub use config::{ModelConfig, StrataConfig};
 pub use registry::OPEN_DATABASES;
 pub use transactions::RetryConfig;
 
@@ -56,11 +56,11 @@ use tracing::{info, warn};
 // Auto-Embed State
 // ============================================================================
 
-/// In-memory state for auto-embedding configuration.
+/// In-memory state for auto-embedding shadow collection tracking.
 ///
-/// Stored as a Database extension to share the enabled flag across all handles.
+/// Stored as a Database extension to share the created-collections cache
+/// across all handles.
 pub struct AutoEmbedState {
-    enabled: AtomicBool,
     /// Tracks which shadow collections have been created (keyed by "branch_id/collection_name").
     /// Prevents repeated `create_system_collection` calls on every write.
     pub shadow_collections_created: DashMap<String, ()>,
@@ -69,43 +69,7 @@ pub struct AutoEmbedState {
 impl Default for AutoEmbedState {
     fn default() -> Self {
         Self {
-            enabled: AtomicBool::new(false),
             shadow_collections_created: DashMap::new(),
-        }
-    }
-}
-
-// ============================================================================
-// Model Configuration
-// ============================================================================
-
-/// Configuration for an external inference model endpoint.
-///
-/// Stored as a Database extension to share across all search operations.
-/// When present, the search handler uses it to construct a query expander.
-pub struct ModelConfig {
-    /// OpenAI-compatible API endpoint (e.g. "http://localhost:11434/v1")
-    pub endpoint: String,
-    /// Model name (e.g. "qwen3:1.7b")
-    pub model: String,
-    /// Optional API key for authenticated endpoints
-    pub api_key: Option<String>,
-    /// Request timeout in milliseconds (default: 5000)
-    pub timeout_ms: u64,
-}
-
-/// Wrapper for optional ModelConfig stored as a Database extension.
-///
-/// Uses Option because the default state is "no model configured".
-pub struct ModelConfigState {
-    /// The active model configuration, if any
-    pub config: parking_lot::RwLock<Option<ModelConfig>>,
-}
-
-impl Default for ModelConfigState {
-    fn default() -> Self {
-        Self {
-            config: parking_lot::RwLock::new(None),
         }
     }
 }
@@ -224,6 +188,9 @@ pub struct Database {
     /// Extensions are lazily initialized on first access via `extension<T>()`.
     extensions: DashMap<TypeId, Arc<dyn Any + Send + Sync>>,
 
+    /// Unified configuration (mirrors strata.toml).
+    config: parking_lot::RwLock<StrataConfig>,
+
     /// Shutdown signal for the background WAL flush thread (Standard mode only)
     flush_shutdown: Arc<AtomicBool>,
 
@@ -290,33 +257,74 @@ impl Database {
         let config_path = data_dir.join(config::CONFIG_FILE_NAME);
         config::StrataConfig::write_default_if_missing(&config_path)?;
         let cfg = config::StrataConfig::from_file(&config_path)?;
-        let mode = cfg.durability_mode()?;
-        let auto_embed = cfg.auto_embed;
+
+        Self::open_with_config(path, cfg)
+    }
+
+    /// Open database at the given path with an explicit configuration.
+    ///
+    /// This is the programmatic alternative to editing `strata.toml` by hand.
+    /// The supplied config is written to `strata.toml` so that subsequent
+    /// `Database::open()` calls (e.g. after restart) pick up the same settings.
+    ///
+    /// # Example
+    ///
+    /// ```text
+    /// use strata_engine::{Database, StrataConfig};
+    ///
+    /// let config = StrataConfig {
+    ///     durability: "always".into(),
+    ///     ..Default::default()
+    /// };
+    /// let db = Database::open_with_config("/path/to/data", config)?;
+    /// ```
+    pub fn open_with_config<P: AsRef<Path>>(path: P, cfg: StrataConfig) -> StrataResult<Arc<Self>> {
+        let data_dir = path.as_ref().to_path_buf();
+        std::fs::create_dir_all(&data_dir).map_err(StrataError::from)?;
 
         #[cfg(not(feature = "embed"))]
-        let auto_embed = if auto_embed {
-            warn!(
-                "strata.toml has auto_embed=true but the 'embed' feature is not compiled; \
-                 auto-embedding is disabled"
-            );
-            false
-        } else {
-            auto_embed
+        let cfg = {
+            let mut cfg = cfg;
+            if cfg.auto_embed {
+                warn!(
+                    "auto_embed=true but the 'embed' feature is not compiled; \
+                     auto-embedding is disabled"
+                );
+                cfg.auto_embed = false;
+            }
+            cfg
         };
 
-        let db = Self::open_with_mode(path, mode)?;
-        // Only apply config-based auto_embed on fresh creation (strong_count == 1
-        // means we just created it; the registry only holds a Weak reference).
-        // This avoids overriding a runtime toggle set via OpenOptions.
-        if Arc::strong_count(&db) == 1 {
-            db.set_auto_embed(auto_embed);
-        }
+        let mode = cfg.durability_mode()?;
+
+        // Write config to strata.toml so restarts pick it up
+        let config_path = data_dir.join(config::CONFIG_FILE_NAME);
+        cfg.write_to_file(&config_path)?;
+
+        let db = Self::open_with_mode_and_config(path, mode, cfg)?;
         Ok(db)
     }
 
-    /// Open database with specific durability mode
+    /// Open database with specific durability mode (convenience wrapper).
     ///
-    /// Allows selecting between Cache, Always, or Standard durability modes.
+    /// Uses a default `StrataConfig` with the given durability mode.
+    #[allow(dead_code)]
+    pub(crate) fn open_with_mode<P: AsRef<Path>>(
+        path: P,
+        durability_mode: DurabilityMode,
+    ) -> StrataResult<Arc<Self>> {
+        let dur_str = match durability_mode {
+            DurabilityMode::Always => "always",
+            _ => "standard",
+        };
+        let cfg = StrataConfig {
+            durability: dur_str.to_string(),
+            ..StrataConfig::default()
+        };
+        Self::open_with_mode_and_config(path, durability_mode, cfg)
+    }
+
+    /// Open database with specific durability mode and full config.
     ///
     /// # Thread Safety
     ///
@@ -327,6 +335,7 @@ impl Database {
     ///
     /// * `path` - Directory path for the database
     /// * `durability_mode` - Durability mode for WAL operations
+    /// * `cfg` - Full configuration to store in the Database
     ///
     /// # Returns
     ///
@@ -337,9 +346,10 @@ impl Database {
     ///
     /// Per spec Section 5: Uses RecoveryCoordinator to replay WAL and
     /// initialize TransactionManager with the recovered version.
-    pub(crate) fn open_with_mode<P: AsRef<Path>>(
+    pub(crate) fn open_with_mode_and_config<P: AsRef<Path>>(
         path: P,
         durability_mode: DurabilityMode,
+        cfg: StrataConfig,
     ) -> StrataResult<Arc<Self>> {
         // Create directory first so we can canonicalize the path
         let data_dir = path.as_ref().to_path_buf();
@@ -457,6 +467,7 @@ impl Database {
             durability_mode,
             accepting_transactions: AtomicBool::new(true),
             extensions: DashMap::new(),
+            config: parking_lot::RwLock::new(cfg),
             flush_shutdown,
             flush_handle: ParkingMutex::new(flush_handle),
             _lock_file: Some(lock_file),
@@ -531,6 +542,7 @@ impl Database {
             durability_mode: DurabilityMode::Cache, // Irrelevant but set for consistency
             accepting_transactions: AtomicBool::new(true),
             extensions: DashMap::new(),
+            config: parking_lot::RwLock::new(StrataConfig::default()),
             flush_shutdown: Arc::new(AtomicBool::new(false)),
             flush_handle: ParkingMutex::new(None),
             _lock_file: None, // No lock for ephemeral databases
@@ -666,21 +678,54 @@ impl Database {
     }
 
     // ========================================================================
+    // Config Accessors
+    // ========================================================================
+
+    /// Return a clone of the current configuration.
+    pub fn config(&self) -> StrataConfig {
+        self.config.read().clone()
+    }
+
+    /// Apply a mutation to the configuration.
+    ///
+    /// The closure receives a mutable reference to the config. After the
+    /// closure returns, the updated config is written to `strata.toml` for
+    /// disk-backed databases. Changing the durability mode at runtime is
+    /// rejected.
+    pub fn update_config<F: FnOnce(&mut StrataConfig)>(&self, f: F) -> StrataResult<()> {
+        let mut guard = self.config.write();
+        let old_durability = guard.durability.clone();
+        f(&mut guard);
+        if guard.durability != old_durability {
+            guard.durability = old_durability;
+            return Err(StrataError::invalid_input(
+                "Cannot change durability mode at runtime. \
+                 Set durability before opening the database."
+                    .to_string(),
+            ));
+        }
+        // Persist to strata.toml for disk-backed databases
+        if self.persistence_mode == PersistenceMode::Disk
+            && !self.data_dir.as_os_str().is_empty()
+        {
+            let config_path = self.data_dir.join(config::CONFIG_FILE_NAME);
+            guard.write_to_file(&config_path)?;
+        }
+        Ok(())
+    }
+
+    // ========================================================================
     // Auto-Embed Accessors
     // ========================================================================
 
     /// Check if auto-embedding is enabled.
     pub fn auto_embed_enabled(&self) -> bool {
-        self.extension::<AutoEmbedState>()
-            .map(|s| s.enabled.load(Ordering::Relaxed))
-            .unwrap_or(false)
+        self.config.read().auto_embed
     }
 
     /// Enable or disable auto-embedding.
     pub fn set_auto_embed(&self, enabled: bool) {
-        if let Ok(state) = self.extension::<AutoEmbedState>() {
-            state.enabled.store(enabled, Ordering::Relaxed);
-        }
+        self.config.write().auto_embed = enabled;
     }
 
     /// Path to the model directory for MiniLM-L6-v2.

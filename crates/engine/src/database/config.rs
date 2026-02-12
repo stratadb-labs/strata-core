@@ -12,6 +12,29 @@ use strata_durability::wal::DurabilityMode;
 /// Config file name placed in the database data directory.
 pub const CONFIG_FILE_NAME: &str = "strata.toml";
 
+/// Configuration for an external inference model endpoint.
+///
+/// When present in `StrataConfig`, the search handler uses it to construct
+/// a query expander and re-ranker. Persisted in `strata.toml` under the
+/// `[model]` section.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct ModelConfig {
+    /// OpenAI-compatible API endpoint (e.g. "http://localhost:11434/v1")
+    pub endpoint: String,
+    /// Model name (e.g. "qwen3:1.7b")
+    pub model: String,
+    /// Optional API key for authenticated endpoints
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub api_key: Option<String>,
+    /// Request timeout in milliseconds (default: 5000)
+    #[serde(default = "default_timeout_ms")]
+    pub timeout_ms: u64,
+}
+
+fn default_timeout_ms() -> u64 {
+    5000
+}
+
 /// Database configuration loaded from `strata.toml`.
 ///
 /// # Example
@@ -21,6 +44,10 @@ pub const CONFIG_FILE_NAME: &str = "strata.toml";
 /// # "standard" = periodic fsync (~100ms), may lose last interval on crash
 /// # "always" = fsync every commit, zero data loss
 /// durability = "standard"
+///
+/// # [model]
+/// # endpoint = "http://localhost:11434/v1"
+/// # model = "qwen3:1.7b"
 /// ```
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct StrataConfig {
@@ -30,6 +57,9 @@ pub struct StrataConfig {
     /// Enable automatic text embedding for semantic search.
     #[serde(default)]
     pub auto_embed: bool,
+    /// Optional model configuration for query expansion and re-ranking.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub model: Option<ModelConfig>,
 }
 
 fn default_durability_str() -> String {
@@ -41,6 +71,7 @@ impl Default for StrataConfig {
         Self {
             durability: default_durability_str(),
             auto_embed: false,
+            model: None,
         }
     }
 }
@@ -74,6 +105,14 @@ durability = "standard"
 # Auto-embed: automatically generate embeddings for text data (default: false)
 # Requires the "embed" feature to be compiled in.
 auto_embed = false
+
+# Model configuration for query expansion and re-ranking.
+# Uncomment and configure to enable intelligent search features.
+# [model]
+# endpoint = "http://localhost:11434/v1"
+# model = "qwen3:1.7b"
+# api_key = "your-api-key"      # optional
+# timeout_ms = 5000              # optional, default 5000
 "#
     }
 
@@ -116,6 +155,20 @@ auto_embed = false
             })?;
         }
         Ok(())
+    }
+
+    /// Serialize this config to TOML and write it to the given path.
+    pub fn write_to_file(&self, path: &Path) -> StrataResult<()> {
+        let content = toml::to_string_pretty(self).map_err(|e| {
+            StrataError::internal(format!("Failed to serialize config: {}", e))
+        })?;
+        std::fs::write(path, content).map_err(|e| {
+            StrataError::internal(format!(
+                "Failed to write config file '{}': {}",
+                path.display(),
+                e
+            ))
+        })
     }
 }
 
@@ -197,5 +250,99 @@ mod tests {
 
         let config = StrataConfig::from_file(&path).unwrap();
         assert_eq!(config.durability, "standard");
+    }
+
+    #[test]
+    fn model_config_round_trip() {
+        let config = StrataConfig {
+            durability: "always".to_string(),
+            auto_embed: true,
+            model: Some(ModelConfig {
+                endpoint: "http://localhost:11434/v1".to_string(),
+                model: "qwen3:1.7b".to_string(),
+                api_key: Some("sk-test".to_string()),
+                timeout_ms: 3000,
+            }),
+        };
+
+        let toml_str = toml::to_string_pretty(&config).unwrap();
+        let parsed: StrataConfig = toml::from_str(&toml_str).unwrap();
+
+        assert_eq!(parsed.durability, "always");
+        assert!(parsed.auto_embed);
+        let model = parsed.model.unwrap();
+        assert_eq!(model.endpoint, "http://localhost:11434/v1");
+        assert_eq!(model.model, "qwen3:1.7b");
+        assert_eq!(model.api_key, Some("sk-test".to_string()));
+        assert_eq!(model.timeout_ms, 3000);
+    }
+
+    #[test]
+    fn model_config_round_trip_without_model() {
+        let config = StrataConfig {
+            durability: "standard".to_string(),
+            auto_embed: false,
+            model: None,
+        };
+
+        let toml_str = toml::to_string_pretty(&config).unwrap();
+        let parsed: StrataConfig = toml::from_str(&toml_str).unwrap();
+
+        assert_eq!(parsed.durability, "standard");
+        assert!(!parsed.auto_embed);
+        assert!(parsed.model.is_none());
+        // Verify the [model] section is not present in serialized output
+        assert!(!toml_str.contains("[model]"));
+    }
+
+    #[test]
+    fn backward_compat_old_config_without_model() {
+        // Old config files won't have a [model] section
+        let old_toml = r#"
+durability = "always"
+auto_embed = true
+"#;
+        let config: StrataConfig = toml::from_str(old_toml).unwrap();
+        assert_eq!(config.durability, "always");
+        assert!(config.auto_embed);
+        assert!(config.model.is_none());
+    }
+
+    #[test]
+    fn model_config_default_timeout() {
+        let toml_str = r#"
+[model]
+endpoint = "http://localhost:11434/v1"
+model = "qwen3:1.7b"
+"#;
+        let config: StrataConfig = toml::from_str(toml_str).unwrap();
+        let model = config.model.unwrap();
+        assert_eq!(model.timeout_ms, 5000); // default
+        assert!(model.api_key.is_none());
+    }
+
+    #[test]
+    fn write_to_file_round_trip() {
+        let dir = TempDir::new().unwrap();
+        let path = dir.path().join(CONFIG_FILE_NAME);
+
+        let config = StrataConfig {
+            durability: "always".to_string(),
+            auto_embed: true,
+            model: Some(ModelConfig {
+                endpoint: "http://localhost:8080/v1".to_string(),
+                model: "llama3".to_string(),
+                api_key: None,
+                timeout_ms: 5000,
+            }),
+        };
+
+        config.write_to_file(&path).unwrap();
+        let loaded = StrataConfig::from_file(&path).unwrap();
+        assert_eq!(loaded.durability, "always");
+        assert!(loaded.auto_embed);
+        let model = loaded.model.unwrap();
+        assert_eq!(model.endpoint, "http://localhost:8080/v1");
+        assert_eq!(model.model, "llama3");
     }
 }

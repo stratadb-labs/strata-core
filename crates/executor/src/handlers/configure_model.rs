@@ -1,11 +1,11 @@
 //! ConfigureModel command handler.
 //!
-//! Stores model configuration as a Database extension for use by the search handler.
+//! Stores model configuration in the unified StrataConfig for use by the search handler.
+//! The configuration is persisted to `strata.toml` for disk-backed databases.
 
 use std::sync::Arc;
 
-use strata_engine::database::ModelConfig;
-use strata_engine::database::ModelConfigState;
+use strata_engine::ModelConfig;
 
 use crate::bridge::Primitives;
 use crate::{Output, Result};
@@ -18,18 +18,15 @@ pub fn configure_model(
     api_key: Option<String>,
     timeout_ms: Option<u64>,
 ) -> Result<Output> {
-    let state =
-        p.db.extension::<ModelConfigState>()
-            .map_err(crate::Error::from)?;
-
-    let config = ModelConfig {
-        endpoint,
-        model,
-        api_key,
-        timeout_ms: timeout_ms.unwrap_or(5000),
-    };
-
-    *state.config.write() = Some(config);
+    p.db.update_config(|cfg| {
+        cfg.model = Some(ModelConfig {
+            endpoint,
+            model,
+            api_key,
+            timeout_ms: timeout_ms.unwrap_or(5000),
+        });
+    })
+    .map_err(crate::Error::from)?;
 
     Ok(Output::Unit)
 }
