@@ -419,12 +419,18 @@ impl SimpleScorer {
     }
 }
 
-/// Truncate text to max length, adding "..." if truncated
+/// Truncate text to max byte length, adding "..." if truncated.
+/// Rounds down to the nearest char boundary to avoid splitting multi-byte UTF-8.
 fn truncate_text(text: &str, max_len: usize) -> String {
     if text.len() <= max_len {
         text.to_string()
     } else {
-        format!("{}...", &text[..max_len.saturating_sub(3)])
+        let mut end = max_len.saturating_sub(3);
+        // Walk back to a char boundary (at most 3 bytes for any UTF-8 sequence).
+        while end > 0 && !text.is_char_boundary(end) {
+            end -= 1;
+        }
+        format!("{}...", &text[..end])
     }
 }
 
@@ -596,6 +602,16 @@ mod tests {
     fn test_truncate_text() {
         assert_eq!(truncate_text("short", 10), "short");
         assert_eq!(truncate_text("this is a longer string", 10), "this is...");
+    }
+
+    #[test]
+    fn test_truncate_text_multibyte() {
+        // "′" is 3 bytes (U+2032). A cut at byte 7 would land inside it.
+        let text = "hello ′world";
+        let result = truncate_text(text, 10);
+        // Should not panic, and should round down to a char boundary.
+        assert!(result.ends_with("..."));
+        assert!(result.len() <= 10);
     }
 
     // BM25LiteScorer tests
