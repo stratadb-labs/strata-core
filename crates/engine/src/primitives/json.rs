@@ -1860,12 +1860,7 @@ mod tests {
         let root = JsonPath::root();
 
         store
-            .create(
-                &branch_id,
-                "default",
-                doc_id,
-                JsonValue::from("v1"),
-            )
+            .create(&branch_id, "default", doc_id, JsonValue::from("v1"))
             .unwrap();
 
         // Capture the timestamp returned by get_versioned

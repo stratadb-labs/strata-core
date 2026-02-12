@@ -7,6 +7,9 @@
 //!
 //! See `docs/architecture/M6_ARCHITECTURE.md` for authoritative specification.
 
+use std::collections::hash_map::DefaultHasher;
+use std::collections::HashMap;
+use std::hash::{Hash, Hasher};
 use strata_core::PrimitiveType;
 use strata_engine::search::{EntityRef, SearchHit, SearchResponse};
 
@@ -56,6 +59,65 @@ pub trait Fuser: Send + Sync {
 
     /// Name for debugging and logging
     fn name(&self) -> &str;
+}
+
+// ============================================================================
+// Shared RRF helpers
+// ============================================================================
+
+/// Sort scored entries by RRF score with deterministic tie-breaking.
+///
+/// Tie-breaking order:
+/// 1. RRF score descending
+/// 2. Original hit score descending (from first occurrence)
+/// 3. EntityRef hash for stable ordering
+fn sort_rrf_scored(scored: &mut [(EntityRef, f32)], hit_data: &HashMap<EntityRef, SearchHit>) {
+    scored.sort_by(|a, b| match b.1.partial_cmp(&a.1) {
+        Some(std::cmp::Ordering::Equal) | None => {
+            let orig_a = hit_data.get(&a.0).map(|h| h.score).unwrap_or(0.0);
+            let orig_b = hit_data.get(&b.0).map(|h| h.score).unwrap_or(0.0);
+            match orig_b.partial_cmp(&orig_a) {
+                Some(std::cmp::Ordering::Equal) | None => {
+                    let hash_a = {
+                        let mut hasher = DefaultHasher::new();
+                        a.0.hash(&mut hasher);
+                        hasher.finish()
+                    };
+                    let hash_b = {
+                        let mut hasher = DefaultHasher::new();
+                        b.0.hash(&mut hasher);
+                        hasher.finish()
+                    };
+                    hash_a.cmp(&hash_b)
+                }
+                Some(ord) => ord,
+            }
+        }
+        Some(ord) => ord,
+    });
+}
+
+/// Build a ranked FusedResult from sorted RRF scores.
+fn build_ranked_result(
+    scored: Vec<(EntityRef, f32)>,
+    mut hit_data: HashMap<EntityRef, SearchHit>,
+    k: usize,
+) -> FusedResult {
+    let truncated = scored.len() > k;
+    let hits: Vec<SearchHit> = scored
+        .into_iter()
+        .take(k)
+        .enumerate()
+        .map(|(i, (doc_ref, rrf_score))| {
+            let mut hit = hit_data
+                .remove(&doc_ref)
+                .expect("invariant violation: scored doc_ref must exist in hit_data");
+            hit.score = rrf_score;
+            hit.rank = (i + 1) as u32;
+            hit
+        })
+        .collect();
+    FusedResult::new(hits, truncated)
 }
 
 // ============================================================================
@@ -174,74 +236,20 @@ impl RRFFuser {
 
 impl Fuser for RRFFuser {
     fn fuse(&self, results: Vec<(PrimitiveType, SearchResponse)>, k: usize) -> FusedResult {
-        use std::collections::hash_map::DefaultHasher;
-        use std::collections::HashMap;
-        use std::hash::{Hash, Hasher};
-
         let mut rrf_scores: HashMap<EntityRef, f32> = HashMap::new();
         let mut hit_data: HashMap<EntityRef, SearchHit> = HashMap::new();
 
         for (_primitive, response) in results {
             for hit in response.hits {
-                // RRF contribution: 1 / (k + rank)
                 let rrf_contribution = 1.0 / (self.k_rrf as f32 + hit.rank as f32);
                 *rrf_scores.entry(hit.doc_ref.clone()).or_insert(0.0) += rrf_contribution;
-
-                // Keep first occurrence of hit data (for snippet, etc.)
                 hit_data.entry(hit.doc_ref.clone()).or_insert(hit);
             }
         }
 
-        // Sort by RRF score with deterministic tie-breaking
         let mut scored: Vec<_> = rrf_scores.into_iter().collect();
-        scored.sort_by(|a, b| {
-            // Primary: RRF score (descending)
-            match b.1.partial_cmp(&a.1) {
-                Some(std::cmp::Ordering::Equal) | None => {
-                    // Tie-breaker 1: original score from first occurrence (descending)
-                    let orig_a = hit_data.get(&a.0).map(|h| h.score).unwrap_or(0.0);
-                    let orig_b = hit_data.get(&b.0).map(|h| h.score).unwrap_or(0.0);
-                    match orig_b.partial_cmp(&orig_a) {
-                        Some(std::cmp::Ordering::Equal) | None => {
-                            // Tie-breaker 2: EntityRef hash (stable ordering)
-                            let hash_a = {
-                                let mut hasher = DefaultHasher::new();
-                                a.0.hash(&mut hasher);
-                                hasher.finish()
-                            };
-                            let hash_b = {
-                                let mut hasher = DefaultHasher::new();
-                                b.0.hash(&mut hasher);
-                                hasher.finish()
-                            };
-                            hash_a.cmp(&hash_b)
-                        }
-                        Some(ord) => ord,
-                    }
-                }
-                Some(ord) => ord,
-            }
-        });
-
-        // Build final ranked list
-        let truncated = scored.len() > k;
-        let hits: Vec<SearchHit> = scored
-            .into_iter()
-            .take(k)
-            .enumerate()
-            .map(|(i, (doc_ref, rrf_score))| {
-                // Invariant: every doc_ref in scored was inserted into hit_data
-                // in the same loop (lines 188-191), so this key always exists.
-                let mut hit = hit_data
-                    .remove(&doc_ref)
-                    .expect("invariant violation: scored doc_ref must exist in hit_data");
-                hit.score = rrf_score;
-                hit.rank = (i + 1) as u32;
-                hit
-            })
-            .collect();
-
-        FusedResult::new(hits, truncated)
+        sort_rrf_scored(&mut scored, &hit_data);
+        build_ranked_result(scored, hit_data, k)
     }
 
     fn name(&self) -> &str {
@@ -272,10 +280,6 @@ pub fn weighted_rrf_fuse(
     k_rrf: u32,
     top_k: usize,
 ) -> FusedResult {
-    use std::collections::hash_map::DefaultHasher;
-    use std::collections::HashMap;
-    use std::hash::{Hash, Hasher};
-
     let mut rrf_scores: HashMap<EntityRef, f32> = HashMap::new();
     let mut best_rank: HashMap<EntityRef, u32> = HashMap::new();
     let mut hit_data: HashMap<EntityRef, SearchHit> = HashMap::new();
@@ -306,48 +310,9 @@ pub fn weighted_rrf_fuse(
         }
     }
 
-    // Sort by RRF score with deterministic tie-breaking
     let mut scored: Vec<_> = rrf_scores.into_iter().collect();
-    scored.sort_by(|a, b| match b.1.partial_cmp(&a.1) {
-        Some(std::cmp::Ordering::Equal) | None => {
-            let orig_a = hit_data.get(&a.0).map(|h| h.score).unwrap_or(0.0);
-            let orig_b = hit_data.get(&b.0).map(|h| h.score).unwrap_or(0.0);
-            match orig_b.partial_cmp(&orig_a) {
-                Some(std::cmp::Ordering::Equal) | None => {
-                    let hash_a = {
-                        let mut hasher = DefaultHasher::new();
-                        a.0.hash(&mut hasher);
-                        hasher.finish()
-                    };
-                    let hash_b = {
-                        let mut hasher = DefaultHasher::new();
-                        b.0.hash(&mut hasher);
-                        hasher.finish()
-                    };
-                    hash_a.cmp(&hash_b)
-                }
-                Some(ord) => ord,
-            }
-        }
-        Some(ord) => ord,
-    });
-
-    let truncated = scored.len() > top_k;
-    let hits: Vec<SearchHit> = scored
-        .into_iter()
-        .take(top_k)
-        .enumerate()
-        .map(|(i, (doc_ref, rrf_score))| {
-            let mut hit = hit_data
-                .remove(&doc_ref)
-                .expect("invariant violation: scored doc_ref must exist in hit_data");
-            hit.score = rrf_score;
-            hit.rank = (i + 1) as u32;
-            hit
-        })
-        .collect();
-
-    FusedResult::new(hits, truncated)
+    sort_rrf_scored(&mut scored, &hit_data);
+    build_ranked_result(scored, hit_data, top_k)
 }
 
 // ============================================================================

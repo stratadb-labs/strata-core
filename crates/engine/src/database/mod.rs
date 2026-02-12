@@ -23,7 +23,7 @@ pub mod config;
 mod registry;
 mod transactions;
 
-pub use config::{ModelConfig, StrataConfig};
+pub use config::{ModelConfig, StrataConfig, SHADOW_EVENT, SHADOW_JSON, SHADOW_KV, SHADOW_STATE};
 pub use registry::OPEN_DATABASES;
 pub use transactions::RetryConfig;
 
@@ -51,28 +51,6 @@ use strata_durability::{
 };
 use strata_storage::ShardedStore;
 use tracing::{info, warn};
-
-// ============================================================================
-// Auto-Embed State
-// ============================================================================
-
-/// In-memory state for auto-embedding shadow collection tracking.
-///
-/// Stored as a Database extension to share the created-collections cache
-/// across all handles.
-pub struct AutoEmbedState {
-    /// Tracks which shadow collections have been created (keyed by "branch_id/collection_name").
-    /// Prevents repeated `create_system_collection` calls on every write.
-    pub shadow_collections_created: DashMap<String, ()>,
-}
-
-impl Default for AutoEmbedState {
-    fn default() -> Self {
-        Self {
-            shadow_collections_created: DashMap::new(),
-        }
-    }
-}
 
 // ============================================================================
 // Persistence Mode (Storage/Durability Split)
@@ -705,9 +683,7 @@ impl Database {
             ));
         }
         // Persist to strata.toml for disk-backed databases
-        if self.persistence_mode == PersistenceMode::Disk
-            && !self.data_dir.as_os_str().is_empty()
-        {
+        if self.persistence_mode == PersistenceMode::Disk && !self.data_dir.as_os_str().is_empty() {
             let config_path = self.data_dir.join(config::CONFIG_FILE_NAME);
             guard.write_to_file(&config_path)?;
         }
