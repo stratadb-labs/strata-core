@@ -138,10 +138,29 @@ impl KVStore {
         key: &str,
         value: Value,
     ) -> StrataResult<Version> {
+        // Extract text for indexing before the value is consumed by the transaction
+        let text_for_index = match &value {
+            Value::String(s) => Some(s.clone()),
+            Value::Null | Value::Bool(_) | Value::Bytes(_) => None,
+            other => serde_json::to_string(other).ok(),
+        };
+
         let ((), commit_version) = self.db.transaction_with_version(*branch_id, |txn| {
             let storage_key = self.key_for(branch_id, space, key);
             txn.put(storage_key, value)
         })?;
+
+        // Update inverted index for BM25 search (zero overhead when disabled)
+        if let Some(text) = text_for_index {
+            let index = self.db.extension::<crate::search::InvertedIndex>()?;
+            if index.is_enabled() {
+                let entity_ref = crate::search::EntityRef::Kv {
+                    branch_id: *branch_id,
+                    key: key.to_string(),
+                };
+                index.index_document(&entity_ref, &text, None);
+            }
+        }
 
         Ok(Version::Txn(commit_version))
     }
@@ -244,10 +263,72 @@ impl KVStore {
 impl crate::search::Searchable for KVStore {
     fn search(
         &self,
-        _req: &crate::SearchRequest,
+        req: &crate::SearchRequest,
     ) -> strata_core::StrataResult<crate::SearchResponse> {
-        // Search moved to intelligence layer - return empty results
-        Ok(crate::SearchResponse::empty())
+        use crate::search::{
+            build_search_response_with_index, EntityRef, InvertedIndex, SearchCandidate,
+        };
+        use std::collections::HashSet;
+        use std::time::Instant;
+
+        let start = Instant::now();
+        let index = self.db.extension::<InvertedIndex>()?;
+
+        // If the index is disabled or empty, return early
+        if !index.is_enabled() || index.total_docs() == 0 {
+            return Ok(crate::SearchResponse::empty());
+        }
+
+        // Tokenize the query and collect all matching KV doc refs from posting lists
+        let query_terms = crate::search::tokenize(&req.query);
+        let mut seen = HashSet::new();
+        let mut candidate_refs = Vec::new();
+
+        for term in &query_terms {
+            if let Some(posting_list) = index.lookup(term) {
+                for entry in &posting_list.entries {
+                    if let EntityRef::Kv {
+                        branch_id,
+                        ref key,
+                    } = entry.doc_ref
+                    {
+                        if branch_id == req.branch_id && seen.insert(key.clone()) {
+                            candidate_refs.push(key.clone());
+                        }
+                    }
+                }
+            }
+        }
+
+        // Fetch text for each candidate and build SearchCandidates
+        let candidates: Vec<SearchCandidate> = candidate_refs
+            .into_iter()
+            .filter_map(|key| {
+                if let Ok(Some(value)) = self.get(&req.branch_id, "default", &key) {
+                    let text = match &value {
+                        strata_core::value::Value::String(s) => s.clone(),
+                        other => serde_json::to_string(other).unwrap_or_default(),
+                    };
+                    let entity_ref = EntityRef::Kv {
+                        branch_id: req.branch_id,
+                        key,
+                    };
+                    Some(SearchCandidate::new(entity_ref, text, None))
+                } else {
+                    None
+                }
+            })
+            .collect();
+
+        let elapsed = start.elapsed().as_micros() as u64;
+        Ok(build_search_response_with_index(
+            candidates,
+            &req.query,
+            req.k,
+            false,
+            elapsed,
+            Some(&index),
+        ))
     }
 
     fn primitive_kind(&self) -> strata_core::PrimitiveType {

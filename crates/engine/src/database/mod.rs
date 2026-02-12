@@ -462,6 +462,10 @@ impl Database {
         // depend on config data stored in KV.
         crate::recovery::recover_all_participants(&db)?;
 
+        // Enable the inverted index for keyword/BM25 search
+        let index = db.extension::<crate::search::InvertedIndex>()?;
+        index.enable();
+
         Ok(db)
     }
 
@@ -528,6 +532,10 @@ impl Database {
 
         // Note: Ephemeral databases are NOT registered in the global registry
         // because they have no path and should always be independent instances
+
+        // Enable the inverted index for keyword/BM25 search
+        let index = db.extension::<crate::search::InvertedIndex>()?;
+        index.enable();
 
         Ok(db)
     }
