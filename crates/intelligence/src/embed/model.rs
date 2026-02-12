@@ -1,5 +1,8 @@
 //! MiniLM-L6-v2 encoder architecture and forward pass.
 
+use std::sync::Arc;
+
+use crate::runtime::backend::{select_backend, ComputeBackend, DeviceTensor};
 use crate::runtime::safetensors::SafeTensors;
 use crate::runtime::tensor::Tensor;
 
@@ -12,35 +15,38 @@ const NUM_LAYERS: usize = 6;
 const VOCAB_SIZE: usize = 30522;
 const LAYER_NORM_EPS: f32 = 1e-12;
 
-/// A single transformer encoder layer.
+/// A single transformer encoder layer with weights on the compute device.
 struct TransformerLayer {
-    q_weight: Tensor,
-    q_bias: Vec<f32>,
-    k_weight: Tensor,
-    k_bias: Vec<f32>,
-    v_weight: Tensor,
-    v_bias: Vec<f32>,
-    attn_output_weight: Tensor,
-    attn_output_bias: Vec<f32>,
-    attn_ln_weight: Vec<f32>,
-    attn_ln_bias: Vec<f32>,
-    intermediate_weight: Tensor,
-    intermediate_bias: Vec<f32>,
-    output_weight: Tensor,
-    output_bias: Vec<f32>,
-    output_ln_weight: Vec<f32>,
-    output_ln_bias: Vec<f32>,
+    q_weight: DeviceTensor,
+    q_bias: DeviceTensor,
+    k_weight: DeviceTensor,
+    k_bias: DeviceTensor,
+    v_weight: DeviceTensor,
+    v_bias: DeviceTensor,
+    attn_output_weight: DeviceTensor,
+    attn_output_bias: DeviceTensor,
+    attn_ln_weight: DeviceTensor,
+    attn_ln_bias: DeviceTensor,
+    intermediate_weight: DeviceTensor,
+    intermediate_bias: DeviceTensor,
+    output_weight: DeviceTensor,
+    output_bias: DeviceTensor,
+    output_ln_weight: DeviceTensor,
+    output_ln_bias: DeviceTensor,
 }
 
 /// The MiniLM-L6-v2 embedding model.
 pub struct EmbedModel {
     tokenizer: WordPieceTokenizer,
+    // Embedding tables stay on CPU for gather (avoids uploading 45MB vocab table).
     word_embeddings: Tensor,
     position_embeddings: Tensor,
     token_type_embeddings: Tensor,
-    embed_ln_weight: Vec<f32>,
-    embed_ln_bias: Vec<f32>,
+    // Layer norm weights on device.
+    embed_ln_weight: DeviceTensor,
+    embed_ln_bias: DeviceTensor,
     layers: Vec<TransformerLayer>,
+    backend: Arc<dyn ComputeBackend>,
 }
 
 impl EmbedModel {
@@ -52,6 +58,7 @@ impl EmbedModel {
     pub fn load(safetensors_bytes: &[u8], vocab_text: &str) -> Result<Self, String> {
         let st = SafeTensors::from_bytes(safetensors_bytes)?;
         let tokenizer = WordPieceTokenizer::from_vocab(vocab_text);
+        let backend = select_backend();
 
         // Detect naming convention: try with "bert." prefix first, fall back to without.
         let prefix = if st
@@ -85,81 +92,99 @@ impl EmbedModel {
             ))
             .ok_or("Missing token_type_embeddings")?;
 
-        let embed_ln_weight = st
-            .tensor_1d(&format!("{}embeddings.LayerNorm.weight", prefix))
-            .ok_or("Missing embeddings LayerNorm weight")?;
+        let embed_ln_weight = backend.upload_1d(
+            &st.tensor_1d(&format!("{}embeddings.LayerNorm.weight", prefix))
+                .ok_or("Missing embeddings LayerNorm weight")?,
+        );
 
-        let embed_ln_bias = st
-            .tensor_1d(&format!("{}embeddings.LayerNorm.bias", prefix))
-            .ok_or("Missing embeddings LayerNorm bias")?;
+        let embed_ln_bias = backend.upload_1d(
+            &st.tensor_1d(&format!("{}embeddings.LayerNorm.bias", prefix))
+                .ok_or("Missing embeddings LayerNorm bias")?,
+        );
 
         let mut layers = Vec::with_capacity(NUM_LAYERS);
         for i in 0..NUM_LAYERS {
-            let layer_prefix = format!("{}encoder.layer.{}", prefix, i);
+            let lp = format!("{}encoder.layer.{}", prefix, i);
             let layer = TransformerLayer {
-                q_weight: st
-                    .tensor(&format!("{}.attention.self.query.weight", layer_prefix))
-                    .ok_or_else(|| {
-                        format!("Missing {}.attention.self.query.weight", layer_prefix)
-                    })?,
-                q_bias: st
-                    .tensor_1d(&format!("{}.attention.self.query.bias", layer_prefix))
-                    .ok_or_else(|| format!("Missing {}.attention.self.query.bias", layer_prefix))?,
-                k_weight: st
-                    .tensor(&format!("{}.attention.self.key.weight", layer_prefix))
-                    .ok_or_else(|| format!("Missing {}.attention.self.key.weight", layer_prefix))?,
-                k_bias: st
-                    .tensor_1d(&format!("{}.attention.self.key.bias", layer_prefix))
-                    .ok_or_else(|| format!("Missing {}.attention.self.key.bias", layer_prefix))?,
-                v_weight: st
-                    .tensor(&format!("{}.attention.self.value.weight", layer_prefix))
-                    .ok_or_else(|| {
-                        format!("Missing {}.attention.self.value.weight", layer_prefix)
-                    })?,
-                v_bias: st
-                    .tensor_1d(&format!("{}.attention.self.value.bias", layer_prefix))
-                    .ok_or_else(|| format!("Missing {}.attention.self.value.bias", layer_prefix))?,
-                attn_output_weight: st
-                    .tensor(&format!("{}.attention.output.dense.weight", layer_prefix))
-                    .ok_or_else(|| {
-                        format!("Missing {}.attention.output.dense.weight", layer_prefix)
-                    })?,
-                attn_output_bias: st
-                    .tensor_1d(&format!("{}.attention.output.dense.bias", layer_prefix))
-                    .ok_or_else(|| {
-                        format!("Missing {}.attention.output.dense.bias", layer_prefix)
-                    })?,
-                attn_ln_weight: st
-                    .tensor_1d(&format!(
+                q_weight: backend.upload(
+                    &st.tensor(&format!("{}.attention.self.query.weight", lp))
+                        .ok_or_else(|| {
+                            format!("Missing {}.attention.self.query.weight", lp)
+                        })?,
+                ),
+                q_bias: backend.upload_1d(
+                    &st.tensor_1d(&format!("{}.attention.self.query.bias", lp))
+                        .ok_or_else(|| format!("Missing {}.attention.self.query.bias", lp))?,
+                ),
+                k_weight: backend.upload(
+                    &st.tensor(&format!("{}.attention.self.key.weight", lp))
+                        .ok_or_else(|| format!("Missing {}.attention.self.key.weight", lp))?,
+                ),
+                k_bias: backend.upload_1d(
+                    &st.tensor_1d(&format!("{}.attention.self.key.bias", lp))
+                        .ok_or_else(|| format!("Missing {}.attention.self.key.bias", lp))?,
+                ),
+                v_weight: backend.upload(
+                    &st.tensor(&format!("{}.attention.self.value.weight", lp))
+                        .ok_or_else(|| {
+                            format!("Missing {}.attention.self.value.weight", lp)
+                        })?,
+                ),
+                v_bias: backend.upload_1d(
+                    &st.tensor_1d(&format!("{}.attention.self.value.bias", lp))
+                        .ok_or_else(|| format!("Missing {}.attention.self.value.bias", lp))?,
+                ),
+                attn_output_weight: backend.upload(
+                    &st.tensor(&format!("{}.attention.output.dense.weight", lp))
+                        .ok_or_else(|| {
+                            format!("Missing {}.attention.output.dense.weight", lp)
+                        })?,
+                ),
+                attn_output_bias: backend.upload_1d(
+                    &st.tensor_1d(&format!("{}.attention.output.dense.bias", lp))
+                        .ok_or_else(|| {
+                            format!("Missing {}.attention.output.dense.bias", lp)
+                        })?,
+                ),
+                attn_ln_weight: backend.upload_1d(
+                    &st.tensor_1d(&format!(
                         "{}.attention.output.LayerNorm.weight",
-                        layer_prefix
+                        lp
                     ))
                     .ok_or_else(|| {
-                        format!("Missing {}.attention.output.LayerNorm.weight", layer_prefix)
+                        format!("Missing {}.attention.output.LayerNorm.weight", lp)
                     })?,
-                attn_ln_bias: st
-                    .tensor_1d(&format!("{}.attention.output.LayerNorm.bias", layer_prefix))
-                    .ok_or_else(|| {
-                        format!("Missing {}.attention.output.LayerNorm.bias", layer_prefix)
-                    })?,
-                intermediate_weight: st
-                    .tensor(&format!("{}.intermediate.dense.weight", layer_prefix))
-                    .ok_or_else(|| format!("Missing {}.intermediate.dense.weight", layer_prefix))?,
-                intermediate_bias: st
-                    .tensor_1d(&format!("{}.intermediate.dense.bias", layer_prefix))
-                    .ok_or_else(|| format!("Missing {}.intermediate.dense.bias", layer_prefix))?,
-                output_weight: st
-                    .tensor(&format!("{}.output.dense.weight", layer_prefix))
-                    .ok_or_else(|| format!("Missing {}.output.dense.weight", layer_prefix))?,
-                output_bias: st
-                    .tensor_1d(&format!("{}.output.dense.bias", layer_prefix))
-                    .ok_or_else(|| format!("Missing {}.output.dense.bias", layer_prefix))?,
-                output_ln_weight: st
-                    .tensor_1d(&format!("{}.output.LayerNorm.weight", layer_prefix))
-                    .ok_or_else(|| format!("Missing {}.output.LayerNorm.weight", layer_prefix))?,
-                output_ln_bias: st
-                    .tensor_1d(&format!("{}.output.LayerNorm.bias", layer_prefix))
-                    .ok_or_else(|| format!("Missing {}.output.LayerNorm.bias", layer_prefix))?,
+                ),
+                attn_ln_bias: backend.upload_1d(
+                    &st.tensor_1d(&format!("{}.attention.output.LayerNorm.bias", lp))
+                        .ok_or_else(|| {
+                            format!("Missing {}.attention.output.LayerNorm.bias", lp)
+                        })?,
+                ),
+                intermediate_weight: backend.upload(
+                    &st.tensor(&format!("{}.intermediate.dense.weight", lp))
+                        .ok_or_else(|| format!("Missing {}.intermediate.dense.weight", lp))?,
+                ),
+                intermediate_bias: backend.upload_1d(
+                    &st.tensor_1d(&format!("{}.intermediate.dense.bias", lp))
+                        .ok_or_else(|| format!("Missing {}.intermediate.dense.bias", lp))?,
+                ),
+                output_weight: backend.upload(
+                    &st.tensor(&format!("{}.output.dense.weight", lp))
+                        .ok_or_else(|| format!("Missing {}.output.dense.weight", lp))?,
+                ),
+                output_bias: backend.upload_1d(
+                    &st.tensor_1d(&format!("{}.output.dense.bias", lp))
+                        .ok_or_else(|| format!("Missing {}.output.dense.bias", lp))?,
+                ),
+                output_ln_weight: backend.upload_1d(
+                    &st.tensor_1d(&format!("{}.output.LayerNorm.weight", lp))
+                        .ok_or_else(|| format!("Missing {}.output.LayerNorm.weight", lp))?,
+                ),
+                output_ln_bias: backend.upload_1d(
+                    &st.tensor_1d(&format!("{}.output.LayerNorm.bias", lp))
+                        .ok_or_else(|| format!("Missing {}.output.LayerNorm.bias", lp))?,
+                ),
             };
             layers.push(layer);
         }
@@ -172,6 +197,7 @@ impl EmbedModel {
             embed_ln_weight,
             embed_ln_bias,
             layers,
+            backend,
         })
     }
 
@@ -180,22 +206,29 @@ impl EmbedModel {
         let input = self.tokenizer.tokenize(text);
         let seq_len = input.input_ids.len();
 
-        // 1. Gather embeddings
-        let hidden = self.gather_embeddings(&input, seq_len);
+        // 1. Gather embeddings (always on CPU — avoids uploading 45MB vocab table)
+        let hidden_cpu = self.gather_embeddings(&input, seq_len);
 
-        // 2. Layer norm
-        let mut hidden =
-            hidden.layer_norm(&self.embed_ln_weight, &self.embed_ln_bias, LAYER_NORM_EPS);
+        // 2. Upload to device
+        let hidden = self.backend.upload(&hidden_cpu);
 
-        // 3. Transformer layers
+        // 3. Layer norm
+        let mut hidden = self.backend.layer_norm(
+            &hidden,
+            &self.embed_ln_weight,
+            &self.embed_ln_bias,
+            LAYER_NORM_EPS,
+        );
+
+        // 4. Transformer layers
         for layer in &self.layers {
             hidden = self.transformer_layer(layer, &hidden, &input.attention_mask);
         }
 
-        // 4. Mean pooling (exclude padding)
-        let pooled = self.mean_pool(&hidden, &input.attention_mask);
+        // 5. Mean pooling (returns host Vec)
+        let pooled = self.backend.mean_pool(&hidden, &input.attention_mask);
 
-        // 5. L2 normalize
+        // 6. L2 normalize (CPU, trivial for 384 elements)
         l2_normalize(&pooled)
     }
 
@@ -224,119 +257,79 @@ impl EmbedModel {
     fn transformer_layer(
         &self,
         layer: &TransformerLayer,
-        hidden: &Tensor,
+        hidden: &DeviceTensor,
         attention_mask: &[u32],
-    ) -> Tensor {
+    ) -> DeviceTensor {
         let seq_len = hidden.rows;
+        let b = &self.backend;
 
-        // Self-attention
-        // Q, K, V projections: hidden × Wᵀ + b
+        // Self-attention: Q, K, V projections
         // BERT stores weights transposed: shape is (out, in), so we use matmul_transpose
-        let mut q = hidden.matmul_transpose(&layer.q_weight);
-        q.add_bias(&layer.q_bias);
-        let mut k = hidden.matmul_transpose(&layer.k_weight);
-        k.add_bias(&layer.k_bias);
-        let mut v = hidden.matmul_transpose(&layer.v_weight);
-        v.add_bias(&layer.v_bias);
+        let mut q = b.matmul_transpose(hidden, &layer.q_weight);
+        b.add_bias(&mut q, &layer.q_bias);
+        let mut k = b.matmul_transpose(hidden, &layer.k_weight);
+        b.add_bias(&mut k, &layer.k_bias);
+        let mut v = b.matmul_transpose(hidden, &layer.v_weight);
+        b.add_bias(&mut v, &layer.v_bias);
 
         // Multi-head attention
         let scale = 1.0 / (HEAD_DIM as f32).sqrt();
-        let mut attn_output_data = vec![0.0f32; seq_len * HIDDEN_SIZE];
+        let mut attn_output = b.zeros(seq_len, HIDDEN_SIZE);
 
         for head in 0..NUM_HEADS {
-            let head_offset = head * HEAD_DIM;
+            let offset = head * HEAD_DIM;
 
             // Extract Q, K, V slices for this head
-            let mut q_head = Tensor::zeros(seq_len, HEAD_DIM);
-            let mut k_head = Tensor::zeros(seq_len, HEAD_DIM);
-            let mut v_head = Tensor::zeros(seq_len, HEAD_DIM);
+            let q_head = b.slice_columns(&q, offset, offset + HEAD_DIM);
+            let k_head = b.slice_columns(&k, offset, offset + HEAD_DIM);
+            let v_head = b.slice_columns(&v, offset, offset + HEAD_DIM);
 
-            for s in 0..seq_len {
-                for d in 0..HEAD_DIM {
-                    q_head.data[s * HEAD_DIM + d] = q.data[s * HIDDEN_SIZE + head_offset + d];
-                    k_head.data[s * HEAD_DIM + d] = k.data[s * HIDDEN_SIZE + head_offset + d];
-                    v_head.data[s * HEAD_DIM + d] = v.data[s * HIDDEN_SIZE + head_offset + d];
-                }
-            }
-
-            // Attention scores: Q × Kᵀ / √d_k
-            let mut scores = q_head.matmul_transpose(&k_head);
-            scores.scale(scale);
+            // Attention scores: Q * K^T / sqrt(d_k)
+            let mut scores = b.matmul_transpose(&q_head, &k_head);
+            b.scale(&mut scores, scale);
 
             // Apply attention mask (set padding positions to -10000)
-            for i in 0..seq_len {
-                for j in 0..seq_len {
-                    if attention_mask[j] == 0 {
-                        scores.data[i * seq_len + j] = -10000.0;
-                    }
-                }
-            }
+            b.apply_attention_mask(&mut scores, attention_mask);
 
-            scores.softmax_rows();
+            b.softmax_rows(&mut scores);
 
-            // Weighted sum: scores × V
-            let context = scores.matmul(&v_head);
+            // Weighted sum: scores * V
+            let context = b.matmul(&scores, &v_head);
 
             // Copy back to full hidden dim
-            for s in 0..seq_len {
-                for d in 0..HEAD_DIM {
-                    attn_output_data[s * HIDDEN_SIZE + head_offset + d] =
-                        context.data[s * HEAD_DIM + d];
-                }
-            }
+            b.scatter_columns(&mut attn_output, &context, offset);
         }
 
-        let attn_output = Tensor::from_slice(&attn_output_data, seq_len, HIDDEN_SIZE);
-
         // Output projection
-        let mut projected = attn_output.matmul_transpose(&layer.attn_output_weight);
-        projected.add_bias(&layer.attn_output_bias);
+        let mut projected = b.matmul_transpose(&attn_output, &layer.attn_output_weight);
+        b.add_bias(&mut projected, &layer.attn_output_bias);
 
         // Residual + LayerNorm
-        let post_attn = projected.add_tensor(hidden);
-        let normed_attn =
-            post_attn.layer_norm(&layer.attn_ln_weight, &layer.attn_ln_bias, LAYER_NORM_EPS);
+        let post_attn = b.add_tensor(&projected, hidden);
+        let normed_attn = b.layer_norm(
+            &post_attn,
+            &layer.attn_ln_weight,
+            &layer.attn_ln_bias,
+            LAYER_NORM_EPS,
+        );
 
         // FFN: intermediate
-        let mut intermediate = normed_attn.matmul_transpose(&layer.intermediate_weight);
-        intermediate.add_bias(&layer.intermediate_bias);
-        let intermediate = intermediate.gelu();
+        let mut intermediate = b.matmul_transpose(&normed_attn, &layer.intermediate_weight);
+        b.add_bias(&mut intermediate, &layer.intermediate_bias);
+        let intermediate = b.gelu(&intermediate);
 
         // FFN: output
-        let mut output = intermediate.matmul_transpose(&layer.output_weight);
-        output.add_bias(&layer.output_bias);
+        let mut output = b.matmul_transpose(&intermediate, &layer.output_weight);
+        b.add_bias(&mut output, &layer.output_bias);
 
         // Residual + LayerNorm
-        let post_ffn = output.add_tensor(&normed_attn);
-        post_ffn.layer_norm(
+        let post_ffn = b.add_tensor(&output, &normed_attn);
+        b.layer_norm(
+            &post_ffn,
             &layer.output_ln_weight,
             &layer.output_ln_bias,
             LAYER_NORM_EPS,
         )
-    }
-
-    fn mean_pool(&self, hidden: &Tensor, attention_mask: &[u32]) -> Vec<f32> {
-        let seq_len = hidden.rows;
-        let mut sum = vec![0.0f32; HIDDEN_SIZE];
-        let mut count = 0.0f32;
-
-        for s in 0..seq_len {
-            if attention_mask[s] == 1 {
-                let row = hidden.row(s);
-                for i in 0..HIDDEN_SIZE {
-                    sum[i] += row[i];
-                }
-                count += 1.0;
-            }
-        }
-
-        if count > 0.0 {
-            for v in sum.iter_mut() {
-                *v /= count;
-            }
-        }
-
-        sum
     }
 }
 
