@@ -65,6 +65,11 @@ const db = Strata.open('/path/to/data', { readOnly: true });
 |------|------|-------------|
 | `autoEmbed` | boolean? | Enable automatic text embedding |
 | `readOnly` | boolean? | Open in read-only mode |
+| `durability` | string? | `"standard"` or `"always"` |
+| `modelEndpoint` | string? | Override model endpoint URL |
+| `modelName` | string? | Override model name |
+| `modelApiKey` | string? | Override model API key |
+| `modelTimeoutMs` | number? | Override model request timeout |
 
 **Returns:** `Strata` instance
 
@@ -910,6 +915,70 @@ const active = await db.txnIsActive(); // boolean
 
 ---
 
+## Configuration
+
+### config()
+
+Get the current database configuration as a snapshot.
+
+```typescript
+const cfg = db.config();
+console.log(cfg.durability);   // "standard"
+console.log(cfg.autoEmbed);    // false
+if (cfg.model) {
+  console.log(cfg.model.endpoint);
+}
+```
+
+**Returns:** `StrataConfig` — `{ durability: string, autoEmbed: boolean, model?: ModelConfig }`
+
+### configureModel(endpoint, model, options?)
+
+Configure an inference model endpoint for query expansion and reranking. Persisted to `strata.toml`.
+
+```typescript
+db.configureModel('http://localhost:11434/v1', 'qwen3:1.7b');
+db.configureModel('https://api.example.com/v1', 'gpt-4', {
+  apiKey: 'sk-...',
+  timeoutMs: 10000,
+});
+```
+
+**Parameters:**
+| Name | Type | Description |
+|------|------|-------------|
+| `endpoint` | string | OpenAI-compatible API endpoint URL |
+| `model` | string | Model name |
+| `options.apiKey` | string? | Bearer token |
+| `options.timeoutMs` | number? | Request timeout in milliseconds (default: 5000) |
+
+### autoEmbedEnabled()
+
+Check whether automatic text embedding is enabled.
+
+```typescript
+if (db.autoEmbedEnabled()) {
+  console.log('Auto-embedding is on');
+}
+```
+
+**Returns:** `boolean`
+
+### setAutoEmbed(enabled)
+
+Enable or disable automatic text embedding. Persisted to `strata.toml`.
+
+```typescript
+db.setAutoEmbed(true);
+```
+
+**Parameters:**
+| Name | Type | Description |
+|------|------|-------------|
+| `enabled` | boolean | Whether to enable auto-embed |
+
+---
+
 ## Database Operations
 
 ### ping()
@@ -1124,6 +1193,19 @@ interface SearchHit {
 interface TimeRangeInput {
   start: string;  // ISO 8601 datetime
   end: string;    // ISO 8601 datetime
+}
+
+interface StrataConfig {
+  durability: string;
+  autoEmbed: boolean;
+  model?: ModelConfig;
+}
+
+interface ModelConfig {
+  endpoint: string;
+  model: string;
+  apiKey?: string;
+  timeoutMs: number;
 }
 
 interface SearchOptions {

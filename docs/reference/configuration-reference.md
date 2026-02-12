@@ -11,6 +11,16 @@ StrataDB uses a config file in the data directory. On first `Strata::open()`, a 
 #   "standard" = periodic fsync (~100ms), may lose last interval on crash
 #   "always"   = fsync every commit, zero data loss
 durability = "standard"
+
+# Enable automatic text embedding for semantic search
+# Requires the `embed` feature and model files (run `stratadb setup` first)
+auto_embed = false
+
+# [model]
+# endpoint = "http://localhost:11434/v1"
+# model = "qwen3:1.7b"
+# api_key = "optional-token"
+# timeout_ms = 5000
 ```
 
 ### Config Fields
@@ -18,6 +28,11 @@ durability = "standard"
 | Field | Type | Default | Values | Description |
 |-------|------|---------|--------|-------------|
 | `durability` | string | `"standard"` | `"standard"`, `"always"` | WAL sync policy |
+| `auto_embed` | bool | `false` | `true`, `false` | Automatic text embedding for semantic search |
+| `[model].endpoint` | string | — | URL | OpenAI-compatible API endpoint |
+| `[model].model` | string | — | model name | Model identifier (e.g. `"qwen3:1.7b"`) |
+| `[model].api_key` | string? | — | token | Optional bearer token |
+| `[model].timeout_ms` | integer | `5000` | milliseconds | Request timeout |
 
 ### Behavior
 
@@ -25,6 +40,7 @@ durability = "standard"
 - Parsed on every `open()` call
 - Invalid config returns an error (database does not open)
 - Cache mode (`Strata::cache()`) has no config file (no data directory)
+- `configure_model()` and `set_auto_embed()` persist changes to `strata.toml` automatically
 
 ## Durability Modes
 
@@ -41,7 +57,46 @@ Default: `"standard"`
 | Method | Durability | Disk Files | Use Case |
 |--------|-----------|------------|----------|
 | `Strata::open(path)` | Per `strata.toml` | Yes | Production |
+| `Strata::open_with(path, opts)` | Per opts / `strata.toml` | Yes | Custom settings |
 | `Strata::cache()` | Cache (in-memory) | No | Testing |
+
+### OpenOptions
+
+`OpenOptions` provides a builder for overriding config-file defaults at open time. Any field set to `Some` wins over the `strata.toml` value; `None` means "use the default".
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `access_mode` | `AccessMode` | `ReadWrite` (default) or `ReadOnly` |
+| `auto_embed` | `Option<bool>` | Override auto-embed setting |
+| `durability` | `Option<String>` | Override durability: `"standard"` or `"always"` |
+| `model_endpoint` | `Option<String>` | Override model endpoint URL |
+| `model_name` | `Option<String>` | Override model name |
+| `model_api_key` | `Option<String>` | Override model API key |
+| `model_timeout_ms` | `Option<u64>` | Override model request timeout |
+
+## Programmatic Configuration
+
+Configuration can be read and modified at runtime without editing `strata.toml` directly. Changes made via these methods are persisted to `strata.toml` for disk-backed databases.
+
+```rust
+// Read current config
+let cfg = db.config();
+println!("durability: {}", cfg.durability);
+println!("auto_embed: {}", cfg.auto_embed);
+
+// Configure an LLM model endpoint (persisted)
+db.configure_model("http://localhost:11434/v1", "qwen3:1.7b", None, None)?;
+
+// Toggle auto-embed (persisted)
+db.set_auto_embed(true)?;
+
+// Check auto-embed status
+if db.auto_embed_enabled() {
+    println!("auto-embed is on");
+}
+```
+
+See the [API Quick Reference](api-quick-reference.md) for the full Configuration method table.
 
 ## Database Info
 
@@ -113,6 +168,9 @@ The `DatabaseInfo` struct returned by `db.info()`:
 | Feature | Description |
 |---------|-------------|
 | `default` | Core database functionality |
+| `embed` | MiniLM-L6-v2 runtime for automatic text embedding |
+| `expand` | LLM-powered query expansion for search |
+| `rerank` | LLM-powered result reranking for search |
 | `perf-trace` | Per-layer timing instrumentation |
 | `comparison-benchmarks` | Enable SOTA comparison benchmarks (redb, LMDB, SQLite) |
 | `usearch-enabled` | Enable USearch for vector comparisons (requires C++ tools) |

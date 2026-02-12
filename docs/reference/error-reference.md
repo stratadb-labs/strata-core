@@ -43,6 +43,12 @@ pub enum Error {
     TransactionAlreadyActive,
     TransactionConflict { reason: String },
 
+    // Access
+    AccessDenied { command: String },
+
+    // History
+    HistoryUnavailable { requested_ts: u64, oldest_available_ts: u64 },
+
     // System
     Io { reason: String },
     Serialization { reason: String },
@@ -218,6 +224,26 @@ pub enum Error {
 **Fields:** `reason: String`
 
 **When:** Commit-time validation detects conflicts with concurrent transactions.
+
+## Access Errors
+
+### `AccessDenied`
+
+**Fields:** `command: String`
+
+**When:** A write command is rejected because the database was opened in read-only mode (via `OpenOptions { access_mode: ReadOnly, .. }`).
+
+**Handle:** Re-open the database without `read_only` if writes are needed.
+
+## History Errors
+
+### `HistoryUnavailable`
+
+**Fields:** `requested_ts: u64`, `oldest_available_ts: u64`
+
+**When:** A time-travel read requests a timestamp older than the oldest data available. This differs from `HistoryTrimmed` (which is for version-based retention); `HistoryUnavailable` is for timestamp-based queries where no data exists yet at the requested point.
+
+**Handle:** Use `db.time_range()` to discover the valid time window before issuing time-travel reads.
 
 ## System Errors
 

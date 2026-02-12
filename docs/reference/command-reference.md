@@ -19,7 +19,7 @@ This reference is primarily for SDK builders and contributors. Most users should
 | Retention | 3 | Retention policy |
 | Database | 5 | Database-level operations |
 | Bundle | 3 | Branch export/import |
-| Intelligence | 1 | Cross-primitive search |
+| Intelligence | 2 | Cross-primitive search and model config |
 
 ## KV Commands
 
@@ -135,6 +135,7 @@ This reference is primarily for SDK builders and contributors. Most users should
 | Command | Fields | Output |
 |---------|--------|--------|
 | `Search` | `branch?`, `space?`, `search: SearchQuery` | `SearchResults(Vec<SearchResultHit>)` |
+| `ConfigureModel` | `endpoint`, `model`, `api_key?`, `timeout_ms?` | `Unit` |
 
 ### SearchQuery Object
 
@@ -156,6 +157,17 @@ The `search` field is a structured `SearchQuery` object:
 |-------|------|-------------|
 | `start` | string | Range start (inclusive), ISO 8601 datetime |
 | `end` | string | Range end (inclusive), ISO 8601 datetime |
+
+### ConfigureModel Fields
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `endpoint` | string | *required* | OpenAI-compatible API endpoint URL |
+| `model` | string | *required* | Model name (e.g. `"qwen3:1.7b"`) |
+| `api_key` | string? | none | Optional bearer token |
+| `timeout_ms` | integer? | 5000 | Request timeout in milliseconds |
+
+The model configuration is persisted to `strata.toml` and survives database restarts.
 
 ## Branch Field Convention
 
@@ -182,5 +194,7 @@ All commands implement `Serialize` and `Deserialize` with `deny_unknown_fields`.
 {"Search": {"search": {"query": "error handling", "k": 10}}}
 {"Search": {"search": {"query": "errors", "time_range": {"start": "2026-02-07T00:00:00Z", "end": "2026-02-09T00:00:00Z"}}}}
 {"TimeRange": {"branch": "default"}}
+{"ConfigureModel": {"endpoint": "http://localhost:11434/v1", "model": "qwen3:1.7b"}}
+{"ConfigureModel": {"endpoint": "http://localhost:11434/v1", "model": "qwen3:1.7b", "api_key": "sk-...", "timeout_ms": 10000}}
 {"TxnCommit": null}
 ```

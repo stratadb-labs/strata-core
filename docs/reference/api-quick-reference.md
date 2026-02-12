@@ -7,13 +7,25 @@ Every method on the `Strata` struct, grouped by category.
 | Method | Signature | Returns |
 |--------|-----------|---------|
 | `open` | `(path: impl AsRef<Path>) -> Result<Self>` | New Strata instance |
+| `open_with` | `(path: impl AsRef<Path>, opts: OpenOptions) -> Result<Self>` | New Strata instance with options |
 | `cache` | `() -> Result<Self>` | Ephemeral in-memory instance |
 | `new_handle` | `() -> Result<Self>` | Independent handle to same database |
 | `ping` | `() -> Result<String>` | Version string |
 | `info` | `() -> Result<DatabaseInfo>` | Database statistics |
 | `flush` | `() -> Result<()>` | Flushes pending writes |
 | `compact` | `() -> Result<()>` | Triggers compaction |
-| `time_range` | `(branch: Option<&str>) -> Result<Option<(u64, u64)>>` | Oldest/latest timestamps | Time-travel window |
+| `time_range` | `(branch: Option<&str>) -> Result<Option<(u64, u64)>>` | Oldest/latest timestamps |
+
+## Configuration
+
+| Method | Signature | Returns | Notes |
+|--------|-----------|---------|-------|
+| `config` | `() -> StrataConfig` | Current config snapshot | Read-only clone |
+| `configure_model` | `(endpoint: &str, model: &str, api_key: Option<&str>, timeout_ms: Option<u64>) -> Result<()>` | | Persisted to `strata.toml` |
+| `auto_embed_enabled` | `() -> bool` | Whether auto-embed is on | |
+| `set_auto_embed` | `(enabled: bool) -> Result<()>` | | Persisted to `strata.toml` |
+| `access_mode` | `() -> AccessMode` | ReadWrite or ReadOnly | |
+| `durability_counters` | `() -> Option<WalCounters>` | WAL stats | `None` for cache databases |
 
 ## Branch Context
 

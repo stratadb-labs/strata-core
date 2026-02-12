@@ -954,9 +954,38 @@ results = db.search("database issues", rerank=True)
 
 When `expand` or `rerank` are not specified, they are automatically enabled if a model is configured via `configure_model`. Set to `False` to force off, or `True` to force on (silently skipped if no model).
 
+---
+
+## Configuration
+
+### db.config()
+
+Get the current database configuration as a snapshot.
+
+```python
+cfg = db.config()
+print(cfg["durability"])    # "standard"
+print(cfg["auto_embed"])    # False
+if cfg["model"]:
+    print(cfg["model"]["endpoint"])
+```
+
+**Returns:** `dict` with `"durability"` (str), `"auto_embed"` (bool), `"model"` (dict or `None`). Model dict has `"endpoint"`, `"model"`, `"api_key"`, `"timeout_ms"`.
+
+### db.auto_embed_enabled
+
+Whether automatic text embedding is currently enabled (read-only property).
+
+```python
+if db.auto_embed_enabled:
+    print("Auto-embedding is on")
+```
+
+**Returns:** `bool`
+
 ### db.configure_model(endpoint, model, api_key=None, timeout_ms=None)
 
-Configure an inference model endpoint for intelligent search.
+Configure an inference model endpoint for query expansion and reranking. Persisted to `strata.toml`.
 
 ```python
 db.configure_model(
@@ -974,6 +1003,21 @@ db.configure_model(
 | `model` | str | Model name |
 | `api_key` | str, optional | Bearer token |
 | `timeout_ms` | int, optional | Request timeout in milliseconds (default: 5000) |
+
+### db.set_auto_embed(enabled)
+
+Enable or disable automatic text embedding. Persisted to `strata.toml`.
+
+```python
+db.set_auto_embed(True)
+```
+
+**Parameters:**
+| Name | Type | Description |
+|------|------|-------------|
+| `enabled` | bool | Whether to enable auto-embed |
+
+**Raises:** `IoError` if config cannot be written
 
 ---
 
