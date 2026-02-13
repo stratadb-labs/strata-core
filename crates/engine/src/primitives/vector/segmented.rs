@@ -41,7 +41,7 @@ impl Default for SegmentedHnswConfig {
     fn default() -> Self {
         Self {
             hnsw: HnswConfig::default(),
-            seal_threshold: 2048,
+            seal_threshold: 256,
         }
     }
 }

@@ -43,21 +43,6 @@ use strata_core::value::Value;
 use strata_core::EntityRef;
 use tracing::{debug, info};
 
-/// Cached reverse-index entry mapping VectorId back to its key and metadata.
-///
-/// Populated during upsert/recovery and used by search to avoid O(n) KV scans.
-#[derive(Debug, Clone)]
-pub struct ReverseEntry {
-    /// User-visible vector key
-    pub key: String,
-    /// JSON metadata attached to the vector
-    pub metadata: Option<JsonValue>,
-    /// Source entity reference (for shadow/embed vectors)
-    pub source_ref: Option<EntityRef>,
-    /// Record version counter
-    pub version: u64,
-}
-
 /// Statistics from vector recovery
 #[derive(Debug, Default, Clone)]
 pub struct RecoveryStats {
@@ -85,16 +70,12 @@ pub struct VectorBackendState {
     /// In-memory index backends per collection
     /// CRITICAL: BTreeMap for deterministic iteration (Invariant R3)
     pub backends: RwLock<BTreeMap<CollectionId, Box<dyn VectorIndexBackend>>>,
-    /// Reverse index: VectorId → ReverseEntry per collection.
-    /// Eliminates O(n) KV scan_prefix calls in get_key_and_metadata / get_key_metadata_and_source.
-    pub reverse_index: RwLock<BTreeMap<CollectionId, BTreeMap<VectorId, ReverseEntry>>>,
 }
 
 impl Default for VectorBackendState {
     fn default() -> Self {
         Self {
             backends: RwLock::new(BTreeMap::new()),
-            reverse_index: RwLock::new(BTreeMap::new()),
         }
     }
 }
@@ -281,11 +262,10 @@ impl VectorStore {
             .transaction(branch_id, |txn| txn.delete(config_key.clone()))
             .map_err(|e| VectorError::Storage(e.to_string()))?;
 
-        // Remove in-memory backend and reverse index
+        // Remove in-memory backend
         {
             let state = self.state()?;
             state.backends.write().remove(&collection_id);
-            state.reverse_index.write().remove(&collection_id);
         }
 
         info!(target: "strata::vector", collection = name, branch_id = %branch_id, "Collection deleted");
@@ -535,20 +515,6 @@ impl VectorStore {
 
         drop(backends);
 
-        // Update reverse index (after backends lock is released)
-        {
-            let mut ri = state.reverse_index.write();
-            ri.entry(collection_id).or_default().insert(
-                vector_id,
-                ReverseEntry {
-                    key: key.to_string(),
-                    metadata: record.metadata.clone(),
-                    source_ref: record.source_ref.clone(),
-                    version: record_version,
-                },
-            );
-        }
-
         debug!(target: "strata::vector", collection, branch_id = %branch_id, "Vector upserted");
 
         Ok(Version::counter(record_version))
@@ -714,19 +680,13 @@ impl VectorStore {
 
         let vector_id = VectorId(record.vector_id);
 
-        // Delete from backend and reverse index
+        // Delete from backend
         {
             use super::types::now_micros;
             let state = self.state()?;
             let mut backends = state.backends.write();
             if let Some(backend) = backends.get_mut(&collection_id) {
                 backend.delete_with_timestamp(vector_id, now_micros())?;
-            }
-            drop(backends);
-
-            let mut ri = state.reverse_index.write();
-            if let Some(col_map) = ri.get_mut(&collection_id) {
-                col_map.remove(&vector_id);
             }
         }
 
@@ -794,7 +754,6 @@ impl VectorStore {
                 })?;
 
         let mut versions = Vec::with_capacity(entries.len());
-        let mut ri_entries: Vec<(VectorId, ReverseEntry)> = Vec::with_capacity(entries.len());
         let batch_count = entries.len();
 
         for (key, embedding, metadata) in entries {
@@ -825,29 +784,10 @@ impl VectorStore {
             // Update backend with timestamp
             backend.insert_with_timestamp(vector_id, &embedding, record.created_at)?;
 
-            ri_entries.push((
-                vector_id,
-                ReverseEntry {
-                    key,
-                    metadata: record.metadata.clone(),
-                    source_ref: record.source_ref.clone(),
-                    version: record_version,
-                },
-            ));
-
             versions.push(Version::counter(record_version));
         }
 
         drop(backends);
-
-        // Batch-update reverse index
-        {
-            let mut ri = state.reverse_index.write();
-            let col_map = ri.entry(collection_id).or_default();
-            for (vid, entry) in ri_entries {
-                col_map.insert(vid, entry);
-            }
-        }
 
         debug!(target: "strata::vector", collection, count = batch_count, branch_id = %branch_id, "Batch upsert completed");
 
@@ -1163,42 +1103,8 @@ impl VectorStore {
         Ok(Some(record))
     }
 
-    /// Get key and metadata for a VectorId (internal)
-    ///
-    /// Uses the in-memory reverse index for O(1) lookup. Falls back to KV scan
-    /// if the reverse index has no entry (should not happen in normal operation).
+    /// Get key and metadata for a VectorId by scanning KV (internal)
     pub(crate) fn get_key_and_metadata(
-        &self,
-        branch_id: BranchId,
-        space: &str,
-        collection: &str,
-        target_id: VectorId,
-    ) -> VectorResult<(String, Option<JsonValue>)> {
-        let collection_id = CollectionId::new(branch_id, collection);
-
-        // Fast path: reverse index lookup
-        {
-            let state = self.state()?;
-            let ri = state.reverse_index.read();
-            if let Some(col_map) = ri.get(&collection_id) {
-                if let Some(entry) = col_map.get(&target_id) {
-                    return Ok((entry.key.clone(), entry.metadata.clone()));
-                }
-            }
-        }
-
-        // Slow fallback: KV scan (should not happen in normal operation)
-        tracing::warn!(
-            target: "strata::vector",
-            vector_id = ?target_id,
-            collection,
-            "Reverse index miss in get_key_and_metadata, falling back to KV scan"
-        );
-        self.get_key_and_metadata_from_kv(branch_id, space, collection, target_id)
-    }
-
-    /// KV-scan fallback for get_key_and_metadata (used when reverse index misses)
-    fn get_key_and_metadata_from_kv(
         &self,
         branch_id: BranchId,
         space: &str,
@@ -1227,9 +1133,12 @@ impl VectorStore {
             };
 
             if record.vector_id == target_id.0 {
+                // Extract vector key from the full key
+                // Key format: collection/key
                 let user_key = String::from_utf8(key.user_key.clone())
                     .map_err(|e| VectorError::Serialization(e.to_string()))?;
 
+                // Remove collection prefix
                 let vector_key = user_key
                     .strip_prefix(&format!("{}/", collection))
                     .unwrap_or(&user_key)
@@ -1245,52 +1154,11 @@ impl VectorStore {
         )))
     }
 
-    /// Get key, metadata, source_ref, and version for a VectorId (internal)
+    /// Get key, metadata, source_ref, and version for a VectorId by scanning KV (internal)
     ///
-    /// Uses the in-memory reverse index for O(1) lookup. Falls back to KV scan
-    /// if the reverse index has no entry. Used by `search_with_sources()`.
+    /// Like `get_key_and_metadata()` but also returns the `source_ref` and `version`
+    /// fields from the VectorRecord. Used by `search_with_sources()`.
     fn get_key_metadata_and_source(
-        &self,
-        branch_id: BranchId,
-        space: &str,
-        collection: &str,
-        target_id: VectorId,
-    ) -> VectorResult<(
-        String,
-        Option<JsonValue>,
-        Option<strata_core::EntityRef>,
-        u64,
-    )> {
-        let collection_id = CollectionId::new(branch_id, collection);
-
-        // Fast path: reverse index lookup
-        {
-            let state = self.state()?;
-            let ri = state.reverse_index.read();
-            if let Some(col_map) = ri.get(&collection_id) {
-                if let Some(entry) = col_map.get(&target_id) {
-                    return Ok((
-                        entry.key.clone(),
-                        entry.metadata.clone(),
-                        entry.source_ref.clone(),
-                        entry.version,
-                    ));
-                }
-            }
-        }
-
-        // Slow fallback: KV scan
-        tracing::warn!(
-            target: "strata::vector",
-            vector_id = ?target_id,
-            collection,
-            "Reverse index miss in get_key_metadata_and_source, falling back to KV scan"
-        );
-        self.get_key_metadata_and_source_from_kv(branch_id, space, collection, target_id)
-    }
-
-    /// KV-scan fallback for get_key_metadata_and_source
-    fn get_key_metadata_and_source_from_kv(
         &self,
         branch_id: BranchId,
         space: &str,
@@ -1551,10 +1419,9 @@ impl VectorStore {
     pub fn replay_delete_collection(&self, branch_id: BranchId, name: &str) -> VectorResult<()> {
         let collection_id = CollectionId::new(branch_id, name);
 
-        // Remove in-memory backend and reverse index
+        // Remove in-memory backend
         let state = self.state()?;
         state.backends.write().remove(&collection_id);
-        state.reverse_index.write().remove(&collection_id);
 
         Ok(())
     }
@@ -1567,18 +1434,19 @@ impl VectorStore {
     /// Uses `insert_with_id_and_timestamp` to maintain VectorId monotonicity
     /// (Invariant T4) and preserve temporal metadata for `search_at()` queries.
     ///
-    /// Also populates the reverse index so that post-recovery searches can
-    /// resolve VectorId → key without an O(n) KV scan.
+    /// Note: `_key`, `_metadata`, and `_source_ref` parameters are not used here because
+    /// they are stored in the KV layer (via VectorRecord), which has its own WAL entries.
+    /// This method only replays the embedding into the VectorHeap backend.
     #[allow(clippy::too_many_arguments)]
     pub fn replay_upsert(
         &self,
         branch_id: BranchId,
         collection: &str,
-        key: &str,
+        _key: &str,
         vector_id: VectorId,
         embedding: &[f32],
-        metadata: Option<serde_json::Value>,
-        source_ref: Option<strata_core::EntityRef>,
+        _metadata: Option<serde_json::Value>,
+        _source_ref: Option<strata_core::EntityRef>,
         created_at: u64,
     ) -> VectorResult<()> {
         let collection_id = CollectionId::new(branch_id, collection);
@@ -1595,22 +1463,6 @@ impl VectorStore {
         // Use insert_with_id_and_timestamp to maintain VectorId monotonicity
         // and preserve temporal data for time-travel queries after recovery.
         backend.insert_with_id_and_timestamp(vector_id, embedding, created_at)?;
-
-        drop(backends);
-
-        // Populate reverse index from WAL replay data
-        {
-            let mut ri = state.reverse_index.write();
-            ri.entry(collection_id).or_default().insert(
-                vector_id,
-                ReverseEntry {
-                    key: key.to_string(),
-                    metadata,
-                    source_ref,
-                    version: 1, // placeholder; KV layer has the authoritative version
-                },
-            );
-        }
 
         Ok(())
     }
@@ -1637,15 +1489,7 @@ impl VectorStore {
         if let Some(backend) = backends.get_mut(&collection_id) {
             backend.delete_with_timestamp(vector_id, deleted_at)?;
         }
-        drop(backends);
-
-        // Remove from reverse index
-        {
-            let mut ri = state.reverse_index.write();
-            if let Some(col_map) = ri.get_mut(&collection_id) {
-                col_map.remove(&vector_id);
-            }
-        }
+        // Note: If collection doesn't exist, that's OK - it may have been deleted
 
         Ok(())
     }
@@ -2102,7 +1946,6 @@ impl VectorStore {
 
                 // Collect vectors that need VectorId remapping, then batch-update KV
                 let mut kv_updates: Vec<(Key, Vec<u8>)> = Vec::new();
-                let mut ri_map: BTreeMap<VectorId, ReverseEntry> = BTreeMap::new();
                 let mut collection_vector_count = 0usize;
                 let mut kv_remap_failed = false;
 
@@ -2131,24 +1974,6 @@ impl VectorStore {
                         new_vid,
                         &vec_record.embedding,
                         vec_record.created_at,
-                    );
-
-                    // Extract vector key from the full key
-                    let user_key_str = vec_key.user_key_string().unwrap_or_default();
-                    let vector_key = user_key_str
-                        .strip_prefix(&format!("{}/", collection_name))
-                        .unwrap_or(&user_key_str)
-                        .to_string();
-
-                    // Build reverse index entry
-                    ri_map.insert(
-                        new_vid,
-                        ReverseEntry {
-                            key: vector_key,
-                            metadata: vec_record.metadata.clone(),
-                            source_ref: vec_record.source_ref.clone(),
-                            version: vec_record.version,
-                        },
                     );
 
                     // If the VectorId changed, queue a KV update so that
@@ -2206,15 +2031,11 @@ impl VectorStore {
                 // Rebuild index (segments for SegmentedHnsw, graph for HNSW)
                 backend.rebuild_index();
 
-                // Replace existing backend and reverse index atomically
+                // Replace existing backend atomically
                 state
                     .backends
                     .write()
-                    .insert(collection_id.clone(), backend);
-                state
-                    .reverse_index
-                    .write()
-                    .insert(collection_id, ri_map);
+                    .insert(collection_id, backend);
 
                 total_collections += 1;
                 total_vectors += collection_vector_count;
@@ -3291,307 +3112,6 @@ mod tests {
         let state = store.backends().unwrap();
         let guard = state.backends.read();
         assert_eq!(guard.len(), 1);
-    }
-
-    // ========================================
-    // Post-Merge Reload Tests (Phase 2)
-    // ========================================
-
-    // ========================================
-    // Reverse Index Tests
-    // ========================================
-
-    #[test]
-    fn test_reverse_index_populated_on_insert() {
-        // Verifies that the reverse index is populated during insert and
-        // returns the correct key/metadata, not just that search "works"
-        // (which could pass via the KV-scan fallback).
-        let (_temp, _db, store) = setup();
-        let branch_id = BranchId::new();
-
-        let config = VectorConfig::new(3, DistanceMetric::Cosine).unwrap();
-        store
-            .create_collection(branch_id, "default", "test", config)
-            .unwrap();
-
-        let metadata = serde_json::json!({"category": "science"});
-        store
-            .insert(
-                branch_id,
-                "default",
-                "test",
-                "doc1",
-                &[1.0, 0.0, 0.0],
-                Some(metadata.clone()),
-            )
-            .unwrap();
-
-        // Directly inspect the reverse index — it must contain the entry
-        let collection_id = CollectionId::new(branch_id, "test");
-        let state = store.state().unwrap();
-        let ri = state.reverse_index.read();
-        let col_map = ri.get(&collection_id).expect("collection missing from reverse index");
-        assert_eq!(col_map.len(), 1, "reverse index should have exactly 1 entry");
-
-        let (_, entry) = col_map.iter().next().unwrap();
-        assert_eq!(entry.key, "doc1");
-        assert_eq!(entry.metadata, Some(metadata));
-        assert!(entry.version > 0);
-    }
-
-    #[test]
-    fn test_reverse_index_updated_on_upsert() {
-        // Verifies that upserting a vector with new metadata updates the
-        // reverse index entry, not just the KV record.
-        let (_temp, _db, store) = setup();
-        let branch_id = BranchId::new();
-
-        let config = VectorConfig::new(3, DistanceMetric::Cosine).unwrap();
-        store
-            .create_collection(branch_id, "default", "test", config)
-            .unwrap();
-
-        let meta_v1 = serde_json::json!({"version": 1});
-        store
-            .insert(
-                branch_id,
-                "default",
-                "test",
-                "doc1",
-                &[1.0, 0.0, 0.0],
-                Some(meta_v1),
-            )
-            .unwrap();
-
-        // Upsert with new metadata
-        let meta_v2 = serde_json::json!({"version": 2, "extra": "field"});
-        store
-            .insert(
-                branch_id,
-                "default",
-                "test",
-                "doc1",
-                &[0.0, 1.0, 0.0],
-                Some(meta_v2.clone()),
-            )
-            .unwrap();
-
-        // Verify reverse index reflects the updated metadata
-        let collection_id = CollectionId::new(branch_id, "test");
-        let state = store.state().unwrap();
-        let ri = state.reverse_index.read();
-        let col_map = ri.get(&collection_id).unwrap();
-        assert_eq!(col_map.len(), 1, "upsert should not duplicate reverse index entries");
-
-        let (_, entry) = col_map.iter().next().unwrap();
-        assert_eq!(entry.key, "doc1");
-        assert_eq!(entry.metadata, Some(meta_v2), "reverse index metadata must reflect latest upsert");
-    }
-
-    #[test]
-    fn test_reverse_index_removed_on_delete() {
-        // Verifies that deleting a vector removes it from the reverse index.
-        let (_temp, _db, store) = setup();
-        let branch_id = BranchId::new();
-
-        let config = VectorConfig::new(3, DistanceMetric::Cosine).unwrap();
-        store
-            .create_collection(branch_id, "default", "test", config)
-            .unwrap();
-
-        store
-            .insert(branch_id, "default", "test", "doc1", &[1.0, 0.0, 0.0], None)
-            .unwrap();
-
-        // Confirm it's in the reverse index
-        let collection_id = CollectionId::new(branch_id, "test");
-        {
-            let state = store.state().unwrap();
-            let ri = state.reverse_index.read();
-            assert_eq!(ri.get(&collection_id).unwrap().len(), 1);
-        }
-
-        // Delete the vector
-        store.delete(branch_id, "default", "test", "doc1").unwrap();
-
-        // Reverse index should be empty
-        {
-            let state = store.state().unwrap();
-            let ri = state.reverse_index.read();
-            let col_map = ri.get(&collection_id).unwrap();
-            assert!(col_map.is_empty(), "reverse index should be empty after delete");
-        }
-    }
-
-    #[test]
-    fn test_search_after_replay_uses_reverse_index() {
-        // After replay_upsert, there are no KV entries for vectors.
-        // Search must resolve VectorId → key entirely through the reverse
-        // index. If the reverse index were broken, this test would fail with
-        // "VectorId not found in KV".
-        let (_temp, _db, store) = setup();
-        let branch_id = BranchId::new();
-
-        let config = VectorConfig::new(3, DistanceMetric::Cosine).unwrap();
-        store
-            .replay_create_collection(branch_id, "test", config.clone())
-            .unwrap();
-
-        // Also create the collection config in KV so that search() can find
-        // the collection config during ensure_collection_loaded.
-        let config_key = Key::new_vector_config(
-            Namespace::for_branch_space(branch_id, "default"),
-            "test",
-        );
-        let record = CollectionRecord::new(&config);
-        let config_bytes = record.to_bytes().unwrap();
-        store
-            .db
-            .transaction(branch_id, |txn| {
-                txn.put(config_key.clone(), Value::Bytes(config_bytes.clone()))
-            })
-            .unwrap();
-
-        // Replay two vector upserts (no KV vector records are written)
-        store
-            .replay_upsert(
-                branch_id,
-                "test",
-                "alpha",
-                VectorId::new(1),
-                &[1.0, 0.0, 0.0],
-                Some(serde_json::json!({"label": "a"})),
-                None,
-                1000,
-            )
-            .unwrap();
-        store
-            .replay_upsert(
-                branch_id,
-                "test",
-                "beta",
-                VectorId::new(2),
-                &[0.0, 1.0, 0.0],
-                None,
-                None,
-                2000,
-            )
-            .unwrap();
-
-        // Search must succeed using reverse index alone
-        let results = store
-            .search(branch_id, "default", "test", &[1.0, 0.0, 0.0], 2, None)
-            .unwrap();
-
-        assert_eq!(results.len(), 2);
-        assert_eq!(results[0].key, "alpha");
-        assert_eq!(results[0].metadata, Some(serde_json::json!({"label": "a"})));
-        assert_eq!(results[1].key, "beta");
-        assert!(results[1].metadata.is_none());
-    }
-
-    #[test]
-    fn test_replay_delete_removes_from_reverse_index() {
-        // Verifies that replay_delete removes the entry from the reverse
-        // index, so a subsequent search does not return the deleted vector.
-        let (_temp, _db, store) = setup();
-        let branch_id = BranchId::new();
-
-        let config = VectorConfig::new(3, DistanceMetric::Cosine).unwrap();
-        store
-            .replay_create_collection(branch_id, "test", config.clone())
-            .unwrap();
-
-        let config_key = Key::new_vector_config(
-            Namespace::for_branch_space(branch_id, "default"),
-            "test",
-        );
-        let record = CollectionRecord::new(&config);
-        let config_bytes = record.to_bytes().unwrap();
-        store
-            .db
-            .transaction(branch_id, |txn| {
-                txn.put(config_key.clone(), Value::Bytes(config_bytes.clone()))
-            })
-            .unwrap();
-
-        store
-            .replay_upsert(
-                branch_id,
-                "test",
-                "doc1",
-                VectorId::new(1),
-                &[1.0, 0.0, 0.0],
-                None,
-                None,
-                1000,
-            )
-            .unwrap();
-        store
-            .replay_upsert(
-                branch_id,
-                "test",
-                "doc2",
-                VectorId::new(2),
-                &[0.0, 1.0, 0.0],
-                None,
-                None,
-                2000,
-            )
-            .unwrap();
-
-        // Delete doc1 via replay
-        store
-            .replay_delete(branch_id, "test", "doc1", VectorId::new(1), 3000)
-            .unwrap();
-
-        // Verify reverse index has only doc2
-        let collection_id = CollectionId::new(branch_id, "test");
-        let state = store.state().unwrap();
-        let ri = state.reverse_index.read();
-        let col_map = ri.get(&collection_id).unwrap();
-        assert_eq!(col_map.len(), 1);
-        assert_eq!(col_map.values().next().unwrap().key, "doc2");
-    }
-
-    #[test]
-    fn test_batch_insert_populates_reverse_index() {
-        let (_temp, _db, store) = setup();
-        let branch_id = BranchId::new();
-
-        let config = VectorConfig::new(3, DistanceMetric::Cosine).unwrap();
-        store
-            .create_collection(branch_id, "default", "test", config)
-            .unwrap();
-
-        let entries = vec![
-            ("k1".to_string(), vec![1.0, 0.0, 0.0], Some(serde_json::json!({"n": 1}))),
-            ("k2".to_string(), vec![0.0, 1.0, 0.0], None),
-            ("k3".to_string(), vec![0.0, 0.0, 1.0], Some(serde_json::json!({"n": 3}))),
-        ];
-
-        store
-            .batch_insert(branch_id, "default", "test", entries)
-            .unwrap();
-
-        // Verify reverse index has all 3 entries with correct metadata
-        let collection_id = CollectionId::new(branch_id, "test");
-        let state = store.state().unwrap();
-        let ri = state.reverse_index.read();
-        let col_map = ri.get(&collection_id).unwrap();
-        assert_eq!(col_map.len(), 3);
-
-        let keys: Vec<String> = col_map.values().map(|e| e.key.clone()).collect();
-        assert!(keys.contains(&"k1".to_string()));
-        assert!(keys.contains(&"k2".to_string()));
-        assert!(keys.contains(&"k3".to_string()));
-
-        // Verify metadata correctness
-        let k1_entry = col_map.values().find(|e| e.key == "k1").unwrap();
-        assert_eq!(k1_entry.metadata, Some(serde_json::json!({"n": 1})));
-
-        let k2_entry = col_map.values().find(|e| e.key == "k2").unwrap();
-        assert!(k2_entry.metadata.is_none());
     }
 
     // ========================================
