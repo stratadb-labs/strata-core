@@ -268,7 +268,7 @@ impl crate::search::Searchable for KVStore {
         use crate::search::{
             build_search_response_with_index, EntityRef, InvertedIndex, SearchCandidate,
         };
-        use std::collections::HashSet;
+        use std::collections::HashMap;
         use std::time::Instant;
 
         let start = Instant::now();
@@ -279,10 +279,13 @@ impl crate::search::Searchable for KVStore {
             return Ok(crate::SearchResponse::empty());
         }
 
-        // Tokenize the query and collect all matching KV doc refs from posting lists
+        // Tokenize the query and collect matching KV candidates from posting
+        // lists, accumulating per-candidate term frequencies so BM25 scoring
+        // can skip re-tokenizing (and re-stemming) the full document body.
         let query_terms = crate::search::tokenize(&req.query);
-        let mut seen = HashSet::new();
-        let mut candidate_refs = Vec::new();
+
+        // key -> (term_freqs, doc_len)
+        let mut candidate_tfs: HashMap<String, (HashMap<String, u32>, u32)> = HashMap::new();
 
         for term in &query_terms {
             if let Some(posting_list) = index.lookup(term) {
@@ -292,18 +295,21 @@ impl crate::search::Searchable for KVStore {
                         ref key,
                     } = entry.doc_ref
                     {
-                        if branch_id == req.branch_id && seen.insert(key.clone()) {
-                            candidate_refs.push(key.clone());
+                        if branch_id == req.branch_id {
+                            let tf_entry = candidate_tfs
+                                .entry(key.clone())
+                                .or_insert_with(|| (HashMap::new(), entry.doc_len));
+                            tf_entry.0.insert(term.clone(), entry.tf);
                         }
                     }
                 }
             }
         }
 
-        // Fetch text for each candidate and build SearchCandidates
-        let candidates: Vec<SearchCandidate> = candidate_refs
+        // Fetch text (for snippets) and build candidates with pre-computed TFs
+        let candidates: Vec<SearchCandidate> = candidate_tfs
             .into_iter()
-            .filter_map(|key| {
+            .filter_map(|(key, (tf_map, doc_len))| {
                 if let Ok(Some(value)) = self.get(&req.branch_id, "default", &key) {
                     let text = match &value {
                         strata_core::value::Value::String(s) => s.clone(),
@@ -313,7 +319,10 @@ impl crate::search::Searchable for KVStore {
                         branch_id: req.branch_id,
                         key,
                     };
-                    Some(SearchCandidate::new(entity_ref, text, None))
+                    Some(
+                        SearchCandidate::new(entity_ref, text, None)
+                            .with_precomputed_tf(tf_map, doc_len),
+                    )
                 } else {
                     None
                 }

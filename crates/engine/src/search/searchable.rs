@@ -47,6 +47,11 @@ pub struct SearchCandidate {
     pub text: String,
     /// Timestamp for time-based filtering/ordering
     pub timestamp: Option<u64>,
+    /// Pre-computed term frequencies and doc length from the inverted index.
+    /// When present, BM25 scoring uses these directly instead of re-tokenizing
+    /// the document text (which requires stemming every token).
+    /// Format: (term -> frequency, document_length_in_tokens)
+    pub precomputed_tf: Option<(HashMap<String, u32>, u32)>,
 }
 
 impl SearchCandidate {
@@ -56,7 +61,20 @@ impl SearchCandidate {
             doc_ref,
             text,
             timestamp,
+            precomputed_tf: None,
         }
+    }
+
+    /// Create a search candidate with pre-computed term frequencies from the
+    /// inverted index. This allows BM25 scoring to skip re-tokenizing the
+    /// document body.
+    pub fn with_precomputed_tf(
+        mut self,
+        term_freqs: HashMap<String, u32>,
+        doc_len: u32,
+    ) -> Self {
+        self.precomputed_tf = Some((term_freqs, doc_len));
+        self
     }
 }
 
@@ -266,6 +284,41 @@ impl BM25LiteScorer {
         self.recency_boost = factor;
         self
     }
+
+    /// Score using pre-computed term frequencies from the inverted index.
+    ///
+    /// This avoids re-tokenizing and re-stemming the entire document body,
+    /// which is the dominant cost in BM25 scoring (~100ms on 5K docs).
+    /// The term frequencies and doc length were already computed at index time.
+    pub fn score_precomputed(
+        &self,
+        query_terms: &[String],
+        doc_tf: &HashMap<String, u32>,
+        doc_len: f32,
+        ctx: &ScorerContext,
+    ) -> f32 {
+        if query_terms.is_empty() || doc_len == 0.0 {
+            return 0.0;
+        }
+
+        let avg_len = ctx.avg_doc_len.max(1.0);
+        let mut score = 0.0f32;
+
+        for query_term in query_terms {
+            let tf = doc_tf.get(query_term.as_str()).copied().unwrap_or(0) as f32;
+            if tf == 0.0 {
+                continue;
+            }
+
+            let idf = ctx.idf(query_term);
+            let tf_component =
+                (tf * (self.k1 + 1.0)) / (tf + self.k1 * (1.0 - self.b + self.b * doc_len / avg_len));
+
+            score += idf * tf_component;
+        }
+
+        score
+    }
 }
 
 impl Scorer for BM25LiteScorer {
@@ -467,7 +520,7 @@ pub fn build_search_response_with_index(
             let mut ctx = ScorerContext::new(idx.total_docs());
             ctx.avg_doc_len = idx.avg_doc_len();
 
-            // Build doc_freqs from query terms
+            // Tokenize query once
             let query_terms = tokenize(query);
             for term in &query_terms {
                 ctx.add_doc_freq(term, idx.doc_freq(term));
@@ -478,9 +531,16 @@ pub fn build_search_response_with_index(
             let mut scored: Vec<(SearchCandidate, f32)> = candidates
                 .into_iter()
                 .map(|c| {
-                    let doc =
-                        SearchDoc::new(c.text.clone()).with_timestamp(c.timestamp.unwrap_or(0));
-                    let score = scorer.score(&doc, query, &ctx);
+                    let score = if let Some((ref tf_map, doc_len)) = c.precomputed_tf {
+                        // Fast path: use pre-computed term frequencies from the
+                        // inverted index. Skips re-tokenizing the document body.
+                        scorer.score_precomputed(&query_terms, tf_map, doc_len as f32, &ctx)
+                    } else {
+                        // Slow path: re-tokenize the document text for scoring.
+                        let doc = SearchDoc::new(c.text.clone())
+                            .with_timestamp(c.timestamp.unwrap_or(0));
+                        scorer.score(&doc, query, &ctx)
+                    };
                     (c, score)
                 })
                 .filter(|(_, score)| *score > 0.0)
