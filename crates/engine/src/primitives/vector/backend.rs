@@ -183,11 +183,13 @@ pub enum IndexBackendFactory {
     BruteForce,
     /// HNSW O(log n) approximate nearest neighbor search
     Hnsw(super::hnsw::HnswConfig),
+    /// Segmented HNSW: O(1) inserts, multi-segment fan-out search
+    SegmentedHnsw(super::segmented::SegmentedHnswConfig),
 }
 
 impl Default for IndexBackendFactory {
     fn default() -> Self {
-        IndexBackendFactory::Hnsw(super::hnsw::HnswConfig::default())
+        IndexBackendFactory::SegmentedHnsw(super::segmented::SegmentedHnswConfig::default())
     }
 }
 
@@ -201,6 +203,9 @@ impl IndexBackendFactory {
             IndexBackendFactory::Hnsw(hnsw_config) => {
                 Box::new(super::hnsw::HnswBackend::new(config, hnsw_config.clone()))
             }
+            IndexBackendFactory::SegmentedHnsw(seg_config) => {
+                Box::new(super::segmented::SegmentedHnswBackend::new(config, seg_config.clone()))
+            }
         }
     }
 
@@ -209,6 +214,7 @@ impl IndexBackendFactory {
         match self {
             IndexBackendFactory::BruteForce => "brute_force",
             IndexBackendFactory::Hnsw(_) => "hnsw",
+            IndexBackendFactory::SegmentedHnsw(_) => "segmented_hnsw",
         }
     }
 }

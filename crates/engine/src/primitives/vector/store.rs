@@ -146,7 +146,7 @@ impl VectorStore {
 
     /// Get the backend factory (hardcoded currently, configurable in future versions)
     fn backend_factory(&self) -> IndexBackendFactory {
-        IndexBackendFactory::Hnsw(super::hnsw::HnswConfig::default())
+        IndexBackendFactory::SegmentedHnsw(super::segmented::SegmentedHnswConfig::default())
     }
 
     // ========================================================================
@@ -1823,6 +1823,237 @@ impl VectorStore {
     ) -> Key {
         Key::new_vector(self.namespace_for(branch_id, space), collection, key)
     }
+
+    // ========================================================================
+    // Post-Merge Vector Reload (Phase 2: Branch-Aware Merge)
+    // ========================================================================
+
+    /// Reload all vector backends for a branch from KV state.
+    ///
+    /// Called after `merge_branches()` to ensure in-memory vector backends
+    /// reflect the merged KV state. Without this, vectors merged at the KV
+    /// level would be invisible to search until the next full recovery.
+    ///
+    /// For each vector collection in the target branch (across all spaces):
+    /// 1. Creates a fresh backend from the factory
+    /// 2. Scans all VectorRecords from KV (including newly merged ones)
+    /// 3. Allocates new VectorIds to avoid collisions from independent branches
+    /// 4. Updates KV records with the new VectorIds for consistency
+    /// 5. Rebuilds the SegmentedHnswBackend (segments via `rebuild_index()`)
+    /// 6. Replaces the existing in-memory backend
+    ///
+    /// ## VectorId Remapping
+    ///
+    /// When branches are created independently, each branch allocates VectorIds
+    /// starting from 0. After merge, the target branch may contain VectorRecords
+    /// with colliding IDs from different branches. This method allocates fresh
+    /// IDs from the new backend's counter and updates KV records to match,
+    /// ensuring the VectorId link between KV and backend is consistent.
+    ///
+    /// Collections on other branches are left untouched.
+    pub fn post_merge_reload_vectors(&self, branch_id: BranchId) -> VectorResult<()> {
+        use strata_core::traits::SnapshotView;
+
+        let state = self.state()?;
+        let factory = self.backend_factory();
+        let snapshot = self.db.storage().create_snapshot();
+
+        // Get all spaces for this branch (SpaceIndex.list always includes "default")
+        let space_index = crate::SpaceIndex::new(self.db.clone());
+        let spaces = space_index
+            .list(branch_id)
+            .map_err(|e| VectorError::Storage(e.to_string()))?;
+
+        let mut total_collections = 0usize;
+        let mut total_vectors = 0usize;
+
+        for space in &spaces {
+            let ns = self.namespace_for(branch_id, space);
+
+            // Scan for vector config entries in this space
+            let config_prefix = Key::new_vector_config_prefix(ns.clone());
+            let config_entries = match snapshot.scan_prefix(&config_prefix) {
+                Ok(entries) => entries,
+                Err(e) => {
+                    tracing::warn!(
+                        target: "strata::vector",
+                        branch_id = %branch_id,
+                        space = %space,
+                        error = %e,
+                        "Failed to scan vector configs during post-merge reload"
+                    );
+                    continue;
+                }
+            };
+
+            for (key, versioned) in &config_entries {
+                // Parse collection config (same pattern as recovery.rs)
+                let config_bytes = match &versioned.value {
+                    Value::Bytes(b) => b,
+                    _ => continue,
+                };
+
+                let record = match CollectionRecord::from_bytes(config_bytes) {
+                    Ok(r) => r,
+                    Err(e) => {
+                        tracing::warn!(
+                            target: "strata::vector",
+                            key = ?key,
+                            error = %e,
+                            "Failed to decode collection record during post-merge reload, skipping"
+                        );
+                        continue;
+                    }
+                };
+
+                let collection_name = match key.user_key_string() {
+                    Some(name) => name,
+                    None => continue,
+                };
+
+                let config: VectorConfig = match record.config.try_into() {
+                    Ok(c) => c,
+                    Err(e) => {
+                        tracing::warn!(
+                            target: "strata::vector",
+                            collection = %collection_name,
+                            error = %e,
+                            "Failed to convert collection config during post-merge reload, skipping"
+                        );
+                        continue;
+                    }
+                };
+
+                let collection_id = CollectionId::new(branch_id, &collection_name);
+
+                // Create fresh backend
+                let mut backend = factory.create(&config);
+
+                // Scan all vector entries in this collection
+                let vector_prefix = Key::new_vector(ns.clone(), &collection_name, "");
+                let vector_entries = match snapshot.scan_prefix(&vector_prefix) {
+                    Ok(entries) => entries,
+                    Err(e) => {
+                        tracing::warn!(
+                            target: "strata::vector",
+                            collection = %collection_name,
+                            error = %e,
+                            "Failed to scan vectors during post-merge reload"
+                        );
+                        continue;
+                    }
+                };
+
+                // Collect vectors that need VectorId remapping, then batch-update KV
+                let mut kv_updates: Vec<(Key, Vec<u8>)> = Vec::new();
+                let mut collection_vector_count = 0usize;
+                let mut kv_remap_failed = false;
+
+                for (vec_key, vec_versioned) in &vector_entries {
+                    let vec_bytes = match &vec_versioned.value {
+                        Value::Bytes(b) => b,
+                        _ => continue,
+                    };
+
+                    let mut vec_record = match VectorRecord::from_bytes(vec_bytes) {
+                        Ok(r) => r,
+                        Err(e) => {
+                            tracing::warn!(
+                                target: "strata::vector",
+                                error = %e,
+                                "Failed to decode vector record during post-merge reload, skipping"
+                            );
+                            continue;
+                        }
+                    };
+
+                    // Allocate a fresh VectorId to avoid collisions between
+                    // independently-created branches that share the same ID space.
+                    let new_vid = backend.allocate_id();
+                    let _ = backend.insert_with_timestamp(
+                        new_vid,
+                        &vec_record.embedding,
+                        vec_record.created_at,
+                    );
+
+                    // If the VectorId changed, queue a KV update so that
+                    // get() can resolve the correct backend entry.
+                    if new_vid.as_u64() != vec_record.vector_id {
+                        vec_record.vector_id = new_vid.as_u64();
+                        match vec_record.to_bytes() {
+                            Ok(updated_bytes) => {
+                                kv_updates.push((vec_key.clone(), updated_bytes));
+                            }
+                            Err(e) => {
+                                tracing::warn!(
+                                    target: "strata::vector",
+                                    error = %e,
+                                    "Failed to serialize remapped VectorRecord, skipping collection"
+                                );
+                                kv_remap_failed = true;
+                                break;
+                            }
+                        }
+                    }
+
+                    collection_vector_count += 1;
+                }
+
+                // If serialization failed mid-way, skip this collection entirely.
+                // The old backend (if any) remains; vectors will be properly loaded
+                // on next full recovery.
+                if kv_remap_failed {
+                    continue;
+                }
+
+                // Batch-write remapped VectorIds back to KV.
+                // CRITICAL: If this fails, do NOT install the backend — the
+                // VectorIds in KV and backend would be mismatched, causing
+                // get() to return wrong embeddings silently.
+                if !kv_updates.is_empty() {
+                    if let Err(e) = self.db.transaction(branch_id, |txn| {
+                        for (k, bytes) in &kv_updates {
+                            txn.put(k.clone(), Value::Bytes(bytes.clone()))?;
+                        }
+                        Ok(())
+                    }) {
+                        tracing::warn!(
+                            target: "strata::vector",
+                            collection = %collection_name,
+                            error = %e,
+                            "Failed to update VectorIds in KV after merge reload, \
+                             skipping collection to prevent data inconsistency"
+                        );
+                        continue;
+                    }
+                }
+
+                // Rebuild index (segments for SegmentedHnsw, graph for HNSW)
+                backend.rebuild_index();
+
+                // Replace existing backend atomically
+                state
+                    .backends
+                    .write()
+                    .insert(collection_id, backend);
+
+                total_collections += 1;
+                total_vectors += collection_vector_count;
+            }
+        }
+
+        if total_collections > 0 {
+            info!(
+                target: "strata::vector",
+                branch_id = %branch_id,
+                total_collections,
+                total_vectors,
+                "Post-merge vector reload complete"
+            );
+        }
+
+        Ok(())
+    }
 }
 
 // ========== Searchable Trait Implementation ==========
@@ -2881,5 +3112,204 @@ mod tests {
         let state = store.backends().unwrap();
         let guard = state.backends.read();
         assert_eq!(guard.len(), 1);
+    }
+
+    // ========================================
+    // Post-Merge Reload Tests (Phase 2)
+    // ========================================
+
+    #[test]
+    fn test_post_merge_reload_from_kv() {
+        let (_temp, _db, store) = setup();
+        let branch_id = BranchId::new();
+
+        let config = VectorConfig::new(3, DistanceMetric::Cosine).unwrap();
+
+        // Create collection and insert vectors via normal API
+        store
+            .create_collection(branch_id, "default", "test", config)
+            .unwrap();
+        store
+            .insert(branch_id, "default", "test", "a", &[1.0, 0.0, 0.0], None)
+            .unwrap();
+        store
+            .insert(branch_id, "default", "test", "b", &[0.0, 1.0, 0.0], None)
+            .unwrap();
+        store
+            .insert(branch_id, "default", "test", "c", &[0.0, 0.0, 1.0], None)
+            .unwrap();
+
+        // Simulate what happens during a merge: wipe backend state,
+        // then call post_merge_reload to rebuild from KV
+        {
+            let state = store.state().unwrap();
+            state.backends.write().clear();
+        }
+
+        // Verify search fails after backend wipe
+        let collection_id = CollectionId::new(branch_id, "test");
+        {
+            let state = store.state().unwrap();
+            assert!(
+                !state.backends.read().contains_key(&collection_id),
+                "Backend should be wiped"
+            );
+        }
+
+        // Reload from KV
+        store.post_merge_reload_vectors(branch_id).unwrap();
+
+        // Verify backends are restored
+        {
+            let state = store.state().unwrap();
+            let backends = state.backends.read();
+            let backend = backends.get(&collection_id).unwrap();
+            assert_eq!(backend.len(), 3, "Should have 3 vectors after reload");
+        }
+
+        // Verify search works correctly
+        let results = store
+            .search(branch_id, "default", "test", &[1.0, 0.0, 0.0], 3, None)
+            .unwrap();
+        assert_eq!(results.len(), 3);
+        assert_eq!(results[0].key, "a"); // exact match
+    }
+
+    #[test]
+    fn test_post_merge_reload_empty_branch() {
+        let (_temp, _db, store) = setup();
+        let branch_id = BranchId::new();
+
+        // Reload on a branch with no vector collections should be a no-op
+        let result = store.post_merge_reload_vectors(branch_id);
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_post_merge_reload_replaces_stale_backend() {
+        let (_temp, _db, store) = setup();
+        let branch_id = BranchId::new();
+
+        let config = VectorConfig::new(3, DistanceMetric::Cosine).unwrap();
+        store
+            .create_collection(branch_id, "default", "test", config)
+            .unwrap();
+
+        // Insert 2 vectors
+        store
+            .insert(branch_id, "default", "test", "a", &[1.0, 0.0, 0.0], None)
+            .unwrap();
+        store
+            .insert(branch_id, "default", "test", "b", &[0.0, 1.0, 0.0], None)
+            .unwrap();
+
+        // Verify 2 vectors in backend
+        let collection_id = CollectionId::new(branch_id, "test");
+        {
+            let state = store.state().unwrap();
+            let backends = state.backends.read();
+            assert_eq!(backends.get(&collection_id).unwrap().len(), 2);
+        }
+
+        // Delete one vector (this updates both KV and backend)
+        store.delete(branch_id, "default", "test", "a").unwrap();
+
+        // Reload should rebuild from KV (which now has only "b")
+        store.post_merge_reload_vectors(branch_id).unwrap();
+
+        // Backend should reflect KV state: only "b"
+        {
+            let state = store.state().unwrap();
+            let backends = state.backends.read();
+            assert_eq!(
+                backends.get(&collection_id).unwrap().len(),
+                1,
+                "Should have 1 vector after reload (deleted vector not in KV)"
+            );
+        }
+
+        // get() must still work for the surviving vector
+        let entry = store
+            .get(branch_id, "default", "test", "b")
+            .unwrap()
+            .expect("b should still exist")
+            .value;
+        assert_eq!(entry.embedding, vec![0.0, 1.0, 0.0]);
+
+        // get() must return None for the deleted vector
+        assert!(store.get(branch_id, "default", "test", "a").unwrap().is_none());
+    }
+
+    #[test]
+    fn test_post_merge_reload_get_returns_correct_embeddings() {
+        // Verifies VectorId remapping correctness: after reload, each
+        // vector key must resolve to its own embedding, not another's.
+        let (_temp, _db, store) = setup();
+        let branch_id = BranchId::new();
+
+        let config = VectorConfig::new(3, DistanceMetric::Cosine).unwrap();
+        store
+            .create_collection(branch_id, "default", "test", config)
+            .unwrap();
+
+        store
+            .insert(
+                branch_id,
+                "default",
+                "test",
+                "x",
+                &[1.0, 0.0, 0.0],
+                Some(serde_json::json!({"label": "x"})),
+            )
+            .unwrap();
+        store
+            .insert(
+                branch_id,
+                "default",
+                "test",
+                "y",
+                &[0.0, 1.0, 0.0],
+                Some(serde_json::json!({"label": "y"})),
+            )
+            .unwrap();
+        store
+            .insert(branch_id, "default", "test", "z", &[0.0, 0.0, 1.0], None)
+            .unwrap();
+
+        // Reload
+        store.post_merge_reload_vectors(branch_id).unwrap();
+
+        // Verify each vector's embedding and metadata are correct
+        let x = store
+            .get(branch_id, "default", "test", "x")
+            .unwrap()
+            .unwrap()
+            .value;
+        assert_eq!(x.embedding, vec![1.0, 0.0, 0.0]);
+        assert_eq!(
+            x.metadata,
+            Some(serde_json::json!({"label": "x"})),
+            "x metadata must survive reload"
+        );
+
+        let y = store
+            .get(branch_id, "default", "test", "y")
+            .unwrap()
+            .unwrap()
+            .value;
+        assert_eq!(y.embedding, vec![0.0, 1.0, 0.0]);
+        assert_eq!(
+            y.metadata,
+            Some(serde_json::json!({"label": "y"})),
+            "y metadata must survive reload"
+        );
+
+        let z = store
+            .get(branch_id, "default", "test", "z")
+            .unwrap()
+            .unwrap()
+            .value;
+        assert_eq!(z.embedding, vec![0.0, 0.0, 1.0]);
+        assert!(z.metadata.is_none());
     }
 }

@@ -126,15 +126,10 @@ impl VectorStore {
             // Determine index type and serialize graph state if HNSW
             let (index_type, hnsw_graph_state) = {
                 let type_name = backend.index_type_name();
-                if type_name == "hnsw" {
-                    // Downcast to HnswBackend to serialize graph state
-                    // Since we can't downcast a dyn trait easily, we serialize via the
-                    // trait method snapshot_state which we already have
-                    // For HNSW, we need the graph state too
-                    // We'll store it in the header
-                    (1u8, Vec::new()) // Graph will be rebuilt on restore
-                } else {
-                    (0u8, Vec::new())
+                match type_name {
+                    "hnsw" => (1u8, Vec::new()),
+                    "segmented_hnsw" => (2u8, Vec::new()),
+                    _ => (0u8, Vec::new()),
                 }
             };
 
@@ -297,10 +292,10 @@ impl VectorStore {
                 .map_err(|e| VectorError::Database(e.to_string()))?;
 
             // Create backend using factory based on snapshot index_type
-            let factory = if header.index_type == 1 {
-                IndexBackendFactory::Hnsw(crate::primitives::vector::hnsw::HnswConfig::default())
-            } else {
-                IndexBackendFactory::default()
+            let factory = match header.index_type {
+                1 => IndexBackendFactory::Hnsw(crate::primitives::vector::hnsw::HnswConfig::default()),
+                2 => IndexBackendFactory::SegmentedHnsw(crate::primitives::vector::segmented::SegmentedHnswConfig::default()),
+                _ => IndexBackendFactory::default(),
             };
             let mut backend = factory.create(&config);
 
