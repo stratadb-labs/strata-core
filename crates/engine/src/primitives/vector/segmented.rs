@@ -82,11 +82,15 @@ impl ActiveBuffer {
         self.timestamps.insert(id, (created_at, None));
     }
 
-    /// Soft-delete a vector in the active buffer
+    /// Soft-delete a vector in the active buffer.
+    ///
+    /// Removes from `ids` so that `len()` only reflects live entries,
+    /// preventing premature seal triggers from deleted vectors.
     fn soft_delete(&mut self, id: VectorId, deleted_at: u64) -> bool {
         if let Some(entry) = self.timestamps.get_mut(&id) {
             if entry.1.is_none() {
                 entry.1 = Some(deleted_at);
+                self.ids.retain(|&i| i != id);
                 return true;
             }
         }
@@ -572,20 +576,25 @@ impl VectorIndexBackend for SegmentedHnswBackend {
         }
         self.pending_timestamps.clear();
 
-        // Sort all active buffer IDs
-        self.active.ids.sort();
-        self.active.ids.dedup();
-
         // Clear any existing sealed segments (recovery rebuilds from scratch)
         self.sealed.clear();
         self.next_segment_id = 0;
 
-        // Chunk active buffer into groups of seal_threshold, seal each
-        if self.active.len() >= self.config.seal_threshold {
-            // We need to seal in chunks — drain all, then re-populate remainder
-            let (all_ids, all_timestamps) = self.active.drain_sorted();
+        // Drain all entries from active buffer
+        let (all_ids, all_timestamps) = self.active.drain_sorted();
 
-            let chunks: Vec<&[VectorId]> = all_ids.chunks(self.config.seal_threshold).collect();
+        // Filter to only IDs that have live embeddings in the global heap.
+        // During recovery, replay_delete removes embeddings from the heap,
+        // so deleted vectors must be excluded before chunking to get accurate
+        // segment sizes.
+        let live_ids: Vec<VectorId> = all_ids
+            .into_iter()
+            .filter(|id| self.heap.contains(*id))
+            .collect();
+
+        if live_ids.len() >= self.config.seal_threshold {
+            let chunks: Vec<&[VectorId]> =
+                live_ids.chunks(self.config.seal_threshold).collect();
             let num_chunks = chunks.len();
 
             for (i, chunk) in chunks.into_iter().enumerate() {
@@ -635,8 +644,14 @@ impl VectorIndexBackend for SegmentedHnswBackend {
                     });
                 }
             }
+        } else {
+            // Below threshold: all live vectors stay in active buffer
+            for &id in &live_ids {
+                let ts = all_timestamps.get(&id).copied().unwrap_or((0, None));
+                self.active.ids.push(id);
+                self.active.timestamps.insert(id, ts);
+            }
         }
-        // else: all vectors stay in active buffer (below threshold)
     }
 
     fn vector_ids(&self) -> Vec<VectorId> {
@@ -722,7 +737,6 @@ mod tests {
 
     #[test]
     fn test_seal_threshold() {
-        // Use threshold of 4 for easy testing
         let mut backend = make_backend_with_threshold(3, DistanceMetric::Cosine, 4);
 
         // Insert 4 vectors — should trigger seal
@@ -754,10 +768,10 @@ mod tests {
     }
 
     #[test]
-    fn test_search_across_segments() {
+    fn test_search_across_segments_verifies_ranking() {
         let mut backend = make_backend_with_threshold(3, DistanceMetric::Cosine, 3);
 
-        // Segment 1
+        // Segment 1: vectors 1-3
         backend
             .insert(VectorId::new(1), &[1.0, 0.0, 0.0])
             .unwrap();
@@ -769,7 +783,7 @@ mod tests {
             .unwrap();
         assert_eq!(backend.sealed.len(), 1);
 
-        // Segment 2
+        // Segment 2: vectors 4-6
         backend
             .insert(VectorId::new(4), &[0.95, 0.05, 0.0])
             .unwrap();
@@ -781,19 +795,32 @@ mod tests {
             .unwrap();
         assert_eq!(backend.sealed.len(), 2);
 
-        // Active buffer
+        // Active buffer: vector 7
         backend
             .insert(VectorId::new(7), &[0.99, 0.01, 0.0])
             .unwrap();
 
-        let results = backend.search(&[1.0, 0.0, 0.0], 3);
-        assert_eq!(results.len(), 3);
-        // Top results should be the most similar to [1,0,0]
-        assert_eq!(results[0].0, VectorId::new(1)); // exact match
+        // Query [1,0,0]: exact match is id=1, closest is id=7 (0.99), then id=4 (0.95)
+        let results = backend.search(&[1.0, 0.0, 0.0], 4);
+        assert_eq!(results.len(), 4);
+        assert_eq!(results[0].0, VectorId::new(1)); // exact match (score ≈ 1.0)
+        assert_eq!(results[1].0, VectorId::new(7)); // 0.99 cosine
+        assert_eq!(results[2].0, VectorId::new(4)); // 0.95 cosine
+        assert_eq!(results[3].0, VectorId::new(2)); // 0.9 cosine
+
+        // Verify scores are descending
+        for i in 0..results.len() - 1 {
+            assert!(
+                results[i].1 >= results[i + 1].1,
+                "Scores not descending: {} >= {}",
+                results[i].1,
+                results[i + 1].1
+            );
+        }
     }
 
     #[test]
-    fn test_update_vector() {
+    fn test_update_vector_in_active_buffer() {
         let mut backend = make_backend(3, DistanceMetric::Cosine);
 
         backend
@@ -807,20 +834,82 @@ mod tests {
 
         assert_eq!(backend.len(), 1);
 
+        // Search should find the UPDATED embedding, not the old one
         let results = backend.search(&[0.0, 1.0, 0.0], 1);
         assert_eq!(results.len(), 1);
         assert_eq!(results[0].0, VectorId::new(1));
-        assert!((results[0].1 - 1.0).abs() < 1e-6);
+        assert!((results[0].1 - 1.0).abs() < 1e-6); // perfect match
+
+        // Old direction should have low similarity
+        let results = backend.search(&[1.0, 0.0, 0.0], 1);
+        assert_eq!(results[0].0, VectorId::new(1));
+        assert!(results[0].1.abs() < 1e-6); // orthogonal now
     }
 
     #[test]
-    fn test_rebuild_index() {
+    fn test_update_vector_across_seal_boundary() {
+        // Critical edge case: vector sealed into segment, then updated
+        let mut backend = make_backend_with_threshold(3, DistanceMetric::Cosine, 3);
+
+        // Insert 3 vectors, triggering seal
+        backend
+            .insert_with_timestamp(VectorId::new(1), &[1.0, 0.0, 0.0], 10)
+            .unwrap();
+        backend
+            .insert_with_timestamp(VectorId::new(2), &[0.0, 1.0, 0.0], 20)
+            .unwrap();
+        backend
+            .insert_with_timestamp(VectorId::new(3), &[0.0, 0.0, 1.0], 30)
+            .unwrap();
+        assert_eq!(backend.sealed.len(), 1);
+        assert!(backend.active.is_empty());
+
+        // Update id=1 which is now in a sealed segment: change from [1,0,0] to [0,0,1]
+        backend
+            .insert_with_timestamp(VectorId::new(1), &[0.0, 0.0, 1.0], 40)
+            .unwrap();
+
+        assert_eq!(backend.len(), 3); // still 3 vectors, one updated
+
+        // Search for [0,0,1]: should find id=1 (updated) and id=3 (original)
+        let results = backend.search(&[0.0, 0.0, 1.0], 3);
+        assert_eq!(results.len(), 3);
+
+        // The top two should be id=1 and id=3 (both have [0,0,1])
+        let top_ids: Vec<VectorId> = results.iter().take(2).map(|r| r.0).collect();
+        assert!(top_ids.contains(&VectorId::new(1)));
+        assert!(top_ids.contains(&VectorId::new(3)));
+        // Both should have score ≈ 1.0
+        assert!((results[0].1 - 1.0).abs() < 1e-6);
+        assert!((results[1].1 - 1.0).abs() < 1e-6);
+
+        // Search for [1,0,0]: no vector matches well anymore
+        // (id=1 was the only [1,0,0] and is now [0,0,1]; all vectors are orthogonal)
+        let results = backend.search(&[1.0, 0.0, 0.0], 1);
+        assert!(results[0].1.abs() < 1e-6, "Expected ~0 score, got {}", results[0].1);
+    }
+
+    #[test]
+    fn test_rebuild_index_verifies_search_quality() {
         let mut backend = make_backend_with_threshold(3, DistanceMetric::Cosine, 4);
 
         // Recovery path: insert_with_id (no graph building)
-        for i in 1..=10 {
+        // Use orthogonal-ish vectors so search ranking is deterministic
+        let vectors: Vec<(u64, [f32; 3])> = vec![
+            (1, [1.0, 0.0, 0.0]),
+            (2, [0.9, 0.1, 0.0]),
+            (3, [0.0, 1.0, 0.0]),
+            (4, [0.0, 0.0, 1.0]),
+            (5, [0.8, 0.2, 0.0]),
+            (6, [0.7, 0.3, 0.0]),
+            (7, [0.1, 0.9, 0.0]),
+            (8, [0.0, 0.1, 0.9]),
+            (9, [0.5, 0.5, 0.0]),
+            (10, [0.95, 0.05, 0.0]),
+        ];
+        for (id, emb) in &vectors {
             backend
-                .insert_with_id(VectorId::new(i), &[i as f32, 0.0, 0.0])
+                .insert_with_id(VectorId::new(*id), emb)
                 .unwrap();
         }
 
@@ -830,13 +919,93 @@ mod tests {
         // Rebuild
         backend.rebuild_index();
 
-        // Should have sealed segments + possibly a remainder in active
+        // Should have sealed segments + remainder in active
         assert_eq!(backend.sealed.len(), 2); // 10 / 4 = 2 full chunks
         assert_eq!(backend.active.len(), 2); // 10 % 4 = 2 remainder
 
-        // Search should still work
-        let results = backend.search(&[10.0, 0.0, 0.0], 3);
+        // Verify search returns the correct top result
+        let results = backend.search(&[1.0, 0.0, 0.0], 3);
         assert_eq!(results.len(), 3);
+        assert_eq!(results[0].0, VectorId::new(1)); // exact match
+        // Second should be id=10 (0.95) or id=2 (0.9)
+        assert!(
+            results[1].0 == VectorId::new(10) || results[1].0 == VectorId::new(2),
+            "Expected id 10 or 2, got {:?}",
+            results[1].0
+        );
+    }
+
+    #[test]
+    fn test_rebuild_index_with_deletions() {
+        // Simulates WAL replay: insert 8 vectors, delete 3, rebuild
+        let mut backend = make_backend_with_threshold(3, DistanceMetric::Cosine, 4);
+
+        for i in 1..=8 {
+            backend
+                .insert_with_id_and_timestamp(
+                    VectorId::new(i),
+                    &[i as f32, 0.0, 0.0],
+                    i * 10,
+                )
+                .unwrap();
+        }
+
+        // Simulate WAL replay deletions
+        backend
+            .delete_with_timestamp(VectorId::new(2), 100)
+            .unwrap();
+        backend
+            .delete_with_timestamp(VectorId::new(5), 100)
+            .unwrap();
+        backend
+            .delete_with_timestamp(VectorId::new(7), 100)
+            .unwrap();
+
+        assert_eq!(backend.len(), 5); // 8 - 3
+
+        // Rebuild
+        backend.rebuild_index();
+
+        // 5 live vectors, threshold=4: should have 1 sealed segment + 1 in active
+        assert_eq!(backend.sealed.len(), 1);
+        assert_eq!(backend.active.len(), 1);
+
+        // Search should find only live vectors
+        let results = backend.search(&[8.0, 0.0, 0.0], 10);
+        assert_eq!(results.len(), 5);
+        let ids: Vec<u64> = results.iter().map(|r| r.0.as_u64()).collect();
+        assert!(!ids.contains(&2));
+        assert!(!ids.contains(&5));
+        assert!(!ids.contains(&7));
+    }
+
+    #[test]
+    fn test_rebuild_index_with_timestamps_preserved() {
+        let mut backend = make_backend_with_threshold(3, DistanceMetric::Cosine, 3);
+
+        // Recovery path with timestamps
+        backend
+            .insert_with_id_and_timestamp(VectorId::new(1), &[1.0, 0.0, 0.0], 100)
+            .unwrap();
+        backend
+            .insert_with_id_and_timestamp(VectorId::new(2), &[0.0, 1.0, 0.0], 200)
+            .unwrap();
+        backend
+            .insert_with_id_and_timestamp(VectorId::new(3), &[0.0, 0.0, 1.0], 300)
+            .unwrap();
+
+        // Rebuild builds HNSW segments with timestamps
+        backend.rebuild_index();
+        assert_eq!(backend.sealed.len(), 1);
+
+        // Temporal search: as of t=150, only vector 1 should be visible
+        let results = backend.search_at(&[1.0, 0.0, 0.0], 10, 150);
+        assert_eq!(results.len(), 1);
+        assert_eq!(results[0].0, VectorId::new(1));
+
+        // As of t=250: vectors 1 and 2
+        let results = backend.search_at(&[1.0, 0.0, 0.0], 10, 250);
+        assert_eq!(results.len(), 2);
     }
 
     #[test]
@@ -929,7 +1098,102 @@ mod tests {
     }
 
     #[test]
-    fn test_temporal_search() {
+    fn test_delete_nonexistent_vector() {
+        let mut backend = make_backend(3, DistanceMetric::Cosine);
+
+        backend
+            .insert(VectorId::new(1), &[1.0, 0.0, 0.0])
+            .unwrap();
+
+        // Delete a vector that doesn't exist
+        let existed = backend.delete(VectorId::new(999)).unwrap();
+        assert!(!existed);
+        assert_eq!(backend.len(), 1);
+
+        // Original vector should still be searchable
+        let results = backend.search(&[1.0, 0.0, 0.0], 1);
+        assert_eq!(results.len(), 1);
+        assert_eq!(results[0].0, VectorId::new(1));
+    }
+
+    #[test]
+    fn test_delete_all_vectors_search_returns_empty() {
+        let mut backend = make_backend_with_threshold(3, DistanceMetric::Cosine, 3);
+
+        // Seal some vectors
+        backend.insert(VectorId::new(1), &[1.0, 0.0, 0.0]).unwrap();
+        backend.insert(VectorId::new(2), &[0.0, 1.0, 0.0]).unwrap();
+        backend.insert(VectorId::new(3), &[0.0, 0.0, 1.0]).unwrap();
+        assert_eq!(backend.sealed.len(), 1);
+
+        // Add one to active buffer
+        backend.insert(VectorId::new(4), &[0.5, 0.5, 0.0]).unwrap();
+
+        // Delete everything
+        backend.delete(VectorId::new(1)).unwrap();
+        backend.delete(VectorId::new(2)).unwrap();
+        backend.delete(VectorId::new(3)).unwrap();
+        backend.delete(VectorId::new(4)).unwrap();
+
+        assert_eq!(backend.len(), 0);
+        let results = backend.search(&[1.0, 0.0, 0.0], 10);
+        assert!(results.is_empty());
+    }
+
+    #[test]
+    fn test_delete_then_reinsert_same_key_different_embedding() {
+        let mut backend = make_backend_with_threshold(3, DistanceMetric::Cosine, 3);
+
+        // Seal a segment containing id=1
+        backend.insert(VectorId::new(1), &[1.0, 0.0, 0.0]).unwrap();
+        backend.insert(VectorId::new(2), &[0.0, 1.0, 0.0]).unwrap();
+        backend.insert(VectorId::new(3), &[0.0, 0.0, 1.0]).unwrap();
+        assert_eq!(backend.sealed.len(), 1);
+
+        // Delete id=1 from the sealed segment
+        backend.delete(VectorId::new(1)).unwrap();
+        assert_eq!(backend.len(), 2);
+
+        // Re-insert id=1 with a completely different embedding
+        // (This goes through insert_with_timestamp with is_update=false since heap.contains is false)
+        backend
+            .insert_with_timestamp(VectorId::new(1), &[0.0, 1.0, 0.0], 50)
+            .unwrap();
+        assert_eq!(backend.len(), 3);
+
+        // Search for [0,1,0]: should find id=1 (reinserted) and id=2
+        let results = backend.search(&[0.0, 1.0, 0.0], 2);
+        assert_eq!(results.len(), 2);
+        let ids: Vec<VectorId> = results.iter().map(|r| r.0).collect();
+        assert!(ids.contains(&VectorId::new(1)));
+        assert!(ids.contains(&VectorId::new(2)));
+        // Both should have high similarity
+        assert!((results[0].1 - 1.0).abs() < 1e-6);
+        assert!((results[1].1 - 1.0).abs() < 1e-6);
+    }
+
+    #[test]
+    fn test_soft_delete_does_not_inflate_active_buffer_len() {
+        let mut backend = make_backend_with_threshold(3, DistanceMetric::Cosine, 4);
+
+        // Insert 3 vectors
+        backend.insert(VectorId::new(1), &[1.0, 0.0, 0.0]).unwrap();
+        backend.insert(VectorId::new(2), &[0.0, 1.0, 0.0]).unwrap();
+        backend.insert(VectorId::new(3), &[0.0, 0.0, 1.0]).unwrap();
+        assert_eq!(backend.active.len(), 3);
+
+        // Delete one: active buffer len should decrease
+        backend.delete(VectorId::new(2)).unwrap();
+        assert_eq!(backend.active.len(), 2); // not 3
+
+        // Insert one more (4th) should NOT trigger seal (threshold=4, len=3)
+        backend.insert(VectorId::new(4), &[0.5, 0.5, 0.0]).unwrap();
+        assert_eq!(backend.active.len(), 3);
+        assert_eq!(backend.sealed.len(), 0); // no premature seal
+    }
+
+    #[test]
+    fn test_temporal_search_in_active_buffer() {
         let mut backend = make_backend(3, DistanceMetric::Cosine);
 
         backend
@@ -951,5 +1215,131 @@ mod tests {
         let results = backend.search_in_range(&[0.0, 1.0, 0.0], 10, 15, 25);
         assert_eq!(results.len(), 1);
         assert_eq!(results[0].0, VectorId::new(2));
+    }
+
+    #[test]
+    fn test_temporal_search_across_sealed_segments() {
+        let mut backend = make_backend_with_threshold(3, DistanceMetric::Cosine, 3);
+
+        // Segment 1: timestamps 10, 20, 30
+        backend
+            .insert_with_timestamp(VectorId::new(1), &[1.0, 0.0, 0.0], 10)
+            .unwrap();
+        backend
+            .insert_with_timestamp(VectorId::new(2), &[0.0, 1.0, 0.0], 20)
+            .unwrap();
+        backend
+            .insert_with_timestamp(VectorId::new(3), &[0.0, 0.0, 1.0], 30)
+            .unwrap();
+        assert_eq!(backend.sealed.len(), 1);
+
+        // Segment 2: timestamps 40, 50, 60
+        backend
+            .insert_with_timestamp(VectorId::new(4), &[0.9, 0.1, 0.0], 40)
+            .unwrap();
+        backend
+            .insert_with_timestamp(VectorId::new(5), &[0.1, 0.9, 0.0], 50)
+            .unwrap();
+        backend
+            .insert_with_timestamp(VectorId::new(6), &[0.5, 0.5, 0.0], 60)
+            .unwrap();
+        assert_eq!(backend.sealed.len(), 2);
+
+        // Active buffer: timestamp 70
+        backend
+            .insert_with_timestamp(VectorId::new(7), &[0.8, 0.2, 0.0], 70)
+            .unwrap();
+
+        // search_at(t=35): should see vectors 1,2,3 (sealed seg 1) but not 4,5,6,7
+        let results = backend.search_at(&[1.0, 0.0, 0.0], 10, 35);
+        assert_eq!(results.len(), 3);
+        let ids: Vec<u64> = results.iter().map(|r| r.0.as_u64()).collect();
+        assert!(ids.contains(&1));
+        assert!(ids.contains(&2));
+        assert!(ids.contains(&3));
+
+        // search_at(t=55): should see vectors 1-5 but not 6,7
+        let results = backend.search_at(&[1.0, 0.0, 0.0], 10, 55);
+        assert_eq!(results.len(), 5);
+
+        // search_in_range(35, 55): should see vectors 4,5 only
+        let results = backend.search_in_range(&[1.0, 0.0, 0.0], 10, 35, 55);
+        assert_eq!(results.len(), 2);
+        let ids: Vec<u64> = results.iter().map(|r| r.0.as_u64()).collect();
+        assert!(ids.contains(&4));
+        assert!(ids.contains(&5));
+    }
+
+    #[test]
+    fn test_deterministic_results() {
+        // Same operations on two backends must produce identical search results
+        let make = || {
+            let mut b = make_backend_with_threshold(3, DistanceMetric::Cosine, 3);
+            b.insert_with_timestamp(VectorId::new(1), &[1.0, 0.0, 0.0], 10)
+                .unwrap();
+            b.insert_with_timestamp(VectorId::new(2), &[0.9, 0.1, 0.0], 20)
+                .unwrap();
+            b.insert_with_timestamp(VectorId::new(3), &[0.0, 1.0, 0.0], 30)
+                .unwrap(); // seals
+            b.insert_with_timestamp(VectorId::new(4), &[0.5, 0.5, 0.0], 40)
+                .unwrap();
+            b.delete_with_timestamp(VectorId::new(2), 50).unwrap();
+            b
+        };
+
+        let b1 = make();
+        let b2 = make();
+
+        let r1 = b1.search(&[1.0, 0.0, 0.0], 10);
+        let r2 = b2.search(&[1.0, 0.0, 0.0], 10);
+
+        assert_eq!(r1.len(), r2.len());
+        for (a, b) in r1.iter().zip(r2.iter()) {
+            assert_eq!(a.0, b.0, "VectorIds differ");
+            assert!(
+                (a.1 - b.1).abs() < 1e-10,
+                "Scores differ: {} vs {}",
+                a.1,
+                b.1
+            );
+        }
+    }
+
+    #[test]
+    fn test_multiple_seals_search_correctness() {
+        let mut backend = make_backend_with_threshold(3, DistanceMetric::Cosine, 2);
+
+        // Create 4 sealed segments (8 vectors / 2 per segment)
+        let embeddings: Vec<[f32; 3]> = vec![
+            [1.0, 0.0, 0.0],
+            [0.9, 0.1, 0.0],
+            [0.0, 1.0, 0.0],
+            [0.0, 0.9, 0.1],
+            [0.0, 0.0, 1.0],
+            [0.1, 0.0, 0.9],
+            [0.5, 0.5, 0.0],
+            [0.3, 0.3, 0.4],
+        ];
+        for (i, emb) in embeddings.iter().enumerate() {
+            backend
+                .insert(VectorId::new((i + 1) as u64), emb)
+                .unwrap();
+        }
+        assert_eq!(backend.sealed.len(), 4);
+        assert!(backend.active.is_empty());
+
+        // Add one to active
+        backend
+            .insert(VectorId::new(9), &[0.95, 0.05, 0.0])
+            .unwrap();
+
+        // Search across all 4 sealed segments + active
+        let results = backend.search(&[1.0, 0.0, 0.0], 3);
+        assert_eq!(results.len(), 3);
+        assert_eq!(results[0].0, VectorId::new(1)); // exact match
+        // id=9 (0.95) and id=2 (0.9) should be in top 3
+        let top3_ids: Vec<u64> = results.iter().map(|r| r.0.as_u64()).collect();
+        assert!(top3_ids.contains(&9));
+        assert!(top3_ids.contains(&2));
     }
 }
