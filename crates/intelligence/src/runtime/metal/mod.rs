@@ -522,7 +522,15 @@ impl ComputeBackend for MetalBackend {
             self.set_u32(enc, k as u32, 4);
             self.set_u32(enc, n as u32, 5);
 
-            self.dispatch_2d(enc, n, m, 16, 16);
+            // simdgroup_matrix: 32x32 tiles, 128 threads (4 simdgroups)
+            let gx = (n + 31) / 32;
+            let gy = (m + 31) / 32;
+            msg_send_dispatch(
+                enc,
+                self.sels.dispatch_threadgroups,
+                gx, gy, 1,
+                128, 1, 1,
+            );
 
             Self::wrap(out_buf, out_bytes, m, n)
         }
@@ -548,7 +556,15 @@ impl ComputeBackend for MetalBackend {
             self.set_u32(enc, k as u32, 4);
             self.set_u32(enc, n as u32, 5);
 
-            self.dispatch_2d(enc, n, m, 16, 16);
+            // simdgroup_matrix: 32x32 tiles, 128 threads (4 simdgroups)
+            let gx = (n + 31) / 32;
+            let gy = (m + 31) / 32;
+            msg_send_dispatch(
+                enc,
+                self.sels.dispatch_threadgroups,
+                gx, gy, 1,
+                128, 1, 1,
+            );
 
             Self::wrap(out_buf, out_bytes, m, n)
         }
@@ -790,13 +806,14 @@ impl ComputeBackend for MetalBackend {
             self.set_u32(enc, seq_len as u32, 3);
             self.set_u32(enc, k as u32, 4);
 
-            let gx = (seq_len + 15) / 16;
-            let gy = (seq_len + 15) / 16;
+            // simdgroup_matrix: 32x32 tiles, 128 threads (4 simdgroups)
+            let gx = (seq_len + 31) / 32;
+            let gy = (seq_len + 31) / 32;
             msg_send_dispatch(
                 enc,
                 self.sels.dispatch_threadgroups,
                 gx, gy, batch_size, // threadgroups
-                16, 16, 1,          // threads per threadgroup
+                128, 1, 1,          // threads per threadgroup
             );
 
             Self::wrap(out_buf, out_bytes, batch_size * seq_len, seq_len)
@@ -824,13 +841,14 @@ impl ComputeBackend for MetalBackend {
             self.set_u32(enc, seq_len as u32, 3);
             self.set_u32(enc, k as u32, 4);
 
-            let gx = (k + 15) / 16;
-            let gy = (seq_len + 15) / 16;
+            // simdgroup_matrix: 32x32 tiles, 128 threads (4 simdgroups)
+            let gx = (k + 31) / 32;
+            let gy = (seq_len + 31) / 32;
             msg_send_dispatch(
                 enc,
                 self.sels.dispatch_threadgroups,
                 gx, gy, batch_size, // threadgroups
-                16, 16, 1,          // threads per threadgroup
+                128, 1, 1,          // threads per threadgroup
             );
 
             Self::wrap(out_buf, out_bytes, batch_size * seq_len, k)
@@ -1298,6 +1316,373 @@ mod tests {
 
         cpu_multi_head_mask(&mut scores_data, &mask_data, batch, seq, heads);
         assert_vecs_close(&gpu_out.data, &scores_data, 1e-6, "multi_head_mask_minilm");
+    }
+
+    // ---------------------------------------------------------------
+    // GEMM CPU reference helpers
+    // ---------------------------------------------------------------
+
+    /// CPU reference matmul: C[M,N] = A[M,K] * B[K,N]
+    fn cpu_matmul(a: &[f32], b: &[f32], m: usize, k: usize, n: usize) -> Vec<f32> {
+        let mut c = vec![0.0f32; m * n];
+        for i in 0..m {
+            for j in 0..n {
+                let mut sum = 0.0f32;
+                for p in 0..k {
+                    sum += a[i * k + p] * b[p * n + j];
+                }
+                c[i * n + j] = sum;
+            }
+        }
+        c
+    }
+
+    /// CPU reference matmul_transpose: C[M,N] = A[M,K] * B^T, B stored as (N,K)
+    fn cpu_matmul_transpose(a: &[f32], b: &[f32], m: usize, k: usize, n: usize) -> Vec<f32> {
+        let mut c = vec![0.0f32; m * n];
+        for i in 0..m {
+            for j in 0..n {
+                let mut sum = 0.0f32;
+                for p in 0..k {
+                    sum += a[i * k + p] * b[j * k + p];
+                }
+                c[i * n + j] = sum;
+            }
+        }
+        c
+    }
+
+    // ---------------------------------------------------------------
+    // GEMM tests
+    // ---------------------------------------------------------------
+
+    #[test]
+    fn test_gemm_basic() {
+        let b = backend();
+        let (m, k, n) = (8, 6, 10);
+        let a_data: Vec<f32> = (0..m * k).map(|i| (i as f32) * 0.1).collect();
+        let b_data: Vec<f32> = (0..k * n).map(|i| (i as f32) * 0.05).collect();
+
+        let a_dt = b.upload(&Tensor::from_slice(&a_data, m, k));
+        let b_dt = b.upload(&Tensor::from_slice(&b_data, k, n));
+        let c_dt = b.matmul(&a_dt, &b_dt);
+        let result = b.download(&c_dt);
+
+        let expected = cpu_matmul(&a_data, &b_data, m, k, n);
+        assert_eq!(result.rows, m);
+        assert_eq!(result.cols, n);
+        assert_vecs_close(&result.data, &expected, 1e-3, "gemm_basic");
+    }
+
+    #[test]
+    fn test_gemm_non_aligned() {
+        // Dimensions not multiples of 32
+        let b = backend();
+        let (m, k, n) = (17, 23, 19);
+        let a_data: Vec<f32> = (0..m * k).map(|i| ((i as f32) * 0.03).sin()).collect();
+        let b_data: Vec<f32> = (0..k * n).map(|i| ((i as f32) * 0.07).cos()).collect();
+
+        let a_dt = b.upload(&Tensor::from_slice(&a_data, m, k));
+        let b_dt = b.upload(&Tensor::from_slice(&b_data, k, n));
+        let c_dt = b.matmul(&a_dt, &b_dt);
+        let result = b.download(&c_dt);
+
+        let expected = cpu_matmul(&a_data, &b_data, m, k, n);
+        assert_vecs_close(&result.data, &expected, 1e-3, "gemm_non_aligned");
+    }
+
+    #[test]
+    fn test_gemm_large() {
+        // Production-like dimensions
+        let b = backend();
+        let (m, k, n) = (512, 384, 384);
+        let a_data: Vec<f32> = (0..m * k).map(|i| ((i as f32) * 0.001).sin()).collect();
+        let b_data: Vec<f32> = (0..k * n).map(|i| ((i as f32) * 0.002).cos()).collect();
+
+        let a_dt = b.upload(&Tensor::from_slice(&a_data, m, k));
+        let b_dt = b.upload(&Tensor::from_slice(&b_data, k, n));
+        let c_dt = b.matmul(&a_dt, &b_dt);
+        let result = b.download(&c_dt);
+
+        let expected = cpu_matmul(&a_data, &b_data, m, k, n);
+        assert_vecs_close(&result.data, &expected, 1e-2, "gemm_large");
+    }
+
+    #[test]
+    fn test_gemm_transpose_basic() {
+        let b = backend();
+        let (m, k, n) = (8, 6, 10);
+        let a_data: Vec<f32> = (0..m * k).map(|i| (i as f32) * 0.1).collect();
+        // B stored as (N, K) for transpose
+        let b_data: Vec<f32> = (0..n * k).map(|i| (i as f32) * 0.05).collect();
+
+        let a_dt = b.upload(&Tensor::from_slice(&a_data, m, k));
+        let b_dt = b.upload(&Tensor::from_slice(&b_data, n, k));
+        let c_dt = b.matmul_transpose(&a_dt, &b_dt);
+        let result = b.download(&c_dt);
+
+        let expected = cpu_matmul_transpose(&a_data, &b_data, m, k, n);
+        assert_eq!(result.rows, m);
+        assert_eq!(result.cols, n);
+        assert_vecs_close(&result.data, &expected, 1e-3, "gemm_transpose_basic");
+    }
+
+    #[test]
+    fn test_gemm_transpose_non_aligned() {
+        let b = backend();
+        let (m, k, n) = (17, 23, 19);
+        let a_data: Vec<f32> = (0..m * k).map(|i| ((i as f32) * 0.03).sin()).collect();
+        let b_data: Vec<f32> = (0..n * k).map(|i| ((i as f32) * 0.07).cos()).collect();
+
+        let a_dt = b.upload(&Tensor::from_slice(&a_data, m, k));
+        let b_dt = b.upload(&Tensor::from_slice(&b_data, n, k));
+        let c_dt = b.matmul_transpose(&a_dt, &b_dt);
+        let result = b.download(&c_dt);
+
+        let expected = cpu_matmul_transpose(&a_data, &b_data, m, k, n);
+        assert_vecs_close(&result.data, &expected, 1e-3, "gemm_transpose_non_aligned");
+    }
+
+    #[test]
+    fn test_batched_gemm_transpose() {
+        let b = backend();
+        let (batch, s, k) = (12, 64, 32);
+        // A: (batch*S, K), B: (batch*S, K), C: (batch*S, S)
+        let a_data: Vec<f32> = (0..batch * s * k).map(|i| ((i as f32) * 0.001).sin()).collect();
+        let b_data: Vec<f32> = (0..batch * s * k).map(|i| ((i as f32) * 0.002).cos()).collect();
+
+        let a_dt = b.upload(&Tensor::from_slice(&a_data, batch * s, k));
+        let b_dt = b.upload(&Tensor::from_slice(&b_data, batch * s, k));
+        let c_dt = b.batched_matmul_transpose(&a_dt, &b_dt, batch, s);
+        let result = b.download(&c_dt);
+
+        // CPU reference: per-batch C[b] = A[b] * B[b]^T
+        let mut expected = vec![0.0f32; batch * s * s];
+        for bi in 0..batch {
+            let a_off = bi * s * k;
+            let b_off = bi * s * k;
+            let c_off = bi * s * s;
+            for i in 0..s {
+                for j in 0..s {
+                    let mut sum = 0.0f32;
+                    for p in 0..k {
+                        sum += a_data[a_off + i * k + p] * b_data[b_off + j * k + p];
+                    }
+                    expected[c_off + i * s + j] = sum;
+                }
+            }
+        }
+
+        assert_eq!(result.rows, batch * s);
+        assert_eq!(result.cols, s);
+        assert_vecs_close(&result.data, &expected, 1e-2, "batched_gemm_transpose");
+    }
+
+    #[test]
+    fn test_batched_gemm() {
+        let b = backend();
+        let (batch, s, k) = (12, 64, 32);
+        // A: (batch*S, S), B: (batch*S, K), C: (batch*S, K)
+        let a_data: Vec<f32> = (0..batch * s * s).map(|i| ((i as f32) * 0.001).sin()).collect();
+        let b_data: Vec<f32> = (0..batch * s * k).map(|i| ((i as f32) * 0.002).cos()).collect();
+
+        let a_dt = b.upload(&Tensor::from_slice(&a_data, batch * s, s));
+        let b_dt = b.upload(&Tensor::from_slice(&b_data, batch * s, k));
+        let c_dt = b.batched_matmul(&a_dt, &b_dt, batch, s);
+        let result = b.download(&c_dt);
+
+        // CPU reference: per-batch C[b] = A[b] * B[b]
+        let mut expected = vec![0.0f32; batch * s * k];
+        for bi in 0..batch {
+            let a_off = bi * s * s;
+            let b_off = bi * s * k;
+            let c_off = bi * s * k;
+            for i in 0..s {
+                for j in 0..k {
+                    let mut sum = 0.0f32;
+                    for p in 0..s {
+                        sum += a_data[a_off + i * s + p] * b_data[b_off + p * k + j];
+                    }
+                    expected[c_off + i * k + j] = sum;
+                }
+            }
+        }
+
+        assert_eq!(result.rows, batch * s);
+        assert_eq!(result.cols, k);
+        assert_vecs_close(&result.data, &expected, 1e-2, "batched_gemm");
+    }
+
+    #[test]
+    fn test_gemm_single_row() {
+        // Edge case: M=1
+        let b = backend();
+        let (m, k, n) = (1, 32, 16);
+        let a_data: Vec<f32> = (0..m * k).map(|i| (i as f32) * 0.1).collect();
+        let b_data: Vec<f32> = (0..k * n).map(|i| (i as f32) * 0.05).collect();
+
+        let a_dt = b.upload(&Tensor::from_slice(&a_data, m, k));
+        let b_dt = b.upload(&Tensor::from_slice(&b_data, k, n));
+        let c_dt = b.matmul(&a_dt, &b_dt);
+        let result = b.download(&c_dt);
+
+        let expected = cpu_matmul(&a_data, &b_data, m, k, n);
+        assert_eq!(result.rows, 1);
+        assert_eq!(result.cols, n);
+        assert_vecs_close(&result.data, &expected, 1e-3, "gemm_single_row");
+    }
+
+    #[test]
+    fn test_gemm_mixed_tiles() {
+        // 48x37 x 37x50: threadgroup grid is 2x2.
+        // tgid(0,0): tile covers rows 0-31, cols 0-31 — fully in-bounds (fast path)
+        // tgid(1,0): tile covers rows 0-31, cols 32-63 — cols exceed N=50, edge path
+        // tgid(0,1): tile covers rows 32-63, exceeds M=48, edge path
+        // tgid(1,1): edge path on both dims
+        // This exercises both fast and edge paths in the same dispatch.
+        let b = backend();
+        let (m, k, n) = (48, 37, 50);
+        let a_data: Vec<f32> = (0..m * k).map(|i| ((i as f32) * 0.02).sin()).collect();
+        let b_data: Vec<f32> = (0..k * n).map(|i| ((i as f32) * 0.03).cos()).collect();
+
+        let a_dt = b.upload(&Tensor::from_slice(&a_data, m, k));
+        let b_dt = b.upload(&Tensor::from_slice(&b_data, k, n));
+        let c_dt = b.matmul(&a_dt, &b_dt);
+        let result = b.download(&c_dt);
+
+        let expected = cpu_matmul(&a_data, &b_data, m, k, n);
+        assert_eq!(result.rows, m);
+        assert_eq!(result.cols, n);
+        assert_vecs_close(&result.data, &expected, 1e-3, "gemm_mixed_tiles");
+    }
+
+    #[test]
+    fn test_gemm_single_col() {
+        // Edge case: N=1 (matrix-vector multiply)
+        let b = backend();
+        let (m, k, n) = (16, 32, 1);
+        let a_data: Vec<f32> = (0..m * k).map(|i| (i as f32) * 0.1).collect();
+        let b_data: Vec<f32> = (0..k * n).map(|i| (i as f32) * 0.05).collect();
+
+        let a_dt = b.upload(&Tensor::from_slice(&a_data, m, k));
+        let b_dt = b.upload(&Tensor::from_slice(&b_data, k, n));
+        let c_dt = b.matmul(&a_dt, &b_dt);
+        let result = b.download(&c_dt);
+
+        let expected = cpu_matmul(&a_data, &b_data, m, k, n);
+        assert_eq!(result.rows, m);
+        assert_eq!(result.cols, 1);
+        assert_vecs_close(&result.data, &expected, 1e-3, "gemm_single_col");
+    }
+
+    #[test]
+    fn test_gemm_tiny_k() {
+        // Edge case: K=1 (outer product) — well below the 8-wide simdgroup block
+        let b = backend();
+        let (m, k, n) = (10, 1, 12);
+        let a_data: Vec<f32> = (0..m).map(|i| (i as f32) + 1.0).collect();
+        let b_data: Vec<f32> = (0..n).map(|i| (i as f32) * 0.5).collect();
+
+        let a_dt = b.upload(&Tensor::from_slice(&a_data, m, k));
+        let b_dt = b.upload(&Tensor::from_slice(&b_data, k, n));
+        let c_dt = b.matmul(&a_dt, &b_dt);
+        let result = b.download(&c_dt);
+
+        let expected = cpu_matmul(&a_data, &b_data, m, k, n);
+        assert_eq!(result.rows, m);
+        assert_eq!(result.cols, n);
+        // Verify specific values: C[i,j] = a[i] * b[j]
+        assert!((result.data[0] - 1.0 * 0.0).abs() < 1e-5, "C[0,0] = 1*0 = 0");
+        assert!((result.data[1] - 1.0 * 0.5).abs() < 1e-5, "C[0,1] = 1*0.5 = 0.5");
+        assert!((result.data[n] - 2.0 * 0.0).abs() < 1e-5, "C[1,0] = 2*0 = 0");
+        assert_vecs_close(&result.data, &expected, 1e-5, "gemm_tiny_k");
+    }
+
+    #[test]
+    fn test_gemm_transpose_mixed_tiles() {
+        // Same mixed-tile pattern for transpose variant
+        let b = backend();
+        let (m, k, n) = (48, 37, 50);
+        let a_data: Vec<f32> = (0..m * k).map(|i| ((i as f32) * 0.02).sin()).collect();
+        let b_data: Vec<f32> = (0..n * k).map(|i| ((i as f32) * 0.03).cos()).collect();
+
+        let a_dt = b.upload(&Tensor::from_slice(&a_data, m, k));
+        let b_dt = b.upload(&Tensor::from_slice(&b_data, n, k));
+        let c_dt = b.matmul_transpose(&a_dt, &b_dt);
+        let result = b.download(&c_dt);
+
+        let expected = cpu_matmul_transpose(&a_data, &b_data, m, k, n);
+        assert_eq!(result.rows, m);
+        assert_eq!(result.cols, n);
+        assert_vecs_close(&result.data, &expected, 1e-3, "gemm_transpose_mixed_tiles");
+    }
+
+    #[test]
+    fn test_batched_gemm_transpose_non_aligned() {
+        // S=50 and K=25 are not multiples of 32 — exercises edge tiles in batched path
+        let b = backend();
+        let (batch, s, k) = (3, 50, 25);
+        let a_data: Vec<f32> = (0..batch * s * k).map(|i| ((i as f32) * 0.003).sin()).collect();
+        let b_data: Vec<f32> = (0..batch * s * k).map(|i| ((i as f32) * 0.004).cos()).collect();
+
+        let a_dt = b.upload(&Tensor::from_slice(&a_data, batch * s, k));
+        let b_dt = b.upload(&Tensor::from_slice(&b_data, batch * s, k));
+        let c_dt = b.batched_matmul_transpose(&a_dt, &b_dt, batch, s);
+        let result = b.download(&c_dt);
+
+        let mut expected = vec![0.0f32; batch * s * s];
+        for bi in 0..batch {
+            let a_off = bi * s * k;
+            let b_off = bi * s * k;
+            let c_off = bi * s * s;
+            for i in 0..s {
+                for j in 0..s {
+                    let mut sum = 0.0f32;
+                    for p in 0..k {
+                        sum += a_data[a_off + i * k + p] * b_data[b_off + j * k + p];
+                    }
+                    expected[c_off + i * s + j] = sum;
+                }
+            }
+        }
+
+        assert_eq!(result.rows, batch * s);
+        assert_eq!(result.cols, s);
+        assert_vecs_close(&result.data, &expected, 1e-2, "batched_gemm_transpose_non_aligned");
+    }
+
+    #[test]
+    fn test_batched_gemm_non_aligned() {
+        // S=50 and K=25 are not multiples of 32
+        let b = backend();
+        let (batch, s, k) = (3, 50, 25);
+        let a_data: Vec<f32> = (0..batch * s * s).map(|i| ((i as f32) * 0.0003).sin()).collect();
+        let b_data: Vec<f32> = (0..batch * s * k).map(|i| ((i as f32) * 0.004).cos()).collect();
+
+        let a_dt = b.upload(&Tensor::from_slice(&a_data, batch * s, s));
+        let b_dt = b.upload(&Tensor::from_slice(&b_data, batch * s, k));
+        let c_dt = b.batched_matmul(&a_dt, &b_dt, batch, s);
+        let result = b.download(&c_dt);
+
+        let mut expected = vec![0.0f32; batch * s * k];
+        for bi in 0..batch {
+            let a_off = bi * s * s;
+            let b_off = bi * s * k;
+            let c_off = bi * s * k;
+            for i in 0..s {
+                for j in 0..k {
+                    let mut sum = 0.0f32;
+                    for p in 0..s {
+                        sum += a_data[a_off + i * s + p] * b_data[b_off + p * k + j];
+                    }
+                    expected[c_off + i * k + j] = sum;
+                }
+            }
+        }
+
+        assert_eq!(result.rows, batch * s);
+        assert_eq!(result.cols, k);
+        assert_vecs_close(&result.data, &expected, 1e-2, "batched_gemm_non_aligned");
     }
 
     // ---------------------------------------------------------------
