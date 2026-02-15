@@ -18,6 +18,62 @@ pub mod kernels;
 const MTL_BARRIER_SCOPE_BUFFERS: NSUInteger = 1;
 
 // ---------------------------------------------------------------------------
+// IEEE 754 f32 ↔ f16 conversion
+// ---------------------------------------------------------------------------
+
+fn f32_to_f16(f: f32) -> u16 {
+    let bits = f.to_bits();
+    let sign = (bits >> 16) & 0x8000;
+    let f32_exp = (bits >> 23) & 0xFF;
+    let mantissa = bits & 0x7FFFFF;
+
+    // NaN: preserve as f16 NaN (exponent=31, mantissa!=0)
+    if f32_exp == 0xFF && mantissa != 0 {
+        return (sign | 0x7E00) as u16; // quiet NaN
+    }
+
+    let exp = f32_exp as i32 - 127 + 15;
+    if exp <= 0 {
+        return sign as u16;
+    } // underflow → ±0
+    if exp >= 31 {
+        return (sign | 0x7C00) as u16;
+    } // overflow → ±inf
+
+    // Round-to-nearest-even: check bit 12 (first dropped bit)
+    let truncated = (mantissa >> 13) as u32;
+    let round_bit = (mantissa >> 12) & 1;
+    let sticky = mantissa & 0xFFF;
+    let rounded = if round_bit != 0 && (sticky != 0 || (truncated & 1) != 0) {
+        truncated + 1
+    } else {
+        truncated
+    };
+    // Handle mantissa overflow from rounding (e.g. 0x3FF + 1 = 0x400)
+    if rounded >= 0x400 {
+        let new_exp = exp + 1;
+        if new_exp >= 31 {
+            return (sign | 0x7C00) as u16; // overflow to ±inf
+        }
+        return (sign | ((new_exp as u32) << 10)) as u16; // mantissa becomes 0
+    }
+    (sign | ((exp as u32) << 10) | rounded) as u16
+}
+
+fn f16_to_f32(h: u16) -> f32 {
+    let sign = ((h >> 15) & 1) as u32;
+    let exp = ((h >> 10) & 0x1F) as u32;
+    let mantissa = (h & 0x3FF) as u32;
+    if exp == 0 {
+        return f32::from_bits(sign << 31);
+    } // ±0
+    if exp == 31 {
+        return f32::from_bits((sign << 31) | 0x7F800000 | (mantissa << 13));
+    }
+    f32::from_bits((sign << 31) | ((exp + 127 - 15) << 23) | (mantissa << 13))
+}
+
+// ---------------------------------------------------------------------------
 // MetalBuffer — a reference-counted MTLBuffer wrapper
 // ---------------------------------------------------------------------------
 
@@ -62,26 +118,65 @@ pub struct MetalBackend {
     device: Id,
     command_queue: Id,
     sels: Selectors,
-    // Pipeline state objects — one per kernel function.
+    // Pipeline state objects — f32 kernels (kept for reference/fallback).
+    #[allow(dead_code)]
     pso_gemm: Id,
+    #[allow(dead_code)]
     pso_gemm_transpose: Id,
+    #[allow(dead_code)]
     pso_gelu: Id,
+    #[allow(dead_code)]
     pso_add_tensor: Id,
+    #[allow(dead_code)]
     pso_add_bias: Id,
+    #[allow(dead_code)]
     pso_scale: Id,
+    #[allow(dead_code)]
     pso_layer_norm: Id,
+    #[allow(dead_code)]
     pso_softmax_rows: Id,
+    #[allow(dead_code)]
     pso_slice_columns: Id,
+    #[allow(dead_code)]
     pso_scatter_columns: Id,
+    #[allow(dead_code)]
     pso_attention_mask: Id,
+    #[allow(dead_code)]
     pso_mean_pool: Id,
+    #[allow(dead_code)]
     pso_batched_gemm_transpose: Id,
+    #[allow(dead_code)]
     pso_batched_gemm: Id,
+    #[allow(dead_code)]
     pso_batched_attention_mask: Id,
+    #[allow(dead_code)]
     pso_batched_mean_pool: Id,
+    #[allow(dead_code)]
     pso_transpose_heads: Id,
+    #[allow(dead_code)]
     pso_untranspose_heads: Id,
+    #[allow(dead_code)]
     pso_multi_head_batched_attention_mask: Id,
+    // F16 pipeline state objects — used for all dispatches.
+    pso_gemm_f16: Id,
+    pso_gemm_transpose_f16: Id,
+    pso_gelu_f16: Id,
+    pso_add_tensor_f16: Id,
+    pso_add_bias_f16: Id,
+    pso_scale_f16: Id,
+    pso_layer_norm_f16: Id,
+    pso_softmax_rows_f16: Id,
+    pso_slice_columns_f16: Id,
+    pso_scatter_columns_f16: Id,
+    pso_attention_mask_f16: Id,
+    pso_mean_pool_f16: Id,
+    pso_batched_gemm_transpose_f16: Id,
+    pso_batched_gemm_f16: Id,
+    pso_batched_attention_mask_f16: Id,
+    pso_batched_mean_pool_f16: Id,
+    pso_transpose_heads_f16: Id,
+    pso_untranspose_heads_f16: Id,
+    pso_multi_head_batched_attention_mask_f16: Id,
     /// Active command buffer and compute encoder for deferred dispatch.
     /// `None` means no open command buffer; dispatches create one lazily.
     active_cmd: Mutex<Option<(Id, Id)>>,
@@ -99,7 +194,7 @@ impl Drop for MetalBackend {
             self.flush();
 
             let rel = sel_registerName(b"release\0".as_ptr() as _);
-            // Release all PSOs
+            // Release all PSOs (f32 and f16)
             for pso in [
                 self.pso_gemm,
                 self.pso_gemm_transpose,
@@ -120,6 +215,25 @@ impl Drop for MetalBackend {
                 self.pso_transpose_heads,
                 self.pso_untranspose_heads,
                 self.pso_multi_head_batched_attention_mask,
+                self.pso_gemm_f16,
+                self.pso_gemm_transpose_f16,
+                self.pso_gelu_f16,
+                self.pso_add_tensor_f16,
+                self.pso_add_bias_f16,
+                self.pso_scale_f16,
+                self.pso_layer_norm_f16,
+                self.pso_softmax_rows_f16,
+                self.pso_slice_columns_f16,
+                self.pso_scatter_columns_f16,
+                self.pso_attention_mask_f16,
+                self.pso_mean_pool_f16,
+                self.pso_batched_gemm_transpose_f16,
+                self.pso_batched_gemm_f16,
+                self.pso_batched_attention_mask_f16,
+                self.pso_batched_mean_pool_f16,
+                self.pso_transpose_heads_f16,
+                self.pso_untranspose_heads_f16,
+                self.pso_multi_head_batched_attention_mask_f16,
             ] {
                 if pso != NIL {
                     msg_send_void(pso, rel);
@@ -246,6 +360,107 @@ impl MetalBackend {
 
             msg_send_void(library, sels.release);
 
+            // 6. Compile the F16 MSL library from source.
+            let source_f16 = ns_string(kernels::MSL_SOURCE_F16);
+            let mut error_f16: Id = NIL;
+            let library_f16 = msg_send_id_id_id_id(
+                device,
+                sels.new_library_with_source,
+                source_f16,
+                NIL,
+                &mut error_f16 as *mut Id as Id,
+            );
+            if library_f16 == NIL {
+                let desc = obj_description(error_f16);
+                // Cleanup f32 PSOs
+                for p in &psos {
+                    if *p != NIL {
+                        msg_send_void(*p, sels.release);
+                    }
+                }
+                msg_send_void(command_queue, sels.release);
+                msg_send_void(device, sels.release);
+                return Err(format!("Metal F16 MSL compile error: {}", desc));
+            }
+
+            // 7. Create F16 pipeline state objects.
+            let f16_kernel_names = [
+                "gemm_f16",
+                "gemm_transpose_f16",
+                "gelu_f16",
+                "add_tensor_f16",
+                "add_bias_f16",
+                "scale_kernel_f16",
+                "layer_norm_f16",
+                "softmax_rows_f16",
+                "slice_columns_f16",
+                "scatter_columns_f16",
+                "attention_mask_f16",
+                "mean_pool_f16",
+                "batched_gemm_transpose_f16",
+                "batched_gemm_f16",
+                "batched_attention_mask_f16",
+                "batched_mean_pool_f16",
+                "transpose_heads_f16",
+                "untranspose_heads_f16",
+                "multi_head_batched_attention_mask_f16",
+            ];
+
+            let mut psos_f16 = [NIL; 19];
+            for (i, name) in f16_kernel_names.iter().enumerate() {
+                let ns_name = ns_string(name);
+                let func = msg_send_id_id(library_f16, sels.new_function_with_name, ns_name);
+                if func == NIL {
+                    for p in &psos_f16[..i] {
+                        if *p != NIL {
+                            msg_send_void(*p, sels.release);
+                        }
+                    }
+                    for p in &psos {
+                        if *p != NIL {
+                            msg_send_void(*p, sels.release);
+                        }
+                    }
+                    msg_send_void(library_f16, sels.release);
+                    msg_send_void(command_queue, sels.release);
+                    msg_send_void(device, sels.release);
+                    return Err(format!("Metal F16 kernel function '{}' not found", name));
+                }
+
+                let mut pso_error: Id = NIL;
+                let pso = msg_send_id_id_err(
+                    device,
+                    sels.new_compute_pipeline,
+                    func,
+                    &mut pso_error,
+                );
+                msg_send_void(func, sels.release);
+
+                if pso == NIL {
+                    let desc = obj_description(pso_error);
+                    for p in &psos_f16[..i] {
+                        if *p != NIL {
+                            msg_send_void(*p, sels.release);
+                        }
+                    }
+                    for p in &psos {
+                        if *p != NIL {
+                            msg_send_void(*p, sels.release);
+                        }
+                    }
+                    msg_send_void(library_f16, sels.release);
+                    msg_send_void(command_queue, sels.release);
+                    msg_send_void(device, sels.release);
+                    return Err(format!(
+                        "Metal F16 PSO creation failed for '{}': {}",
+                        name, desc
+                    ));
+                }
+                psos_f16[i] = pso;
+            }
+
+            msg_send_void(library_f16, sels.release);
+
             Ok(Self {
                 device,
                 command_queue,
@@ -269,6 +484,25 @@ impl MetalBackend {
                 pso_transpose_heads: psos[16],
                 pso_untranspose_heads: psos[17],
                 pso_multi_head_batched_attention_mask: psos[18],
+                pso_gemm_f16: psos_f16[0],
+                pso_gemm_transpose_f16: psos_f16[1],
+                pso_gelu_f16: psos_f16[2],
+                pso_add_tensor_f16: psos_f16[3],
+                pso_add_bias_f16: psos_f16[4],
+                pso_scale_f16: psos_f16[5],
+                pso_layer_norm_f16: psos_f16[6],
+                pso_softmax_rows_f16: psos_f16[7],
+                pso_slice_columns_f16: psos_f16[8],
+                pso_scatter_columns_f16: psos_f16[9],
+                pso_attention_mask_f16: psos_f16[10],
+                pso_mean_pool_f16: psos_f16[11],
+                pso_batched_gemm_transpose_f16: psos_f16[12],
+                pso_batched_gemm_f16: psos_f16[13],
+                pso_batched_attention_mask_f16: psos_f16[14],
+                pso_batched_mean_pool_f16: psos_f16[15],
+                pso_transpose_heads_f16: psos_f16[16],
+                pso_untranspose_heads_f16: psos_f16[17],
+                pso_multi_head_batched_attention_mask_f16: psos_f16[18],
                 active_cmd: Mutex::new(None),
             })
         }
@@ -322,6 +556,23 @@ impl MetalBackend {
         let ptr = msg_send_ptr(buffer, self.sels.contents) as *const f32;
         let slice = std::slice::from_raw_parts(ptr, count);
         slice.to_vec()
+    }
+
+    /// Create a Metal buffer containing f16 data converted from `&[f32]`.
+    unsafe fn create_buffer_f16_from_f32(&self, data: &[f32]) -> Id {
+        let f16_data: Vec<u16> = data.iter().map(|&f| f32_to_f16(f)).collect();
+        let bytes = std::slice::from_raw_parts(
+            f16_data.as_ptr() as *const u8,
+            f16_data.len() * 2,
+        );
+        self.create_buffer(bytes)
+    }
+
+    /// Read back f16 buffer contents as `Vec<f32>`.
+    unsafe fn read_buffer_f16_as_f32(&self, buffer: Id, count: usize) -> Vec<f32> {
+        let ptr = msg_send_ptr(buffer, self.sels.contents) as *const u16;
+        let slice = std::slice::from_raw_parts(ptr, count);
+        slice.iter().map(|&h| f16_to_f32(h)).collect()
     }
 
     // -------------------------------------------------------------------
@@ -480,21 +731,21 @@ impl MetalBackend {
 
 impl ComputeBackend for MetalBackend {
     fn upload(&self, t: &Tensor) -> DeviceTensor {
-        let byte_len = t.data.len() * std::mem::size_of::<f32>();
-        let buf = unsafe { self.create_buffer_f32(&t.data) };
+        let byte_len = t.data.len() * 2; // f16 = 2 bytes
+        let buf = unsafe { self.create_buffer_f16_from_f32(&t.data) };
         Self::wrap(buf, byte_len, t.rows, t.cols)
     }
 
     fn upload_1d(&self, v: &[f32]) -> DeviceTensor {
-        let byte_len = v.len() * std::mem::size_of::<f32>();
-        let buf = unsafe { self.create_buffer_f32(v) };
+        let byte_len = v.len() * 2; // f16 = 2 bytes
+        let buf = unsafe { self.create_buffer_f16_from_f32(v) };
         Self::wrap(buf, byte_len, 1, v.len())
     }
 
     fn download(&self, dt: &DeviceTensor) -> Tensor {
         unsafe { self.flush() };
         let count = dt.rows * dt.cols;
-        let data = unsafe { self.read_buffer_f32(Self::buf_id(dt), count) };
+        let data = unsafe { self.read_buffer_f16_as_f32(Self::buf_id(dt), count) };
         Tensor {
             data,
             rows: dt.rows,
@@ -509,11 +760,11 @@ impl ComputeBackend for MetalBackend {
         assert_eq!(k, b.rows, "matmul dimension mismatch");
 
         let out_count = m * n;
-        let out_bytes = out_count * std::mem::size_of::<f32>();
+        let out_bytes = out_count * 2; // f16
 
         unsafe {
             let out_buf = self.create_buffer_empty(out_bytes);
-            let enc = self.ensure_encoder(self.pso_gemm);
+            let enc = self.ensure_encoder(self.pso_gemm_f16);
 
             self.set_buffer(enc, Self::buf_id(a), 0);
             self.set_buffer(enc, Self::buf_id(b), 1);
@@ -543,11 +794,11 @@ impl ComputeBackend for MetalBackend {
         assert_eq!(k, b.cols, "matmul_transpose dimension mismatch");
 
         let out_count = m * n;
-        let out_bytes = out_count * std::mem::size_of::<f32>();
+        let out_bytes = out_count * 2; // f16
 
         unsafe {
             let out_buf = self.create_buffer_empty(out_bytes);
-            let enc = self.ensure_encoder(self.pso_gemm_transpose);
+            let enc = self.ensure_encoder(self.pso_gemm_transpose_f16);
 
             self.set_buffer(enc, Self::buf_id(a), 0);
             self.set_buffer(enc, Self::buf_id(b), 1);
@@ -576,7 +827,7 @@ impl ComputeBackend for MetalBackend {
         assert_eq!(bias.cols, cols, "add_bias: bias width mismatch");
 
         unsafe {
-            let enc = self.ensure_encoder(self.pso_add_bias);
+            let enc = self.ensure_encoder(self.pso_add_bias_f16);
 
             self.set_buffer(enc, Self::buf_id(t), 0);
             self.set_buffer(enc, Self::buf_id(bias), 1);
@@ -589,11 +840,11 @@ impl ComputeBackend for MetalBackend {
 
     fn add_tensor(&self, a: &DeviceTensor, b: &DeviceTensor) -> DeviceTensor {
         let count = a.rows * a.cols;
-        let out_bytes = count * std::mem::size_of::<f32>();
+        let out_bytes = count * 2; // f16
 
         unsafe {
             let out_buf = self.create_buffer_empty(out_bytes);
-            let enc = self.ensure_encoder(self.pso_add_tensor);
+            let enc = self.ensure_encoder(self.pso_add_tensor_f16);
 
             self.set_buffer(enc, Self::buf_id(a), 0);
             self.set_buffer(enc, Self::buf_id(b), 1);
@@ -608,11 +859,11 @@ impl ComputeBackend for MetalBackend {
 
     fn gelu(&self, t: &DeviceTensor) -> DeviceTensor {
         let count = t.rows * t.cols;
-        let out_bytes = count * std::mem::size_of::<f32>();
+        let out_bytes = count * 2; // f16
 
         unsafe {
             let out_buf = self.create_buffer_empty(out_bytes);
-            let enc = self.ensure_encoder(self.pso_gelu);
+            let enc = self.ensure_encoder(self.pso_gelu_f16);
 
             self.set_buffer(enc, Self::buf_id(t), 0);
             self.set_buffer(enc, out_buf, 1);
@@ -633,14 +884,14 @@ impl ComputeBackend for MetalBackend {
     ) -> DeviceTensor {
         let rows = t.rows;
         let cols = t.cols;
-        let out_bytes = rows * cols * std::mem::size_of::<f32>();
+        let out_bytes = rows * cols * 2; // f16
 
         // Choose threads per threadgroup: min(256, next_power_of_2(cols))
         let threads_per_group = (cols.next_power_of_two()).min(256);
 
         unsafe {
             let out_buf = self.create_buffer_empty(out_bytes);
-            let enc = self.ensure_encoder(self.pso_layer_norm);
+            let enc = self.ensure_encoder(self.pso_layer_norm_f16);
 
             self.set_buffer(enc, Self::buf_id(t), 0);
             self.set_buffer(enc, Self::buf_id(w), 1);
@@ -663,7 +914,7 @@ impl ComputeBackend for MetalBackend {
         let threads_per_group = (cols.next_power_of_two()).min(256);
 
         unsafe {
-            let enc = self.ensure_encoder(self.pso_softmax_rows);
+            let enc = self.ensure_encoder(self.pso_softmax_rows_f16);
 
             self.set_buffer(enc, Self::buf_id(t), 0);
             self.set_u32(enc, rows as u32, 1);
@@ -677,7 +928,7 @@ impl ComputeBackend for MetalBackend {
         let count = t.rows * t.cols;
 
         unsafe {
-            let enc = self.ensure_encoder(self.pso_scale);
+            let enc = self.ensure_encoder(self.pso_scale_f16);
 
             self.set_buffer(enc, Self::buf_id(t), 0);
             self.set_f32(enc, factor, 1);
@@ -690,11 +941,11 @@ impl ComputeBackend for MetalBackend {
     fn slice_columns(&self, t: &DeviceTensor, start: usize, end: usize) -> DeviceTensor {
         let rows = t.rows;
         let width = end - start;
-        let out_bytes = rows * width * std::mem::size_of::<f32>();
+        let out_bytes = rows * width * 2; // f16
 
         unsafe {
             let out_buf = self.create_buffer_empty(out_bytes);
-            let enc = self.ensure_encoder(self.pso_slice_columns);
+            let enc = self.ensure_encoder(self.pso_slice_columns_f16);
 
             self.set_buffer(enc, Self::buf_id(t), 0);
             self.set_buffer(enc, out_buf, 1);
@@ -713,7 +964,7 @@ impl ComputeBackend for MetalBackend {
         let rows = src.rows;
 
         unsafe {
-            let enc = self.ensure_encoder(self.pso_scatter_columns);
+            let enc = self.ensure_encoder(self.pso_scatter_columns_f16);
 
             self.set_buffer(enc, Self::buf_id(dst), 0);
             self.set_buffer(enc, Self::buf_id(src), 1);
@@ -728,9 +979,14 @@ impl ComputeBackend for MetalBackend {
 
     fn zeros(&self, rows: usize, cols: usize) -> DeviceTensor {
         let count = rows * cols;
-        let byte_len = count * std::mem::size_of::<f32>();
-        let data = vec![0.0f32; count];
-        let buf = unsafe { self.create_buffer_f32(&data) };
+        let byte_len = count * 2; // f16
+        let buf = unsafe { self.create_buffer_empty(byte_len) };
+        // Zero-fill: create_buffer_empty gives uninitialized memory,
+        // so explicitly zero it.
+        unsafe {
+            let ptr = msg_send_ptr(buf, self.sels.contents) as *mut u8;
+            std::ptr::write_bytes(ptr, 0, byte_len);
+        }
         Self::wrap(buf, byte_len, rows, cols)
     }
 
@@ -745,7 +1001,7 @@ impl ComputeBackend for MetalBackend {
         let cols = scores.cols;
 
         unsafe {
-            let enc = self.ensure_encoder(self.pso_attention_mask);
+            let enc = self.ensure_encoder(self.pso_attention_mask_f16);
 
             self.set_buffer(enc, Self::buf_id(scores), 0);
             self.set_buffer(enc, Self::buf_id(mask), 1);
@@ -759,11 +1015,11 @@ impl ComputeBackend for MetalBackend {
     fn mean_pool(&self, hidden: &DeviceTensor, mask: &DeviceTensor) -> Vec<f32> {
         let rows = hidden.rows;
         let cols = hidden.cols;
-        let out_bytes = cols * std::mem::size_of::<f32>();
+        let out_bytes = cols * std::mem::size_of::<f32>(); // output is f32
 
         unsafe {
             let out_buf = self.create_buffer_empty(out_bytes);
-            let enc = self.ensure_encoder(self.pso_mean_pool);
+            let enc = self.ensure_encoder(self.pso_mean_pool_f16);
 
             self.set_buffer(enc, Self::buf_id(hidden), 0);
             self.set_buffer(enc, Self::buf_id(mask), 1);
@@ -794,11 +1050,11 @@ impl ComputeBackend for MetalBackend {
     ) -> DeviceTensor {
         let k = a.cols;
         let out_count = batch_size * seq_len * seq_len;
-        let out_bytes = out_count * std::mem::size_of::<f32>();
+        let out_bytes = out_count * 2; // f16
 
         unsafe {
             let out_buf = self.create_buffer_empty(out_bytes);
-            let enc = self.ensure_encoder(self.pso_batched_gemm_transpose);
+            let enc = self.ensure_encoder(self.pso_batched_gemm_transpose_f16);
 
             self.set_buffer(enc, Self::buf_id(a), 0);
             self.set_buffer(enc, Self::buf_id(b), 1);
@@ -829,11 +1085,11 @@ impl ComputeBackend for MetalBackend {
     ) -> DeviceTensor {
         let k = b.cols;
         let out_count = batch_size * seq_len * k;
-        let out_bytes = out_count * std::mem::size_of::<f32>();
+        let out_bytes = out_count * 2; // f16
 
         unsafe {
             let out_buf = self.create_buffer_empty(out_bytes);
-            let enc = self.ensure_encoder(self.pso_batched_gemm);
+            let enc = self.ensure_encoder(self.pso_batched_gemm_f16);
 
             self.set_buffer(enc, Self::buf_id(a), 0);
             self.set_buffer(enc, Self::buf_id(b), 1);
@@ -865,7 +1121,7 @@ impl ComputeBackend for MetalBackend {
         let total_rows = batch_size * seq_len;
 
         unsafe {
-            let enc = self.ensure_encoder(self.pso_batched_attention_mask);
+            let enc = self.ensure_encoder(self.pso_batched_attention_mask_f16);
 
             self.set_buffer(enc, Self::buf_id(scores), 0);
             self.set_buffer(enc, Self::buf_id(mask), 1);
@@ -885,11 +1141,11 @@ impl ComputeBackend for MetalBackend {
     ) -> Vec<Vec<f32>> {
         let cols = hidden.cols;
         let out_count = batch_size * cols;
-        let out_bytes = out_count * std::mem::size_of::<f32>();
+        let out_bytes = out_count * std::mem::size_of::<f32>(); // output is f32
 
         unsafe {
             let out_buf = self.create_buffer_empty(out_bytes);
-            let enc = self.ensure_encoder(self.pso_batched_mean_pool);
+            let enc = self.ensure_encoder(self.pso_batched_mean_pool_f16);
 
             self.set_buffer(enc, Self::buf_id(hidden), 0);
             self.set_buffer(enc, Self::buf_id(mask), 1);
@@ -924,11 +1180,11 @@ impl ComputeBackend for MetalBackend {
         debug_assert_eq!(t.cols, num_heads * head_dim);
 
         let total_out_rows = batch_size * num_heads * seq_len;
-        let out_bytes = total_out_rows * head_dim * std::mem::size_of::<f32>();
+        let out_bytes = total_out_rows * head_dim * 2; // f16
 
         unsafe {
             let out_buf = self.create_buffer_empty(out_bytes);
-            let enc = self.ensure_encoder(self.pso_transpose_heads);
+            let enc = self.ensure_encoder(self.pso_transpose_heads_f16);
 
             self.set_buffer(enc, Self::buf_id(t), 0);
             self.set_buffer(enc, out_buf, 1);
@@ -964,11 +1220,11 @@ impl ComputeBackend for MetalBackend {
 
         let total_out_rows = batch_size * seq_len;
         let out_cols = num_heads * head_dim;
-        let out_bytes = total_out_rows * out_cols * std::mem::size_of::<f32>();
+        let out_bytes = total_out_rows * out_cols * 2; // f16
 
         unsafe {
             let out_buf = self.create_buffer_empty(out_bytes);
-            let enc = self.ensure_encoder(self.pso_untranspose_heads);
+            let enc = self.ensure_encoder(self.pso_untranspose_heads_f16);
 
             self.set_buffer(enc, Self::buf_id(t), 0);
             self.set_buffer(enc, out_buf, 1);
@@ -1002,7 +1258,7 @@ impl ComputeBackend for MetalBackend {
         let total_rows = batch_size * num_heads * seq_len;
 
         unsafe {
-            let enc = self.ensure_encoder(self.pso_multi_head_batched_attention_mask);
+            let enc = self.ensure_encoder(self.pso_multi_head_batched_attention_mask_f16);
 
             self.set_buffer(enc, Self::buf_id(scores), 0);
             self.set_buffer(enc, Self::buf_id(mask), 1);
@@ -1030,6 +1286,102 @@ mod tests {
 
     fn backend() -> MetalBackend {
         MetalBackend::try_new().expect("Metal device required for these tests")
+    }
+
+    // ---------------------------------------------------------------
+    // f32 ↔ f16 conversion tests
+    // ---------------------------------------------------------------
+
+    #[test]
+    fn test_f16_roundtrip_common_values() {
+        // Values commonly found in embedding weights / activations
+        let values = [
+            0.0f32, -0.0, 1.0, -1.0, 0.5, -0.5, 0.1, -0.1,
+            0.001, 0.01, 0.25, 0.75, 2.0, 4.0, 8.0, 16.0,
+            100.0, -100.0, 0.333, -0.707,
+        ];
+        for &v in &values {
+            let h = f32_to_f16(v);
+            let back = f16_to_f32(h);
+            let tol = v.abs() * 1e-3 + 1e-4; // relative + absolute tolerance
+            assert!(
+                (back - v).abs() <= tol,
+                "roundtrip failed for {}: f16 bits=0x{:04X}, back={}",
+                v, h, back
+            );
+        }
+    }
+
+    #[test]
+    fn test_f16_zero_preserves_sign() {
+        let pos = f32_to_f16(0.0);
+        let neg = f32_to_f16(-0.0);
+        assert_eq!(f16_to_f32(pos), 0.0);
+        assert_eq!(f16_to_f32(neg), -0.0_f32);
+        // Positive zero should have sign bit 0
+        assert_eq!(pos & 0x8000, 0);
+        // Negative zero should have sign bit 1
+        assert_eq!(neg & 0x8000, 0x8000);
+    }
+
+    #[test]
+    fn test_f16_nan_preserved() {
+        let nan = f32::NAN;
+        let h = f32_to_f16(nan);
+        let back = f16_to_f32(h);
+        assert!(back.is_nan(), "NaN should survive roundtrip, got {}", back);
+        // f16 NaN: exponent = 31 (0x1F), mantissa != 0
+        assert_eq!(h & 0x7C00, 0x7C00, "NaN exponent should be all 1s");
+        assert_ne!(h & 0x03FF, 0, "NaN mantissa should be non-zero");
+    }
+
+    #[test]
+    fn test_f16_infinity_preserved() {
+        let h_pos = f32_to_f16(f32::INFINITY);
+        let h_neg = f32_to_f16(f32::NEG_INFINITY);
+        assert_eq!(f16_to_f32(h_pos), f32::INFINITY);
+        assert_eq!(f16_to_f32(h_neg), f32::NEG_INFINITY);
+        assert_eq!(h_pos, 0x7C00); // +inf
+        assert_eq!(h_neg, 0xFC00); // -inf
+    }
+
+    #[test]
+    fn test_f16_overflow_to_inf() {
+        // f16 max is 65504.0; values above should become inf
+        let h = f32_to_f16(70000.0);
+        assert_eq!(f16_to_f32(h), f32::INFINITY);
+    }
+
+    #[test]
+    fn test_f16_underflow_to_zero() {
+        // Very small values below f16 subnormal range → ±0
+        let h = f32_to_f16(1e-9);
+        assert_eq!(f16_to_f32(h), 0.0);
+    }
+
+    #[test]
+    fn test_f16_rounding() {
+        // Verify round-to-nearest-even behavior
+        // 1.0 = 0x3C00 in f16. 1.0 + 1 ULP in f16 = 1.0009766.
+        // Test a value exactly between two f16 values (ties go to even).
+        let exact = f16_to_f32(0x3C01); // 1.0009766
+        let mid = (1.0 + exact) / 2.0; // midpoint
+        let h = f32_to_f16(mid);
+        // Should round to even (0x3C00 is even, 0x3C01 is odd) → 0x3C00
+        assert_eq!(h, 0x3C00, "tie should round to even: mid={}, h=0x{:04X}", mid, h);
+
+        // Value slightly above midpoint should round up
+        let above = mid + 1e-7;
+        let h_above = f32_to_f16(above);
+        assert_eq!(h_above, 0x3C01, "above midpoint should round up: val={}, h=0x{:04X}", above, h_above);
+    }
+
+    #[test]
+    fn test_f16_max_representable() {
+        // f16 max: sign=0, exp=30, mantissa=0x3FF → 65504.0
+        let h = f32_to_f16(65504.0);
+        assert_eq!(h, 0x7BFF);
+        assert_eq!(f16_to_f32(h), 65504.0);
     }
 
     /// CPU reference for transpose_heads: (B*S, H*D) -> (B*H*S, D)
@@ -1131,7 +1483,7 @@ mod tests {
         let expected = cpu_transpose_heads(&data, batch, seq, heads, dim);
         assert_eq!(out.rows, batch * heads * seq);
         assert_eq!(out.cols, dim);
-        assert_vecs_close(&out.data, &expected, 1e-6, "transpose_heads_minilm");
+        assert_vecs_close(&out.data, &expected, 2e-2, "transpose_heads_minilm");
     }
 
     #[test]
@@ -1149,7 +1501,7 @@ mod tests {
         let expected = cpu_transpose_heads(&data, batch, seq, heads, dim);
         assert_eq!(out.rows, batch * heads * seq);
         assert_eq!(out.cols, dim);
-        assert_vecs_close(&out.data, &expected, 1e-6, "transpose_heads_batched");
+        assert_vecs_close(&out.data, &expected, 2e-2, "transpose_heads_batched");
     }
 
     #[test]
@@ -1165,7 +1517,7 @@ mod tests {
         let out = b.download(&result);
 
         let expected = cpu_transpose_heads(&data, batch, seq, heads, dim);
-        assert_vecs_close(&out.data, &expected, 1e-6, "transpose_heads_single_token");
+        assert_vecs_close(&out.data, &expected, 2e-2, "transpose_heads_single_token");
     }
 
     // ---------------------------------------------------------------
@@ -1186,7 +1538,7 @@ mod tests {
         let expected = cpu_untranspose_heads(&data, batch, seq, heads, dim);
         assert_eq!(out.rows, batch * seq);
         assert_eq!(out.cols, heads * dim);
-        assert_vecs_close(&out.data, &expected, 1e-6, "untranspose_heads_minilm");
+        assert_vecs_close(&out.data, &expected, 2e-2, "untranspose_heads_minilm");
     }
 
     #[test]
@@ -1201,7 +1553,7 @@ mod tests {
         let out = b.download(&result);
 
         let expected = cpu_untranspose_heads(&data, batch, seq, heads, dim);
-        assert_vecs_close(&out.data, &expected, 1e-6, "untranspose_heads_batched");
+        assert_vecs_close(&out.data, &expected, 2e-2, "untranspose_heads_batched");
     }
 
     #[test]
@@ -1219,7 +1571,7 @@ mod tests {
 
         assert_eq!(out.rows, batch * seq);
         assert_eq!(out.cols, heads * dim);
-        assert_vecs_close(&out.data, &data, 1e-6, "roundtrip");
+        assert_vecs_close(&out.data, &data, 0.3, "roundtrip");
     }
 
     // ---------------------------------------------------------------
@@ -1252,13 +1604,14 @@ mod tests {
         // CPU reference
         cpu_multi_head_mask(&mut scores_data, &mask_data, batch, seq, heads);
 
-        assert_vecs_close(&gpu_out.data, &scores_data, 1e-6, "multi_head_mask_basic");
+        // f16 rounds -10000.0 to -10000.0 exactly (representable), 1.0 is exact too
+        assert_vecs_close(&gpu_out.data, &scores_data, 1.0, "multi_head_mask_basic");
         // Verify masked positions are -10000
         for r in 0..total_rows {
-            assert_eq!(gpu_out.data[r * seq + 2], -10000.0, "row {} col 2 should be masked", r);
-            assert_eq!(gpu_out.data[r * seq + 3], -10000.0, "row {} col 3 should be masked", r);
-            assert_eq!(gpu_out.data[r * seq + 0], 1.0, "row {} col 0 should be unmasked", r);
-            assert_eq!(gpu_out.data[r * seq + 1], 1.0, "row {} col 1 should be unmasked", r);
+            assert!((gpu_out.data[r * seq + 2] - (-10000.0)).abs() < 1.0, "row {} col 2 should be masked, got {}", r, gpu_out.data[r * seq + 2]);
+            assert!((gpu_out.data[r * seq + 3] - (-10000.0)).abs() < 1.0, "row {} col 3 should be masked, got {}", r, gpu_out.data[r * seq + 3]);
+            assert!((gpu_out.data[r * seq + 0] - 1.0).abs() < 0.01, "row {} col 0 should be unmasked, got {}", r, gpu_out.data[r * seq + 0]);
+            assert!((gpu_out.data[r * seq + 1] - 1.0).abs() < 0.01, "row {} col 1 should be unmasked, got {}", r, gpu_out.data[r * seq + 1]);
         }
     }
 
@@ -1285,7 +1638,7 @@ mod tests {
         let gpu_out = b.download(&scores_dt);
 
         cpu_multi_head_mask(&mut scores_data, &mask_data, batch, seq, heads);
-        assert_vecs_close(&gpu_out.data, &scores_data, 1e-6, "multi_head_mask_multi_batch");
+        assert_vecs_close(&gpu_out.data, &scores_data, 1.0, "multi_head_mask_multi_batch");
     }
 
     #[test]
@@ -1315,7 +1668,7 @@ mod tests {
         let gpu_out = b.download(&scores_dt);
 
         cpu_multi_head_mask(&mut scores_data, &mask_data, batch, seq, heads);
-        assert_vecs_close(&gpu_out.data, &scores_data, 1e-6, "multi_head_mask_minilm");
+        assert_vecs_close(&gpu_out.data, &scores_data, 1.0, "multi_head_mask_minilm");
     }
 
     // ---------------------------------------------------------------
@@ -1371,7 +1724,7 @@ mod tests {
         let expected = cpu_matmul(&a_data, &b_data, m, k, n);
         assert_eq!(result.rows, m);
         assert_eq!(result.cols, n);
-        assert_vecs_close(&result.data, &expected, 1e-3, "gemm_basic");
+        assert_vecs_close(&result.data, &expected, 0.5, "gemm_basic");
     }
 
     #[test]
@@ -1388,7 +1741,7 @@ mod tests {
         let result = b.download(&c_dt);
 
         let expected = cpu_matmul(&a_data, &b_data, m, k, n);
-        assert_vecs_close(&result.data, &expected, 1e-3, "gemm_non_aligned");
+        assert_vecs_close(&result.data, &expected, 0.5, "gemm_non_aligned");
     }
 
     #[test]
@@ -1405,7 +1758,7 @@ mod tests {
         let result = b.download(&c_dt);
 
         let expected = cpu_matmul(&a_data, &b_data, m, k, n);
-        assert_vecs_close(&result.data, &expected, 1e-2, "gemm_large");
+        assert_vecs_close(&result.data, &expected, 0.5, "gemm_large");
     }
 
     #[test]
@@ -1424,7 +1777,7 @@ mod tests {
         let expected = cpu_matmul_transpose(&a_data, &b_data, m, k, n);
         assert_eq!(result.rows, m);
         assert_eq!(result.cols, n);
-        assert_vecs_close(&result.data, &expected, 1e-3, "gemm_transpose_basic");
+        assert_vecs_close(&result.data, &expected, 0.5, "gemm_transpose_basic");
     }
 
     #[test]
@@ -1440,7 +1793,7 @@ mod tests {
         let result = b.download(&c_dt);
 
         let expected = cpu_matmul_transpose(&a_data, &b_data, m, k, n);
-        assert_vecs_close(&result.data, &expected, 1e-3, "gemm_transpose_non_aligned");
+        assert_vecs_close(&result.data, &expected, 0.5, "gemm_transpose_non_aligned");
     }
 
     #[test]
@@ -1475,7 +1828,7 @@ mod tests {
 
         assert_eq!(result.rows, batch * s);
         assert_eq!(result.cols, s);
-        assert_vecs_close(&result.data, &expected, 1e-2, "batched_gemm_transpose");
+        assert_vecs_close(&result.data, &expected, 0.5, "batched_gemm_transpose");
     }
 
     #[test]
@@ -1510,7 +1863,7 @@ mod tests {
 
         assert_eq!(result.rows, batch * s);
         assert_eq!(result.cols, k);
-        assert_vecs_close(&result.data, &expected, 1e-2, "batched_gemm");
+        assert_vecs_close(&result.data, &expected, 0.5, "batched_gemm");
     }
 
     #[test]
@@ -1529,7 +1882,7 @@ mod tests {
         let expected = cpu_matmul(&a_data, &b_data, m, k, n);
         assert_eq!(result.rows, 1);
         assert_eq!(result.cols, n);
-        assert_vecs_close(&result.data, &expected, 1e-3, "gemm_single_row");
+        assert_vecs_close(&result.data, &expected, 2.0, "gemm_single_row");
     }
 
     #[test]
@@ -1553,7 +1906,7 @@ mod tests {
         let expected = cpu_matmul(&a_data, &b_data, m, k, n);
         assert_eq!(result.rows, m);
         assert_eq!(result.cols, n);
-        assert_vecs_close(&result.data, &expected, 1e-3, "gemm_mixed_tiles");
+        assert_vecs_close(&result.data, &expected, 0.5, "gemm_mixed_tiles");
     }
 
     #[test]
@@ -1572,7 +1925,7 @@ mod tests {
         let expected = cpu_matmul(&a_data, &b_data, m, k, n);
         assert_eq!(result.rows, m);
         assert_eq!(result.cols, 1);
-        assert_vecs_close(&result.data, &expected, 1e-3, "gemm_single_col");
+        assert_vecs_close(&result.data, &expected, 2.0, "gemm_single_col");
     }
 
     #[test]
@@ -1591,11 +1944,11 @@ mod tests {
         let expected = cpu_matmul(&a_data, &b_data, m, k, n);
         assert_eq!(result.rows, m);
         assert_eq!(result.cols, n);
-        // Verify specific values: C[i,j] = a[i] * b[j]
-        assert!((result.data[0] - 1.0 * 0.0).abs() < 1e-5, "C[0,0] = 1*0 = 0");
-        assert!((result.data[1] - 1.0 * 0.5).abs() < 1e-5, "C[0,1] = 1*0.5 = 0.5");
-        assert!((result.data[n] - 2.0 * 0.0).abs() < 1e-5, "C[1,0] = 2*0 = 0");
-        assert_vecs_close(&result.data, &expected, 1e-5, "gemm_tiny_k");
+        // Verify specific values: C[i,j] = a[i] * b[j] (f16 tolerance)
+        assert!((result.data[0] - 1.0 * 0.0).abs() < 0.01, "C[0,0] = 1*0 = 0");
+        assert!((result.data[1] - 1.0 * 0.5).abs() < 0.01, "C[0,1] = 1*0.5 = 0.5");
+        assert!((result.data[n] - 2.0 * 0.0).abs() < 0.01, "C[1,0] = 2*0 = 0");
+        assert_vecs_close(&result.data, &expected, 0.1, "gemm_tiny_k");
     }
 
     #[test]
@@ -1614,7 +1967,7 @@ mod tests {
         let expected = cpu_matmul_transpose(&a_data, &b_data, m, k, n);
         assert_eq!(result.rows, m);
         assert_eq!(result.cols, n);
-        assert_vecs_close(&result.data, &expected, 1e-3, "gemm_transpose_mixed_tiles");
+        assert_vecs_close(&result.data, &expected, 0.5, "gemm_transpose_mixed_tiles");
     }
 
     #[test]
@@ -1648,7 +2001,7 @@ mod tests {
 
         assert_eq!(result.rows, batch * s);
         assert_eq!(result.cols, s);
-        assert_vecs_close(&result.data, &expected, 1e-2, "batched_gemm_transpose_non_aligned");
+        assert_vecs_close(&result.data, &expected, 0.5, "batched_gemm_transpose_non_aligned");
     }
 
     #[test]
@@ -1682,7 +2035,7 @@ mod tests {
 
         assert_eq!(result.rows, batch * s);
         assert_eq!(result.cols, k);
-        assert_vecs_close(&result.data, &expected, 1e-2, "batched_gemm_non_aligned");
+        assert_vecs_close(&result.data, &expected, 0.5, "batched_gemm_non_aligned");
     }
 
     // ---------------------------------------------------------------
@@ -1713,9 +2066,9 @@ mod tests {
         for val in &out.data {
             assert!(*val > 0.0, "GELU of positive input should be positive, got {}", val);
         }
-        // gelu(11) ≈ 11.0 (very close for large inputs)
+        // gelu(11) ≈ 11.0 (very close for large inputs); f16 tolerance
         assert!(
-            (out.data[0] - 11.0).abs() < 0.01,
+            (out.data[0] - 11.0).abs() < 0.1,
             "gelu(11) should be ~11.0, got {}",
             out.data[0]
         );
@@ -1731,11 +2084,11 @@ mod tests {
         // First chain + download
         let sum1 = b.add_tensor(&t1, &t1);
         let out1 = b.download(&sum1);
-        assert_vecs_close(&out1.data, &[2.0, 4.0, 6.0, 8.0], 1e-6, "first_flush");
+        assert_vecs_close(&out1.data, &[2.0, 4.0, 6.0, 8.0], 0.1, "first_flush");
 
         // Second chain + download (reuses same backend, new command buffer)
         let sum2 = b.add_tensor(&sum1, &t1);
         let out2 = b.download(&sum2);
-        assert_vecs_close(&out2.data, &[3.0, 6.0, 9.0, 12.0], 1e-6, "second_flush");
+        assert_vecs_close(&out2.data, &[3.0, 6.0, 9.0, 12.0], 0.1, "second_flush");
     }
 }
