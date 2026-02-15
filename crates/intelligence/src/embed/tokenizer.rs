@@ -106,6 +106,33 @@ impl WordPieceTokenizer {
         }
     }
 
+    /// Pack pre-tokenized inputs into a batch, padding to the longest sequence.
+    /// Avoids re-tokenization when individual tokenized results are already available.
+    pub fn pack_batch(tokenized: &[&TokenizedInput]) -> BatchTokenizedInput {
+        let batch_size = tokenized.len();
+        let max_seq_len = tokenized.iter().map(|t| t.input_ids.len()).max().unwrap_or(2);
+
+        let mut input_ids = vec![0u32; batch_size * max_seq_len];
+        let mut attention_mask = vec![0u32; batch_size * max_seq_len];
+        let mut token_type_ids = vec![0u32; batch_size * max_seq_len];
+
+        for (i, t) in tokenized.iter().enumerate() {
+            let off = i * max_seq_len;
+            let len = t.input_ids.len();
+            input_ids[off..off + len].copy_from_slice(&t.input_ids);
+            attention_mask[off..off + len].copy_from_slice(&t.attention_mask);
+            token_type_ids[off..off + len].copy_from_slice(&t.token_type_ids);
+        }
+
+        BatchTokenizedInput {
+            input_ids,
+            attention_mask,
+            token_type_ids,
+            batch_size,
+            max_seq_len,
+        }
+    }
+
     fn wordpiece_tokenize(&self, word: &str, tokens: &mut Vec<u32>) {
         if word.is_empty() {
             return;

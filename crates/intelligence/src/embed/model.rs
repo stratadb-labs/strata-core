@@ -252,37 +252,134 @@ impl EmbedModel {
         results
     }
 
-    /// Core batched forward pass — all texts processed as one padded batch.
+    /// Batched forward pass with sub-batching by token length.
+    ///
+    /// Tokenizes all texts once upfront, re-sorts by token length, then splits
+    /// into sub-batches at power-of-2 boundaries (32, 64, 128, 256). Each
+    /// sub-batch is padded only to its own max length, avoiding O(S²) attention
+    /// waste from one long text forcing padding on many short texts.
+    ///
+    /// CPU/GPU pipelining: while the GPU processes sub-batch N, the CPU
+    /// prepares (packs + gathers embeddings) for sub-batch N+1, overlapping
+    /// CPU and GPU work.
     fn embed_batch_inner(&self, texts: &[&str]) -> Vec<Vec<f32>> {
-        let input = self.tokenizer.tokenize_batch(texts);
-        let bs = input.batch_size;
-        let sl = input.max_seq_len;
+        const MAX_SUB_BATCH: usize = 128;
 
-        // 1. Gather embeddings on CPU into (B*S, 384) tensor
-        let hidden_cpu = self.gather_embeddings_batch(&input);
+        // Tokenize all texts once (reused for both length sorting AND GPU forward pass)
+        let tokenized: Vec<TokenizedInput> = texts
+            .iter()
+            .map(|t| self.tokenizer.tokenize(t))
+            .collect();
+        let token_lengths: Vec<usize> = tokenized.iter().map(|t| t.input_ids.len()).collect();
 
-        // 2. Upload to device (mask uploaded once, reused across all layers + pool)
-        let hidden = self.backend.upload(&hidden_cpu);
-        let mask = self.backend.upload_mask(&input.attention_mask);
+        // Re-sort by token length (char-length sort from caller is approximate)
+        let mut order: Vec<usize> = (0..texts.len()).collect();
+        order.sort_by_key(|&i| token_lengths[i]);
+        let sorted_tokenized: Vec<&TokenizedInput> = order.iter().map(|&i| &tokenized[i]).collect();
+        let sorted_lengths: Vec<usize> = order.iter().map(|&i| token_lengths[i]).collect();
 
-        // 3. Embedding layer norm
-        let mut hidden = self.backend.layer_norm(
-            &hidden,
-            &self.embed_ln_weight,
-            &self.embed_ln_bias,
-            LAYER_NORM_EPS,
-        );
+        // Token length bucket boundaries (powers of 2)
+        let buckets: &[usize] = &[32, 64, 128, 256];
 
-        // 4. Transformer layers
-        for layer in &self.layers {
-            hidden = self.transformer_layer_batched(layer, &hidden, &mask, bs, sl);
+        // Collect all sub-batch ranges
+        let mut sub_batch_ranges: Vec<(usize, usize)> = Vec::new();
+        let mut start = 0;
+
+        for &bucket_max in buckets {
+            if start >= texts.len() {
+                break;
+            }
+            let end = sorted_lengths[start..]
+                .iter()
+                .position(|&len| len > bucket_max)
+                .map(|pos| start + pos)
+                .unwrap_or(texts.len());
+
+            if start == end {
+                continue;
+            }
+
+            for chunk_start in (start..end).step_by(MAX_SUB_BATCH) {
+                let chunk_end = (chunk_start + MAX_SUB_BATCH).min(end);
+                sub_batch_ranges.push((chunk_start, chunk_end));
+            }
+            start = end;
         }
 
-        // 5. Batched mean pool
-        let pooled = self.backend.batched_mean_pool(&hidden, &mask, bs, sl);
+        // Handle any texts longer than the largest bucket
+        if start < texts.len() {
+            for chunk_start in (start..texts.len()).step_by(MAX_SUB_BATCH) {
+                let chunk_end = (chunk_start + MAX_SUB_BATCH).min(texts.len());
+                sub_batch_ranges.push((chunk_start, chunk_end));
+            }
+        }
 
-        // 6. L2 normalize each vector
-        pooled.into_iter().map(|v| l2_normalize(&v)).collect()
+        let mut sorted_results = vec![Vec::new(); texts.len()];
+
+        if sub_batch_ranges.is_empty() {
+            let mut results = vec![Vec::new(); texts.len()];
+            for (sorted_idx, &orig_idx) in order.iter().enumerate() {
+                results[orig_idx] = std::mem::take(&mut sorted_results[sorted_idx]);
+            }
+            return results;
+        }
+
+        // Pipeline: prepare first sub-batch on CPU, then overlap CPU prep
+        // of sub-batch N+1 with GPU execution of sub-batch N.
+        let (first_start, first_end) = sub_batch_ranges[0];
+        let mut next_prepared = Some(self.prepare_sub_batch(&sorted_tokenized[first_start..first_end]));
+
+        for (range_idx, &(chunk_start, _chunk_end)) in sub_batch_ranges.iter().enumerate() {
+            // Take the previously prepared CPU data
+            let (input, hidden_cpu) = next_prepared.take().unwrap();
+            let bs = input.batch_size;
+            let sl = input.max_seq_len;
+
+            // GPU work: upload + forward pass
+            let hidden = self.backend.upload(&hidden_cpu);
+            let mask = self.backend.upload_mask(&input.attention_mask);
+            let mut hidden = self.backend.layer_norm(
+                &hidden,
+                &self.embed_ln_weight,
+                &self.embed_ln_bias,
+                LAYER_NORM_EPS,
+            );
+            for layer in &self.layers {
+                hidden = self.transformer_layer_batched(layer, &hidden, &mask, bs, sl);
+            }
+
+            // While GPU finishes (pool calls flush/waitUntilCompleted),
+            // prepare next sub-batch on CPU if there is one.
+            // NOTE: We must prepare before pool because pool blocks on GPU completion.
+            if range_idx + 1 < sub_batch_ranges.len() {
+                let (next_start, next_end) = sub_batch_ranges[range_idx + 1];
+                next_prepared = Some(self.prepare_sub_batch(&sorted_tokenized[next_start..next_end]));
+            }
+
+            // Collect GPU results (this flushes/waits)
+            let pooled = self.backend.batched_mean_pool(&hidden, &mask, bs, sl);
+            let sub_results: Vec<Vec<f32>> = pooled.into_iter().map(|v| l2_normalize(&v)).collect();
+            for (i, result) in sub_results.into_iter().enumerate() {
+                sorted_results[chunk_start + i] = result;
+            }
+        }
+
+        // Restore original order
+        let mut results = vec![Vec::new(); texts.len()];
+        for (sorted_idx, &orig_idx) in order.iter().enumerate() {
+            results[orig_idx] = std::mem::take(&mut sorted_results[sorted_idx]);
+        }
+        results
+    }
+
+    /// Prepare a sub-batch on CPU: pack pre-tokenized inputs and gather embeddings.
+    fn prepare_sub_batch(
+        &self,
+        tokenized: &[&TokenizedInput],
+    ) -> (BatchTokenizedInput, Tensor) {
+        let input = WordPieceTokenizer::pack_batch(tokenized);
+        let hidden_cpu = self.gather_embeddings_batch(&input);
+        (input, hidden_cpu)
     }
 
     /// Embed a text string into a 384-dimensional vector.
@@ -730,5 +827,184 @@ mod tests {
             "L2 norm = {}, expected 1.0",
             norm
         );
+    }
+
+    #[test]
+    #[ignore] // Requires real model files
+    fn test_embed_batch_matches_individual() {
+        let workspace = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+        let model_dir = workspace.join("models/minilm-l6-v2");
+        let safetensors_bytes = std::fs::read(model_dir.join("model.safetensors"))
+            .expect("model.safetensors not found");
+        let vocab_text =
+            std::fs::read_to_string(model_dir.join("vocab.txt")).expect("vocab.txt not found");
+
+        let model = EmbedModel::load(&safetensors_bytes, &vocab_text).expect("load model");
+
+        // Texts of varying lengths to exercise multiple sub-batch buckets.
+        // Short (≤32 tokens), medium (~64 tokens), and longer texts.
+        let texts = vec![
+            "hello",
+            "the quick brown fox jumps over the lazy dog",
+            "a",
+            "machine learning is a subfield of artificial intelligence that focuses on \
+             building systems that learn from data to improve their performance on a \
+             specific task without being explicitly programmed to do so",
+            "test",
+        ];
+
+        // Get individual embeddings (single-text path, no sub-batching)
+        let individual: Vec<Vec<f32>> = texts.iter().map(|t| model.embed(t)).collect();
+
+        // Get batched embeddings (sub-batching path)
+        let text_refs: Vec<&str> = texts.iter().copied().collect();
+        let batched = model.embed_batch(&text_refs);
+
+        assert_eq!(batched.len(), texts.len());
+
+        for (i, (ind, bat)) in individual.iter().zip(batched.iter()).enumerate() {
+            assert_eq!(ind.len(), bat.len(), "text {}: dimension mismatch", i);
+            for (j, (a, b)) in ind.iter().zip(bat.iter()).enumerate() {
+                assert!(
+                    (a - b).abs() < 1e-4,
+                    "text {} dim {}: individual={} batch={} diff={}",
+                    i,
+                    j,
+                    a,
+                    b,
+                    (a - b).abs()
+                );
+            }
+        }
+    }
+
+    #[test]
+    #[ignore] // Requires real model files
+    fn test_embed_batch_order_preserved() {
+        let workspace = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+        let model_dir = workspace.join("models/minilm-l6-v2");
+        let safetensors_bytes = std::fs::read(model_dir.join("model.safetensors"))
+            .expect("model.safetensors not found");
+        let vocab_text =
+            std::fs::read_to_string(model_dir.join("vocab.txt")).expect("vocab.txt not found");
+
+        let model = EmbedModel::load(&safetensors_bytes, &vocab_text).expect("load model");
+
+        // Submit in reverse length order to verify sorting + unsort works
+        let texts = vec![
+            "this is a much longer sentence with many words in it",
+            "medium length",
+            "hi",
+        ];
+        let text_refs: Vec<&str> = texts.iter().copied().collect();
+        let batched = model.embed_batch(&text_refs);
+
+        // Each result should match the individual embed for that text
+        for (i, text) in texts.iter().enumerate() {
+            let individual = model.embed(text);
+            for (j, (a, b)) in individual.iter().zip(batched[i].iter()).enumerate() {
+                assert!(
+                    (a - b).abs() < 1e-4,
+                    "text {} ('{}') dim {}: individual={} batch={}",
+                    i,
+                    text,
+                    j,
+                    a,
+                    b,
+                );
+            }
+        }
+    }
+
+    #[test]
+    #[ignore] // Requires real model files
+    fn test_embed_batch_single_text() {
+        let workspace = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+        let model_dir = workspace.join("models/minilm-l6-v2");
+        let safetensors_bytes = std::fs::read(model_dir.join("model.safetensors"))
+            .expect("model.safetensors not found");
+        let vocab_text =
+            std::fs::read_to_string(model_dir.join("vocab.txt")).expect("vocab.txt not found");
+
+        let model = EmbedModel::load(&safetensors_bytes, &vocab_text).expect("load model");
+
+        let individual = model.embed("hello world");
+        let batched = model.embed_batch(&["hello world"]);
+
+        assert_eq!(batched.len(), 1);
+        assert_eq!(individual, batched[0]);
+    }
+
+    #[test]
+    #[ignore] // Requires real model files
+    fn test_embed_batch_empty() {
+        let workspace = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+        let model_dir = workspace.join("models/minilm-l6-v2");
+        let safetensors_bytes = std::fs::read(model_dir.join("model.safetensors"))
+            .expect("model.safetensors not found");
+        let vocab_text =
+            std::fs::read_to_string(model_dir.join("vocab.txt")).expect("vocab.txt not found");
+
+        let model = EmbedModel::load(&safetensors_bytes, &vocab_text).expect("load model");
+
+        let result = model.embed_batch(&[]);
+        assert!(result.is_empty());
+    }
+
+    #[test]
+    #[ignore] // Requires real model files
+    fn test_embed_batch_large_batch_correctness() {
+        let workspace = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+        let model_dir = workspace.join("models/minilm-l6-v2");
+        let safetensors_bytes = std::fs::read(model_dir.join("model.safetensors"))
+            .expect("model.safetensors not found");
+        let vocab_text =
+            std::fs::read_to_string(model_dir.join("vocab.txt")).expect("vocab.txt not found");
+
+        let model = EmbedModel::load(&safetensors_bytes, &vocab_text).expect("load model");
+
+        // Generate 256 texts of varying lengths to simulate a real batch.
+        let corpus: Vec<String> = (0..256)
+            .map(|i| {
+                let word_count = (i % 20) + 1; // 1 to 20 words
+                (0..word_count)
+                    .map(|j| format!("word{}", (i * 7 + j * 3) % 50))
+                    .collect::<Vec<_>>()
+                    .join(" ")
+            })
+            .collect();
+        let text_refs: Vec<&str> = corpus.iter().map(|s| s.as_str()).collect();
+
+        // Get individual embeddings (ground truth)
+        let individual: Vec<Vec<f32>> = text_refs.iter().map(|t| model.embed(t)).collect();
+
+        // Get batched embeddings
+        let batched = model.embed_batch(&text_refs);
+
+        assert_eq!(batched.len(), 256);
+
+        let mut max_diff: f32 = 0.0;
+        let mut failures = Vec::new();
+        for (i, (ind, bat)) in individual.iter().zip(batched.iter()).enumerate() {
+            assert_eq!(ind.len(), bat.len(), "text {}: dimension mismatch", i);
+            for (j, (a, b)) in ind.iter().zip(bat.iter()).enumerate() {
+                let diff = (a - b).abs();
+                max_diff = max_diff.max(diff);
+                if diff >= 2e-3 {
+                    failures.push((i, j, *a, *b, diff));
+                }
+            }
+        }
+
+        if !failures.is_empty() {
+            let sample: Vec<_> = failures.iter().take(10).collect();
+            panic!(
+                "embed_batch(256) differs from individual embed: {} failures, max_diff={:.6}, \
+                 samples: {:?}",
+                failures.len(),
+                max_diff,
+                sample
+            );
+        }
     }
 }
