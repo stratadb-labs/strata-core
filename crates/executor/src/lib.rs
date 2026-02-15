@@ -78,7 +78,7 @@ pub use api::{
 pub use command::Command;
 pub use error::Error;
 pub use executor::Executor;
-pub use output::Output;
+pub use output::{EmbedStatusInfo, Output};
 pub use session::Session;
 pub use types::*;
 

@@ -151,4 +151,34 @@ pub enum Output {
         /// Latest timestamp, or None if branch has no data.
         latest_ts: Option<u64>,
     },
+
+    /// Embedding pipeline status
+    EmbedStatus(EmbedStatusInfo),
+}
+
+/// Snapshot of the embedding pipeline status.
+///
+/// Returned by [`Command::EmbedStatus`](crate::Command::EmbedStatus).
+/// Users can derive:
+/// - **Progress:** `total_embedded / total_queued`
+/// - **In-flight:** `total_queued - total_embedded - total_failed`
+/// - **Is idle:** `pending == 0 && scheduler_active_tasks == 0 && scheduler_queue_depth == 0`
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct EmbedStatusInfo {
+    /// Whether auto-embedding is currently enabled.
+    pub auto_embed: bool,
+    /// Configured batch size for embedding.
+    pub batch_size: usize,
+    /// Number of items currently waiting in the buffer.
+    pub pending: usize,
+    /// Cumulative count of items pushed into the buffer.
+    pub total_queued: u64,
+    /// Cumulative count of items successfully embedded.
+    pub total_embedded: u64,
+    /// Cumulative count of items that failed embedding.
+    pub total_failed: u64,
+    /// Number of tasks waiting in the scheduler queue.
+    pub scheduler_queue_depth: usize,
+    /// Number of tasks currently being executed by scheduler workers.
+    pub scheduler_active_tasks: usize,
 }

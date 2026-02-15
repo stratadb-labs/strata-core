@@ -195,6 +195,10 @@ impl Executor {
                 convert_result(self.primitives.db.compact())?;
                 Ok(Output::Unit)
             }
+            Command::EmbedStatus => {
+                let info = crate::handlers::embed_hook::embed_status(&self.primitives);
+                Ok(Output::EmbedStatus(info))
+            }
             Command::TimeRange { branch } => {
                 let branch = branch.ok_or(Error::InvalidInput {
                     reason: "Branch must be specified or resolved to default".into(),

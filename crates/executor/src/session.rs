@@ -141,6 +141,7 @@ impl Session {
             | Command::Info
             | Command::Flush
             | Command::Compact
+            | Command::EmbedStatus
             | Command::RetentionApply { .. }
             | Command::RetentionStats { .. }
             | Command::RetentionPreview { .. }

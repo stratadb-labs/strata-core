@@ -747,6 +747,10 @@ pub enum Command {
         space: String,
     },
 
+    /// Get embedding pipeline status.
+    /// Returns: `Output::EmbedStatus`
+    EmbedStatus,
+
     /// Delete a space (must be empty unless force=true).
     /// Returns: `Output::Unit`
     SpaceDelete {
@@ -868,6 +872,7 @@ impl Command {
             Command::BranchBundleValidate { .. } => "BranchBundleValidate",
             Command::ConfigureModel { .. } => "ConfigureModel",
             Command::Search { .. } => "Search",
+            Command::EmbedStatus => "EmbedStatus",
             Command::SpaceList { .. } => "SpaceList",
             Command::SpaceCreate { .. } => "SpaceCreate",
             Command::SpaceDelete { .. } => "SpaceDelete",
@@ -969,6 +974,7 @@ impl Command {
             | Command::Info
             | Command::Flush
             | Command::Compact
+            | Command::EmbedStatus
             | Command::BranchExport { .. }
             | Command::BranchImport { .. }
             | Command::BranchBundleValidate { .. }

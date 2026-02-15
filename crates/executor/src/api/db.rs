@@ -1,6 +1,7 @@
 //! Database operations: ping, info, flush, compact, configuration.
 
 use super::Strata;
+use crate::output::EmbedStatusInfo;
 use crate::types::*;
 use crate::{Command, Error, Output, Result};
 use strata_engine::{ModelConfig, StrataConfig};
@@ -130,6 +131,16 @@ impl Strata {
                 });
             })
             .map_err(Error::from)
+    }
+
+    /// Get a snapshot of the embedding pipeline status.
+    pub fn embed_status(&self) -> Result<EmbedStatusInfo> {
+        match self.executor.execute(Command::EmbedStatus)? {
+            Output::EmbedStatus(info) => Ok(info),
+            _ => Err(Error::Internal {
+                reason: "Unexpected output for EmbedStatus".into(),
+            }),
+        }
     }
 
     /// Check whether auto-embedding is enabled.

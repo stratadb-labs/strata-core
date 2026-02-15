@@ -11,6 +11,7 @@
 use std::sync::Arc;
 
 use crate::bridge::Primitives;
+use crate::output::EmbedStatusInfo;
 
 // Re-export shadow collection names from engine (single source of truth).
 pub use strata_engine::database::{SHADOW_EVENT, SHADOW_JSON, SHADOW_KV, SHADOW_STATE};
@@ -85,6 +86,12 @@ pub struct EmbedBuffer {
     /// time. The Metal GPU backend uses a shared deferred command buffer —
     /// concurrent `embed_batch` calls interleave operations and corrupt it.
     flush_lock: std::sync::Mutex<()>,
+    /// Cumulative count of items pushed into the buffer.
+    total_queued: std::sync::atomic::AtomicU64,
+    /// Cumulative count of items successfully embedded.
+    total_embedded: std::sync::atomic::AtomicU64,
+    /// Cumulative count of items that failed embedding (model load / embed error).
+    total_failed: std::sync::atomic::AtomicU64,
 }
 
 #[cfg(feature = "embed")]
@@ -93,6 +100,9 @@ impl Default for EmbedBuffer {
         Self {
             pending: std::sync::Mutex::new(Vec::with_capacity(64)),
             flush_lock: std::sync::Mutex::new(()),
+            total_queued: std::sync::atomic::AtomicU64::new(0),
+            total_embedded: std::sync::atomic::AtomicU64::new(0),
+            total_failed: std::sync::atomic::AtomicU64::new(0),
         }
     }
 }
@@ -142,6 +152,8 @@ pub fn maybe_embed_text(
             text: text.to_owned(),
             source_ref,
         });
+        buf.total_queued
+            .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
         pending.len() >= p.db.embed_batch_size()
     };
 
@@ -205,12 +217,16 @@ pub fn flush_embed_buffer(p: &Arc<Primitives>) {
         return;
     }
 
+    let batch_len = batch.len() as u64;
+
     // Load model once for the whole batch.
     let model_dir = p.db.model_dir();
     let embed_state = match p.db.extension::<EmbedModelState>() {
         Ok(s) => s,
         Err(e) => {
             tracing::warn!(target: "strata::embed", error = %e, "Failed to get embed model state");
+            buf.total_failed
+                .fetch_add(batch_len, std::sync::atomic::Ordering::Relaxed);
             return;
         }
     };
@@ -219,6 +235,8 @@ pub fn flush_embed_buffer(p: &Arc<Primitives>) {
         Ok(m) => m,
         Err(e) => {
             tracing::warn!(target: "strata::embed", error = %e, "Failed to load embedding model");
+            buf.total_failed
+                .fetch_add(batch_len, std::sync::atomic::Ordering::Relaxed);
             return;
         }
     };
@@ -256,6 +274,9 @@ pub fn flush_embed_buffer(p: &Arc<Primitives>) {
         }
     }
 
+    buf.total_embedded
+        .fetch_add(batch_len, std::sync::atomic::Ordering::Relaxed);
+
     tracing::debug!(
         target: "strata::embed",
         count,
@@ -266,6 +287,61 @@ pub fn flush_embed_buffer(p: &Arc<Primitives>) {
 /// No-op when the embed feature is not compiled in.
 #[cfg(not(feature = "embed"))]
 pub fn flush_embed_buffer(_p: &Arc<Primitives>) {}
+
+/// Return a snapshot of the embedding pipeline status.
+#[cfg(feature = "embed")]
+pub fn embed_status(p: &Arc<Primitives>) -> EmbedStatusInfo {
+    let (pending, total_queued, total_embedded, total_failed) =
+        match p.db.extension::<EmbedBuffer>() {
+            Ok(buf) => {
+                let pending = buf
+                    .pending
+                    .lock()
+                    .unwrap_or_else(|e| e.into_inner())
+                    .len();
+                let queued = buf
+                    .total_queued
+                    .load(std::sync::atomic::Ordering::Relaxed);
+                let embedded = buf
+                    .total_embedded
+                    .load(std::sync::atomic::Ordering::Relaxed);
+                let failed = buf
+                    .total_failed
+                    .load(std::sync::atomic::Ordering::Relaxed);
+                (pending, queued, embedded, failed)
+            }
+            Err(_) => (0, 0, 0, 0),
+        };
+
+    let stats = p.db.scheduler().stats();
+
+    EmbedStatusInfo {
+        auto_embed: p.db.auto_embed_enabled(),
+        batch_size: p.db.embed_batch_size(),
+        pending,
+        total_queued,
+        total_embedded,
+        total_failed,
+        scheduler_queue_depth: stats.queue_depth,
+        scheduler_active_tasks: stats.active_tasks,
+    }
+}
+
+/// Returns default status when the embed feature is not compiled in.
+#[cfg(not(feature = "embed"))]
+pub fn embed_status(p: &Arc<Primitives>) -> EmbedStatusInfo {
+    let stats = p.db.scheduler().stats();
+    EmbedStatusInfo {
+        auto_embed: false,
+        batch_size: p.db.embed_batch_size(),
+        pending: 0,
+        total_queued: 0,
+        total_embedded: 0,
+        total_failed: 0,
+        scheduler_queue_depth: stats.queue_depth,
+        scheduler_active_tasks: stats.active_tasks,
+    }
+}
 
 /// Remove a shadow embedding entry on delete.
 ///
@@ -680,6 +756,75 @@ mod tests {
             "Executor::drop took {:?}, expected <500ms",
             elapsed
         );
+    }
+
+    #[test]
+    fn test_embed_status_counters() {
+        let p = setup();
+
+        // Initial state: all counters zero.
+        let status = embed_status(&p);
+        assert!(status.auto_embed);
+        assert_eq!(status.pending, 0);
+        assert_eq!(status.total_queued, 0);
+        assert_eq!(status.total_embedded, 0);
+        assert_eq!(status.total_failed, 0);
+
+        // Push N items — total_queued should increment, pending should match.
+        push_n(&p, 10);
+        let status = embed_status(&p);
+        assert_eq!(status.total_queued, 10);
+        assert_eq!(status.pending, 10);
+
+        // Flush drains the buffer. Depending on whether the model is
+        // installed, items end up as embedded or failed.
+        flush_embed_buffer(&p);
+        let status = embed_status(&p);
+        assert_eq!(status.pending, 0);
+        assert_eq!(status.total_queued, 10);
+        // All items should be accounted for: either embedded or failed.
+        assert_eq!(status.total_embedded + status.total_failed, 10);
+    }
+
+    #[test]
+    fn test_embed_status_via_executor_command() {
+        use crate::Executor;
+
+        let db = strata_engine::Database::cache().expect("open cache db");
+        db.set_auto_embed(true);
+        let executor = Executor::new(db);
+
+        executor
+            .execute(crate::Command::Ping)
+            .expect("ping works");
+
+        // Check initial status via Command.
+        match executor
+            .execute(crate::Command::EmbedStatus)
+            .expect("embed_status works")
+        {
+            crate::Output::EmbedStatus(info) => {
+                assert!(info.auto_embed);
+                assert_eq!(info.total_queued, 0);
+                assert_eq!(info.pending, 0);
+            }
+            other => panic!("Expected EmbedStatus, got {:?}", other),
+        }
+
+        // Push some items and check again.
+        let p = executor.primitives().clone();
+        push_n(&p, 5);
+
+        match executor
+            .execute(crate::Command::EmbedStatus)
+            .expect("embed_status works")
+        {
+            crate::Output::EmbedStatus(info) => {
+                assert_eq!(info.total_queued, 5);
+                assert_eq!(info.pending, 5);
+            }
+            other => panic!("Expected EmbedStatus, got {:?}", other),
+        }
     }
 }
 
