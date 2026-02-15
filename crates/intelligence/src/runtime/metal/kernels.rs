@@ -880,3 +880,787 @@ kernel void batched_mean_pool(
     }
 }
 "#;
+
+/// Float16 variants of all kernels. Buffers use `half` for 2x bandwidth;
+/// accumulators stay `float` for numerical stability.
+pub const MSL_SOURCE_F16: &str = r#"
+#include <metal_stdlib>
+#include <metal_simdgroup_matrix>
+using namespace metal;
+
+// -----------------------------------------------------------------------
+// Constants for simdgroup_matrix GEMM tiling
+// -----------------------------------------------------------------------
+constant constexpr uint BM = 32;
+constant constexpr uint BN = 32;
+constant constexpr uint BK = 32;
+
+// -----------------------------------------------------------------------
+// gemm_f16 — simdgroup_matrix 32x32 tiled matrix multiply (half precision)
+//   C[M,N] = A[M,K] * B[K,N]     (both row-major, half)
+// -----------------------------------------------------------------------
+kernel void gemm_f16(
+    device const half* A       [[buffer(0)]],
+    device const half* B       [[buffer(1)]],
+    device       half* C       [[buffer(2)]],
+    constant     uint&  M       [[buffer(3)]],
+    constant     uint&  K       [[buffer(4)]],
+    constant     uint&  N       [[buffer(5)]],
+    uint2 tgid [[threadgroup_position_in_grid]],
+    uint  sgid [[simdgroup_index_in_threadgroup]],
+    uint  lid  [[thread_index_in_threadgroup]])
+{
+    uint tile_row = tgid.y * BM;
+    uint tile_col = tgid.x * BN;
+
+    uint sg_row = (sgid / 2) * 16;
+    uint sg_col = (sgid % 2) * 16;
+
+    simdgroup_matrix<float, 8, 8> acc[2][2];
+    for (uint i = 0; i < 2; ++i)
+        for (uint j = 0; j < 2; ++j)
+            acc[i][j] = simdgroup_matrix<float, 8, 8>(0);
+
+    threadgroup half tgA[BM * BK];
+    threadgroup half tgB[BK * BN];
+
+    uint num_k_tiles = (K + BK - 1) / BK;
+
+    for (uint kt = 0; kt < num_k_tiles; ++kt) {
+        uint k_base = kt * BK;
+
+        for (uint idx = lid; idx < BM * BK; idx += 128) {
+            uint r = idx / BK;
+            uint c = idx % BK;
+            uint gr = tile_row + r;
+            uint gc = k_base + c;
+            tgA[r * BK + c] = (gr < M && gc < K) ? A[gr * K + gc] : half(0);
+        }
+        for (uint idx = lid; idx < BK * BN; idx += 128) {
+            uint r = idx / BN;
+            uint c = idx % BN;
+            uint gr = k_base + r;
+            uint gc = tile_col + c;
+            tgB[r * BN + c] = (gr < K && gc < N) ? B[gr * N + gc] : half(0);
+        }
+
+        threadgroup_barrier(mem_flags::mem_threadgroup);
+
+        for (uint kk = 0; kk < BK; kk += 8) {
+            simdgroup_matrix<half, 8, 8> a_mat[2];
+            simdgroup_matrix<half, 8, 8> b_mat[2];
+
+            simdgroup_load(a_mat[0], &tgA[(sg_row + 0) * BK + kk], BK);
+            simdgroup_load(a_mat[1], &tgA[(sg_row + 8) * BK + kk], BK);
+
+            simdgroup_load(b_mat[0], &tgB[kk * BN + (sg_col + 0)], BN);
+            simdgroup_load(b_mat[1], &tgB[kk * BN + (sg_col + 8)], BN);
+
+            simdgroup_multiply_accumulate(acc[0][0], a_mat[0], b_mat[0], acc[0][0]);
+            simdgroup_multiply_accumulate(acc[0][1], a_mat[0], b_mat[1], acc[0][1]);
+            simdgroup_multiply_accumulate(acc[1][0], a_mat[1], b_mat[0], acc[1][0]);
+            simdgroup_multiply_accumulate(acc[1][1], a_mat[1], b_mat[1], acc[1][1]);
+        }
+
+        threadgroup_barrier(mem_flags::mem_threadgroup);
+    }
+
+    uint out_row = tile_row + sg_row;
+    uint out_col = tile_col + sg_col;
+
+    // Store: write float accumulators to staging, then convert to half
+    threadgroup float staging[BM * BN];
+    uint base = sg_row * BN + sg_col;
+    simdgroup_store(acc[0][0], &staging[base + 0 * BN + 0], BN);
+    simdgroup_store(acc[0][1], &staging[base + 0 * BN + 8], BN);
+    simdgroup_store(acc[1][0], &staging[base + 8 * BN + 0], BN);
+    simdgroup_store(acc[1][1], &staging[base + 8 * BN + 8], BN);
+
+    threadgroup_barrier(mem_flags::mem_threadgroup);
+
+    for (uint idx = lid; idx < BM * BN; idx += 128) {
+        uint r = idx / BN;
+        uint c = idx % BN;
+        uint gr = tile_row + r;
+        uint gc = tile_col + c;
+        if (gr < M && gc < N) {
+            C[gr * N + gc] = half(staging[r * BN + c]);
+        }
+    }
+}
+
+// -----------------------------------------------------------------------
+// gemm_transpose_f16 — C[M,N] = A[M,K] * B^T, B stored as (N,K)
+// -----------------------------------------------------------------------
+kernel void gemm_transpose_f16(
+    device const half* A       [[buffer(0)]],
+    device const half* B       [[buffer(1)]],
+    device       half* C       [[buffer(2)]],
+    constant     uint&  M       [[buffer(3)]],
+    constant     uint&  K       [[buffer(4)]],
+    constant     uint&  N       [[buffer(5)]],
+    uint2 tgid [[threadgroup_position_in_grid]],
+    uint  sgid [[simdgroup_index_in_threadgroup]],
+    uint  lid  [[thread_index_in_threadgroup]])
+{
+    uint tile_row = tgid.y * BM;
+    uint tile_col = tgid.x * BN;
+
+    uint sg_row = (sgid / 2) * 16;
+    uint sg_col = (sgid % 2) * 16;
+
+    simdgroup_matrix<float, 8, 8> acc[2][2];
+    for (uint i = 0; i < 2; ++i)
+        for (uint j = 0; j < 2; ++j)
+            acc[i][j] = simdgroup_matrix<float, 8, 8>(0);
+
+    threadgroup half tgA[BM * BK];
+    threadgroup half tgB[BK * BN];
+
+    uint num_k_tiles = (K + BK - 1) / BK;
+
+    for (uint kt = 0; kt < num_k_tiles; ++kt) {
+        uint k_base = kt * BK;
+
+        for (uint idx = lid; idx < BM * BK; idx += 128) {
+            uint r = idx / BK;
+            uint c = idx % BK;
+            uint gr = tile_row + r;
+            uint gc = k_base + c;
+            tgA[r * BK + c] = (gr < M && gc < K) ? A[gr * K + gc] : half(0);
+        }
+        for (uint idx = lid; idx < BK * BN; idx += 128) {
+            uint r = idx / BN;
+            uint c = idx % BN;
+            uint gk = k_base + r;
+            uint gn = tile_col + c;
+            tgB[r * BN + c] = (gk < K && gn < N) ? B[gn * K + gk] : half(0);
+        }
+
+        threadgroup_barrier(mem_flags::mem_threadgroup);
+
+        for (uint kk = 0; kk < BK; kk += 8) {
+            simdgroup_matrix<half, 8, 8> a_mat[2];
+            simdgroup_matrix<half, 8, 8> b_mat[2];
+
+            simdgroup_load(a_mat[0], &tgA[(sg_row + 0) * BK + kk], BK);
+            simdgroup_load(a_mat[1], &tgA[(sg_row + 8) * BK + kk], BK);
+
+            simdgroup_load(b_mat[0], &tgB[kk * BN + (sg_col + 0)], BN);
+            simdgroup_load(b_mat[1], &tgB[kk * BN + (sg_col + 8)], BN);
+
+            simdgroup_multiply_accumulate(acc[0][0], a_mat[0], b_mat[0], acc[0][0]);
+            simdgroup_multiply_accumulate(acc[0][1], a_mat[0], b_mat[1], acc[0][1]);
+            simdgroup_multiply_accumulate(acc[1][0], a_mat[1], b_mat[0], acc[1][0]);
+            simdgroup_multiply_accumulate(acc[1][1], a_mat[1], b_mat[1], acc[1][1]);
+        }
+
+        threadgroup_barrier(mem_flags::mem_threadgroup);
+    }
+
+    uint out_row = tile_row + sg_row;
+    uint out_col = tile_col + sg_col;
+
+    threadgroup float staging[BM * BN];
+    uint base = sg_row * BN + sg_col;
+    simdgroup_store(acc[0][0], &staging[base + 0 * BN + 0], BN);
+    simdgroup_store(acc[0][1], &staging[base + 0 * BN + 8], BN);
+    simdgroup_store(acc[1][0], &staging[base + 8 * BN + 0], BN);
+    simdgroup_store(acc[1][1], &staging[base + 8 * BN + 8], BN);
+
+    threadgroup_barrier(mem_flags::mem_threadgroup);
+
+    for (uint idx = lid; idx < BM * BN; idx += 128) {
+        uint r = idx / BN;
+        uint c = idx % BN;
+        uint gr = tile_row + r;
+        uint gc = tile_col + c;
+        if (gr < M && gc < N) {
+            C[gr * N + gc] = half(staging[r * BN + c]);
+        }
+    }
+}
+
+// -----------------------------------------------------------------------
+// gelu_f16 — element-wise GELU (promote to float for tanh accuracy)
+// -----------------------------------------------------------------------
+kernel void gelu_f16(
+    device const half* input  [[buffer(0)]],
+    device       half* output [[buffer(1)]],
+    constant     uint&  count  [[buffer(2)]],
+    uint tid [[thread_position_in_grid]])
+{
+    if (tid >= count) return;
+    float x = float(input[tid]);
+    const float SQRT_2_OVER_PI = 0.7978845608f;
+    float inner = SQRT_2_OVER_PI * (x + 0.044715f * x * x * x);
+    inner = clamp(inner, -10.0f, 10.0f);
+    output[tid] = half(0.5f * x * (1.0f + metal::tanh(inner)));
+}
+
+// -----------------------------------------------------------------------
+// add_tensor_f16 — element-wise c[i] = a[i] + b[i]
+// -----------------------------------------------------------------------
+kernel void add_tensor_f16(
+    device const half* a      [[buffer(0)]],
+    device const half* b      [[buffer(1)]],
+    device       half* c      [[buffer(2)]],
+    constant     uint&  count  [[buffer(3)]],
+    uint tid [[thread_position_in_grid]])
+{
+    if (tid >= count) return;
+    c[tid] = a[tid] + b[tid];
+}
+
+// -----------------------------------------------------------------------
+// add_bias_f16 — broadcast row-add: t[r*cols+c] += bias[c]
+// -----------------------------------------------------------------------
+kernel void add_bias_f16(
+    device       half* t      [[buffer(0)]],
+    device const half* bias   [[buffer(1)]],
+    constant     uint&  rows   [[buffer(2)]],
+    constant     uint&  cols   [[buffer(3)]],
+    uint2 gid [[thread_position_in_grid]])
+{
+    uint r = gid.y;
+    uint c = gid.x;
+    if (r >= rows || c >= cols) return;
+    t[r * cols + c] += bias[c];
+}
+
+// -----------------------------------------------------------------------
+// scale_kernel_f16 — in-place scalar multiply
+// -----------------------------------------------------------------------
+kernel void scale_kernel_f16(
+    device       half* t      [[buffer(0)]],
+    constant     float& factor [[buffer(1)]],
+    constant     uint&  count  [[buffer(2)]],
+    uint tid [[thread_position_in_grid]])
+{
+    if (tid >= count) return;
+    t[tid] = half(float(t[tid]) * factor);
+}
+
+// -----------------------------------------------------------------------
+// layer_norm_f16 — per-row layer normalization
+//   float shared memory for reduction accuracy
+// -----------------------------------------------------------------------
+kernel void layer_norm_f16(
+    device const half* input   [[buffer(0)]],
+    device const half* weight  [[buffer(1)]],
+    device const half* bias    [[buffer(2)]],
+    device       half* output  [[buffer(3)]],
+    constant     uint&  rows    [[buffer(4)]],
+    constant     uint&  cols    [[buffer(5)]],
+    constant     float& eps     [[buffer(6)]],
+    uint gid  [[threadgroup_position_in_grid]],
+    uint lid  [[thread_position_in_threadgroup]],
+    uint threads_per_group [[threads_per_threadgroup]])
+{
+    uint row = gid;
+    if (row >= rows) return;
+
+    threadgroup float shared_data[256];
+
+    float partial_sum = 0.0f;
+    for (uint c = lid; c < cols; c += threads_per_group) {
+        partial_sum += float(input[row * cols + c]);
+    }
+    shared_data[lid] = partial_sum;
+
+    for (uint stride = threads_per_group / 2; stride > 0; stride >>= 1) {
+        threadgroup_barrier(mem_flags::mem_threadgroup);
+        if (lid < stride) {
+            shared_data[lid] += shared_data[lid + stride];
+        }
+    }
+    threadgroup_barrier(mem_flags::mem_threadgroup);
+    float mean = shared_data[0] / float(cols);
+
+    float partial_var = 0.0f;
+    for (uint c = lid; c < cols; c += threads_per_group) {
+        float diff = float(input[row * cols + c]) - mean;
+        partial_var += diff * diff;
+    }
+    shared_data[lid] = partial_var;
+
+    for (uint stride = threads_per_group / 2; stride > 0; stride >>= 1) {
+        threadgroup_barrier(mem_flags::mem_threadgroup);
+        if (lid < stride) {
+            shared_data[lid] += shared_data[lid + stride];
+        }
+    }
+    threadgroup_barrier(mem_flags::mem_threadgroup);
+    float var = shared_data[0] / float(cols);
+    float inv_std = 1.0f / sqrt(var + eps);
+
+    for (uint c = lid; c < cols; c += threads_per_group) {
+        uint idx = row * cols + c;
+        output[idx] = half((float(input[idx]) - mean) * inv_std * float(weight[c]) + float(bias[c]));
+    }
+}
+
+// -----------------------------------------------------------------------
+// softmax_rows_f16 — per-row softmax (float shared memory for stability)
+// -----------------------------------------------------------------------
+kernel void softmax_rows_f16(
+    device half* data          [[buffer(0)]],
+    constant uint& rows         [[buffer(1)]],
+    constant uint& cols         [[buffer(2)]],
+    uint gid  [[threadgroup_position_in_grid]],
+    uint lid  [[thread_position_in_threadgroup]],
+    uint threads_per_group [[threads_per_threadgroup]])
+{
+    uint row = gid;
+    if (row >= rows) return;
+
+    threadgroup float shared[256];
+
+    float local_max = -INFINITY;
+    for (uint c = lid; c < cols; c += threads_per_group) {
+        local_max = max(local_max, float(data[row * cols + c]));
+    }
+    shared[lid] = local_max;
+
+    for (uint stride = threads_per_group / 2; stride > 0; stride >>= 1) {
+        threadgroup_barrier(mem_flags::mem_threadgroup);
+        if (lid < stride) {
+            shared[lid] = max(shared[lid], shared[lid + stride]);
+        }
+    }
+    threadgroup_barrier(mem_flags::mem_threadgroup);
+    float row_max = shared[0];
+
+    float local_sum = 0.0f;
+    for (uint c = lid; c < cols; c += threads_per_group) {
+        uint idx = row * cols + c;
+        float val = exp(float(data[idx]) - row_max);
+        data[idx] = half(val);
+        local_sum += val;
+    }
+    shared[lid] = local_sum;
+
+    for (uint stride = threads_per_group / 2; stride > 0; stride >>= 1) {
+        threadgroup_barrier(mem_flags::mem_threadgroup);
+        if (lid < stride) {
+            shared[lid] += shared[lid + stride];
+        }
+    }
+    threadgroup_barrier(mem_flags::mem_threadgroup);
+    float total = shared[0];
+
+    if (total > 0.0f) {
+        float inv_total = 1.0f / total;
+        for (uint c = lid; c < cols; c += threads_per_group) {
+            uint idx = row * cols + c;
+            data[idx] = half(float(data[idx]) * inv_total);
+        }
+    }
+}
+
+// -----------------------------------------------------------------------
+// slice_columns_f16
+// -----------------------------------------------------------------------
+kernel void slice_columns_f16(
+    device const half* src     [[buffer(0)]],
+    device       half* dst     [[buffer(1)]],
+    constant     uint&  src_cols [[buffer(2)]],
+    constant     uint&  start   [[buffer(3)]],
+    constant     uint&  width   [[buffer(4)]],
+    constant     uint&  rows    [[buffer(5)]],
+    uint2 gid [[thread_position_in_grid]])
+{
+    uint r = gid.y;
+    uint c = gid.x;
+    if (r >= rows || c >= width) return;
+    dst[r * width + c] = src[r * src_cols + start + c];
+}
+
+// -----------------------------------------------------------------------
+// scatter_columns_f16
+// -----------------------------------------------------------------------
+kernel void scatter_columns_f16(
+    device       half* dst       [[buffer(0)]],
+    device const half* src       [[buffer(1)]],
+    constant     uint&  dst_cols  [[buffer(2)]],
+    constant     uint&  src_cols  [[buffer(3)]],
+    constant     uint&  col_off   [[buffer(4)]],
+    constant     uint&  rows      [[buffer(5)]],
+    uint2 gid [[thread_position_in_grid]])
+{
+    uint r = gid.y;
+    uint c = gid.x;
+    if (r >= rows || c >= src_cols) return;
+    dst[r * dst_cols + col_off + c] = src[r * src_cols + c];
+}
+
+// -----------------------------------------------------------------------
+// attention_mask_f16 — mask stays u32, scores are half
+// -----------------------------------------------------------------------
+kernel void attention_mask_f16(
+    device       half* scores  [[buffer(0)]],
+    device const uint*  mask    [[buffer(1)]],
+    constant     uint&  rows    [[buffer(2)]],
+    constant     uint&  cols    [[buffer(3)]],
+    uint2 gid [[thread_position_in_grid]])
+{
+    uint r = gid.y;
+    uint c = gid.x;
+    if (r >= rows || c >= cols) return;
+    if (mask[c] == 0u) {
+        scores[r * cols + c] = half(-10000.0f);
+    }
+}
+
+// -----------------------------------------------------------------------
+// mean_pool_f16 — input half, output float (CPU reads f32)
+// -----------------------------------------------------------------------
+kernel void mean_pool_f16(
+    device const half*  hidden  [[buffer(0)]],
+    device const uint*  mask    [[buffer(1)]],
+    device       float* output  [[buffer(2)]],
+    constant     uint&  rows    [[buffer(3)]],
+    constant     uint&  cols    [[buffer(4)]],
+    uint tid [[thread_position_in_grid]])
+{
+    if (tid >= cols) return;
+
+    float sum = 0.0f;
+    float count = 0.0f;
+    for (uint r = 0; r < rows; ++r) {
+        if (mask[r] == 1u) {
+            sum += float(hidden[r * cols + tid]);
+            count += 1.0f;
+        }
+    }
+    output[tid] = (count > 0.0f) ? (sum / count) : 0.0f;
+}
+
+// -----------------------------------------------------------------------
+// batched_gemm_transpose_f16
+// -----------------------------------------------------------------------
+kernel void batched_gemm_transpose_f16(
+    device const half* A       [[buffer(0)]],
+    device const half* B       [[buffer(1)]],
+    device       half* C       [[buffer(2)]],
+    constant     uint&  S       [[buffer(3)]],
+    constant     uint&  K       [[buffer(4)]],
+    uint3 tgid [[threadgroup_position_in_grid]],
+    uint  sgid [[simdgroup_index_in_threadgroup]],
+    uint  lid  [[thread_index_in_threadgroup]])
+{
+    uint batch = tgid.z;
+    uint tile_row = tgid.y * BM;
+    uint tile_col = tgid.x * BN;
+
+    uint a_off = batch * S * K;
+    uint b_off = batch * S * K;
+    uint c_off = batch * S * S;
+
+    uint sg_row = (sgid / 2) * 16;
+    uint sg_col = (sgid % 2) * 16;
+
+    simdgroup_matrix<float, 8, 8> acc[2][2];
+    for (uint i = 0; i < 2; ++i)
+        for (uint j = 0; j < 2; ++j)
+            acc[i][j] = simdgroup_matrix<float, 8, 8>(0);
+
+    threadgroup half tgA[BM * BK];
+    threadgroup half tgB[BK * BN];
+
+    uint num_k_tiles = (K + BK - 1) / BK;
+
+    for (uint kt = 0; kt < num_k_tiles; ++kt) {
+        uint k_base = kt * BK;
+
+        for (uint idx = lid; idx < BM * BK; idx += 128) {
+            uint r = idx / BK;
+            uint c = idx % BK;
+            uint gr = tile_row + r;
+            uint gc = k_base + c;
+            tgA[r * BK + c] = (gr < S && gc < K) ? A[a_off + gr * K + gc] : half(0);
+        }
+        for (uint idx = lid; idx < BK * BN; idx += 128) {
+            uint r = idx / BN;
+            uint c = idx % BN;
+            uint gk = k_base + r;
+            uint gn = tile_col + c;
+            tgB[r * BN + c] = (gk < K && gn < S) ? B[b_off + gn * K + gk] : half(0);
+        }
+
+        threadgroup_barrier(mem_flags::mem_threadgroup);
+
+        for (uint kk = 0; kk < BK; kk += 8) {
+            simdgroup_matrix<half, 8, 8> a_mat[2];
+            simdgroup_matrix<half, 8, 8> b_mat[2];
+
+            simdgroup_load(a_mat[0], &tgA[(sg_row + 0) * BK + kk], BK);
+            simdgroup_load(a_mat[1], &tgA[(sg_row + 8) * BK + kk], BK);
+
+            simdgroup_load(b_mat[0], &tgB[kk * BN + (sg_col + 0)], BN);
+            simdgroup_load(b_mat[1], &tgB[kk * BN + (sg_col + 8)], BN);
+
+            simdgroup_multiply_accumulate(acc[0][0], a_mat[0], b_mat[0], acc[0][0]);
+            simdgroup_multiply_accumulate(acc[0][1], a_mat[0], b_mat[1], acc[0][1]);
+            simdgroup_multiply_accumulate(acc[1][0], a_mat[1], b_mat[0], acc[1][0]);
+            simdgroup_multiply_accumulate(acc[1][1], a_mat[1], b_mat[1], acc[1][1]);
+        }
+
+        threadgroup_barrier(mem_flags::mem_threadgroup);
+    }
+
+    threadgroup float staging[BM * BN];
+    uint base = sg_row * BN + sg_col;
+    simdgroup_store(acc[0][0], &staging[base + 0 * BN + 0], BN);
+    simdgroup_store(acc[0][1], &staging[base + 0 * BN + 8], BN);
+    simdgroup_store(acc[1][0], &staging[base + 8 * BN + 0], BN);
+    simdgroup_store(acc[1][1], &staging[base + 8 * BN + 8], BN);
+
+    threadgroup_barrier(mem_flags::mem_threadgroup);
+
+    for (uint idx = lid; idx < BM * BN; idx += 128) {
+        uint r = idx / BN;
+        uint c = idx % BN;
+        uint gr = tile_row + r;
+        uint gc = tile_col + c;
+        if (gr < S && gc < S) {
+            C[c_off + gr * S + gc] = half(staging[r * BN + c]);
+        }
+    }
+}
+
+// -----------------------------------------------------------------------
+// batched_gemm_f16
+// -----------------------------------------------------------------------
+kernel void batched_gemm_f16(
+    device const half* A       [[buffer(0)]],
+    device const half* B       [[buffer(1)]],
+    device       half* C       [[buffer(2)]],
+    constant     uint&  S       [[buffer(3)]],
+    constant     uint&  K       [[buffer(4)]],
+    uint3 tgid [[threadgroup_position_in_grid]],
+    uint  sgid [[simdgroup_index_in_threadgroup]],
+    uint  lid  [[thread_index_in_threadgroup]])
+{
+    uint batch = tgid.z;
+    uint tile_row = tgid.y * BM;
+    uint tile_col = tgid.x * BN;
+
+    uint a_off = batch * S * S;
+    uint b_off = batch * S * K;
+    uint c_off = batch * S * K;
+
+    uint sg_row = (sgid / 2) * 16;
+    uint sg_col = (sgid % 2) * 16;
+
+    simdgroup_matrix<float, 8, 8> acc[2][2];
+    for (uint i = 0; i < 2; ++i)
+        for (uint j = 0; j < 2; ++j)
+            acc[i][j] = simdgroup_matrix<float, 8, 8>(0);
+
+    threadgroup half tgA[BM * BK];
+    threadgroup half tgB[BK * BN];
+
+    uint num_k_tiles = (S + BK - 1) / BK;
+
+    for (uint kt = 0; kt < num_k_tiles; ++kt) {
+        uint k_base = kt * BK;
+
+        for (uint idx = lid; idx < BM * BK; idx += 128) {
+            uint r = idx / BK;
+            uint c = idx % BK;
+            uint gr = tile_row + r;
+            uint gc = k_base + c;
+            tgA[r * BK + c] = (gr < S && gc < S) ? A[a_off + gr * S + gc] : half(0);
+        }
+        for (uint idx = lid; idx < BK * BN; idx += 128) {
+            uint r = idx / BN;
+            uint c = idx % BN;
+            uint gr = k_base + r;
+            uint gc = tile_col + c;
+            tgB[r * BN + c] = (gr < S && gc < K) ? B[b_off + gr * K + gc] : half(0);
+        }
+
+        threadgroup_barrier(mem_flags::mem_threadgroup);
+
+        for (uint kk = 0; kk < BK; kk += 8) {
+            simdgroup_matrix<half, 8, 8> a_mat[2];
+            simdgroup_matrix<half, 8, 8> b_mat[2];
+
+            simdgroup_load(a_mat[0], &tgA[(sg_row + 0) * BK + kk], BK);
+            simdgroup_load(a_mat[1], &tgA[(sg_row + 8) * BK + kk], BK);
+
+            simdgroup_load(b_mat[0], &tgB[kk * BN + (sg_col + 0)], BN);
+            simdgroup_load(b_mat[1], &tgB[kk * BN + (sg_col + 8)], BN);
+
+            simdgroup_multiply_accumulate(acc[0][0], a_mat[0], b_mat[0], acc[0][0]);
+            simdgroup_multiply_accumulate(acc[0][1], a_mat[0], b_mat[1], acc[0][1]);
+            simdgroup_multiply_accumulate(acc[1][0], a_mat[1], b_mat[0], acc[1][0]);
+            simdgroup_multiply_accumulate(acc[1][1], a_mat[1], b_mat[1], acc[1][1]);
+        }
+
+        threadgroup_barrier(mem_flags::mem_threadgroup);
+    }
+
+    threadgroup float staging[BM * BN];
+    uint base = sg_row * BN + sg_col;
+    simdgroup_store(acc[0][0], &staging[base + 0 * BN + 0], BN);
+    simdgroup_store(acc[0][1], &staging[base + 0 * BN + 8], BN);
+    simdgroup_store(acc[1][0], &staging[base + 8 * BN + 0], BN);
+    simdgroup_store(acc[1][1], &staging[base + 8 * BN + 8], BN);
+
+    threadgroup_barrier(mem_flags::mem_threadgroup);
+
+    for (uint idx = lid; idx < BM * BN; idx += 128) {
+        uint r = idx / BN;
+        uint c = idx % BN;
+        uint gr = tile_row + r;
+        uint gc = tile_col + c;
+        if (gr < S && gc < K) {
+            C[c_off + gr * K + gc] = half(staging[r * BN + c]);
+        }
+    }
+}
+
+// -----------------------------------------------------------------------
+// batched_attention_mask_f16
+// -----------------------------------------------------------------------
+kernel void batched_attention_mask_f16(
+    device       half* scores   [[buffer(0)]],
+    device const uint*  mask     [[buffer(1)]],
+    constant     uint&  total_rows [[buffer(2)]],
+    constant     uint&  seq_len  [[buffer(3)]],
+    uint2 gid [[thread_position_in_grid]])
+{
+    uint r = gid.y;
+    uint c = gid.x;
+    if (r >= total_rows || c >= seq_len) return;
+    uint batch = r / seq_len;
+    if (mask[batch * seq_len + c] == 0u) {
+        scores[r * seq_len + c] = half(-10000.0f);
+    }
+}
+
+// -----------------------------------------------------------------------
+// transpose_heads_f16
+// -----------------------------------------------------------------------
+kernel void transpose_heads_f16(
+    device const half* src       [[buffer(0)]],
+    device       half* dst       [[buffer(1)]],
+    constant     uint&  batch_size [[buffer(2)]],
+    constant     uint&  seq_len   [[buffer(3)]],
+    constant     uint&  num_heads [[buffer(4)]],
+    constant     uint&  head_dim  [[buffer(5)]],
+    uint3 gid [[thread_position_in_grid]])
+{
+    uint d = gid.x;
+    uint s = gid.y;
+    uint h = gid.z;
+
+    if (d >= head_dim || s >= batch_size * seq_len) return;
+
+    uint b = s / seq_len;
+    uint seq = s % seq_len;
+
+    uint src_idx = s * (num_heads * head_dim) + h * head_dim + d;
+    uint dst_idx = (b * num_heads * seq_len + h * seq_len + seq) * head_dim + d;
+
+    dst[dst_idx] = src[src_idx];
+}
+
+// -----------------------------------------------------------------------
+// untranspose_heads_f16
+// -----------------------------------------------------------------------
+kernel void untranspose_heads_f16(
+    device const half* src       [[buffer(0)]],
+    device       half* dst       [[buffer(1)]],
+    constant     uint&  batch_size [[buffer(2)]],
+    constant     uint&  seq_len   [[buffer(3)]],
+    constant     uint&  num_heads [[buffer(4)]],
+    constant     uint&  head_dim  [[buffer(5)]],
+    uint3 gid [[thread_position_in_grid]])
+{
+    uint d = gid.x;
+    uint s = gid.y;
+    uint h = gid.z;
+
+    if (d >= head_dim || s >= batch_size * seq_len) return;
+
+    uint b = s / seq_len;
+    uint seq = s % seq_len;
+
+    uint src_idx = (b * num_heads * seq_len + h * seq_len + seq) * head_dim + d;
+    uint dst_idx = s * (num_heads * head_dim) + h * head_dim + d;
+
+    dst[dst_idx] = src[src_idx];
+}
+
+// -----------------------------------------------------------------------
+// multi_head_batched_attention_mask_f16
+// -----------------------------------------------------------------------
+kernel void multi_head_batched_attention_mask_f16(
+    device       half* scores     [[buffer(0)]],
+    device const uint*  mask       [[buffer(1)]],
+    constant     uint&  total_rows [[buffer(2)]],
+    constant     uint&  seq_len    [[buffer(3)]],
+    constant     uint&  num_heads  [[buffer(4)]],
+    uint2 gid [[thread_position_in_grid]])
+{
+    uint c = gid.x;
+    uint r = gid.y;
+    if (r >= total_rows || c >= seq_len) return;
+
+    uint group_size = num_heads * seq_len;
+    uint group = r / group_size;
+    uint mask_idx = group * seq_len + c;
+
+    if (mask[mask_idx] == 0u) {
+        scores[r * seq_len + c] = half(-10000.0f);
+    }
+}
+
+// -----------------------------------------------------------------------
+// batched_mean_pool_f16 — input half, output float (CPU reads f32)
+// -----------------------------------------------------------------------
+kernel void batched_mean_pool_f16(
+    device const half*  hidden   [[buffer(0)]],
+    device const uint*  mask     [[buffer(1)]],
+    device       float* output   [[buffer(2)]],
+    constant     uint&  seq_len  [[buffer(3)]],
+    constant     uint&  cols     [[buffer(4)]],
+    uint gid  [[threadgroup_position_in_grid]],
+    uint lid  [[thread_position_in_threadgroup]],
+    uint threads_per_group [[threads_per_threadgroup]])
+{
+    uint batch = gid;
+
+    for (uint c = lid; c < cols; c += threads_per_group) {
+        output[batch * cols + c] = 0.0f;
+    }
+    threadgroup_barrier(mem_flags::mem_threadgroup);
+
+    float count = 0.0f;
+    for (uint s = 0; s < seq_len; ++s) {
+        if (mask[batch * seq_len + s] == 1u) {
+            count += 1.0f;
+        }
+    }
+
+    for (uint s = 0; s < seq_len; ++s) {
+        if (mask[batch * seq_len + s] == 1u) {
+            uint row_off = (batch * seq_len + s) * cols;
+            for (uint c = lid; c < cols; c += threads_per_group) {
+                output[batch * cols + c] += float(hidden[row_off + c]);
+            }
+        }
+    }
+    threadgroup_barrier(mem_flags::mem_threadgroup);
+
+    if (count > 0.0f) {
+        float inv_count = 1.0f / count;
+        for (uint c = lid; c < cols; c += threads_per_group) {
+            output[batch * cols + c] *= inv_count;
+        }
+    }
+}
+"#;
