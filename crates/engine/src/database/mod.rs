@@ -27,6 +27,7 @@ pub use config::{ModelConfig, StrataConfig, SHADOW_EVENT, SHADOW_JSON, SHADOW_KV
 pub use registry::OPEN_DATABASES;
 pub use transactions::RetryConfig;
 
+use crate::background::BackgroundScheduler;
 use crate::coordinator::TransactionCoordinator;
 use crate::transaction::TransactionPool;
 use dashmap::DashMap;
@@ -177,6 +178,9 @@ pub struct Database {
     /// In Standard mode, a background thread periodically calls sync_if_overdue()
     /// to flush WAL data to disk without blocking the write path (#969).
     flush_handle: ParkingMutex<Option<std::thread::JoinHandle<()>>>,
+
+    /// Background task scheduler for deferred work (embedding, GC, etc.)
+    scheduler: BackgroundScheduler,
 
     /// Exclusive lock file preventing concurrent process access to the same database.
     ///
@@ -448,6 +452,7 @@ impl Database {
             config: parking_lot::RwLock::new(cfg),
             flush_shutdown,
             flush_handle: ParkingMutex::new(flush_handle),
+            scheduler: BackgroundScheduler::new(2, 4096),
             _lock_file: Some(lock_file),
         });
 
@@ -527,6 +532,7 @@ impl Database {
             config: parking_lot::RwLock::new(StrataConfig::default()),
             flush_shutdown: Arc::new(AtomicBool::new(false)),
             flush_handle: ParkingMutex::new(None),
+            scheduler: BackgroundScheduler::new(2, 4096),
             _lock_file: None, // No lock for ephemeral databases
         });
 
@@ -615,6 +621,11 @@ impl Database {
     /// Check if the database is currently open and accepting transactions
     pub fn is_open(&self) -> bool {
         self.accepting_transactions.load(Ordering::SeqCst)
+    }
+
+    /// Returns a reference to the background task scheduler.
+    pub fn scheduler(&self) -> &BackgroundScheduler {
+        &self.scheduler
     }
 
     // ========================================================================
@@ -1354,6 +1365,9 @@ impl Database {
         // Stop accepting new transactions
         self.accepting_transactions.store(false, Ordering::SeqCst);
 
+        // Drain background tasks (embeddings etc.) before final WAL flush
+        self.scheduler.drain();
+
         // Signal the background flush thread to stop
         self.flush_shutdown.store(true, Ordering::SeqCst);
 
@@ -1381,6 +1395,9 @@ impl Database {
 
 impl Drop for Database {
     fn drop(&mut self) {
+        // Shut down the background task scheduler
+        self.scheduler.shutdown();
+
         // Stop the background flush thread
         self.flush_shutdown.store(true, Ordering::SeqCst);
         if let Some(handle) = self.flush_handle.lock().take() {
