@@ -7,16 +7,20 @@
 /// pipeline: GEMM, activations, normalization, attention, and pooling.
 pub const MSL_SOURCE: &str = r#"
 #include <metal_stdlib>
+#include <metal_simdgroup_matrix>
 using namespace metal;
 
 // -----------------------------------------------------------------------
-// Constants
+// Constants for simdgroup_matrix GEMM tiling
 // -----------------------------------------------------------------------
-constant constexpr uint TILE = 16;
+constant constexpr uint BM = 32;
+constant constexpr uint BN = 32;
+constant constexpr uint BK = 32;
 
 // -----------------------------------------------------------------------
-// gemm — tiled 16x16 shared-memory matrix multiply
+// gemm — simdgroup_matrix 32x32 tiled matrix multiply
 //   C[M,N] = A[M,K] * B[K,N]     (both row-major)
+//   128 threads (4 simdgroups) per threadgroup, each owns a 16x16 sub-tile.
 // -----------------------------------------------------------------------
 kernel void gemm(
     device const float* A       [[buffer(0)]],
@@ -25,46 +29,108 @@ kernel void gemm(
     constant     uint&  M       [[buffer(3)]],
     constant     uint&  K       [[buffer(4)]],
     constant     uint&  N       [[buffer(5)]],
-    uint2 gid  [[thread_position_in_grid]],
-    uint2 lid  [[thread_position_in_threadgroup]])
+    uint2 tgid [[threadgroup_position_in_grid]],
+    uint  sgid [[simdgroup_index_in_threadgroup]],
+    uint  lid  [[thread_index_in_threadgroup]])
 {
-    // gid.x = column, gid.y = row
-    uint row = gid.y;
-    uint col = gid.x;
+    uint tile_row = tgid.y * BM;
+    uint tile_col = tgid.x * BN;
 
-    threadgroup float tileA[TILE][TILE];
-    threadgroup float tileB[TILE][TILE];
+    // 2x2 simdgroup layout within the 32x32 tile
+    uint sg_row = (sgid / 2) * 16;
+    uint sg_col = (sgid % 2) * 16;
 
-    float sum = 0.0f;
+    // 2x2 grid of 8x8 accumulators per simdgroup = 16x16 sub-tile
+    simdgroup_matrix<float, 8, 8> acc[2][2];
+    for (uint i = 0; i < 2; ++i)
+        for (uint j = 0; j < 2; ++j)
+            acc[i][j] = simdgroup_matrix<float, 8, 8>(0);
 
-    uint numTiles = (K + TILE - 1) / TILE;
-    for (uint t = 0; t < numTiles; ++t) {
-        // Load tile of A
-        uint aCol = t * TILE + lid.x;
-        uint aRow = row;
-        tileA[lid.y][lid.x] = (aRow < M && aCol < K) ? A[aRow * K + aCol] : 0.0f;
+    threadgroup float tgA[BM * BK];  // 32x32
+    threadgroup float tgB[BK * BN];  // 32x32
 
-        // Load tile of B
-        uint bRow = t * TILE + lid.y;
-        uint bCol = col;
-        tileB[lid.y][lid.x] = (bRow < K && bCol < N) ? B[bRow * N + bCol] : 0.0f;
+    uint num_k_tiles = (K + BK - 1) / BK;
+
+    for (uint kt = 0; kt < num_k_tiles; ++kt) {
+        uint k_base = kt * BK;
+
+        // Cooperative load: 128 threads load 32x32 = 1024 elements (8 each)
+        for (uint idx = lid; idx < BM * BK; idx += 128) {
+            uint r = idx / BK;
+            uint c = idx % BK;
+            uint gr = tile_row + r;
+            uint gc = k_base + c;
+            tgA[r * BK + c] = (gr < M && gc < K) ? A[gr * K + gc] : 0.0f;
+        }
+        for (uint idx = lid; idx < BK * BN; idx += 128) {
+            uint r = idx / BN;
+            uint c = idx % BN;
+            uint gr = k_base + r;
+            uint gc = tile_col + c;
+            tgB[r * BN + c] = (gr < K && gc < N) ? B[gr * N + gc] : 0.0f;
+        }
 
         threadgroup_barrier(mem_flags::mem_threadgroup);
 
-        for (uint i = 0; i < TILE; ++i) {
-            sum += tileA[lid.y][i] * tileB[i][lid.x];
+        // Inner K-loop: 4 steps of 8 along BK=32
+        for (uint kk = 0; kk < BK; kk += 8) {
+            simdgroup_matrix<float, 8, 8> a_mat[2];
+            simdgroup_matrix<float, 8, 8> b_mat[2];
+
+            // Load 2 A sub-matrices (rows sg_row..sg_row+15, cols kk..kk+7)
+            simdgroup_load(a_mat[0], &tgA[(sg_row + 0) * BK + kk], BK);
+            simdgroup_load(a_mat[1], &tgA[(sg_row + 8) * BK + kk], BK);
+
+            // Load 2 B sub-matrices (rows kk..kk+7, cols sg_col..sg_col+15)
+            simdgroup_load(b_mat[0], &tgB[kk * BN + (sg_col + 0)], BN);
+            simdgroup_load(b_mat[1], &tgB[kk * BN + (sg_col + 8)], BN);
+
+            // 2x2 multiply-accumulate
+            simdgroup_multiply_accumulate(acc[0][0], a_mat[0], b_mat[0], acc[0][0]);
+            simdgroup_multiply_accumulate(acc[0][1], a_mat[0], b_mat[1], acc[0][1]);
+            simdgroup_multiply_accumulate(acc[1][0], a_mat[1], b_mat[0], acc[1][0]);
+            simdgroup_multiply_accumulate(acc[1][1], a_mat[1], b_mat[1], acc[1][1]);
         }
 
         threadgroup_barrier(mem_flags::mem_threadgroup);
     }
 
-    if (row < M && col < N) {
-        C[row * N + col] = sum;
+    // Store results — threadgroup-level decision to avoid divergent barriers
+    uint out_row = tile_row + sg_row;
+    uint out_col = tile_col + sg_col;
+
+    // Check if the entire 32x32 threadgroup tile is in-bounds
+    if (tile_row + BM <= M && tile_col + BN <= N) {
+        // Fast path: all simdgroups store directly to device memory
+        simdgroup_store(acc[0][0], &C[(out_row + 0) * N + (out_col + 0)], N);
+        simdgroup_store(acc[0][1], &C[(out_row + 0) * N + (out_col + 8)], N);
+        simdgroup_store(acc[1][0], &C[(out_row + 8) * N + (out_col + 0)], N);
+        simdgroup_store(acc[1][1], &C[(out_row + 8) * N + (out_col + 8)], N);
+    } else {
+        // Edge tile: all simdgroups store to staging, then bounds-checked write
+        threadgroup float staging[BM * BN];
+        uint base = sg_row * BN + sg_col;
+        simdgroup_store(acc[0][0], &staging[base + 0 * BN + 0], BN);
+        simdgroup_store(acc[0][1], &staging[base + 0 * BN + 8], BN);
+        simdgroup_store(acc[1][0], &staging[base + 8 * BN + 0], BN);
+        simdgroup_store(acc[1][1], &staging[base + 8 * BN + 8], BN);
+
+        threadgroup_barrier(mem_flags::mem_threadgroup);
+
+        for (uint idx = lid; idx < BM * BN; idx += 128) {
+            uint r = idx / BN;
+            uint c = idx % BN;
+            uint gr = tile_row + r;
+            uint gc = tile_col + c;
+            if (gr < M && gc < N) {
+                C[gr * N + gc] = staging[r * BN + c];
+            }
+        }
     }
 }
 
 // -----------------------------------------------------------------------
-// gemm_transpose — tiled GEMM where B is (N,K) accessed transposed
+// gemm_transpose — simdgroup_matrix GEMM where B is (N,K) accessed transposed
 //   C[M,N] = A[M,K] * B^T   where B is stored as (N,K)
 // -----------------------------------------------------------------------
 kernel void gemm_transpose(
@@ -74,49 +140,95 @@ kernel void gemm_transpose(
     constant     uint&  M       [[buffer(3)]],
     constant     uint&  K       [[buffer(4)]],
     constant     uint&  N       [[buffer(5)]],
-    uint2 gid  [[thread_position_in_grid]],
-    uint2 lid  [[thread_position_in_threadgroup]])
+    uint2 tgid [[threadgroup_position_in_grid]],
+    uint  sgid [[simdgroup_index_in_threadgroup]],
+    uint  lid  [[thread_index_in_threadgroup]])
 {
-    uint row = gid.y;
-    uint col = gid.x;
+    uint tile_row = tgid.y * BM;
+    uint tile_col = tgid.x * BN;
 
-    threadgroup float tileA[TILE][TILE];
-    threadgroup float tileB[TILE][TILE];
+    uint sg_row = (sgid / 2) * 16;
+    uint sg_col = (sgid % 2) * 16;
 
-    float sum = 0.0f;
+    simdgroup_matrix<float, 8, 8> acc[2][2];
+    for (uint i = 0; i < 2; ++i)
+        for (uint j = 0; j < 2; ++j)
+            acc[i][j] = simdgroup_matrix<float, 8, 8>(0);
 
-    uint numTiles = (K + TILE - 1) / TILE;
-    for (uint t = 0; t < numTiles; ++t) {
-        // Load tile of A  (M x K, row-major)
-        uint aCol = t * TILE + lid.x;
-        uint aRow = row;
-        tileA[lid.y][lid.x] = (aRow < M && aCol < K) ? A[aRow * K + aCol] : 0.0f;
+    threadgroup float tgA[BM * BK];
+    threadgroup float tgB[BK * BN];
 
-        // Load tile of B^T — B is (N x K), so B^T[k][n] = B[n][k]
-        // We want tileB[lid.y][lid.x] = B^T[t*TILE+lid.y][col-base+lid.x]
-        // = B[col-base+lid.x][t*TILE+lid.y]
-        // But we need the tile indexed as (k-tile-row, n-tile-col).
-        // tileB[ky][nx] where ky indexes into the K dimension, nx into N.
-        uint bK   = t * TILE + lid.y;       // K-dimension index
-        uint bN   = col;                     // N-dimension index (same threadgroup column)
-        // B is stored row-major as (N, K), so element (n, k) = B[n * K + k]
-        // We want B^T element (k, n) = B[n * K + k]
-        // But here we need to load per-threadgroup tile. Each thread loads one element.
-        // Remap: we load B[col_base + lid.x][ t*TILE + lid.y ]
-        uint bN2 = (gid.x - lid.x) + lid.x; // = gid.x = col ... same as col
-        tileB[lid.y][lid.x] = (bK < K && bN2 < N) ? B[bN2 * K + bK] : 0.0f;
+    uint num_k_tiles = (K + BK - 1) / BK;
+
+    for (uint kt = 0; kt < num_k_tiles; ++kt) {
+        uint k_base = kt * BK;
+
+        // Load A tile (same as gemm)
+        for (uint idx = lid; idx < BM * BK; idx += 128) {
+            uint r = idx / BK;
+            uint c = idx % BK;
+            uint gr = tile_row + r;
+            uint gc = k_base + c;
+            tgA[r * BK + c] = (gr < M && gc < K) ? A[gr * K + gc] : 0.0f;
+        }
+        // Load B tile transposed: B is (N,K), we want B^T[k,n] = B[n,k]
+        // tgB[r][c] corresponds to K-dim r, N-dim c
+        for (uint idx = lid; idx < BK * BN; idx += 128) {
+            uint r = idx / BN;  // K-dim offset
+            uint c = idx % BN;  // N-dim offset
+            uint gk = k_base + r;
+            uint gn = tile_col + c;
+            tgB[r * BN + c] = (gk < K && gn < N) ? B[gn * K + gk] : 0.0f;
+        }
 
         threadgroup_barrier(mem_flags::mem_threadgroup);
 
-        for (uint i = 0; i < TILE; ++i) {
-            sum += tileA[lid.y][i] * tileB[i][lid.x];
+        for (uint kk = 0; kk < BK; kk += 8) {
+            simdgroup_matrix<float, 8, 8> a_mat[2];
+            simdgroup_matrix<float, 8, 8> b_mat[2];
+
+            simdgroup_load(a_mat[0], &tgA[(sg_row + 0) * BK + kk], BK);
+            simdgroup_load(a_mat[1], &tgA[(sg_row + 8) * BK + kk], BK);
+
+            simdgroup_load(b_mat[0], &tgB[kk * BN + (sg_col + 0)], BN);
+            simdgroup_load(b_mat[1], &tgB[kk * BN + (sg_col + 8)], BN);
+
+            simdgroup_multiply_accumulate(acc[0][0], a_mat[0], b_mat[0], acc[0][0]);
+            simdgroup_multiply_accumulate(acc[0][1], a_mat[0], b_mat[1], acc[0][1]);
+            simdgroup_multiply_accumulate(acc[1][0], a_mat[1], b_mat[0], acc[1][0]);
+            simdgroup_multiply_accumulate(acc[1][1], a_mat[1], b_mat[1], acc[1][1]);
         }
 
         threadgroup_barrier(mem_flags::mem_threadgroup);
     }
 
-    if (row < M && col < N) {
-        C[row * N + col] = sum;
+    uint out_row = tile_row + sg_row;
+    uint out_col = tile_col + sg_col;
+
+    if (tile_row + BM <= M && tile_col + BN <= N) {
+        simdgroup_store(acc[0][0], &C[(out_row + 0) * N + (out_col + 0)], N);
+        simdgroup_store(acc[0][1], &C[(out_row + 0) * N + (out_col + 8)], N);
+        simdgroup_store(acc[1][0], &C[(out_row + 8) * N + (out_col + 0)], N);
+        simdgroup_store(acc[1][1], &C[(out_row + 8) * N + (out_col + 8)], N);
+    } else {
+        threadgroup float staging[BM * BN];
+        uint base = sg_row * BN + sg_col;
+        simdgroup_store(acc[0][0], &staging[base + 0 * BN + 0], BN);
+        simdgroup_store(acc[0][1], &staging[base + 0 * BN + 8], BN);
+        simdgroup_store(acc[1][0], &staging[base + 8 * BN + 0], BN);
+        simdgroup_store(acc[1][1], &staging[base + 8 * BN + 8], BN);
+
+        threadgroup_barrier(mem_flags::mem_threadgroup);
+
+        for (uint idx = lid; idx < BM * BN; idx += 128) {
+            uint r = idx / BN;
+            uint c = idx % BN;
+            uint gr = tile_row + r;
+            uint gc = tile_col + c;
+            if (gr < M && gc < N) {
+                C[gr * N + gc] = staging[r * BN + c];
+            }
+        }
     }
 }
 
@@ -394,7 +506,7 @@ kernel void mean_pool(
 // batched_gemm_transpose — block-diagonal C[b] = A[b] * B[b]^T
 //   A: (batch*S, K), B: (batch*S, K), C: (batch*S, S)
 //   Each batch: (S,K) x (S,K)^T -> (S,S)
-//   Tiled 16x16 with batch index from threadgroup z.
+//   simdgroup_matrix with batch index from threadgroup z.
 // -----------------------------------------------------------------------
 kernel void batched_gemm_transpose(
     device const float* A       [[buffer(0)]],
@@ -403,45 +515,97 @@ kernel void batched_gemm_transpose(
     constant     uint&  S       [[buffer(3)]],
     constant     uint&  K       [[buffer(4)]],
     uint3 tgid [[threadgroup_position_in_grid]],
-    uint3 lid  [[thread_position_in_threadgroup]])
+    uint  sgid [[simdgroup_index_in_threadgroup]],
+    uint  lid  [[thread_index_in_threadgroup]])
 {
     uint batch = tgid.z;
-    uint row   = tgid.y * TILE + lid.y;
-    uint col   = tgid.x * TILE + lid.x;
+    uint tile_row = tgid.y * BM;
+    uint tile_col = tgid.x * BN;
 
     uint a_off = batch * S * K;
     uint b_off = batch * S * K;
     uint c_off = batch * S * S;
 
-    threadgroup float tileA[TILE][TILE];
-    threadgroup float tileB[TILE][TILE];
+    uint sg_row = (sgid / 2) * 16;
+    uint sg_col = (sgid % 2) * 16;
 
-    float sum = 0.0f;
+    simdgroup_matrix<float, 8, 8> acc[2][2];
+    for (uint i = 0; i < 2; ++i)
+        for (uint j = 0; j < 2; ++j)
+            acc[i][j] = simdgroup_matrix<float, 8, 8>(0);
 
-    uint numTiles = (K + TILE - 1) / TILE;
-    for (uint t = 0; t < numTiles; ++t) {
-        // Load tile of A  (S x K, row-major)
-        uint aCol = t * TILE + lid.x;
-        tileA[lid.y][lid.x] = (row < S && aCol < K)
-            ? A[a_off + row * K + aCol] : 0.0f;
+    threadgroup float tgA[BM * BK];
+    threadgroup float tgB[BK * BN];
 
-        // Load tile of B^T — B is (S x K), B^T[k][n] = B[n][k]
-        uint bK = t * TILE + lid.y;
-        uint bN = tgid.x * TILE + lid.x;
-        tileB[lid.y][lid.x] = (bK < K && bN < S)
-            ? B[b_off + bN * K + bK] : 0.0f;
+    uint num_k_tiles = (K + BK - 1) / BK;
+
+    for (uint kt = 0; kt < num_k_tiles; ++kt) {
+        uint k_base = kt * BK;
+
+        for (uint idx = lid; idx < BM * BK; idx += 128) {
+            uint r = idx / BK;
+            uint c = idx % BK;
+            uint gr = tile_row + r;
+            uint gc = k_base + c;
+            tgA[r * BK + c] = (gr < S && gc < K) ? A[a_off + gr * K + gc] : 0.0f;
+        }
+        // B transposed: B is (S,K), we want B^T[k,n] = B[n,k]
+        for (uint idx = lid; idx < BK * BN; idx += 128) {
+            uint r = idx / BN;
+            uint c = idx % BN;
+            uint gk = k_base + r;
+            uint gn = tile_col + c;
+            tgB[r * BN + c] = (gk < K && gn < S) ? B[b_off + gn * K + gk] : 0.0f;
+        }
 
         threadgroup_barrier(mem_flags::mem_threadgroup);
 
-        for (uint i = 0; i < TILE; ++i) {
-            sum += tileA[lid.y][i] * tileB[i][lid.x];
+        for (uint kk = 0; kk < BK; kk += 8) {
+            simdgroup_matrix<float, 8, 8> a_mat[2];
+            simdgroup_matrix<float, 8, 8> b_mat[2];
+
+            simdgroup_load(a_mat[0], &tgA[(sg_row + 0) * BK + kk], BK);
+            simdgroup_load(a_mat[1], &tgA[(sg_row + 8) * BK + kk], BK);
+
+            simdgroup_load(b_mat[0], &tgB[kk * BN + (sg_col + 0)], BN);
+            simdgroup_load(b_mat[1], &tgB[kk * BN + (sg_col + 8)], BN);
+
+            simdgroup_multiply_accumulate(acc[0][0], a_mat[0], b_mat[0], acc[0][0]);
+            simdgroup_multiply_accumulate(acc[0][1], a_mat[0], b_mat[1], acc[0][1]);
+            simdgroup_multiply_accumulate(acc[1][0], a_mat[1], b_mat[0], acc[1][0]);
+            simdgroup_multiply_accumulate(acc[1][1], a_mat[1], b_mat[1], acc[1][1]);
         }
 
         threadgroup_barrier(mem_flags::mem_threadgroup);
     }
 
-    if (row < S && col < S) {
-        C[c_off + row * S + col] = sum;
+    uint out_row = tile_row + sg_row;
+    uint out_col = tile_col + sg_col;
+
+    if (tile_row + BM <= S && tile_col + BN <= S) {
+        simdgroup_store(acc[0][0], &C[c_off + (out_row + 0) * S + (out_col + 0)], S);
+        simdgroup_store(acc[0][1], &C[c_off + (out_row + 0) * S + (out_col + 8)], S);
+        simdgroup_store(acc[1][0], &C[c_off + (out_row + 8) * S + (out_col + 0)], S);
+        simdgroup_store(acc[1][1], &C[c_off + (out_row + 8) * S + (out_col + 8)], S);
+    } else {
+        threadgroup float staging[BM * BN];
+        uint base = sg_row * BN + sg_col;
+        simdgroup_store(acc[0][0], &staging[base + 0 * BN + 0], BN);
+        simdgroup_store(acc[0][1], &staging[base + 0 * BN + 8], BN);
+        simdgroup_store(acc[1][0], &staging[base + 8 * BN + 0], BN);
+        simdgroup_store(acc[1][1], &staging[base + 8 * BN + 8], BN);
+
+        threadgroup_barrier(mem_flags::mem_threadgroup);
+
+        for (uint idx = lid; idx < BM * BN; idx += 128) {
+            uint r = idx / BN;
+            uint c = idx % BN;
+            uint gr = tile_row + r;
+            uint gc = tile_col + c;
+            if (gr < S && gc < S) {
+                C[c_off + gr * S + gc] = staging[r * BN + c];
+            }
+        }
     }
 }
 
@@ -449,7 +613,7 @@ kernel void batched_gemm_transpose(
 // batched_gemm — block-diagonal C[b] = A[b] * B[b]
 //   A: (batch*S, S), B: (batch*S, K), C: (batch*S, K)
 //   Each batch: (S,S) x (S,K) -> (S,K)
-//   Tiled 16x16 with batch index from threadgroup z.
+//   simdgroup_matrix with batch index from threadgroup z.
 // -----------------------------------------------------------------------
 kernel void batched_gemm(
     device const float* A       [[buffer(0)]],
@@ -458,44 +622,99 @@ kernel void batched_gemm(
     constant     uint&  S       [[buffer(3)]],
     constant     uint&  K       [[buffer(4)]],
     uint3 tgid [[threadgroup_position_in_grid]],
-    uint3 lid  [[thread_position_in_threadgroup]])
+    uint  sgid [[simdgroup_index_in_threadgroup]],
+    uint  lid  [[thread_index_in_threadgroup]])
 {
     uint batch = tgid.z;
-    uint row   = tgid.y * TILE + lid.y;
-    uint col   = tgid.x * TILE + lid.x;
+    uint tile_row = tgid.y * BM;
+    uint tile_col = tgid.x * BN;
 
     uint a_off = batch * S * S;
     uint b_off = batch * S * K;
     uint c_off = batch * S * K;
 
-    threadgroup float tileA[TILE][TILE];
-    threadgroup float tileB[TILE][TILE];
+    uint sg_row = (sgid / 2) * 16;
+    uint sg_col = (sgid % 2) * 16;
 
-    float sum = 0.0f;
+    simdgroup_matrix<float, 8, 8> acc[2][2];
+    for (uint i = 0; i < 2; ++i)
+        for (uint j = 0; j < 2; ++j)
+            acc[i][j] = simdgroup_matrix<float, 8, 8>(0);
 
-    uint numTiles = (S + TILE - 1) / TILE;
-    for (uint t = 0; t < numTiles; ++t) {
-        // Load tile of A  (S x S, row-major)
-        uint aCol = t * TILE + lid.x;
-        tileA[lid.y][lid.x] = (row < S && aCol < S)
-            ? A[a_off + row * S + aCol] : 0.0f;
+    threadgroup float tgA[BM * BK];
+    threadgroup float tgB[BK * BN];
 
-        // Load tile of B  (S x K, row-major)
-        uint bRow = t * TILE + lid.y;
-        tileB[lid.y][lid.x] = (bRow < S && col < K)
-            ? B[b_off + bRow * K + col] : 0.0f;
+    // Inner dimension for batched_gemm is S (A is SxS)
+    uint num_k_tiles = (S + BK - 1) / BK;
+
+    for (uint kt = 0; kt < num_k_tiles; ++kt) {
+        uint k_base = kt * BK;
+
+        // Load A tile (S x S)
+        for (uint idx = lid; idx < BM * BK; idx += 128) {
+            uint r = idx / BK;
+            uint c = idx % BK;
+            uint gr = tile_row + r;
+            uint gc = k_base + c;
+            tgA[r * BK + c] = (gr < S && gc < S) ? A[a_off + gr * S + gc] : 0.0f;
+        }
+        // Load B tile (S x K)
+        for (uint idx = lid; idx < BK * BN; idx += 128) {
+            uint r = idx / BN;
+            uint c = idx % BN;
+            uint gr = k_base + r;
+            uint gc = tile_col + c;
+            tgB[r * BN + c] = (gr < S && gc < K) ? B[b_off + gr * K + gc] : 0.0f;
+        }
 
         threadgroup_barrier(mem_flags::mem_threadgroup);
 
-        for (uint i = 0; i < TILE; ++i) {
-            sum += tileA[lid.y][i] * tileB[i][lid.x];
+        for (uint kk = 0; kk < BK; kk += 8) {
+            simdgroup_matrix<float, 8, 8> a_mat[2];
+            simdgroup_matrix<float, 8, 8> b_mat[2];
+
+            simdgroup_load(a_mat[0], &tgA[(sg_row + 0) * BK + kk], BK);
+            simdgroup_load(a_mat[1], &tgA[(sg_row + 8) * BK + kk], BK);
+
+            simdgroup_load(b_mat[0], &tgB[kk * BN + (sg_col + 0)], BN);
+            simdgroup_load(b_mat[1], &tgB[kk * BN + (sg_col + 8)], BN);
+
+            simdgroup_multiply_accumulate(acc[0][0], a_mat[0], b_mat[0], acc[0][0]);
+            simdgroup_multiply_accumulate(acc[0][1], a_mat[0], b_mat[1], acc[0][1]);
+            simdgroup_multiply_accumulate(acc[1][0], a_mat[1], b_mat[0], acc[1][0]);
+            simdgroup_multiply_accumulate(acc[1][1], a_mat[1], b_mat[1], acc[1][1]);
         }
 
         threadgroup_barrier(mem_flags::mem_threadgroup);
     }
 
-    if (row < S && col < K) {
-        C[c_off + row * K + col] = sum;
+    uint out_row = tile_row + sg_row;
+    uint out_col = tile_col + sg_col;
+
+    if (tile_row + BM <= S && tile_col + BN <= K) {
+        simdgroup_store(acc[0][0], &C[c_off + (out_row + 0) * K + (out_col + 0)], K);
+        simdgroup_store(acc[0][1], &C[c_off + (out_row + 0) * K + (out_col + 8)], K);
+        simdgroup_store(acc[1][0], &C[c_off + (out_row + 8) * K + (out_col + 0)], K);
+        simdgroup_store(acc[1][1], &C[c_off + (out_row + 8) * K + (out_col + 8)], K);
+    } else {
+        threadgroup float staging[BM * BN];
+        uint base = sg_row * BN + sg_col;
+        simdgroup_store(acc[0][0], &staging[base + 0 * BN + 0], BN);
+        simdgroup_store(acc[0][1], &staging[base + 0 * BN + 8], BN);
+        simdgroup_store(acc[1][0], &staging[base + 8 * BN + 0], BN);
+        simdgroup_store(acc[1][1], &staging[base + 8 * BN + 8], BN);
+
+        threadgroup_barrier(mem_flags::mem_threadgroup);
+
+        for (uint idx = lid; idx < BM * BN; idx += 128) {
+            uint r = idx / BN;
+            uint c = idx % BN;
+            uint gr = tile_row + r;
+            uint gc = tile_col + c;
+            if (gr < S && gc < K) {
+                C[c_off + gr * K + gc] = staging[r * BN + c];
+            }
+        }
     }
 }
 
