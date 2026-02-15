@@ -81,6 +81,10 @@ struct PendingEmbed {
 #[cfg(feature = "embed")]
 pub struct EmbedBuffer {
     pending: std::sync::Mutex<Vec<PendingEmbed>>,
+    /// Serializes flush operations so only one `embed_batch` call runs at a
+    /// time. The Metal GPU backend uses a shared deferred command buffer —
+    /// concurrent `embed_batch` calls interleave operations and corrupt it.
+    flush_lock: std::sync::Mutex<()>,
 }
 
 #[cfg(feature = "embed")]
@@ -88,6 +92,7 @@ impl Default for EmbedBuffer {
     fn default() -> Self {
         Self {
             pending: std::sync::Mutex::new(Vec::with_capacity(64)),
+            flush_lock: std::sync::Mutex::new(()),
         }
     }
 }
@@ -95,7 +100,16 @@ impl Default for EmbedBuffer {
 /// Buffer a text for embedding in a shadow vector collection.
 ///
 /// Best-effort: failures are logged, never propagated to the caller.
-/// When the buffer reaches `batch_size`, the calling thread auto-flushes.
+/// When the buffer reaches `batch_size`, a flush is submitted to the
+/// background scheduler (non-blocking). Falls back to synchronous flush
+/// if the scheduler rejects (backpressure/shutdown).
+///
+/// # Consistency
+///
+/// Because auto-flush is asynchronous, a `delete` that races with an
+/// in-flight background flush may see the embedding inserted *after* the
+/// delete. This matches Elasticsearch's NRT model: embeddings are
+/// eventually consistent with the source data.
 #[cfg(feature = "embed")]
 pub fn maybe_embed_text(
     p: &Arc<Primitives>,
@@ -132,7 +146,17 @@ pub fn maybe_embed_text(
     };
 
     if should_flush {
-        flush_embed_buffer(p);
+        let p_clone = Arc::clone(p);
+        if p.db
+            .scheduler()
+            .submit(strata_engine::TaskPriority::Normal, move || {
+                flush_embed_buffer(&p_clone)
+            })
+            .is_err()
+        {
+            // Backpressure or shutdown — fall back to synchronous flush
+            flush_embed_buffer(p);
+        }
     }
 }
 
@@ -151,8 +175,11 @@ pub fn maybe_embed_text(
 
 /// Flush all pending embeddings: compute vectors in batch and insert.
 ///
-/// Safe to call concurrently — drain is atomic (`mem::take` under Mutex),
-/// so a second caller simply processes an empty/partial buffer.
+/// Serialized by `flush_lock` — only one `embed_batch` call runs at a time.
+/// The Metal GPU backend uses a shared deferred command buffer that is not
+/// safe for concurrent `embed_batch` calls (interleaved command encoding).
+/// A second concurrent caller blocks until the first completes, then drains
+/// whatever has accumulated in the buffer since the first caller's `mem::take`.
 #[cfg(feature = "embed")]
 pub fn flush_embed_buffer(p: &Arc<Primitives>) {
     use strata_intelligence::embed::EmbedModelState;
@@ -164,6 +191,9 @@ pub fn flush_embed_buffer(p: &Arc<Primitives>) {
             return;
         }
     };
+
+    // Serialize flush operations — only one embed_batch at a time.
+    let _flush_guard = buf.flush_lock.lock().unwrap_or_else(|e| e.into_inner());
 
     // Atomically drain the buffer.
     let batch = {
@@ -372,8 +402,10 @@ mod tests {
         // because threshold not reached.
         assert_eq!(buffer_len(&p), batch_size - 1);
 
-        // Push one more item — reaches batch_size, triggers auto-flush.
+        // Push one more item — reaches batch_size, triggers async auto-flush.
         push_n(&p, 1);
+        // Wait for the background flush task to complete.
+        p.db.scheduler().drain();
         // The flush drains the buffer (even though model load fails, the
         // drain via mem::take already happened).
         assert_eq!(buffer_len(&p), 0);
@@ -543,6 +575,111 @@ mod tests {
         // Buffer should be empty after drop (items drained, even if model
         // load fails the drain still happens).
         assert_eq!(buffer_len(&p), 0);
+    }
+
+    /// The 1-second NRT refresh timer should flush a partially-filled buffer.
+    ///
+    /// Pushes items well below batch_size, waits for the timer to tick,
+    /// and verifies the buffer is drained.
+    #[test]
+    fn test_nrt_timer_flushes_partial_buffer() {
+        use crate::Executor;
+
+        let db = strata_engine::Database::cache().expect("open cache db");
+        db.set_auto_embed(true);
+        let executor = Executor::new(db);
+
+        executor
+            .execute(crate::Command::Ping)
+            .expect("ping works");
+
+        let branch_id = BranchId::default();
+        let p = executor.primitives().clone();
+
+        // Buffer a few items — well below batch_size, so auto-flush does NOT trigger.
+        for i in 0..3 {
+            maybe_embed_text(
+                &p,
+                branch_id,
+                "default",
+                SHADOW_KV,
+                &format!("nrt-key-{}", i),
+                &format!("nrt text {}", i),
+                strata_core::EntityRef::kv(branch_id, &format!("nrt-key-{}", i)),
+            );
+        }
+        assert_eq!(buffer_len(&p), 3);
+
+        // Wait for the 1-second refresh timer to fire + scheduler to process.
+        std::thread::sleep(std::time::Duration::from_millis(1500));
+        p.db.scheduler().drain();
+
+        // Timer should have flushed the buffer (drain via mem::take happens
+        // even though model load fails in test).
+        assert_eq!(buffer_len(&p), 0);
+    }
+
+    /// `Command::Flush` must drain in-flight background embed tasks before
+    /// the WAL flush, ensuring all embeddings are persisted.
+    #[test]
+    fn test_flush_command_drains_async_embeds() {
+        use crate::Executor;
+
+        let db = strata_engine::Database::cache().expect("open cache db");
+        db.set_auto_embed(true);
+        let executor = Executor::new(db);
+
+        executor
+            .execute(crate::Command::Ping)
+            .expect("ping works");
+
+        let branch_id = BranchId::default();
+        let p = executor.primitives().clone();
+        let batch_size = p.db.embed_batch_size();
+
+        // Fill the buffer to trigger an async auto-flush.
+        for i in 0..batch_size {
+            maybe_embed_text(
+                &p,
+                branch_id,
+                "default",
+                SHADOW_KV,
+                &format!("flush-cmd-key-{}", i),
+                &format!("text {}", i),
+                strata_core::EntityRef::kv(branch_id, &format!("flush-cmd-key-{}", i)),
+            );
+        }
+
+        // Command::Flush should drain the scheduler (waiting for the async
+        // embed task) and then flush the WAL.
+        executor
+            .execute(crate::Command::Flush)
+            .expect("flush works");
+
+        // Buffer must be empty after Command::Flush.
+        assert_eq!(buffer_len(&p), 0);
+    }
+
+    /// Executor::drop completes instantly (no 1s sleep delay) because the
+    /// timer thread uses a condvar that is signaled on drop.
+    #[test]
+    fn test_executor_drop_is_fast() {
+        use crate::Executor;
+
+        let db = strata_engine::Database::cache().expect("open cache db");
+        let executor = Executor::new(db);
+
+        let start = std::time::Instant::now();
+        drop(executor);
+        let elapsed = start.elapsed();
+
+        // Drop should complete well under 1 second. If the condvar is broken
+        // and we fall back to waiting for thread::sleep(1s), this fails.
+        assert!(
+            elapsed < std::time::Duration::from_millis(500),
+            "Executor::drop took {:?}, expected <500ms",
+            elapsed
+        );
     }
 }
 
