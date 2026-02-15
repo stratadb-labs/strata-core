@@ -81,6 +81,10 @@ struct PendingEmbed {
 #[cfg(feature = "embed")]
 pub struct EmbedBuffer {
     pending: std::sync::Mutex<Vec<PendingEmbed>>,
+    /// Serializes flush operations so only one `embed_batch` call runs at a
+    /// time. The Metal GPU backend uses a shared deferred command buffer —
+    /// concurrent `embed_batch` calls interleave operations and corrupt it.
+    flush_lock: std::sync::Mutex<()>,
 }
 
 #[cfg(feature = "embed")]
@@ -88,6 +92,7 @@ impl Default for EmbedBuffer {
     fn default() -> Self {
         Self {
             pending: std::sync::Mutex::new(Vec::with_capacity(64)),
+            flush_lock: std::sync::Mutex::new(()),
         }
     }
 }
@@ -170,8 +175,11 @@ pub fn maybe_embed_text(
 
 /// Flush all pending embeddings: compute vectors in batch and insert.
 ///
-/// Safe to call concurrently — drain is atomic (`mem::take` under Mutex),
-/// so a second caller simply processes an empty/partial buffer.
+/// Serialized by `flush_lock` — only one `embed_batch` call runs at a time.
+/// The Metal GPU backend uses a shared deferred command buffer that is not
+/// safe for concurrent `embed_batch` calls (interleaved command encoding).
+/// A second concurrent caller blocks until the first completes, then drains
+/// whatever has accumulated in the buffer since the first caller's `mem::take`.
 #[cfg(feature = "embed")]
 pub fn flush_embed_buffer(p: &Arc<Primitives>) {
     use strata_intelligence::embed::EmbedModelState;
@@ -183,6 +191,9 @@ pub fn flush_embed_buffer(p: &Arc<Primitives>) {
             return;
         }
     };
+
+    // Serialize flush operations — only one embed_batch at a time.
+    let _flush_guard = buf.flush_lock.lock().unwrap_or_else(|e| e.into_inner());
 
     // Atomically drain the buffer.
     let batch = {
