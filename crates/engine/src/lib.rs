@@ -23,6 +23,7 @@
 #![warn(missing_docs)]
 #![warn(clippy::all)]
 
+pub mod background;
 pub mod coordinator;
 pub mod database;
 pub mod instrumentation;
@@ -30,6 +31,7 @@ pub mod recovery;
 pub mod transaction;
 pub mod transaction_ops; // TransactionOps Trait Definition
 
+pub use background::{BackgroundScheduler, BackpressureError, SchedulerStats, TaskPriority};
 pub use coordinator::{TransactionCoordinator, TransactionMetrics};
 pub use database::{Database, ModelConfig, RetryConfig, StrataConfig};
 pub use instrumentation::PerfTrace;
