@@ -364,20 +364,15 @@ mod tests {
     fn test_auto_flush_at_batch_size() {
         let p = setup();
 
-        // Default batch_size is 64 — we test against that.
+        let batch_size = p.db.embed_batch_size(); // default: 256
 
-        // Push 63 items — should NOT trigger auto-flush.
-        push_n(&p, 63);
-        // Buffer should hold 63 items (no flush because model isn't available,
-        // but maybe_embed_text returns early from flush_embed_buffer when model
-        // fails — the key thing is the buffer was drained by flush attempt).
-        //
-        // Actually: flush_embed_buffer drains the buffer THEN tries model.
-        // If model fails, items are lost but buffer is empty.
-        // So with 63 items (< 64), no flush triggered → buffer has 63.
-        assert_eq!(buffer_len(&p), 63);
+        // Push (batch_size - 1) items — should NOT trigger auto-flush.
+        push_n(&p, batch_size - 1);
+        // Buffer should hold (batch_size - 1) items. No flush triggered
+        // because threshold not reached.
+        assert_eq!(buffer_len(&p), batch_size - 1);
 
-        // Push the 64th item — triggers auto-flush → buffer drained.
+        // Push one more item — reaches batch_size, triggers auto-flush.
         push_n(&p, 1);
         // The flush drains the buffer (even though model load fails, the
         // drain via mem::take already happened).

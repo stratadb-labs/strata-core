@@ -48,7 +48,7 @@ pub struct OpenOptions {
     /// Override model request timeout in milliseconds.
     pub model_timeout_ms: Option<u64>,
     /// Override embedding batch size for auto-embed.
-    /// `None` means "use the config file default" (64).
+    /// `None` means "use the config file value, or 512 if unset".
     pub embed_batch_size: Option<usize>,
 }
 

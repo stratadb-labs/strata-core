@@ -718,7 +718,7 @@ impl Database {
         });
     }
 
-    /// Get the embedding batch size (reads config, defaults to 64).
+    /// Get the embedding batch size (reads config).
     pub fn embed_batch_size(&self) -> usize {
         self.config.read().embed_batch_size.unwrap_or(64)
     }

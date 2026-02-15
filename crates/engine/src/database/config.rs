@@ -73,7 +73,8 @@ pub struct StrataConfig {
     /// Optional model configuration for query expansion and re-ranking.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub model: Option<ModelConfig>,
-    /// Embedding batch size for auto-embed (default: 64).
+    /// Embedding batch size for auto-embed.
+    /// When opened via `OpenOptions`, defaults to 512.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub embed_batch_size: Option<usize>,
 }
@@ -123,9 +124,9 @@ durability = "standard"
 # Requires the "embed" feature to be compiled in.
 auto_embed = false
 
-# Embedding batch size for auto-embed (default: 64).
+# Embedding batch size for auto-embed (default: 512 via OpenOptions).
 # Increase for bulk ingestion, decrease for interactive use.
-# embed_batch_size = 64
+# embed_batch_size = 512
 
 # Model configuration for query expansion and re-ranking.
 # Uncomment and configure to enable intelligent search features.
