@@ -3,7 +3,6 @@
 //! The Executor is a stateless dispatcher that routes commands to the
 //! appropriate primitive operations and converts results to outputs.
 
-use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::time::Instant;
 
@@ -50,14 +49,23 @@ use crate::{Command, Error, Output, Result};
 pub struct Executor {
     primitives: Arc<Primitives>,
     access_mode: AccessMode,
-    /// Shutdown flag for the embed refresh timer thread.
-    embed_refresh_shutdown: Arc<AtomicBool>,
+    /// Shared state for the embed refresh timer thread (condvar for instant shutdown).
+    embed_refresh_state: Arc<EmbedRefreshState>,
     /// Handle for the embed refresh timer thread (joined on drop).
     embed_refresh_handle: Option<std::thread::JoinHandle<()>>,
 }
 
 /// Interval between automatic embed buffer flushes (Elasticsearch-style NRT refresh).
 const EMBED_REFRESH_INTERVAL: std::time::Duration = std::time::Duration::from_secs(1);
+
+/// Shared state between the embed refresh timer thread and `Executor::drop`.
+///
+/// Uses a condvar so that shutdown signals wake the thread instantly
+/// instead of waiting up to 1 second for `thread::sleep` to finish.
+struct EmbedRefreshState {
+    mu: std::sync::Mutex<bool>,
+    cond: std::sync::Condvar,
+}
 
 impl Executor {
     /// Create a new executor from a database instance.
@@ -68,12 +76,15 @@ impl Executor {
     /// Create a new executor with an explicit access mode.
     pub fn new_with_mode(db: Arc<Database>, access_mode: AccessMode) -> Self {
         let primitives = Arc::new(Primitives::new(db));
-        let shutdown = Arc::new(AtomicBool::new(false));
-        let handle = Self::spawn_embed_refresh_thread(&primitives, &shutdown);
+        let state = Arc::new(EmbedRefreshState {
+            mu: std::sync::Mutex::new(false),
+            cond: std::sync::Condvar::new(),
+        });
+        let handle = Self::spawn_embed_refresh_thread(&primitives, &state);
         Self {
             primitives,
             access_mode,
-            embed_refresh_shutdown: shutdown,
+            embed_refresh_state: state,
             embed_refresh_handle: Some(handle),
         }
     }
@@ -85,16 +96,23 @@ impl Executor {
     /// the buffer hasn't reached `batch_size`.
     fn spawn_embed_refresh_thread(
         primitives: &Arc<Primitives>,
-        shutdown: &Arc<AtomicBool>,
+        state: &Arc<EmbedRefreshState>,
     ) -> std::thread::JoinHandle<()> {
         let p = Arc::clone(primitives);
-        let stop = Arc::clone(shutdown);
+        let st = Arc::clone(state);
         std::thread::Builder::new()
             .name("strata-embed-refresh".into())
             .spawn(move || {
-                while !stop.load(Ordering::Acquire) {
-                    std::thread::sleep(EMBED_REFRESH_INTERVAL);
-                    if stop.load(Ordering::Acquire) {
+                let mut guard = st.mu.lock().unwrap_or_else(|e| e.into_inner());
+                while !*guard {
+                    // Wait for shutdown signal or timeout (1s refresh interval).
+                    // On shutdown, the condvar is signaled and we exit instantly.
+                    let (g, _) = st
+                        .cond
+                        .wait_timeout(guard, EMBED_REFRESH_INTERVAL)
+                        .unwrap_or_else(|e| e.into_inner());
+                    guard = g;
+                    if *guard {
                         break;
                     }
                     if !p.db.auto_embed_enabled() {
@@ -884,8 +902,17 @@ impl Executor {
 
 impl Drop for Executor {
     fn drop(&mut self) {
-        // Stop the embed refresh timer thread.
-        self.embed_refresh_shutdown.store(true, Ordering::Release);
+        // Signal the embed refresh timer thread to exit and wait for it.
+        // The condvar wakes the thread instantly (no 1s sleep delay).
+        {
+            let mut guard = self
+                .embed_refresh_state
+                .mu
+                .lock()
+                .unwrap_or_else(|e| e.into_inner());
+            *guard = true;
+            self.embed_refresh_state.cond.notify_one();
+        }
         if let Some(handle) = self.embed_refresh_handle.take() {
             let _ = handle.join();
         }
