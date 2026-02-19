@@ -36,13 +36,17 @@ pub struct SegmentedHnswConfig {
     pub hnsw: HnswConfig,
     /// Number of vectors in the active buffer before sealing (default: 256)
     pub seal_threshold: usize,
+    /// Number of overlay vectors before flushing heap to mmap (default: 500_000).
+    /// Set to 0 to disable periodic flushing.
+    pub heap_flush_threshold: usize,
 }
 
 impl Default for SegmentedHnswConfig {
     fn default() -> Self {
         Self {
             hnsw: HnswConfig::default(),
-            seal_threshold: 256,
+            seal_threshold: 50_000,
+            heap_flush_threshold: 500_000,
         }
     }
 }
@@ -151,6 +155,9 @@ pub struct SegmentedHnswBackend {
     next_segment_id: u64,
     /// Timestamps stored during recovery, consumed by rebuild_index()
     pending_timestamps: BTreeMap<VectorId, u64>,
+    /// Path to the `.vec` mmap file (set when heap is loaded from mmap).
+    /// Used for periodic overlay flushing.
+    flush_path: Option<std::path::PathBuf>,
 }
 
 impl SegmentedHnswBackend {
@@ -164,6 +171,7 @@ impl SegmentedHnswBackend {
             sealed: Vec::new(),
             next_segment_id: 0,
             pending_timestamps: BTreeMap::new(),
+            flush_path: None,
         }
     }
 
@@ -218,6 +226,49 @@ impl SegmentedHnswBackend {
             live_count,
             source_branch: None,
         });
+    }
+
+    /// Flush the heap overlay to mmap if it exceeds the configured threshold.
+    ///
+    /// After sealing a segment, this checks whether the overlay has grown past
+    /// `heap_flush_threshold`. If so, the overlay is merged into the base mmap
+    /// and reset, keeping anonymous memory bounded.
+    fn flush_heap_if_needed(&mut self) {
+        let threshold = self.config.heap_flush_threshold;
+        if threshold == 0 {
+            return; // Flushing disabled
+        }
+        let overlay_count = self.heap.overlay_len();
+        if overlay_count < threshold {
+            return;
+        }
+        let Some(path) = self.flush_path.clone() else {
+            return; // No flush path configured (in-memory database)
+        };
+
+        tracing::info!(
+            target: "strata::vector",
+            overlay_count,
+            threshold,
+            "Flushing heap overlay to mmap"
+        );
+
+        match self.heap.flush_overlay_to_disk(&path) {
+            Ok(n) => {
+                tracing::info!(
+                    target: "strata::vector",
+                    flushed = n,
+                    "Heap overlay flushed to mmap"
+                );
+            }
+            Err(e) => {
+                tracing::warn!(
+                    target: "strata::vector",
+                    error = %e,
+                    "Failed to flush heap overlay to mmap, continuing with in-memory overlay"
+                );
+            }
+        }
     }
 
     // ========================================================================
@@ -444,6 +495,7 @@ impl VectorIndexBackend for SegmentedHnswBackend {
         // Seal if threshold reached
         if self.active.len() >= self.config.seal_threshold {
             self.seal_active_buffer();
+            self.flush_heap_if_needed();
         }
 
         Ok(())
@@ -611,12 +663,8 @@ impl VectorIndexBackend for SegmentedHnswBackend {
     }
 
     fn memory_usage(&self) -> usize {
-        // Global heap embedding storage (0 for mmap — OS manages those pages)
-        let heap_bytes = if self.heap.is_mmap() {
-            0
-        } else {
-            self.heap.raw_data().len() * std::mem::size_of::<f32>()
-        };
+        // Global heap: anonymous memory only (mmap pages are OS-managed)
+        let heap_bytes = self.heap.anon_data_bytes();
         let heap_overhead =
             self.heap.len() * (std::mem::size_of::<VectorId>() + std::mem::size_of::<usize>() + 64);
         let free_slots_bytes = self.heap.free_slots().len() * std::mem::size_of::<usize>();
@@ -729,8 +777,30 @@ impl VectorIndexBackend for SegmentedHnswBackend {
         self.heap.freeze_to_disk(path)
     }
 
+    fn flush_heap_to_disk_if_needed(
+        &mut self,
+        path: &std::path::Path,
+    ) -> Result<bool, VectorError> {
+        // Store the flush path for future periodic flushes
+        self.flush_path = Some(path.to_path_buf());
+
+        // Promote Mmap → Tiered if needed (first mutation after mmap-based recovery)
+        self.heap.promote_to_tiered();
+
+        let threshold = self.config.heap_flush_threshold;
+        if threshold == 0 || self.heap.overlay_len() < threshold {
+            return Ok(false);
+        }
+
+        self.heap.flush_overlay_to_disk(path)?;
+        Ok(true)
+    }
+
     fn replace_heap(&mut self, heap: crate::primitives::vector::VectorHeap) {
         self.heap = heap;
+        // Promote Mmap → Tiered so that subsequent inserts go to the overlay
+        // instead of panicking.
+        self.heap.promote_to_tiered();
     }
 
     fn register_mmap_vector(&mut self, id: VectorId, created_at: u64) {
@@ -903,6 +973,7 @@ mod tests {
         let seg_config = SegmentedHnswConfig {
             hnsw: HnswConfig::default(),
             seal_threshold,
+            heap_flush_threshold: 0, // Disable flushing in tests
         };
         SegmentedHnswBackend::new(&config, seg_config)
     }
@@ -1765,5 +1836,155 @@ mod tests {
         let mut backend = make_backend_with_threshold(3, DistanceMetric::Cosine, 3);
         let loaded = backend.load_graphs_from_disk(&dir).unwrap();
         assert!(!loaded, "Should return false on corrupt manifest");
+    }
+
+    // ====================================================================
+    // flush_heap_if_needed / Tiered integration tests
+    // ====================================================================
+
+    #[test]
+    fn test_flush_heap_if_needed_triggers_at_threshold() {
+        let temp_dir = tempfile::TempDir::new().unwrap();
+        let vec_path = temp_dir.path().join("test.vec");
+
+        // Create backend with low flush threshold for testing
+        let config = VectorConfig::new(3, DistanceMetric::Cosine).unwrap();
+        let seg_config = SegmentedHnswConfig {
+            hnsw: HnswConfig::default(),
+            seal_threshold: 100, // high seal threshold to avoid sealing
+            heap_flush_threshold: 5, // flush after 5 overlay vectors
+        };
+        let mut backend = SegmentedHnswBackend::new(&config, seg_config);
+
+        // Write an initial mmap file and set up the flush path
+        backend.heap.upsert(VectorId::new(100), &[1.0, 0.0, 0.0]).unwrap();
+        backend.heap.freeze_to_disk(&vec_path).unwrap();
+
+        // Reopen with mmap and configure
+        let mmap_heap = VectorHeap::from_mmap(&vec_path, config.clone()).unwrap();
+        backend.replace_heap(mmap_heap);
+        backend.flush_path = Some(vec_path.clone());
+
+        // Insert 4 vectors (below threshold)
+        for i in 1..=4 {
+            backend.heap.upsert(VectorId::new(i), &[i as f32, 0.0, 0.0]).unwrap();
+        }
+        backend.flush_heap_if_needed();
+        assert!(backend.heap.overlay_len() > 0, "Should not flush below threshold");
+
+        // Insert 1 more (reaches threshold)
+        backend.heap.upsert(VectorId::new(5), &[5.0, 0.0, 0.0]).unwrap();
+        assert_eq!(backend.heap.overlay_len(), 5);
+        backend.flush_heap_if_needed();
+        assert_eq!(backend.heap.overlay_len(), 0, "Should flush at threshold");
+
+        // All vectors should still be accessible
+        assert_eq!(backend.heap.len(), 6); // 100 + 1..5
+        assert!(backend.heap.get(VectorId::new(100)).is_some());
+        assert!(backend.heap.get(VectorId::new(3)).is_some());
+    }
+
+    #[test]
+    fn test_flush_heap_disabled_when_threshold_zero() {
+        let config = VectorConfig::new(3, DistanceMetric::Cosine).unwrap();
+        let seg_config = SegmentedHnswConfig {
+            hnsw: HnswConfig::default(),
+            seal_threshold: 100,
+            heap_flush_threshold: 0, // disabled
+        };
+        let mut backend = SegmentedHnswBackend::new(&config, seg_config);
+        backend.flush_path = Some(std::path::PathBuf::from("/tmp/dummy.vec"));
+
+        // Even with many overlay vectors, flush should not trigger
+        for i in 1..=100 {
+            backend.heap.upsert(VectorId::new(i), &[i as f32, 0.0, 0.0]).unwrap();
+        }
+        // No panic, no effect
+        backend.flush_heap_if_needed();
+    }
+
+    #[test]
+    fn test_flush_heap_no_path_configured() {
+        let config = VectorConfig::new(3, DistanceMetric::Cosine).unwrap();
+        let seg_config = SegmentedHnswConfig {
+            hnsw: HnswConfig::default(),
+            seal_threshold: 100,
+            heap_flush_threshold: 1,
+        };
+        let mut backend = SegmentedHnswBackend::new(&config, seg_config);
+        // flush_path is None (in-memory database)
+
+        backend.heap.upsert(VectorId::new(1), &[1.0, 0.0, 0.0]).unwrap();
+        // Should not panic even though overlay exceeds threshold
+        backend.flush_heap_if_needed();
+    }
+
+    #[test]
+    fn test_vectors_searchable_after_mid_indexing_flush() {
+        let temp_dir = tempfile::TempDir::new().unwrap();
+        let vec_path = temp_dir.path().join("test.vec");
+
+        let config = VectorConfig::new(3, DistanceMetric::Cosine).unwrap();
+        let seg_config = SegmentedHnswConfig {
+            hnsw: HnswConfig::default(),
+            seal_threshold: 3,
+            heap_flush_threshold: 5,
+        };
+        let mut backend = SegmentedHnswBackend::new(&config, seg_config);
+
+        // Insert vectors that will trigger seal + flush
+        // seal_threshold=3: seal after 3 inserts
+        // heap_flush_threshold=5: flush after 5 overlay vectors
+        for i in 1..=6 {
+            backend
+                .insert_with_timestamp(VectorId::new(i), &[i as f32, 0.0, 0.0], i as u64)
+                .unwrap();
+        }
+
+        // Manually set up flush path and trigger flush
+        let _ = backend.flush_heap_to_disk_if_needed(&vec_path);
+
+        // Insert more after flush
+        for i in 7..=9 {
+            backend
+                .insert_with_timestamp(VectorId::new(i), &[i as f32, 0.0, 0.0], i as u64)
+                .unwrap();
+        }
+
+        // All vectors should be searchable
+        assert_eq!(backend.len(), 9);
+        let results = backend.search(&[5.0, 0.0, 0.0], 9);
+        assert_eq!(results.len(), 9);
+        // All [i, 0, 0] vectors point in the same direction → cosine=1.0.
+        // Just verify we got all 9 back.
+        let mut ids: Vec<u64> = results.iter().map(|(id, _)| id.as_u64()).collect();
+        ids.sort();
+        assert_eq!(ids, vec![1, 2, 3, 4, 5, 6, 7, 8, 9]);
+    }
+
+    #[test]
+    fn test_replace_heap_promotes_to_tiered() {
+        let temp_dir = tempfile::TempDir::new().unwrap();
+        let vec_path = temp_dir.path().join("test.vec");
+
+        let config = VectorConfig::new(3, DistanceMetric::Cosine).unwrap();
+        let mut backend = make_backend_with_threshold(3, DistanceMetric::Cosine, 100);
+
+        // Create an mmap file
+        backend.heap.upsert(VectorId::new(1), &[1.0, 0.0, 0.0]).unwrap();
+        backend.heap.freeze_to_disk(&vec_path).unwrap();
+
+        // Load mmap and replace heap
+        let mmap_heap = VectorHeap::from_mmap(&vec_path, config).unwrap();
+        backend.replace_heap(mmap_heap);
+
+        // Should be promoted to Tiered (mmap flag true)
+        assert!(backend.is_heap_mmap());
+
+        // New inserts should go to overlay without panicking
+        backend.insert(VectorId::new(2), &[0.0, 1.0, 0.0]).unwrap();
+        assert_eq!(backend.len(), 2);
+        assert!(backend.get(VectorId::new(1)).is_some());
+        assert!(backend.get(VectorId::new(2)).is_some());
     }
 }

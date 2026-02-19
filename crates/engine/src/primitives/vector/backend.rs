@@ -181,6 +181,18 @@ pub trait VectorIndexBackend: Send + Sync {
         false
     }
 
+    /// Flush the embedding heap to disk if the in-memory overlay exceeds a
+    /// size threshold. Returns `true` if a flush was actually performed.
+    ///
+    /// Called after segment sealing to keep anonymous memory bounded during
+    /// long-running indexing. Default: no-op.
+    fn flush_heap_to_disk_if_needed(
+        &mut self,
+        _path: &std::path::Path,
+    ) -> Result<bool, VectorError> {
+        Ok(false)
+    }
+
     /// Write sealed segment graphs to disk for mmap-accelerated recovery.
     ///
     /// `dir` is the directory for graph files (e.g., `data_dir/vectors/{branch}/{collection}/`).

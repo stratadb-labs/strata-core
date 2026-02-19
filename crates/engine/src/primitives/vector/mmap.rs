@@ -38,6 +38,63 @@ const VERSION: u32 = 1;
 /// Header size: magic(4) + version(4) + dimension(4) + count(8) + next_id(8)
 const HEADER_SIZE: usize = 4 + 4 + 4 + 8 + 8;
 
+/// Compact sorted index: (vector_id_u64, offset_u64) pairs.
+///
+/// Uses binary search for O(log n) lookups at 16 bytes/entry, compared to
+/// BTreeMap's ~72 bytes/entry. Suitable for immutable/read-only data.
+///
+/// Offsets are in f32 elements. u64 supports up to 2^64 elements, which is
+/// sufficient for 100M+ vectors at any dimension without silent truncation.
+#[derive(Clone)]
+pub(crate) struct CompactIndex {
+    /// Sorted by vector_id ascending. Offset is in f32 elements.
+    entries: Vec<(u64, u64)>,
+}
+
+impl CompactIndex {
+    fn from_btree(map: &BTreeMap<VectorId, usize>) -> Self {
+        let entries: Vec<(u64, u64)> = map
+            .iter()
+            .map(|(&id, &offset)| (id.as_u64(), offset as u64))
+            .collect();
+        CompactIndex { entries }
+    }
+
+    fn get(&self, id: VectorId) -> Option<usize> {
+        let key = id.as_u64();
+        self.entries
+            .binary_search_by_key(&key, |&(vid, _)| vid)
+            .ok()
+            .map(|idx| self.entries[idx].1 as usize)
+    }
+
+    fn contains(&self, id: VectorId) -> bool {
+        let key = id.as_u64();
+        self.entries
+            .binary_search_by_key(&key, |&(vid, _)| vid)
+            .is_ok()
+    }
+
+    fn len(&self) -> usize {
+        self.entries.len()
+    }
+
+    fn to_btree(&self) -> BTreeMap<VectorId, usize> {
+        self.entries
+            .iter()
+            .map(|&(vid, off)| (VectorId::new(vid), off as usize))
+            .collect()
+    }
+
+    fn is_empty(&self) -> bool {
+        self.entries.is_empty()
+    }
+
+    fn ids(&self) -> impl Iterator<Item = VectorId> + '_ {
+        self.entries.iter().map(|&(vid, _)| VectorId::new(vid))
+    }
+}
+
 /// Memory-mapped vector data (read-only)
 pub(crate) struct MmapVectorData {
     /// The memory-mapped file
@@ -48,8 +105,8 @@ pub(crate) struct MmapVectorData {
     count: usize,
     /// Next VectorId to allocate
     next_id: u64,
-    /// VectorId -> offset in embeddings (in f32 elements)
-    id_to_offset: BTreeMap<VectorId, usize>,
+    /// Compact sorted index: VectorId → offset (12 bytes/entry vs ~72 for BTreeMap)
+    index: CompactIndex,
     /// Free slots for reuse
     free_slots: Vec<usize>,
     /// Byte offset where embeddings data starts in the mmap
@@ -104,8 +161,8 @@ impl MmapVectorData {
 
         let mut pos = HEADER_SIZE;
 
-        // id_to_offset entries
-        let mut id_to_offset = BTreeMap::new();
+        // id_to_offset entries → compact sorted index
+        let mut entries = Vec::with_capacity(count);
         for _ in 0..count {
             if pos + 16 > mmap.len() {
                 return Err(VectorError::Serialization(
@@ -113,10 +170,13 @@ impl MmapVectorData {
                 ));
             }
             let vid = u64::from_le_bytes(data[pos..pos + 8].try_into().unwrap());
-            let offset = u64::from_le_bytes(data[pos + 8..pos + 16].try_into().unwrap()) as usize;
-            id_to_offset.insert(VectorId::new(vid), offset);
+            let offset = u64::from_le_bytes(data[pos + 8..pos + 16].try_into().unwrap());
+            entries.push((vid, offset));
             pos += 16;
         }
+        // File writes entries in BTreeMap order (sorted by VectorId), so
+        // the vec is already sorted. No need to re-sort.
+        let index = CompactIndex { entries };
 
         // Free slots
         if pos + 4 > mmap.len() {
@@ -147,7 +207,7 @@ impl MmapVectorData {
             dimension,
             count,
             next_id,
-            id_to_offset,
+            index,
             free_slots,
             embeddings_offset,
         })
@@ -155,7 +215,7 @@ impl MmapVectorData {
 
     /// Get embedding by VectorId
     pub(crate) fn get(&self, id: VectorId) -> Option<&[f32]> {
-        let &offset = self.id_to_offset.get(&id)?;
+        let offset = self.index.get(id)?;
         let byte_start = self.embeddings_offset + offset * 4;
         let byte_end = byte_start + self.dimension * 4;
         if byte_end > self.mmap.len() {
@@ -172,7 +232,7 @@ impl MmapVectorData {
 
     /// Check if a vector exists
     pub(crate) fn contains(&self, id: VectorId) -> bool {
-        self.id_to_offset.contains_key(&id)
+        self.index.contains(id)
     }
 
     /// Number of active vectors
@@ -195,14 +255,16 @@ impl MmapVectorData {
         &self.free_slots
     }
 
-    /// Get the id_to_offset map
-    pub(crate) fn id_to_offset(&self) -> &BTreeMap<VectorId, usize> {
-        &self.id_to_offset
+    /// Get the id_to_offset map (materialized from compact index).
+    ///
+    /// Used by `VectorHeap::from_mmap()` to populate `id_to_offset` on load.
+    pub(crate) fn id_to_offset(&self) -> BTreeMap<VectorId, usize> {
+        self.index.to_btree()
     }
 
     /// Iterate all VectorIds in deterministic order
     pub(crate) fn ids(&self) -> impl Iterator<Item = VectorId> + '_ {
-        self.id_to_offset.keys().copied()
+        self.index.ids()
     }
 
     /// Get dimension
@@ -368,5 +430,98 @@ mod tests {
 
         let result = MmapVectorData::open(&path, 3);
         assert!(result.is_err());
+    }
+
+    // ====================================================================
+    // CompactIndex tests
+    // ====================================================================
+
+    #[test]
+    fn test_compact_index_empty() {
+        let idx = CompactIndex::from_btree(&BTreeMap::new());
+        assert!(idx.is_empty());
+        assert_eq!(idx.len(), 0);
+        assert!(idx.get(VectorId::new(1)).is_none());
+        assert!(!idx.contains(VectorId::new(1)));
+    }
+
+    #[test]
+    fn test_compact_index_single_element() {
+        let mut map = BTreeMap::new();
+        map.insert(VectorId::new(42), 100usize);
+        let idx = CompactIndex::from_btree(&map);
+
+        assert_eq!(idx.len(), 1);
+        assert!(!idx.is_empty());
+        assert_eq!(idx.get(VectorId::new(42)), Some(100));
+        assert!(idx.contains(VectorId::new(42)));
+        assert!(idx.get(VectorId::new(1)).is_none());
+        assert!(!idx.contains(VectorId::new(1)));
+    }
+
+    #[test]
+    fn test_compact_index_binary_search() {
+        let mut map = BTreeMap::new();
+        map.insert(VectorId::new(1), 0usize);
+        map.insert(VectorId::new(5), 10usize);
+        map.insert(VectorId::new(10), 20usize);
+        map.insert(VectorId::new(100), 30usize);
+
+        let idx = CompactIndex::from_btree(&map);
+        assert_eq!(idx.len(), 4);
+
+        // Exact matches
+        assert_eq!(idx.get(VectorId::new(1)), Some(0));
+        assert_eq!(idx.get(VectorId::new(5)), Some(10));
+        assert_eq!(idx.get(VectorId::new(10)), Some(20));
+        assert_eq!(idx.get(VectorId::new(100)), Some(30));
+
+        // Non-existent (between, before, after)
+        assert!(idx.get(VectorId::new(0)).is_none());
+        assert!(idx.get(VectorId::new(3)).is_none());
+        assert!(idx.get(VectorId::new(7)).is_none());
+        assert!(idx.get(VectorId::new(50)).is_none());
+        assert!(idx.get(VectorId::new(200)).is_none());
+    }
+
+    #[test]
+    fn test_compact_index_to_btree_roundtrip() {
+        let mut map = BTreeMap::new();
+        map.insert(VectorId::new(1), 0usize);
+        map.insert(VectorId::new(5), 384usize);
+        map.insert(VectorId::new(10), 768usize);
+
+        let idx = CompactIndex::from_btree(&map);
+        let restored = idx.to_btree();
+
+        assert_eq!(map, restored);
+    }
+
+    #[test]
+    fn test_compact_index_ids_order() {
+        let mut map = BTreeMap::new();
+        map.insert(VectorId::new(10), 0usize);
+        map.insert(VectorId::new(1), 384usize);
+        map.insert(VectorId::new(5), 768usize);
+
+        let idx = CompactIndex::from_btree(&map);
+        let ids: Vec<u64> = idx.ids().map(|id| id.as_u64()).collect();
+        // BTreeMap sorts by key, so entries should be in ascending order
+        assert_eq!(ids, vec![1, 5, 10]);
+    }
+
+    #[test]
+    fn test_compact_index_large_offsets_no_truncation() {
+        // Verify u64 offsets work for values exceeding u32::MAX
+        let mut map = BTreeMap::new();
+        let large_offset: usize = (u32::MAX as usize) + 1000;
+        map.insert(VectorId::new(1), large_offset);
+
+        let idx = CompactIndex::from_btree(&map);
+        assert_eq!(idx.get(VectorId::new(1)), Some(large_offset));
+
+        // Also verify round-trip through to_btree
+        let restored = idx.to_btree();
+        assert_eq!(restored.get(&VectorId::new(1)), Some(&large_offset));
     }
 }

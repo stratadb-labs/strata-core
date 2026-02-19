@@ -22,9 +22,23 @@ use crate::primitives::vector::types::{DistanceMetric, VectorConfig, VectorId};
 ///
 /// - `InMemory`: Heap-allocated `Vec<f32>` (default, mutable).
 /// - `Mmap`: Memory-mapped file (read-only, OS-paged).
+/// - `Tiered`: mmap base + small in-memory overlay for bounded-memory indexing.
 pub(crate) enum VectorData {
     InMemory(Vec<f32>),
     Mmap(MmapVectorData),
+    /// mmap base layer with a mutable overlay for new inserts.
+    ///
+    /// After a periodic flush, the overlay is merged into the base mmap and
+    /// the overlay is reset. This keeps anonymous memory bounded to the
+    /// overlay size (configurable, default ~768 MB for 500K × 384d).
+    Tiered {
+        base: MmapVectorData,
+        overlay: Vec<f32>,
+        /// VectorId → offset **within the overlay** Vec (in f32 elements).
+        overlay_id_to_offset: BTreeMap<VectorId, usize>,
+        /// Free slots within the overlay Vec.
+        overlay_free_slots: Vec<usize>,
+    },
 }
 
 /// Per-collection vector heap
@@ -128,7 +142,7 @@ impl VectorHeap {
     /// Use this for disk-backed databases on startup when the `.vec` cache file exists.
     pub fn from_mmap(path: &Path, config: VectorConfig) -> Result<Self, VectorError> {
         let mmap_data = MmapVectorData::open(path, config.dimension)?;
-        let id_to_offset = mmap_data.id_to_offset().clone();
+        let id_to_offset = mmap_data.id_to_offset(); // returns owned BTreeMap
         let free_slots = mmap_data.free_slots().to_vec();
         let next_id = mmap_data.next_id();
         Ok(VectorHeap {
@@ -177,8 +191,15 @@ impl VectorHeap {
     }
 
     /// Get free_slots (for snapshot persistence)
+    ///
+    /// For `InMemory` and `Mmap` heaps, returns the tracked free slots.
+    /// For `Tiered` heaps, returns an empty slice because `freeze_to_disk()`
+    /// compacts the data and eliminates all free slots.
     pub fn free_slots(&self) -> &[usize] {
-        &self.free_slots
+        match &self.data {
+            VectorData::Tiered { .. } => &[],
+            _ => &self.free_slots,
+        }
     }
 
     /// Restore snapshot state (for recovery)
@@ -221,28 +242,51 @@ impl VectorHeap {
             });
         }
 
-        let vec = match &mut self.data {
-            VectorData::InMemory(v) => v,
+        match &mut self.data {
+            VectorData::InMemory(vec) => {
+                if let Some(&offset) = self.id_to_offset.get(&id) {
+                    vec[offset..offset + dim].copy_from_slice(embedding);
+                } else {
+                    let offset = if let Some(slot) = self.free_slots.pop() {
+                        vec[slot..slot + dim].copy_from_slice(embedding);
+                        slot
+                    } else {
+                        let offset = vec.len();
+                        vec.extend_from_slice(embedding);
+                        offset
+                    };
+                    self.id_to_offset.insert(id, offset);
+                }
+            }
             VectorData::Mmap(_) => panic!("cannot mutate mmap-backed VectorHeap"),
-        };
-
-        if let Some(&offset) = self.id_to_offset.get(&id) {
-            // Update existing vector in place
-            vec[offset..offset + dim].copy_from_slice(embedding);
-        } else {
-            // Insert new vector
-            let offset = if let Some(slot) = self.free_slots.pop() {
-                // Reuse deleted slot
-                // CRITICAL: Must copy embedding into the reused slot
-                vec[slot..slot + dim].copy_from_slice(embedding);
-                slot
-            } else {
-                // Append to end
-                let offset = vec.len();
-                vec.extend_from_slice(embedding);
-                offset
-            };
-            self.id_to_offset.insert(id, offset);
+            VectorData::Tiered {
+                overlay,
+                overlay_id_to_offset,
+                overlay_free_slots,
+                ..
+            } => {
+                // Check if already in overlay — update in place
+                if let Some(&off) = overlay_id_to_offset.get(&id) {
+                    overlay[off..off + dim].copy_from_slice(embedding);
+                } else {
+                    // New insert into overlay (even if it exists in base mmap,
+                    // the overlay takes precedence on reads)
+                    let offset = if let Some(slot) = overlay_free_slots.pop() {
+                        overlay[slot..slot + dim].copy_from_slice(embedding);
+                        slot
+                    } else {
+                        let offset = overlay.len();
+                        overlay.extend_from_slice(embedding);
+                        offset
+                    };
+                    overlay_id_to_offset.insert(id, offset);
+                }
+                // id_to_offset tracks presence for len()/contains()/iter().
+                // The offset value is not meaningful for Tiered: get()/iter()
+                // resolve embeddings via overlay_id_to_offset or base mmap.
+                // freeze_to_disk() builds merged_offsets independently.
+                self.id_to_offset.insert(id, 0);
+            }
         }
 
         self.version.fetch_add(1, Ordering::Release);
@@ -293,22 +337,48 @@ impl VectorHeap {
     ///
     /// Security note: Data is zeroed to prevent information leakage.
     pub fn delete(&mut self, id: VectorId) -> bool {
-        if let Some(offset) = self.id_to_offset.remove(&id) {
-            // Mark slot as free for reuse
-            self.free_slots.push(offset);
-
-            // Zero out data (security: prevent information leakage)
-            // For mmap-backed heaps the pages are read-only; skip zeroing.
-            // The mmap file will be re-frozen without the deleted vector.
-            if let VectorData::InMemory(v) = &mut self.data {
-                let dim = self.config.dimension;
-                v[offset..offset + dim].fill(0.0);
+        match &mut self.data {
+            VectorData::InMemory(v) => {
+                if let Some(offset) = self.id_to_offset.remove(&id) {
+                    self.free_slots.push(offset);
+                    let dim = self.config.dimension;
+                    v[offset..offset + dim].fill(0.0);
+                    self.version.fetch_add(1, Ordering::Release);
+                    true
+                } else {
+                    false
+                }
             }
-
-            self.version.fetch_add(1, Ordering::Release);
-            true
-        } else {
-            false
+            VectorData::Mmap(_) => {
+                if self.id_to_offset.remove(&id).is_some() {
+                    // mmap pages are read-only; skip zeroing.
+                    // The mmap file will be re-frozen without the deleted vector.
+                    self.version.fetch_add(1, Ordering::Release);
+                    true
+                } else {
+                    false
+                }
+            }
+            VectorData::Tiered {
+                overlay,
+                overlay_id_to_offset,
+                overlay_free_slots,
+                ..
+            } => {
+                if self.id_to_offset.remove(&id).is_none() {
+                    return false;
+                }
+                // If in overlay, reclaim the slot
+                if let Some(off) = overlay_id_to_offset.remove(&id) {
+                    overlay_free_slots.push(off);
+                    let dim = self.config.dimension;
+                    overlay[off..off + dim].fill(0.0);
+                }
+                // If in base mmap only: nothing to zero (read-only pages).
+                // The next flush will exclude it.
+                self.version.fetch_add(1, Ordering::Release);
+                true
+            }
         }
     }
 
@@ -324,7 +394,7 @@ impl VectorHeap {
         self.data = VectorData::InMemory(Vec::new());
         self.id_to_offset.clear();
         self.free_slots.clear();
-        // Note: next_id is NOT reset - IDs are never reused
+        // Note: next_id is NOT reset — IDs are never reused
         self.version.fetch_add(1, Ordering::Release);
     }
 
@@ -353,6 +423,23 @@ impl VectorHeap {
                 }
                 mmap.get(id)
             }
+            VectorData::Tiered {
+                base,
+                overlay,
+                overlay_id_to_offset,
+                ..
+            } => {
+                // Check liveness first
+                if !self.id_to_offset.contains_key(&id) {
+                    return None;
+                }
+                // Overlay takes precedence over base
+                if let Some(&off) = overlay_id_to_offset.get(&id) {
+                    let dim = self.config.dimension;
+                    return Some(&overlay[off..off + dim]);
+                }
+                base.get(id)
+            }
         }
     }
 
@@ -374,6 +461,18 @@ impl VectorHeap {
             let embedding = match data {
                 VectorData::InMemory(vec) => &vec[offset..offset + dim],
                 VectorData::Mmap(mmap) => mmap.get(id).expect("id_to_offset has stale entry"),
+                VectorData::Tiered {
+                    base,
+                    overlay,
+                    overlay_id_to_offset,
+                    ..
+                } => {
+                    if let Some(&off) = overlay_id_to_offset.get(&id) {
+                        &overlay[off..off + dim]
+                    } else {
+                        base.get(id).expect("id_to_offset has stale entry (tiered base)")
+                    }
+                }
             };
             (id, embedding)
         })
@@ -386,11 +485,12 @@ impl VectorHeap {
 
     /// Get raw data slice (for snapshot serialization)
     ///
-    /// Only available for InMemory heaps. Panics on Mmap variant.
+    /// Only available for InMemory heaps. Panics on Mmap/Tiered variants.
     pub fn raw_data(&self) -> &[f32] {
         match &self.data {
             VectorData::InMemory(vec) => vec,
             VectorData::Mmap(_) => panic!("raw_data() not available on mmap-backed heap"),
+            VectorData::Tiered { .. } => panic!("raw_data() not available on tiered heap"),
         }
     }
 
@@ -401,16 +501,17 @@ impl VectorHeap {
 
     /// Check whether this heap is backed by a memory-mapped file.
     pub fn is_mmap(&self) -> bool {
-        matches!(&self.data, VectorData::Mmap(_))
+        matches!(&self.data, VectorData::Mmap(_) | VectorData::Tiered { .. })
     }
 
-    /// Write the current in-memory heap to a `.vec` mmap file.
+    /// Write the current heap to a `.vec` mmap file.
     ///
     /// This creates a disk cache that can be opened with `from_mmap()` on
     /// subsequent startups, avoiding the cost of rebuilding from KV.
     ///
-    /// Only works on InMemory heaps. Returns `Ok(())` silently on Mmap heaps
-    /// (already on disk).
+    /// - `InMemory`: writes all data.
+    /// - `Mmap`: no-op (already on disk and unchanged).
+    /// - `Tiered`: merges base + overlay into a new file.
     pub fn freeze_to_disk(&self, path: &Path) -> Result<(), VectorError> {
         match &self.data {
             VectorData::InMemory(vec) => {
@@ -423,7 +524,146 @@ impl VectorHeap {
                     vec,
                 )
             }
-            VectorData::Mmap(_) => Ok(()), // Already on disk
+            VectorData::Mmap(mmap_data) => {
+                // If vectors were deleted at runtime (id_to_offset shrank),
+                // write a new mmap excluding deleted vectors. Otherwise no-op.
+                if self.id_to_offset.len() == mmap_data.len() {
+                    return Ok(()); // Unchanged, already on disk
+                }
+                // Build compacted data with only live vectors
+                let dim = self.config.dimension;
+                let live_count = self.id_to_offset.len();
+                let mut compacted_data = Vec::with_capacity(live_count * dim);
+                let mut compacted_offsets = BTreeMap::new();
+                for &id in self.id_to_offset.keys() {
+                    if let Some(emb) = mmap_data.get(id) {
+                        let offset = compacted_data.len();
+                        compacted_data.extend_from_slice(emb);
+                        compacted_offsets.insert(id, offset);
+                    }
+                }
+                mmap::write_mmap_file(
+                    path,
+                    dim,
+                    self.next_id.load(Ordering::Relaxed),
+                    &compacted_offsets,
+                    &[], // compacted: no free slots
+                    &compacted_data,
+                )
+            }
+            VectorData::Tiered {
+                base,
+                overlay,
+                overlay_id_to_offset,
+                ..
+            } => {
+                // Merge base + overlay into a contiguous Vec for writing.
+                // Only include vectors that are still live (in id_to_offset).
+                let dim = self.config.dimension;
+                let live_count = self.id_to_offset.len();
+                let mut merged_data = Vec::with_capacity(live_count * dim);
+                let mut merged_offsets = BTreeMap::new();
+                let merged_free_slots = Vec::new();
+
+                for (&id, _) in &self.id_to_offset {
+                    let offset = merged_data.len();
+                    if let Some(&ov_off) = overlay_id_to_offset.get(&id) {
+                        merged_data.extend_from_slice(&overlay[ov_off..ov_off + dim]);
+                    } else if let Some(emb) = base.get(id) {
+                        merged_data.extend_from_slice(emb);
+                    } else {
+                        // Should not happen — defensive skip
+                        continue;
+                    }
+                    merged_offsets.insert(id, offset);
+                }
+
+                mmap::write_mmap_file(
+                    path,
+                    dim,
+                    self.next_id.load(Ordering::Relaxed),
+                    &merged_offsets,
+                    &merged_free_slots,
+                    &merged_data,
+                )
+            }
+        }
+    }
+
+    /// Flush the overlay to disk and swap to a fresh Tiered state.
+    ///
+    /// Merges base + overlay into a new `.vec` file, mmaps it as the new base,
+    /// and resets the overlay to empty. Returns the number of vectors flushed.
+    ///
+    /// Only meaningful on `Tiered` heaps. Returns `Ok(0)` for other variants.
+    pub fn flush_overlay_to_disk(&mut self, path: &Path) -> Result<usize, VectorError> {
+        let is_tiered = matches!(&self.data, VectorData::Tiered { .. });
+        if !is_tiered {
+            return Ok(0);
+        }
+
+        // Write merged state to disk
+        self.freeze_to_disk(path)?;
+
+        let count = self.id_to_offset.len();
+
+        // Reopen as Tiered with the new mmap as base, empty overlay
+        let mmap_data = MmapVectorData::open(path, self.config.dimension)?;
+        // Rebuild id_to_offset from the fresh mmap (contiguous, no free slots)
+        self.id_to_offset = mmap_data.id_to_offset(); // returns owned BTreeMap
+        self.free_slots = mmap_data.free_slots().to_vec();
+
+        self.data = VectorData::Tiered {
+            base: mmap_data,
+            overlay: Vec::new(),
+            overlay_id_to_offset: BTreeMap::new(),
+            overlay_free_slots: Vec::new(),
+        };
+
+        Ok(count)
+    }
+
+    /// Get the number of vectors currently in the overlay (Tiered only).
+    /// Returns 0 for non-Tiered heaps.
+    pub fn overlay_len(&self) -> usize {
+        match &self.data {
+            VectorData::Tiered { overlay_id_to_offset, .. } => overlay_id_to_offset.len(),
+            _ => 0,
+        }
+    }
+
+    /// Approximate anonymous (non-mmap) memory in bytes used by embedding data.
+    ///
+    /// - `InMemory`: full `Vec<f32>` allocation.
+    /// - `Mmap`: 0 (OS-managed file-backed pages).
+    /// - `Tiered`: overlay `Vec<f32>` only (base is mmap).
+    pub fn anon_data_bytes(&self) -> usize {
+        match &self.data {
+            VectorData::InMemory(v) => v.len() * std::mem::size_of::<f32>(),
+            VectorData::Mmap(_) => 0,
+            VectorData::Tiered { overlay, .. } => overlay.len() * std::mem::size_of::<f32>(),
+        }
+    }
+
+    /// Promote an `Mmap` heap to `Tiered` so that new inserts go to an overlay
+    /// while reads fall through to the mmap base.
+    ///
+    /// No-op if already `InMemory` or `Tiered`.
+    pub fn promote_to_tiered(&mut self) {
+        let current = std::mem::replace(&mut self.data, VectorData::InMemory(Vec::new()));
+        match current {
+            VectorData::Mmap(mmap) => {
+                self.data = VectorData::Tiered {
+                    base: mmap,
+                    overlay: Vec::new(),
+                    overlay_id_to_offset: BTreeMap::new(),
+                    overlay_free_slots: Vec::new(),
+                };
+            }
+            other => {
+                // Put it back — InMemory and Tiered stay as-is
+                self.data = other;
+            }
         }
     }
 
@@ -802,5 +1042,365 @@ mod tests {
 
         // Deleting nonexistent ID returns false
         assert!(!mmap_heap.delete(VectorId::new(99)));
+    }
+
+    // ====================================================================
+    // Tiered variant tests
+    // ====================================================================
+
+    /// Helper: create a Tiered heap by writing InMemory data to mmap then promoting.
+    fn make_tiered_heap(dim: usize) -> (VectorHeap, tempfile::TempDir) {
+        let temp_dir = tempfile::TempDir::new().unwrap();
+        let vec_path = temp_dir.path().join("test.vec");
+        let config = VectorConfig::new(dim, DistanceMetric::Cosine).unwrap();
+
+        let mut heap = VectorHeap::new(config.clone());
+        // Insert base vectors
+        heap.upsert(VectorId::new(1), &vec![1.0; dim]).unwrap();
+        heap.upsert(VectorId::new(2), &vec![2.0; dim]).unwrap();
+        heap.upsert(VectorId::new(3), &vec![3.0; dim]).unwrap();
+        heap.freeze_to_disk(&vec_path).unwrap();
+
+        // Reopen as mmap and promote to Tiered
+        let mut tiered = VectorHeap::from_mmap(&vec_path, config).unwrap();
+        tiered.promote_to_tiered();
+        assert!(tiered.is_mmap()); // Tiered reports as mmap
+        (tiered, temp_dir)
+    }
+
+    #[test]
+    fn test_promote_to_tiered_from_mmap() {
+        let (heap, _dir) = make_tiered_heap(3);
+        assert!(heap.is_mmap());
+        assert_eq!(heap.len(), 3);
+        assert_eq!(heap.overlay_len(), 0);
+        assert!(heap.get(VectorId::new(1)).is_some());
+    }
+
+    #[test]
+    fn test_promote_to_tiered_noop_for_inmemory() {
+        let config = VectorConfig::new(3, DistanceMetric::Cosine).unwrap();
+        let mut heap = VectorHeap::new(config);
+        heap.upsert(VectorId::new(1), &[1.0, 0.0, 0.0]).unwrap();
+        heap.promote_to_tiered(); // should be no-op
+        assert!(!heap.is_mmap());
+        assert_eq!(heap.get(VectorId::new(1)).unwrap(), &[1.0, 0.0, 0.0]);
+    }
+
+    #[test]
+    fn test_tiered_insert_goes_to_overlay() {
+        let (mut heap, _dir) = make_tiered_heap(3);
+
+        // Insert new vector into overlay
+        heap.upsert(VectorId::new(10), &[10.0, 10.0, 10.0]).unwrap();
+
+        assert_eq!(heap.len(), 4);
+        assert_eq!(heap.overlay_len(), 1);
+        let emb = heap.get(VectorId::new(10)).unwrap();
+        assert_eq!(emb, &[10.0, 10.0, 10.0]);
+    }
+
+    #[test]
+    fn test_tiered_get_overlay_takes_precedence() {
+        let (mut heap, _dir) = make_tiered_heap(3);
+
+        // Base has VectorId(1) = [1.0, 1.0, 1.0]
+        let base_emb = heap.get(VectorId::new(1)).unwrap();
+        assert_eq!(base_emb, &[1.0, 1.0, 1.0]);
+
+        // Upsert into overlay with different values
+        heap.upsert(VectorId::new(1), &[9.0, 9.0, 9.0]).unwrap();
+
+        // Overlay value should win
+        let updated = heap.get(VectorId::new(1)).unwrap();
+        assert_eq!(updated, &[9.0, 9.0, 9.0]);
+        assert_eq!(heap.overlay_len(), 1);
+        // len should NOT increase (same VectorId)
+        assert_eq!(heap.len(), 3);
+    }
+
+    #[test]
+    fn test_tiered_delete_from_overlay() {
+        let (mut heap, _dir) = make_tiered_heap(3);
+
+        // Insert into overlay then delete
+        heap.upsert(VectorId::new(10), &[10.0, 10.0, 10.0]).unwrap();
+        assert_eq!(heap.overlay_len(), 1);
+
+        let deleted = heap.delete(VectorId::new(10));
+        assert!(deleted);
+        assert!(heap.get(VectorId::new(10)).is_none());
+        assert_eq!(heap.len(), 3);
+        assert_eq!(heap.overlay_len(), 0); // removed from overlay
+    }
+
+    #[test]
+    fn test_tiered_delete_from_base_mmap() {
+        let (mut heap, _dir) = make_tiered_heap(3);
+
+        // Delete a vector that only exists in base mmap
+        let deleted = heap.delete(VectorId::new(2));
+        assert!(deleted);
+        assert!(heap.get(VectorId::new(2)).is_none());
+        assert_eq!(heap.len(), 2);
+        // overlay_len should remain 0 (delete doesn't create overlay entries)
+        assert_eq!(heap.overlay_len(), 0);
+    }
+
+    #[test]
+    fn test_tiered_delete_nonexistent() {
+        let (mut heap, _dir) = make_tiered_heap(3);
+        assert!(!heap.delete(VectorId::new(999)));
+        assert_eq!(heap.len(), 3);
+    }
+
+    #[test]
+    fn test_tiered_iter_merges_overlay_and_base() {
+        let (mut heap, _dir) = make_tiered_heap(3);
+
+        // Add overlay entry and update a base entry
+        heap.upsert(VectorId::new(10), &[10.0, 10.0, 10.0]).unwrap();
+        heap.upsert(VectorId::new(2), &[20.0, 20.0, 20.0]).unwrap(); // override base
+
+        let entries: Vec<(VectorId, &[f32])> = heap.iter().collect();
+        assert_eq!(entries.len(), 4); // 1, 2, 3, 10
+
+        // Check order: VectorId ascending
+        let ids: Vec<u64> = entries.iter().map(|(id, _)| id.as_u64()).collect();
+        assert_eq!(ids, vec![1, 2, 3, 10]);
+
+        // Check that VectorId(2) returns overlay value
+        let (_, emb2) = entries.iter().find(|(id, _)| id.as_u64() == 2).unwrap();
+        assert_eq!(*emb2, &[20.0, 20.0, 20.0]);
+
+        // Check that VectorId(1) returns base value
+        let (_, emb1) = entries.iter().find(|(id, _)| id.as_u64() == 1).unwrap();
+        assert_eq!(*emb1, &[1.0, 1.0, 1.0]);
+    }
+
+    #[test]
+    fn test_tiered_iter_excludes_deleted() {
+        let (mut heap, _dir) = make_tiered_heap(3);
+        heap.delete(VectorId::new(2));
+
+        let ids: Vec<u64> = heap.iter().map(|(id, _)| id.as_u64()).collect();
+        assert_eq!(ids, vec![1, 3]);
+    }
+
+    #[test]
+    fn test_tiered_anon_data_bytes() {
+        let (mut heap, _dir) = make_tiered_heap(3);
+
+        // Initially overlay is empty — zero anonymous bytes
+        assert_eq!(heap.anon_data_bytes(), 0);
+
+        // Insert one vector of dim=3 → 3 * 4 = 12 bytes
+        heap.upsert(VectorId::new(10), &[1.0, 2.0, 3.0]).unwrap();
+        assert_eq!(heap.anon_data_bytes(), 3 * 4);
+    }
+
+    #[test]
+    fn test_tiered_free_slots_returns_empty() {
+        let (heap, _dir) = make_tiered_heap(3);
+        // Tiered heaps always return empty free_slots (compacted on freeze)
+        assert!(heap.free_slots().is_empty());
+    }
+
+    #[test]
+    fn test_tiered_freeze_to_disk_merges_correctly() {
+        let temp_dir = tempfile::TempDir::new().unwrap();
+        let vec_path = temp_dir.path().join("test.vec");
+        let out_path = temp_dir.path().join("merged.vec");
+
+        let config = VectorConfig::new(3, DistanceMetric::Cosine).unwrap();
+        let mut heap = VectorHeap::new(config.clone());
+        heap.upsert(VectorId::new(1), &[1.0, 0.0, 0.0]).unwrap();
+        heap.upsert(VectorId::new(2), &[0.0, 1.0, 0.0]).unwrap();
+        heap.freeze_to_disk(&vec_path).unwrap();
+
+        // Promote to Tiered
+        let mut tiered = VectorHeap::from_mmap(&vec_path, config.clone()).unwrap();
+        tiered.promote_to_tiered();
+
+        // Add overlay, update base, delete one
+        tiered.upsert(VectorId::new(3), &[0.0, 0.0, 1.0]).unwrap();
+        tiered.upsert(VectorId::new(1), &[9.0, 9.0, 9.0]).unwrap(); // override
+        tiered.delete(VectorId::new(2));
+
+        // Freeze merged state
+        tiered.freeze_to_disk(&out_path).unwrap();
+
+        // Reopen and verify
+        let reopened = VectorHeap::from_mmap(&out_path, config).unwrap();
+        assert_eq!(reopened.len(), 2); // id=1 (updated) and id=3 (new)
+        assert_eq!(reopened.get(VectorId::new(1)).unwrap(), &[9.0, 9.0, 9.0]);
+        assert!(reopened.get(VectorId::new(2)).is_none());
+        assert_eq!(reopened.get(VectorId::new(3)).unwrap(), &[0.0, 0.0, 1.0]);
+    }
+
+    // ====================================================================
+    // flush_overlay_to_disk tests
+    // ====================================================================
+
+    #[test]
+    fn test_flush_overlay_to_disk_round_trip() {
+        let temp_dir = tempfile::TempDir::new().unwrap();
+        let vec_path = temp_dir.path().join("test.vec");
+
+        let config = VectorConfig::new(3, DistanceMetric::Cosine).unwrap();
+        let mut heap = VectorHeap::new(config.clone());
+        heap.upsert(VectorId::new(1), &[1.0, 0.0, 0.0]).unwrap();
+        heap.upsert(VectorId::new(2), &[0.0, 1.0, 0.0]).unwrap();
+        heap.freeze_to_disk(&vec_path).unwrap();
+
+        // Reopen as Tiered
+        let mut tiered = VectorHeap::from_mmap(&vec_path, config.clone()).unwrap();
+        tiered.promote_to_tiered();
+
+        // Add overlay vectors
+        tiered.upsert(VectorId::new(3), &[0.0, 0.0, 1.0]).unwrap();
+        tiered.upsert(VectorId::new(4), &[1.0, 1.0, 0.0]).unwrap();
+        assert_eq!(tiered.overlay_len(), 2);
+
+        // Flush overlay to disk
+        let count = tiered.flush_overlay_to_disk(&vec_path).unwrap();
+        assert_eq!(count, 4);
+
+        // After flush: overlay is empty, all vectors accessible
+        assert_eq!(tiered.overlay_len(), 0);
+        assert_eq!(tiered.len(), 4);
+        assert!(tiered.is_mmap()); // still Tiered
+        assert_eq!(tiered.anon_data_bytes(), 0); // overlay empty
+
+        // Verify all vectors readable
+        assert_eq!(tiered.get(VectorId::new(1)).unwrap(), &[1.0, 0.0, 0.0]);
+        assert_eq!(tiered.get(VectorId::new(2)).unwrap(), &[0.0, 1.0, 0.0]);
+        assert_eq!(tiered.get(VectorId::new(3)).unwrap(), &[0.0, 0.0, 1.0]);
+        assert_eq!(tiered.get(VectorId::new(4)).unwrap(), &[1.0, 1.0, 0.0]);
+    }
+
+    #[test]
+    fn test_flush_overlay_multiple_cycles() {
+        let temp_dir = tempfile::TempDir::new().unwrap();
+        let vec_path = temp_dir.path().join("test.vec");
+
+        let config = VectorConfig::new(3, DistanceMetric::Cosine).unwrap();
+        let mut heap = VectorHeap::new(config.clone());
+        heap.upsert(VectorId::new(1), &[1.0, 0.0, 0.0]).unwrap();
+        heap.freeze_to_disk(&vec_path).unwrap();
+
+        let mut tiered = VectorHeap::from_mmap(&vec_path, config).unwrap();
+        tiered.promote_to_tiered();
+
+        // Cycle 1: add, flush
+        tiered.upsert(VectorId::new(2), &[0.0, 1.0, 0.0]).unwrap();
+        tiered.flush_overlay_to_disk(&vec_path).unwrap();
+        assert_eq!(tiered.len(), 2);
+
+        // Cycle 2: add more, flush
+        tiered.upsert(VectorId::new(3), &[0.0, 0.0, 1.0]).unwrap();
+        tiered.flush_overlay_to_disk(&vec_path).unwrap();
+        assert_eq!(tiered.len(), 3);
+
+        // Cycle 3: update + delete, flush
+        tiered.upsert(VectorId::new(1), &[5.0, 5.0, 5.0]).unwrap();
+        tiered.delete(VectorId::new(2));
+        tiered.flush_overlay_to_disk(&vec_path).unwrap();
+        assert_eq!(tiered.len(), 2);
+        assert_eq!(tiered.get(VectorId::new(1)).unwrap(), &[5.0, 5.0, 5.0]);
+        assert!(tiered.get(VectorId::new(2)).is_none());
+        assert_eq!(tiered.get(VectorId::new(3)).unwrap(), &[0.0, 0.0, 1.0]);
+    }
+
+    #[test]
+    fn test_flush_overlay_noop_for_inmemory() {
+        let temp_dir = tempfile::TempDir::new().unwrap();
+        let vec_path = temp_dir.path().join("noop.vec");
+
+        let config = VectorConfig::new(3, DistanceMetric::Cosine).unwrap();
+        let mut heap = VectorHeap::new(config);
+        heap.upsert(VectorId::new(1), &[1.0, 0.0, 0.0]).unwrap();
+
+        // flush_overlay_to_disk on InMemory should return Ok(0)
+        let count = heap.flush_overlay_to_disk(&vec_path).unwrap();
+        assert_eq!(count, 0);
+    }
+
+    // ====================================================================
+    // Mmap freeze with runtime deletes
+    // ====================================================================
+
+    #[test]
+    fn test_mmap_freeze_after_runtime_deletes() {
+        let temp_dir = tempfile::TempDir::new().unwrap();
+        let vec_path = temp_dir.path().join("test.vec");
+        let refreeze_path = temp_dir.path().join("refrozen.vec");
+
+        let config = VectorConfig::new(3, DistanceMetric::Cosine).unwrap();
+        let mut heap = VectorHeap::new(config.clone());
+        heap.upsert(VectorId::new(1), &[1.0, 0.0, 0.0]).unwrap();
+        heap.upsert(VectorId::new(2), &[0.0, 1.0, 0.0]).unwrap();
+        heap.upsert(VectorId::new(3), &[0.0, 0.0, 1.0]).unwrap();
+        heap.freeze_to_disk(&vec_path).unwrap();
+
+        // Reopen as mmap (NOT Tiered — stays Mmap variant)
+        let mut mmap_heap = VectorHeap::from_mmap(&vec_path, config.clone()).unwrap();
+        assert_eq!(mmap_heap.len(), 3);
+
+        // Delete a vector at runtime
+        mmap_heap.delete(VectorId::new(2));
+        assert_eq!(mmap_heap.len(), 2);
+
+        // Freeze should write a new file (not no-op) because deletes occurred
+        mmap_heap.freeze_to_disk(&refreeze_path).unwrap();
+
+        // Reopen and verify deleted vector is gone
+        let reopened = VectorHeap::from_mmap(&refreeze_path, config).unwrap();
+        assert_eq!(reopened.len(), 2);
+        assert!(reopened.get(VectorId::new(1)).is_some());
+        assert!(reopened.get(VectorId::new(2)).is_none());
+        assert!(reopened.get(VectorId::new(3)).is_some());
+    }
+
+    #[test]
+    fn test_mmap_freeze_noop_when_unchanged() {
+        let temp_dir = tempfile::TempDir::new().unwrap();
+        let vec_path = temp_dir.path().join("test.vec");
+
+        let config = VectorConfig::new(3, DistanceMetric::Cosine).unwrap();
+        let mut heap = VectorHeap::new(config.clone());
+        heap.upsert(VectorId::new(1), &[1.0, 0.0, 0.0]).unwrap();
+        heap.freeze_to_disk(&vec_path).unwrap();
+
+        let mmap_heap = VectorHeap::from_mmap(&vec_path, config).unwrap();
+        let stat_before = std::fs::metadata(&vec_path).unwrap().len();
+
+        // Freeze without any changes — should be a no-op
+        mmap_heap.freeze_to_disk(&vec_path).unwrap();
+        let stat_after = std::fs::metadata(&vec_path).unwrap().len();
+        assert_eq!(stat_before, stat_after);
+    }
+
+    // ====================================================================
+    // Tiered overlay slot reuse
+    // ====================================================================
+
+    #[test]
+    fn test_tiered_overlay_slot_reuse() {
+        let (mut heap, _dir) = make_tiered_heap(3);
+
+        // Insert and delete to create a free overlay slot
+        heap.upsert(VectorId::new(10), &[10.0, 10.0, 10.0]).unwrap();
+        let overlay_size_after_insert = heap.anon_data_bytes();
+
+        heap.delete(VectorId::new(10));
+
+        // Insert another — should reuse the freed slot
+        heap.upsert(VectorId::new(20), &[20.0, 20.0, 20.0]).unwrap();
+        let overlay_size_after_reuse = heap.anon_data_bytes();
+
+        // Overlay should not have grown
+        assert_eq!(overlay_size_after_insert, overlay_size_after_reuse);
+        assert_eq!(heap.get(VectorId::new(20)).unwrap(), &[20.0, 20.0, 20.0]);
     }
 }

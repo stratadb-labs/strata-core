@@ -218,6 +218,19 @@ fn recover_from_db(db: &Database) -> StrataResult<()> {
                 if loaded_from_mmap {
                     // Heap already has the embedding — just register ID + timestamp
                     backend.register_mmap_vector(vid, vec_record.created_at);
+                    stats.vectors_mmap_registered += 1;
+                } else if vec_record.embedding.is_empty() {
+                    // Lite record (embedding stripped from KV): skip during full
+                    // KV-based recovery. The embedding only exists in the mmap
+                    // cache, so this vector will be available on the next open
+                    // that successfully loads the mmap file.
+                    tracing::warn!(
+                        target: "strata::vector",
+                        vector_id = vec_record.vector_id,
+                        "Skipping lite record (no embedding) during KV-based recovery"
+                    );
+                    stats.lite_records_skipped += 1;
+                    continue;
                 } else {
                     // Full KV-based recovery: insert embedding + timestamp
                     let _ = backend.insert_with_id_and_timestamp(
@@ -225,8 +238,8 @@ fn recover_from_db(db: &Database) -> StrataResult<()> {
                         &vec_record.embedding,
                         vec_record.created_at,
                     );
+                    stats.vectors_upserted += 1;
                 }
-                stats.vectors_upserted += 1;
             }
 
             state
@@ -238,31 +251,35 @@ fn recover_from_db(db: &Database) -> StrataResult<()> {
     }
 
     // -----------------------------------------------------------
-    // Freeze heaps to mmap cache for disk-backed databases
+    // Freeze heaps to mmap cache & configure flush paths
     // -----------------------------------------------------------
     if use_mmap {
-        let backends = state.backends.read();
-        for (cid, backend) in backends.iter() {
-            if backend.is_heap_mmap() {
-                continue; // Already on disk
-            }
+        let mut backends = state.backends.write();
+        for (cid, backend) in backends.iter_mut() {
             let vec_path = mmap_path(data_dir, cid.branch_id, &cid.name);
-            if let Err(e) = backend.freeze_heap_to_disk(&vec_path) {
-                tracing::warn!(
-                    target: "strata::vector",
-                    collection = %cid.name,
-                    error = %e,
-                    "Failed to freeze heap to mmap cache"
-                );
+            if !backend.is_heap_mmap() {
+                if let Err(e) = backend.freeze_heap_to_disk(&vec_path) {
+                    tracing::warn!(
+                        target: "strata::vector",
+                        collection = %cid.name,
+                        error = %e,
+                        "Failed to freeze heap to mmap cache"
+                    );
+                }
             }
+            // Configure periodic flush path so the backend can flush
+            // its overlay during long-running indexing operations.
+            let _ = backend.flush_heap_to_disk_if_needed(&vec_path);
         }
     }
 
-    if stats.collections_created > 0 || stats.vectors_upserted > 0 {
+    if stats.collections_created > 0 || stats.vectors_upserted > 0 || stats.vectors_mmap_registered > 0 {
         info!(
             target: "strata::vector",
             collections_created = stats.collections_created,
             vectors_upserted = stats.vectors_upserted,
+            vectors_mmap_registered = stats.vectors_mmap_registered,
+            lite_records_skipped = stats.lite_records_skipped,
             mmap_cache = use_mmap,
             "Vector recovery complete"
         );
