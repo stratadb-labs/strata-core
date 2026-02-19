@@ -11,10 +11,21 @@
 //! - **R3**: BTreeMap guarantees deterministic iteration order
 
 use std::collections::BTreeMap;
+use std::path::Path;
 use std::sync::atomic::{AtomicU64, Ordering};
 
 use crate::primitives::vector::error::{VectorError, VectorResult};
+use crate::primitives::vector::mmap::{self, MmapVectorData};
 use crate::primitives::vector::types::{DistanceMetric, VectorConfig, VectorId};
+
+/// Backing storage for vector embeddings.
+///
+/// - `InMemory`: Heap-allocated `Vec<f32>` (default, mutable).
+/// - `Mmap`: Memory-mapped file (read-only, OS-paged).
+pub(crate) enum VectorData {
+    InMemory(Vec<f32>),
+    Mmap(MmapVectorData),
+}
 
 /// Per-collection vector heap
 ///
@@ -31,16 +42,20 @@ pub struct VectorHeap {
     /// Collection configuration
     config: VectorConfig,
 
-    /// Contiguous embedding storage
-    /// Layout: [v0_dim0, v0_dim1, ..., v0_dimN, v1_dim0, v1_dim1, ...]
+    /// Embedding storage — either heap-allocated or memory-mapped.
+    ///
+    /// Layout (InMemory): [v0_dim0, v0_dim1, ..., v0_dimN, v1_dim0, ...]
     /// Each vector occupies `config.dimension` consecutive f32 values.
-    data: Vec<f32>,
+    /// Mmap variant is read-only; mutating methods panic on it.
+    data: VectorData,
 
     /// VectorId -> offset in data (in floats, not bytes)
     ///
     /// IMPORTANT: Use BTreeMap for deterministic iteration order.
     /// HashMap would cause nondeterministic search results.
     /// This is the SOLE source of truth for active vectors.
+    ///
+    /// For the Mmap variant this mirrors the mmap's id_to_offset.
     id_to_offset: BTreeMap<VectorId, usize>,
 
     /// Free list for deleted storage slots (enables slot reuse)
@@ -78,7 +93,7 @@ impl VectorHeap {
     pub fn new(config: VectorConfig) -> Self {
         VectorHeap {
             config,
-            data: Vec::new(),
+            data: VectorData::InMemory(Vec::new()),
             id_to_offset: BTreeMap::new(),
             free_slots: Vec::new(),
             next_id: AtomicU64::new(1),
@@ -99,12 +114,31 @@ impl VectorHeap {
     ) -> Self {
         VectorHeap {
             config,
-            data,
+            data: VectorData::InMemory(data),
             id_to_offset,
             free_slots,
             next_id: AtomicU64::new(next_id),
             version: AtomicU64::new(0),
         }
+    }
+
+    /// Open from an existing mmap file.
+    ///
+    /// The heap is read-only — mutating methods (`upsert`, `delete`, etc.) will panic.
+    /// Use this for disk-backed databases on startup when the `.vec` cache file exists.
+    pub fn from_mmap(path: &Path, config: VectorConfig) -> Result<Self, VectorError> {
+        let mmap_data = MmapVectorData::open(path, config.dimension)?;
+        let id_to_offset = mmap_data.id_to_offset().clone();
+        let free_slots = mmap_data.free_slots().to_vec();
+        let next_id = mmap_data.next_id();
+        Ok(VectorHeap {
+            config,
+            data: VectorData::Mmap(mmap_data),
+            id_to_offset,
+            free_slots,
+            next_id: AtomicU64::new(next_id),
+            version: AtomicU64::new(0),
+        })
     }
 
     /// Get the dimension of vectors in this heap
@@ -179,31 +213,33 @@ impl VectorHeap {
     /// IMPORTANT: When reusing a slot, MUST copy embedding into that slot.
     pub fn upsert(&mut self, id: VectorId, embedding: &[f32]) -> VectorResult<()> {
         // Validate dimension
-        if embedding.len() != self.config.dimension {
+        let dim = self.config.dimension;
+        if embedding.len() != dim {
             return Err(VectorError::DimensionMismatch {
-                expected: self.config.dimension,
+                expected: dim,
                 got: embedding.len(),
             });
         }
 
+        let vec = match &mut self.data {
+            VectorData::InMemory(v) => v,
+            VectorData::Mmap(_) => panic!("cannot mutate mmap-backed VectorHeap"),
+        };
+
         if let Some(&offset) = self.id_to_offset.get(&id) {
             // Update existing vector in place
-            let start = offset;
-            let end = offset + self.config.dimension;
-            self.data[start..end].copy_from_slice(embedding);
+            vec[offset..offset + dim].copy_from_slice(embedding);
         } else {
             // Insert new vector
             let offset = if let Some(slot) = self.free_slots.pop() {
                 // Reuse deleted slot
                 // CRITICAL: Must copy embedding into the reused slot
-                let start = slot;
-                let end = slot + self.config.dimension;
-                self.data[start..end].copy_from_slice(embedding);
+                vec[slot..slot + dim].copy_from_slice(embedding);
                 slot
             } else {
                 // Append to end
-                let offset = self.data.len();
-                self.data.extend_from_slice(embedding);
+                let offset = vec.len();
+                vec.extend_from_slice(embedding);
                 offset
             };
             self.id_to_offset.insert(id, offset);
@@ -262,9 +298,12 @@ impl VectorHeap {
             self.free_slots.push(offset);
 
             // Zero out data (security: prevent information leakage)
-            let start = offset;
-            let end = offset + self.config.dimension;
-            self.data[start..end].fill(0.0);
+            // For mmap-backed heaps the pages are read-only; skip zeroing.
+            // The mmap file will be re-frozen without the deleted vector.
+            if let VectorData::InMemory(v) = &mut self.data {
+                let dim = self.config.dimension;
+                v[offset..offset + dim].fill(0.0);
+            }
 
             self.version.fetch_add(1, Ordering::Release);
             true
@@ -282,7 +321,7 @@ impl VectorHeap {
 
     /// Clear all vectors (for testing or collection deletion)
     pub fn clear(&mut self) {
-        self.data.clear();
+        self.data = VectorData::InMemory(Vec::new());
         self.id_to_offset.clear();
         self.free_slots.clear();
         // Note: next_id is NOT reset - IDs are never reused
@@ -296,11 +335,23 @@ impl VectorHeap {
     /// Get embedding by VectorId
     ///
     /// Returns None if the vector doesn't exist.
+    /// Works for both InMemory and Mmap backing.
     pub fn get(&self, id: VectorId) -> Option<&[f32]> {
-        let offset = *self.id_to_offset.get(&id)?;
-        let start = offset;
-        let end = offset + self.config.dimension;
-        Some(&self.data[start..end])
+        // id_to_offset is the sole source of truth for active vectors (S7).
+        // For mmap-backed heaps, a vector may have been deleted at runtime
+        // (removed from id_to_offset) while still present in the mmap file.
+        if !self.id_to_offset.contains_key(&id) {
+            return None;
+        }
+        match &self.data {
+            VectorData::InMemory(vec) => {
+                let offset = *self.id_to_offset.get(&id)?;
+                let start = offset;
+                let end = offset + self.config.dimension;
+                Some(&vec[start..end])
+            }
+            VectorData::Mmap(mmap) => mmap.get(id),
+        }
     }
 
     /// Check if a vector exists
@@ -314,11 +365,15 @@ impl VectorHeap {
     /// This is critical for deterministic brute-force search (Invariant R3).
     /// HashMap iteration would be nondeterministic.
     pub fn iter(&self) -> impl Iterator<Item = (VectorId, &[f32])> {
+        let data = &self.data;
+        let dim = self.config.dimension;
         // BTreeMap iterates in key order (VectorId ascending)
-        self.id_to_offset.iter().map(|(&id, &offset)| {
-            let start = offset;
-            let end = offset + self.config.dimension;
-            (id, &self.data[start..end])
+        self.id_to_offset.iter().map(move |(&id, &offset)| {
+            let embedding = match data {
+                VectorData::InMemory(vec) => &vec[offset..offset + dim],
+                VectorData::Mmap(mmap) => mmap.get(id).expect("id_to_offset has stale entry"),
+            };
+            (id, embedding)
         })
     }
 
@@ -328,14 +383,48 @@ impl VectorHeap {
     }
 
     /// Get raw data slice (for snapshot serialization)
+    ///
+    /// Only available for InMemory heaps. Panics on Mmap variant.
     pub fn raw_data(&self) -> &[f32] {
-        &self.data
+        match &self.data {
+            VectorData::InMemory(vec) => vec,
+            VectorData::Mmap(_) => panic!("raw_data() not available on mmap-backed heap"),
+        }
     }
 
     /// Get id_to_offset map (for snapshot serialization)
     pub fn id_to_offset_map(&self) -> &BTreeMap<VectorId, usize> {
         &self.id_to_offset
     }
+
+    /// Check whether this heap is backed by a memory-mapped file.
+    pub fn is_mmap(&self) -> bool {
+        matches!(&self.data, VectorData::Mmap(_))
+    }
+
+    /// Write the current in-memory heap to a `.vec` mmap file.
+    ///
+    /// This creates a disk cache that can be opened with `from_mmap()` on
+    /// subsequent startups, avoiding the cost of rebuilding from KV.
+    ///
+    /// Only works on InMemory heaps. Returns `Ok(())` silently on Mmap heaps
+    /// (already on disk).
+    pub fn freeze_to_disk(&self, path: &Path) -> Result<(), VectorError> {
+        match &self.data {
+            VectorData::InMemory(vec) => {
+                mmap::write_mmap_file(
+                    path,
+                    self.config.dimension,
+                    self.next_id.load(Ordering::Relaxed),
+                    &self.id_to_offset,
+                    &self.free_slots,
+                    vec,
+                )
+            }
+            VectorData::Mmap(_) => Ok(()), // Already on disk
+        }
+    }
+
 }
 
 #[cfg(test)]
@@ -584,5 +673,132 @@ mod tests {
         for i in offset..offset + 384 {
             assert_eq!(data[i], 0.0, "Data should be zeroed after deletion");
         }
+    }
+
+    // ====================================================================
+    // mmap integration tests
+    // ====================================================================
+
+    #[test]
+    fn test_freeze_and_reopen_mmap() {
+        let temp_dir = tempfile::TempDir::new().unwrap();
+        let vec_path = temp_dir.path().join("test.vec");
+
+        let config = VectorConfig::for_minilm();
+        let mut heap = VectorHeap::new(config.clone());
+
+        // Insert a few vectors
+        let e1 = vec![0.1_f32; 384];
+        let e2 = vec![0.2_f32; 384];
+        let e3 = vec![0.3_f32; 384];
+        let id1 = heap.insert(&e1).unwrap();
+        let id2 = heap.insert(&e2).unwrap();
+        let id3 = heap.insert(&e3).unwrap();
+        heap.delete(id2); // Create a free slot
+
+        // Freeze to disk
+        heap.freeze_to_disk(&vec_path).unwrap();
+
+        // Reopen from mmap
+        let mmap_heap = VectorHeap::from_mmap(&vec_path, config).unwrap();
+
+        // Verify all active vectors match
+        assert_eq!(mmap_heap.len(), 2); // id2 was deleted
+        assert!(mmap_heap.is_mmap());
+
+        let emb1 = mmap_heap.get(id1).unwrap();
+        assert_eq!(emb1.len(), 384);
+        assert!((emb1[0] - 0.1).abs() < f32::EPSILON);
+
+        assert!(mmap_heap.get(id2).is_none()); // Deleted
+
+        let emb3 = mmap_heap.get(id3).unwrap();
+        assert!((emb3[0] - 0.3).abs() < f32::EPSILON);
+
+        // Verify metadata
+        assert_eq!(mmap_heap.next_id_value(), heap.next_id_value());
+        assert_eq!(mmap_heap.free_slots().len(), 1);
+        assert!(mmap_heap.contains(id1));
+        assert!(!mmap_heap.contains(id2));
+    }
+
+    #[test]
+    fn test_mmap_iter_matches_in_memory() {
+        let temp_dir = tempfile::TempDir::new().unwrap();
+        let vec_path = temp_dir.path().join("iter.vec");
+
+        let config = VectorConfig::for_minilm();
+        let mut heap = VectorHeap::new(config.clone());
+
+        let e1 = vec![1.0_f32; 384];
+        let e2 = vec![2.0_f32; 384];
+        let id1 = heap.insert(&e1).unwrap();
+        let id2 = heap.insert(&e2).unwrap();
+
+        // Collect in-memory iteration results
+        let mem_entries: Vec<_> = heap.iter().collect();
+
+        // Freeze and reopen
+        heap.freeze_to_disk(&vec_path).unwrap();
+        let mmap_heap = VectorHeap::from_mmap(&vec_path, config).unwrap();
+
+        // Collect mmap iteration results
+        let mmap_entries: Vec<_> = mmap_heap.iter().collect();
+
+        assert_eq!(mem_entries.len(), mmap_entries.len());
+        for ((mid, memb), (iid, iemb)) in mem_entries.iter().zip(mmap_entries.iter()) {
+            assert_eq!(mid, iid);
+            assert_eq!(*memb, *iemb);
+        }
+    }
+
+    #[test]
+    fn test_mmap_empty_heap() {
+        let temp_dir = tempfile::TempDir::new().unwrap();
+        let vec_path = temp_dir.path().join("empty.vec");
+
+        let config = VectorConfig::for_minilm();
+        let heap = VectorHeap::new(config.clone());
+
+        heap.freeze_to_disk(&vec_path).unwrap();
+        let mmap_heap = VectorHeap::from_mmap(&vec_path, config).unwrap();
+
+        assert_eq!(mmap_heap.len(), 0);
+        assert!(mmap_heap.is_empty());
+        assert!(mmap_heap.is_mmap());
+    }
+
+    #[test]
+    fn test_is_mmap_flag() {
+        let config = VectorConfig::for_minilm();
+        let heap = VectorHeap::new(config);
+        assert!(!heap.is_mmap());
+    }
+
+    #[test]
+    fn test_delete_on_mmap_heap_does_not_panic() {
+        let temp_dir = tempfile::TempDir::new().unwrap();
+        let vec_path = temp_dir.path().join("test.vec");
+
+        let config = VectorConfig::new(3, DistanceMetric::Cosine).unwrap();
+        let mut heap = VectorHeap::new(config.clone());
+        heap.upsert(VectorId::new(1), &[1.0, 0.0, 0.0]).unwrap();
+        heap.upsert(VectorId::new(2), &[0.0, 1.0, 0.0]).unwrap();
+        heap.freeze_to_disk(&vec_path).unwrap();
+
+        // Reopen as mmap
+        let mut mmap_heap = VectorHeap::from_mmap(&vec_path, config).unwrap();
+        assert!(mmap_heap.is_mmap());
+        assert_eq!(mmap_heap.len(), 2);
+
+        // Delete should succeed without panicking (skips zeroing on mmap)
+        let deleted = mmap_heap.delete(VectorId::new(1));
+        assert!(deleted);
+        assert_eq!(mmap_heap.len(), 1);
+        assert!(mmap_heap.get(VectorId::new(1)).is_none());
+        assert!(mmap_heap.get(VectorId::new(2)).is_some());
+
+        // Deleting nonexistent ID returns false
+        assert!(!mmap_heap.delete(VectorId::new(99)));
     }
 }

@@ -138,11 +138,16 @@ impl VectorIndexBackend for BruteForceBackend {
 
     fn memory_usage(&self) -> usize {
         // Each active vector: dimension * 4 bytes (f32) for embedding data
-        // Plus overhead for BTreeMap entries and free_slots
-        let embedding_bytes = std::mem::size_of_val(self.heap.raw_data());
+        // Plus overhead for BTreeMap entries and free_slots.
+        // For mmap-backed heaps, embedding bytes are 0 (OS manages pages).
+        let embedding_bytes = if self.heap.is_mmap() {
+            0
+        } else {
+            self.heap.raw_data().len() * std::mem::size_of::<f32>()
+        };
         let map_overhead =
             self.heap.len() * (std::mem::size_of::<VectorId>() + std::mem::size_of::<usize>() + 64); // BTreeMap node overhead estimate
-        let free_slots_bytes = std::mem::size_of_val(self.heap.free_slots());
+        let free_slots_bytes = self.heap.free_slots().len() * std::mem::size_of::<usize>();
         embedding_bytes + map_overhead + free_slots_bytes
     }
 

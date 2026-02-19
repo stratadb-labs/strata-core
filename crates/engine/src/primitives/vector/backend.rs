@@ -150,6 +150,54 @@ pub trait VectorIndexBackend: Send + Sync {
         // Default: no-op (BruteForce has no derived structures)
     }
 
+    /// Write the embedding heap to a `.vec` mmap cache file.
+    ///
+    /// Called after recovery to create a disk cache that speeds up subsequent
+    /// starts. Default: no-op (backends that don't support mmap ignore this).
+    fn freeze_heap_to_disk(&self, _path: &std::path::Path) -> Result<(), VectorError> {
+        Ok(())
+    }
+
+    /// Replace the internal heap with a pre-loaded (mmap-backed) heap.
+    ///
+    /// Used when recovery detects a valid `.vec` cache file. The caller
+    /// is responsible for populating graph structures via `register_mmap_vector()`
+    /// and `rebuild_index()` afterward.
+    fn replace_heap(&mut self, _heap: crate::primitives::vector::VectorHeap) {
+        // Default: no-op (backends that don't support mmap ignore this)
+    }
+
+    /// Register a vector (ID + timestamps) without inserting its embedding.
+    ///
+    /// Called during mmap-based recovery: the heap already contains the embedding
+    /// (loaded from mmap), so we only need to record the ID and timestamp for
+    /// active-buffer / graph population before `rebuild_index()`.
+    fn register_mmap_vector(&mut self, _id: VectorId, _created_at: u64) {
+        // Default: no-op
+    }
+
+    /// Check if the internal heap is backed by a memory-mapped file.
+    fn is_heap_mmap(&self) -> bool {
+        false
+    }
+
+    /// Write sealed segment graphs to disk for mmap-accelerated recovery.
+    ///
+    /// `dir` is the directory for graph files (e.g., `data_dir/vectors/{branch}/{collection}/`).
+    /// Default: no-op (backends without sealed segments ignore this).
+    fn freeze_graphs_to_disk(&self, _dir: &std::path::Path) -> Result<(), VectorError> {
+        Ok(())
+    }
+
+    /// Load sealed segment graphs from mmap files, skipping `rebuild_index()`.
+    ///
+    /// Returns `true` if graphs were successfully loaded; `false` if files are
+    /// missing/corrupt and the caller should fall back to `rebuild_index()`.
+    /// Default: returns `false` (backends without sealed segments).
+    fn load_graphs_from_disk(&mut self, _dir: &std::path::Path) -> Result<bool, VectorError> {
+        Ok(false)
+    }
+
     // ========================================================================
     // Snapshot Methods
     // ========================================================================

@@ -134,12 +134,18 @@ impl Ord for ScoredId {
     }
 }
 
-/// HNSW index backend
-pub struct HnswBackend {
+// ============================================================================
+// HnswGraph: Graph-only HNSW structure (no embedding ownership)
+// ============================================================================
+
+/// Graph-only HNSW structure. Does NOT own embeddings.
+///
+/// Used by `SealedSegment` to avoid duplicating the global VectorHeap.
+/// All search and graph-building methods accept an external `&VectorHeap`
+/// for distance computation.
+pub(crate) struct HnswGraph {
     config: HnswConfig,
     vector_config: VectorConfig,
-    /// Embedding storage (reuses VectorHeap for contiguous f32 storage)
-    heap: VectorHeap,
     /// Graph structure: VectorId -> HnswNode
     /// BTreeMap for deterministic iteration (Invariant R3)
     nodes: BTreeMap<VectorId, HnswNode>,
@@ -151,49 +157,20 @@ pub struct HnswBackend {
     rng_seed: u64,
     /// Monotonic counter for deterministic RNG
     rng_counter: u64,
-    /// Timestamps stored during recovery, consumed by rebuild_graph()
-    pending_timestamps: BTreeMap<VectorId, u64>,
 }
 
-impl HnswBackend {
-    /// Create a new HNSW backend
-    pub fn new(vector_config: &VectorConfig, hnsw_config: HnswConfig) -> Self {
+impl HnswGraph {
+    /// Create a new empty HNSW graph
+    pub(crate) fn new(vector_config: &VectorConfig, hnsw_config: HnswConfig) -> Self {
         Self {
             config: hnsw_config,
             vector_config: vector_config.clone(),
-            heap: VectorHeap::new(vector_config.clone()),
             nodes: BTreeMap::new(),
             entry_point: None,
             max_level: 0,
             rng_seed: 42,
             rng_counter: 0,
-            pending_timestamps: BTreeMap::new(),
         }
-    }
-
-    /// Create from existing heap (for recovery)
-    pub fn from_heap(heap: VectorHeap, hnsw_config: HnswConfig) -> Self {
-        Self {
-            config: hnsw_config,
-            vector_config: heap.config().clone(),
-            heap,
-            nodes: BTreeMap::new(),
-            entry_point: None,
-            max_level: 0,
-            rng_seed: 42,
-            rng_counter: 0,
-            pending_timestamps: BTreeMap::new(),
-        }
-    }
-
-    /// Get read access to heap (for snapshot)
-    pub fn heap(&self) -> &VectorHeap {
-        &self.heap
-    }
-
-    /// Get mutable access to heap (for recovery)
-    pub fn heap_mut(&mut self) -> &mut VectorHeap {
-        &mut self.heap
     }
 
     // ========================================================================
@@ -241,10 +218,11 @@ impl HnswBackend {
         entry_id: VectorId,
         ef: usize,
         layer: usize,
+        heap: &VectorHeap,
     ) -> Vec<ScoredId> {
         let metric = self.vector_config.metric;
 
-        let entry_embedding = match self.heap.get(entry_id) {
+        let entry_embedding = match heap.get(entry_id) {
             Some(e) => e,
             None => return Vec::new(),
         };
@@ -293,7 +271,7 @@ impl HnswBackend {
                         }
                         visited.insert(neighbor_id);
 
-                        if let Some(neighbor_embedding) = self.heap.get(neighbor_id) {
+                        if let Some(neighbor_embedding) = heap.get(neighbor_id) {
                             let score = compute_similarity(query, neighbor_embedding, metric);
 
                             let worst_result_score = results
@@ -354,6 +332,7 @@ impl HnswBackend {
         entry_id: VectorId,
         from_layer: usize,
         to_layer: usize,
+        heap: &VectorHeap,
     ) -> VectorId {
         let metric = self.vector_config.metric;
         let mut current = entry_id;
@@ -362,7 +341,7 @@ impl HnswBackend {
             let mut improved = true;
             while improved {
                 improved = false;
-                let current_embedding = match self.heap.get(current) {
+                let current_embedding = match heap.get(current) {
                     Some(e) => e,
                     None => break,
                 };
@@ -375,7 +354,7 @@ impl HnswBackend {
                 if let Some(node) = self.nodes.get(&current) {
                     if layer < node.neighbors.len() {
                         for &neighbor_id in &node.neighbors[layer] {
-                            if let Some(neighbor_embedding) = self.heap.get(neighbor_id) {
+                            if let Some(neighbor_embedding) = heap.get(neighbor_id) {
                                 let score = compute_similarity(query, neighbor_embedding, metric);
                                 if score > best_score
                                     || (score == best_score && neighbor_id < best_id)
@@ -409,10 +388,16 @@ impl HnswBackend {
     }
 
     /// Prune a node's neighbors at a given layer to max_connections
-    fn prune_neighbors_for(&mut self, id: VectorId, layer: usize, max_connections: usize) {
+    fn prune_neighbors_for(
+        &mut self,
+        id: VectorId,
+        layer: usize,
+        max_connections: usize,
+        heap: &VectorHeap,
+    ) {
         let metric = self.vector_config.metric;
 
-        let embedding = match self.heap.get(id) {
+        let embedding = match heap.get(id) {
             Some(e) => e.to_vec(),
             None => return,
         };
@@ -431,7 +416,7 @@ impl HnswBackend {
         let mut scored: Vec<ScoredId> = neighbors
             .iter()
             .filter_map(|&nid| {
-                self.heap.get(nid).map(|n_emb| ScoredId {
+                heap.get(nid).map(|n_emb| ScoredId {
                     score: compute_similarity(&embedding, n_emb, metric),
                     id: nid,
                 })
@@ -456,12 +441,20 @@ impl HnswBackend {
         }
     }
 
-    /// Rebuild the graph from scratch using current heap contents
+    // ========================================================================
+    // Graph Building
+    // ========================================================================
+
+    /// Rebuild the graph from scratch using heap contents
     ///
     /// Called after recovery to reconstruct the HNSW graph structure.
-    pub fn rebuild_graph(&mut self) {
+    pub(crate) fn rebuild_graph(
+        &mut self,
+        heap: &VectorHeap,
+        pending_timestamps: &mut BTreeMap<VectorId, u64>,
+    ) {
         // Collect all IDs
-        let ids: Vec<VectorId> = self.heap.ids().collect();
+        let ids: Vec<VectorId> = heap.ids().collect();
         if ids.is_empty() {
             return;
         }
@@ -475,14 +468,14 @@ impl HnswBackend {
 
         // Re-insert each vector in ID order (deterministic)
         for id in ids {
-            let embedding = match self.heap.get(id) {
+            let embedding = match heap.get(id) {
                 Some(e) => e.to_vec(),
                 None => continue,
             };
-            let created_at = self.pending_timestamps.remove(&id).unwrap_or(0);
-            self.insert_into_graph(id, &embedding, created_at);
+            let created_at = pending_timestamps.remove(&id).unwrap_or(0);
+            self.insert_into_graph(id, &embedding, created_at, heap);
         }
-        self.pending_timestamps.clear();
+        pending_timestamps.clear();
     }
 
     /// Insert a vector into the graph structure (Paper Algorithm 1: INSERT)
@@ -491,7 +484,13 @@ impl HnswBackend {
     /// - Line 9: SELECT-NEIGHBORS uses M (not Mmax) for the new node's connections
     /// - Lines 11-15: Existing neighbors are pruned to Mmax only if they exceed capacity
     /// - Mmax = M for layers > 0, 2*M for layer 0
-    fn insert_into_graph(&mut self, id: VectorId, embedding: &[f32], created_at: u64) {
+    pub(crate) fn insert_into_graph(
+        &mut self,
+        id: VectorId,
+        embedding: &[f32],
+        created_at: u64,
+        heap: &VectorHeap,
+    ) {
         let level = self.assign_level();
 
         // Create node
@@ -511,14 +510,14 @@ impl HnswBackend {
         let mut current_entry = entry_id;
         if self.max_level > level {
             current_entry =
-                self.greedy_search_to_layer(embedding, entry_id, self.max_level, level + 1);
+                self.greedy_search_to_layer(embedding, entry_id, self.max_level, level + 1, heap);
         }
 
         // Paper lines 7-16: at each layer, find neighbors and create connections
         let start_layer = level.min(self.max_level);
         for layer in (0..=start_layer).rev() {
             let candidates =
-                self.search_layer(embedding, current_entry, self.config.ef_construction, layer);
+                self.search_layer(embedding, current_entry, self.config.ef_construction, layer, heap);
 
             // Paper line 9: SELECT-NEIGHBORS(q, W, M) — use M, not Mmax
             let selected = self.select_neighbors(&candidates, self.config.m);
@@ -554,7 +553,7 @@ impl HnswBackend {
                 };
 
                 if needs_prune {
-                    self.prune_neighbors_for(neighbor_id, layer, max_conn);
+                    self.prune_neighbors_for(neighbor_id, layer, max_conn, heap);
                 }
             }
 
@@ -572,11 +571,194 @@ impl HnswBackend {
     }
 
     // ========================================================================
+    // Search (with external heap)
+    // ========================================================================
+
+    /// Search for nearest neighbors using an external heap for embeddings
+    pub(crate) fn search_with_heap(
+        &self,
+        query: &[f32],
+        k: usize,
+        heap: &VectorHeap,
+    ) -> Vec<(VectorId, f32)> {
+        if k == 0 || heap.is_empty() {
+            return Vec::new();
+        }
+
+        if query.len() != heap.dimension() {
+            return Vec::new();
+        }
+
+        let entry_id = match self.entry_point {
+            Some(id) => id,
+            None => return Vec::new(),
+        };
+
+        // Skip if entry point is deleted and no valid nodes exist
+        if self.nodes.values().all(|n| n.is_deleted()) {
+            return Vec::new();
+        }
+
+        // Greedy search from top layer to layer 1
+        let mut current_entry = entry_id;
+        if self.max_level > 0 {
+            current_entry = self.greedy_search_to_layer(query, entry_id, self.max_level, 1, heap);
+        }
+
+        // ef-search at layer 0
+        let ef = self.config.ef_search.max(k);
+        let candidates = self.search_layer(query, current_entry, ef, 0, heap);
+
+        // Filter out deleted nodes and take top-k
+        candidates
+            .into_iter()
+            .filter(|s| {
+                self.nodes
+                    .get(&s.id)
+                    .map(|n| !n.is_deleted())
+                    .unwrap_or(false)
+            })
+            .take(k)
+            .map(|s| (s.id, s.score))
+            .collect()
+    }
+
+    /// Temporal search using an external heap
+    pub(crate) fn search_at_with_heap(
+        &self,
+        query: &[f32],
+        k: usize,
+        as_of_ts: u64,
+        heap: &VectorHeap,
+    ) -> Vec<(VectorId, f32)> {
+        if self.nodes.is_empty() || k == 0 {
+            return Vec::new();
+        }
+
+        if query.len() != heap.dimension() {
+            return Vec::new();
+        }
+
+        // Early exit: if no nodes were alive at as_of_ts, no results possible.
+        let has_alive = self.nodes.values().any(|n| n.is_alive_at(as_of_ts));
+        if !has_alive {
+            return Vec::new();
+        }
+
+        // Strategy: traverse the *full* current graph and filter results temporally.
+        let mut results = self.search_with_heap(query, k * 2, heap);
+
+        results.retain(|(id, _)| self.nodes.get(id).is_some_and(|n| n.is_alive_at(as_of_ts)));
+
+        results.truncate(k);
+        results
+    }
+
+    /// Range search using an external heap
+    pub(crate) fn search_in_range_with_heap(
+        &self,
+        query: &[f32],
+        k: usize,
+        start_ts: u64,
+        end_ts: u64,
+        heap: &VectorHeap,
+    ) -> Vec<(VectorId, f32)> {
+        if self.nodes.is_empty() || k == 0 {
+            return Vec::new();
+        }
+
+        if query.len() != heap.dimension() {
+            return Vec::new();
+        }
+
+        // Over-fetch and filter by created_at range
+        let mut results = self.search_with_heap(query, k * 2, heap);
+        results.retain(|(id, _)| {
+            self.nodes.get(id).is_some_and(|n| {
+                n.created_at >= start_ts && n.created_at <= end_ts && !n.is_deleted()
+            })
+        });
+        results.truncate(k);
+        results
+    }
+
+    // ========================================================================
+    // Graph-only Operations (no heap needed)
+    // ========================================================================
+
+    /// Check if a vector exists and is alive (not soft-deleted) in this graph
+    pub(crate) fn contains(&self, id: VectorId) -> bool {
+        self.nodes.get(&id).is_some_and(|n| !n.is_deleted())
+    }
+
+    /// Soft-delete a vector in the graph. Returns true if the vector was alive.
+    pub(crate) fn delete_with_timestamp(&mut self, id: VectorId, deleted_at: u64) -> bool {
+        let was_alive = self.nodes.get(&id).is_some_and(|n| !n.is_deleted());
+        if let Some(node) = self.nodes.get_mut(&id) {
+            node.deleted_at = Some(deleted_at);
+        }
+        if was_alive && self.entry_point == Some(id) {
+            self.entry_point = self
+                .nodes
+                .iter()
+                .find(|(_, n)| !n.is_deleted())
+                .map(|(id, _)| *id);
+            if let Some(ep) = self.entry_point {
+                self.max_level = self.nodes[&ep].max_layer;
+            } else {
+                self.max_level = 0;
+            }
+        }
+        was_alive
+    }
+
+    /// Remove a node and all its bidirectional connections from the graph (for updates)
+    pub(crate) fn remove_node(&mut self, id: VectorId) {
+        if let Some(node) = self.nodes.remove(&id) {
+            // Remove references to this node from all neighbors
+            for (layer, neighbors) in node.neighbors.iter().enumerate() {
+                for &neighbor_id in neighbors {
+                    if let Some(n) = self.nodes.get_mut(&neighbor_id) {
+                        if layer < n.neighbors.len() {
+                            n.neighbors[layer].remove(&id);
+                        }
+                    }
+                }
+            }
+            // Update entry point if needed
+            if self.entry_point == Some(id) {
+                self.entry_point = self.nodes.keys().next().copied();
+                self.max_level = self.nodes.values().map(|n| n.max_layer).max().unwrap_or(0);
+            }
+        }
+    }
+
+    /// Count of non-deleted nodes in the graph
+    pub(crate) fn len(&self) -> usize {
+        self.nodes.values().filter(|n| !n.is_deleted()).count()
+    }
+
+    /// Memory usage of the graph structure (excludes embedding data)
+    pub(crate) fn memory_usage(&self) -> usize {
+        self.nodes
+            .values()
+            .map(|node| {
+                // BTreeSet overhead per neighbor
+                node.neighbors
+                    .iter()
+                    .map(|ns| ns.len() * 16 + 64)
+                    .sum::<usize>()
+                    + 64 // node overhead
+            })
+            .sum()
+    }
+
+    // ========================================================================
     // Snapshot State
     // ========================================================================
 
     /// Serialize HNSW graph state to bytes
-    pub fn serialize_graph_state(&self) -> Vec<u8> {
+    pub(crate) fn serialize_graph_state(&self) -> Vec<u8> {
         let mut data = Vec::new();
 
         // Entry point
@@ -633,7 +815,7 @@ impl HnswBackend {
     }
 
     /// Deserialize HNSW graph state from bytes
-    pub fn deserialize_graph_state(&mut self, data: &[u8]) -> Result<(), VectorError> {
+    pub(crate) fn deserialize_graph_state(&mut self, data: &[u8]) -> Result<(), VectorError> {
         let mut pos = 0;
 
         let read_u8 = |pos: &mut usize, data: &[u8]| -> Result<u8, VectorError> {
@@ -714,6 +896,521 @@ impl HnswBackend {
     }
 }
 
+// ============================================================================
+// CompactHnswGraph: Immutable, memory-efficient sealed representation
+// ============================================================================
+
+/// Compact, immutable node for sealed HNSW segments.
+///
+/// Per-layer neighbors are stored as `(start, count)` ranges into a shared
+/// `neighbor_data` flat array.  `u32` start and `u16` count give up to 4 G
+/// entries and 65 K neighbors per layer — well beyond any practical config.
+pub(crate) struct CompactHnswNode {
+    /// Per-layer: (start_offset in neighbor_data, count)
+    pub(crate) layer_ranges: Vec<(u32, u16)>,
+    pub(crate) created_at: u64,
+    pub(crate) deleted_at: Option<u64>,
+}
+
+/// Storage for neighbor IDs in a compact HNSW graph.
+///
+/// `Owned` keeps data in a heap-allocated `Vec` (used during normal operation).
+/// `Mmap` reads data directly from a memory-mapped file (used after recovery
+/// to avoid loading the full neighbor array into RSS).
+pub(crate) enum NeighborData {
+    Owned(Vec<u64>),
+    Mmap {
+        mmap: memmap2::Mmap,
+        /// Byte offset where u64 neighbor data begins in the mmap
+        byte_offset: usize,
+        /// Number of u64 elements
+        len: usize,
+    },
+}
+
+// NeighborData is Send+Sync because all variants contain Send+Sync types:
+// - Vec<u64> is Send+Sync
+// - memmap2::Mmap is Send+Sync
+// - usize is Send+Sync
+// The compiler auto-derives these traits; no explicit unsafe impl needed.
+
+impl NeighborData {
+    /// View the neighbor data as a contiguous `&[u64]` slice.
+    pub(crate) fn as_slice(&self) -> &[u64] {
+        match self {
+            NeighborData::Owned(v) => v,
+            NeighborData::Mmap {
+                mmap,
+                byte_offset,
+                len,
+            } => {
+                if *len == 0 {
+                    return &[];
+                }
+                debug_assert!(
+                    *byte_offset % 8 == 0,
+                    "NeighborData mmap byte_offset must be 8-byte aligned, got {}",
+                    byte_offset
+                );
+                let bytes = &mmap[*byte_offset..*byte_offset + *len * 8];
+                // SAFETY: file format guarantees 8-byte alignment at byte_offset
+                // (via align8 in write_graph_file), and the data is native-endian
+                // u64 (LE on LE platforms).
+                unsafe { std::slice::from_raw_parts(bytes.as_ptr() as *const u64, *len) }
+            }
+        }
+    }
+
+    /// Number of u64 elements.
+    pub(crate) fn len(&self) -> usize {
+        match self {
+            NeighborData::Owned(v) => v.len(),
+            NeighborData::Mmap { len, .. } => *len,
+        }
+    }
+
+    /// Whether the data is backed by a memory-mapped file.
+    pub(crate) fn is_mmap(&self) -> bool {
+        matches!(self, NeighborData::Mmap { .. })
+    }
+}
+
+/// Immutable, compact representation of a sealed HNSW graph.
+///
+/// Neighbors are stored in a contiguous sorted `Vec<u64>` (or mmap-backed
+/// slice) instead of one `BTreeSet<VectorId>` per layer per node.  This
+/// reduces per-element overhead from ~48 bytes (BTreeSet) to 8 bytes (u64).
+pub(crate) struct CompactHnswGraph {
+    pub(crate) config: HnswConfig,
+    pub(crate) vector_config: VectorConfig,
+    /// Flat array of all neighbor IDs (u64 for VectorId)
+    pub(crate) neighbor_data: NeighborData,
+    /// Per-node metadata indexed by VectorId
+    pub(crate) nodes: BTreeMap<VectorId, CompactHnswNode>,
+    pub(crate) entry_point: Option<VectorId>,
+    pub(crate) max_level: usize,
+}
+
+impl CompactHnswGraph {
+    /// Build from an existing `HnswGraph` (consumes graph state).
+    ///
+    /// `BTreeSet` iterates in sorted order so the resulting flat array
+    /// preserves deterministic neighbor ordering.
+    pub(crate) fn from_graph(graph: &HnswGraph) -> Self {
+        let mut neighbor_data: Vec<u64> = Vec::new();
+        let mut compact_nodes: BTreeMap<VectorId, CompactHnswNode> = BTreeMap::new();
+
+        for (&id, node) in &graph.nodes {
+            let mut layer_ranges = Vec::with_capacity(node.neighbors.len());
+            for layer_set in &node.neighbors {
+                let start = neighbor_data.len() as u32;
+                let count = layer_set.len() as u16;
+                for &neighbor_id in layer_set {
+                    neighbor_data.push(neighbor_id.as_u64());
+                }
+                layer_ranges.push((start, count));
+            }
+            compact_nodes.insert(
+                id,
+                CompactHnswNode {
+                    layer_ranges,
+                    created_at: node.created_at,
+                    deleted_at: node.deleted_at,
+                },
+            );
+        }
+
+        CompactHnswGraph {
+            config: graph.config.clone(),
+            vector_config: graph.vector_config.clone(),
+            neighbor_data: NeighborData::Owned(neighbor_data),
+            nodes: compact_nodes,
+            entry_point: graph.entry_point,
+            max_level: graph.max_level,
+        }
+    }
+
+    /// Get neighbor IDs for a node at a given layer.
+    fn neighbors_at(&self, id: VectorId, layer: usize) -> &[u64] {
+        match self.nodes.get(&id) {
+            Some(node) if layer < node.layer_ranges.len() => {
+                let (start, count) = node.layer_ranges[layer];
+                let data = self.neighbor_data.as_slice();
+                &data[start as usize..(start as usize + count as usize)]
+            }
+            _ => &[],
+        }
+    }
+
+    /// Check if node is deleted
+    fn is_deleted(&self, id: VectorId) -> bool {
+        self.nodes.get(&id).is_some_and(|n| n.deleted_at.is_some())
+    }
+
+    /// Check if node was alive at `as_of_ts`
+    fn is_alive_at(&self, id: VectorId, as_of_ts: u64) -> bool {
+        self.nodes.get(&id).is_some_and(|n| {
+            (n.created_at == 0 || n.created_at <= as_of_ts)
+                && n.deleted_at.map_or(true, |d| d > as_of_ts)
+        })
+    }
+
+    // ====================================================================
+    // Search (mirrors HnswGraph methods but uses flat neighbor array)
+    // ====================================================================
+
+    /// Beam search at a single layer (same algorithm as HnswGraph::search_layer)
+    fn search_layer(
+        &self,
+        query: &[f32],
+        entry_id: VectorId,
+        ef: usize,
+        layer: usize,
+        heap: &VectorHeap,
+    ) -> Vec<ScoredId> {
+        let metric = self.vector_config.metric;
+
+        let entry_embedding = match heap.get(entry_id) {
+            Some(e) => e,
+            None => return Vec::new(),
+        };
+        let entry_score = compute_similarity(query, entry_embedding, metric);
+
+        let mut visited = BTreeSet::new();
+        visited.insert(entry_id);
+
+        let mut candidates = BinaryHeap::new();
+        candidates.push(ScoredId {
+            score: entry_score,
+            id: entry_id,
+        });
+
+        let mut results: BinaryHeap<Reverse<ScoredId>> = BinaryHeap::new();
+        if !self.is_deleted(entry_id) {
+            results.push(Reverse(ScoredId {
+                score: entry_score,
+                id: entry_id,
+            }));
+        }
+
+        while let Some(nearest) = candidates.pop() {
+            let worst_result_score = results
+                .peek()
+                .map(|r| r.0.score)
+                .unwrap_or(f32::NEG_INFINITY);
+            if nearest.score < worst_result_score && results.len() >= ef {
+                break;
+            }
+
+            for &neighbor_u64 in self.neighbors_at(nearest.id, layer) {
+                let neighbor_id = VectorId::new(neighbor_u64);
+                if visited.contains(&neighbor_id) {
+                    continue;
+                }
+                visited.insert(neighbor_id);
+
+                if let Some(neighbor_embedding) = heap.get(neighbor_id) {
+                    let score = compute_similarity(query, neighbor_embedding, metric);
+
+                    let worst_result_score = results
+                        .peek()
+                        .map(|r| r.0.score)
+                        .unwrap_or(f32::NEG_INFINITY);
+                    if score > worst_result_score || results.len() < ef {
+                        candidates.push(ScoredId {
+                            score,
+                            id: neighbor_id,
+                        });
+                        if !self.is_deleted(neighbor_id) {
+                            results.push(Reverse(ScoredId {
+                                score,
+                                id: neighbor_id,
+                            }));
+                            if results.len() > ef {
+                                results.pop();
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        let mut result_vec: Vec<ScoredId> = results.into_iter().map(|r| r.0).collect();
+        result_vec.sort_by(|a, b| {
+            b.score
+                .partial_cmp(&a.score)
+                .unwrap_or(Ordering::Equal)
+                .then_with(|| a.id.cmp(&b.id))
+        });
+        result_vec
+    }
+
+    /// Greedy search from top layer to target layer
+    fn greedy_search_to_layer(
+        &self,
+        query: &[f32],
+        entry_id: VectorId,
+        from_layer: usize,
+        to_layer: usize,
+        heap: &VectorHeap,
+    ) -> VectorId {
+        let metric = self.vector_config.metric;
+        let mut current = entry_id;
+
+        for layer in (to_layer..=from_layer).rev() {
+            let mut improved = true;
+            while improved {
+                improved = false;
+                let current_embedding = match heap.get(current) {
+                    Some(e) => e,
+                    None => break,
+                };
+                let current_score = compute_similarity(query, current_embedding, metric);
+
+                let mut best_score = current_score;
+                let mut best_id = current;
+
+                for &neighbor_u64 in self.neighbors_at(current, layer) {
+                    let neighbor_id = VectorId::new(neighbor_u64);
+                    if let Some(neighbor_embedding) = heap.get(neighbor_id) {
+                        let score = compute_similarity(query, neighbor_embedding, metric);
+                        if score > best_score || (score == best_score && neighbor_id < best_id) {
+                            best_score = score;
+                            best_id = neighbor_id;
+                        }
+                    }
+                }
+
+                if best_id != current {
+                    current = best_id;
+                    improved = true;
+                }
+            }
+        }
+
+        current
+    }
+
+    /// Search for nearest neighbors using an external heap for embeddings
+    pub(crate) fn search_with_heap(
+        &self,
+        query: &[f32],
+        k: usize,
+        heap: &VectorHeap,
+    ) -> Vec<(VectorId, f32)> {
+        if k == 0 || self.nodes.is_empty() {
+            return Vec::new();
+        }
+
+        if query.len() != heap.dimension() {
+            return Vec::new();
+        }
+
+        let entry_id = match self.entry_point {
+            Some(id) => id,
+            None => return Vec::new(),
+        };
+
+        if self.nodes.values().all(|n| n.deleted_at.is_some()) {
+            return Vec::new();
+        }
+
+        let mut current_entry = entry_id;
+        if self.max_level > 0 {
+            current_entry = self.greedy_search_to_layer(query, entry_id, self.max_level, 1, heap);
+        }
+
+        let ef = self.config.ef_search.max(k);
+        let candidates = self.search_layer(query, current_entry, ef, 0, heap);
+
+        candidates
+            .into_iter()
+            .filter(|s| !self.is_deleted(s.id))
+            .take(k)
+            .map(|s| (s.id, s.score))
+            .collect()
+    }
+
+    /// Temporal search using an external heap
+    pub(crate) fn search_at_with_heap(
+        &self,
+        query: &[f32],
+        k: usize,
+        as_of_ts: u64,
+        heap: &VectorHeap,
+    ) -> Vec<(VectorId, f32)> {
+        if self.nodes.is_empty() || k == 0 {
+            return Vec::new();
+        }
+        if query.len() != heap.dimension() {
+            return Vec::new();
+        }
+
+        let has_alive = self.nodes.keys().any(|&id| self.is_alive_at(id, as_of_ts));
+        if !has_alive {
+            return Vec::new();
+        }
+
+        let mut results = self.search_with_heap(query, k * 2, heap);
+        results.retain(|(id, _)| self.is_alive_at(*id, as_of_ts));
+        results.truncate(k);
+        results
+    }
+
+    /// Range search using an external heap
+    pub(crate) fn search_in_range_with_heap(
+        &self,
+        query: &[f32],
+        k: usize,
+        start_ts: u64,
+        end_ts: u64,
+        heap: &VectorHeap,
+    ) -> Vec<(VectorId, f32)> {
+        if self.nodes.is_empty() || k == 0 {
+            return Vec::new();
+        }
+        if query.len() != heap.dimension() {
+            return Vec::new();
+        }
+
+        let mut results = self.search_with_heap(query, k * 2, heap);
+        results.retain(|(id, _)| {
+            self.nodes.get(id).is_some_and(|n| {
+                n.created_at >= start_ts && n.created_at <= end_ts && n.deleted_at.is_none()
+            })
+        });
+        results.truncate(k);
+        results
+    }
+
+    // ====================================================================
+    // Graph-only operations
+    // ====================================================================
+
+    /// Check if a vector exists and is alive
+    pub(crate) fn contains(&self, id: VectorId) -> bool {
+        self.nodes
+            .get(&id)
+            .is_some_and(|n| n.deleted_at.is_none())
+    }
+
+    /// Soft-delete a vector. Returns true if it was alive.
+    pub(crate) fn delete_with_timestamp(&mut self, id: VectorId, deleted_at: u64) -> bool {
+        let was_alive = self
+            .nodes
+            .get(&id)
+            .is_some_and(|n| n.deleted_at.is_none());
+        if let Some(node) = self.nodes.get_mut(&id) {
+            node.deleted_at = Some(deleted_at);
+        }
+        if was_alive && self.entry_point == Some(id) {
+            self.entry_point = self
+                .nodes
+                .iter()
+                .find(|(_, n)| n.deleted_at.is_none())
+                .map(|(id, _)| *id);
+            if let Some(ep) = self.entry_point {
+                self.max_level = self.nodes[&ep].layer_ranges.len().saturating_sub(1);
+            } else {
+                self.max_level = 0;
+            }
+        }
+        was_alive
+    }
+
+    /// Number of nodes in the graph (including soft-deleted)
+    pub(crate) fn len(&self) -> usize {
+        self.nodes.len()
+    }
+
+    /// Whether the neighbor data is backed by a memory-mapped file.
+    pub(crate) fn is_neighbor_data_mmap(&self) -> bool {
+        self.neighbor_data.is_mmap()
+    }
+
+    /// Memory usage of the compact graph (excludes embedding data)
+    pub(crate) fn memory_usage(&self) -> usize {
+        // Neighbor data: 0 for mmap (OS manages those pages)
+        let neighbor_bytes = if self.neighbor_data.is_mmap() {
+            0
+        } else {
+            self.neighbor_data.len() * std::mem::size_of::<u64>()
+        };
+        let node_bytes: usize = self
+            .nodes
+            .values()
+            .map(|n| {
+                std::mem::size_of::<CompactHnswNode>()
+                    + n.layer_ranges.capacity() * std::mem::size_of::<(u32, u16)>()
+                    + 64 // BTreeMap node overhead
+            })
+            .sum();
+        neighbor_bytes + node_bytes
+    }
+}
+
+// ============================================================================
+// HnswBackend: Thin wrapper around HnswGraph + VectorHeap
+// ============================================================================
+
+/// HNSW index backend
+///
+/// Wraps an `HnswGraph` (graph structure) with a `VectorHeap` (embedding storage)
+/// to provide a self-contained HNSW implementation for the `VectorIndexBackend` trait.
+pub struct HnswBackend {
+    graph: HnswGraph,
+    /// Embedding storage (reuses VectorHeap for contiguous f32 storage)
+    heap: VectorHeap,
+    /// Timestamps stored during recovery, consumed by rebuild_graph()
+    pending_timestamps: BTreeMap<VectorId, u64>,
+}
+
+impl HnswBackend {
+    /// Create a new HNSW backend
+    pub fn new(vector_config: &VectorConfig, hnsw_config: HnswConfig) -> Self {
+        Self {
+            graph: HnswGraph::new(vector_config, hnsw_config),
+            heap: VectorHeap::new(vector_config.clone()),
+            pending_timestamps: BTreeMap::new(),
+        }
+    }
+
+    /// Create from existing heap (for recovery)
+    pub fn from_heap(heap: VectorHeap, hnsw_config: HnswConfig) -> Self {
+        Self {
+            graph: HnswGraph::new(heap.config(), hnsw_config),
+            heap,
+            pending_timestamps: BTreeMap::new(),
+        }
+    }
+
+    /// Get read access to heap (for snapshot)
+    pub fn heap(&self) -> &VectorHeap {
+        &self.heap
+    }
+
+    /// Get mutable access to heap (for recovery)
+    pub fn heap_mut(&mut self) -> &mut VectorHeap {
+        &mut self.heap
+    }
+
+    /// Rebuild the graph from scratch
+    pub fn rebuild_graph(&mut self) {
+        self.graph
+            .rebuild_graph(&self.heap, &mut self.pending_timestamps);
+    }
+
+    /// Serialize HNSW graph state to bytes
+    pub fn serialize_graph_state(&self) -> Vec<u8> {
+        self.graph.serialize_graph_state()
+    }
+
+    /// Deserialize HNSW graph state from bytes
+    pub fn deserialize_graph_state(&mut self, data: &[u8]) -> Result<(), VectorError> {
+        self.graph.deserialize_graph_state(data)
+    }
+}
+
 impl VectorIndexBackend for HnswBackend {
     fn allocate_id(&mut self) -> VectorId {
         self.heap.allocate_id()
@@ -737,27 +1434,11 @@ impl VectorIndexBackend for HnswBackend {
 
         if is_update {
             // For updates, remove old graph connections and re-insert
-            if let Some(node) = self.nodes.remove(&id) {
-                // Remove references to this node from all neighbors
-                for (layer, neighbors) in node.neighbors.iter().enumerate() {
-                    for &neighbor_id in neighbors {
-                        if let Some(n) = self.nodes.get_mut(&neighbor_id) {
-                            if layer < n.neighbors.len() {
-                                n.neighbors[layer].remove(&id);
-                            }
-                        }
-                    }
-                }
-                // Update entry point if needed
-                if self.entry_point == Some(id) {
-                    self.entry_point = self.nodes.keys().next().copied();
-                    self.max_level = self.nodes.values().map(|n| n.max_layer).max().unwrap_or(0);
-                }
-            }
+            self.graph.remove_node(id);
         }
 
         // Insert into graph with timestamp
-        self.insert_into_graph(id, embedding, created_at);
+        self.graph.insert_into_graph(id, embedding, created_at, &self.heap);
 
         Ok(())
     }
@@ -792,100 +1473,17 @@ impl VectorIndexBackend for HnswBackend {
         let existed = self.heap.delete(id);
         if existed {
             // Mark as deleted in graph (lazy deletion) with timestamp
-            if let Some(node) = self.nodes.get_mut(&id) {
-                node.deleted_at = Some(deleted_at);
-            }
-
-            // If we deleted the entry point, find a new one
-            if self.entry_point == Some(id) {
-                self.entry_point = self
-                    .nodes
-                    .iter()
-                    .find(|(_, n)| !n.is_deleted())
-                    .map(|(id, _)| *id);
-
-                if let Some(ep) = self.entry_point {
-                    self.max_level = self.nodes[&ep].max_layer;
-                } else {
-                    self.max_level = 0;
-                }
-            }
+            self.graph.delete_with_timestamp(id, deleted_at);
         }
         Ok(existed)
     }
 
     fn search(&self, query: &[f32], k: usize) -> Vec<(VectorId, f32)> {
-        if k == 0 || self.heap.is_empty() {
-            return Vec::new();
-        }
-
-        if query.len() != self.heap.dimension() {
-            return Vec::new();
-        }
-
-        let entry_id = match self.entry_point {
-            Some(id) => id,
-            None => return Vec::new(),
-        };
-
-        // Skip if entry point is deleted and no valid nodes exist
-        if self.nodes.values().all(|n| n.is_deleted()) {
-            return Vec::new();
-        }
-
-        // Greedy search from top layer to layer 1
-        let mut current_entry = entry_id;
-        if self.max_level > 0 {
-            current_entry = self.greedy_search_to_layer(query, entry_id, self.max_level, 1);
-        }
-
-        // ef-search at layer 0
-        let ef = self.config.ef_search.max(k);
-        let candidates = self.search_layer(query, current_entry, ef, 0);
-
-        // Filter out deleted nodes and take top-k
-        let results: Vec<(VectorId, f32)> = candidates
-            .into_iter()
-            .filter(|s| {
-                self.nodes
-                    .get(&s.id)
-                    .map(|n| !n.is_deleted())
-                    .unwrap_or(false)
-            })
-            .take(k)
-            .map(|s| (s.id, s.score))
-            .collect();
-
-        results
+        self.graph.search_with_heap(query, k, &self.heap)
     }
 
     fn search_at(&self, query: &[f32], k: usize, as_of_ts: u64) -> Vec<(VectorId, f32)> {
-        if self.nodes.is_empty() || k == 0 {
-            return Vec::new();
-        }
-
-        if query.len() != self.heap.dimension() {
-            return Vec::new();
-        }
-
-        // Early exit: if no nodes were alive at as_of_ts, no results possible.
-        let has_alive = self.nodes.values().any(|n| n.is_alive_at(as_of_ts));
-        if !has_alive {
-            return Vec::new();
-        }
-
-        // Strategy: traverse the *full* current graph (including nodes created after
-        // as_of_ts) and filter results temporally. This is correct because:
-        //   - Graph edges are never removed, so newer nodes provide additional
-        //     shortcuts that improve traversal quality.
-        //   - The over-fetch (k * 2) compensates for nodes filtered out.
-        //   - Final results are restricted to nodes alive at as_of_ts.
-        let mut results = self.search(query, k * 2);
-
-        results.retain(|(id, _)| self.nodes.get(id).is_some_and(|n| n.is_alive_at(as_of_ts)));
-
-        results.truncate(k);
-        results
+        self.graph.search_at_with_heap(query, k, as_of_ts, &self.heap)
     }
 
     fn search_in_range(
@@ -895,23 +1493,8 @@ impl VectorIndexBackend for HnswBackend {
         start_ts: u64,
         end_ts: u64,
     ) -> Vec<(VectorId, f32)> {
-        if self.nodes.is_empty() || k == 0 {
-            return Vec::new();
-        }
-
-        if query.len() != self.heap.dimension() {
-            return Vec::new();
-        }
-
-        // Over-fetch and filter by created_at range
-        let mut results = self.search(query, k * 2);
-        results.retain(|(id, _)| {
-            self.nodes.get(id).is_some_and(|n| {
-                n.created_at >= start_ts && n.created_at <= end_ts && !n.is_deleted()
-            })
-        });
-        results.truncate(k);
-        results
+        self.graph
+            .search_in_range_with_heap(query, k, start_ts, end_ts, &self.heap)
     }
 
     fn len(&self) -> usize {
@@ -947,24 +1530,17 @@ impl VectorIndexBackend for HnswBackend {
     }
 
     fn memory_usage(&self) -> usize {
-        // Embedding storage
-        let embedding_bytes = std::mem::size_of_val(self.heap.raw_data());
-        // Graph structure: each node has neighbor lists
-        let graph_bytes: usize = self
-            .nodes
-            .values()
-            .map(|node| {
-                // BTreeSet overhead per neighbor
-                node.neighbors
-                    .iter()
-                    .map(|ns| ns.len() * 16 + 64)
-                    .sum::<usize>()
-                    + 64 // node overhead
-            })
-            .sum();
+        // Embedding storage (0 for mmap — OS manages those pages)
+        let embedding_bytes = if self.heap.is_mmap() {
+            0
+        } else {
+            self.heap.raw_data().len() * std::mem::size_of::<f32>()
+        };
+        // Graph structure
+        let graph_bytes = self.graph.memory_usage();
         let heap_overhead =
             self.heap.len() * (std::mem::size_of::<VectorId>() + std::mem::size_of::<usize>() + 64);
-        let free_slots_bytes = std::mem::size_of_val(self.heap.free_slots());
+        let free_slots_bytes = self.heap.free_slots().len() * std::mem::size_of::<usize>();
 
         embedding_bytes + graph_bytes + heap_overhead + free_slots_bytes
     }
@@ -979,6 +1555,22 @@ impl VectorIndexBackend for HnswBackend {
 
     fn restore_snapshot_state(&mut self, next_id: u64, free_slots: Vec<usize>) {
         self.heap.restore_snapshot_state(next_id, free_slots);
+    }
+
+    fn freeze_heap_to_disk(&self, path: &std::path::Path) -> Result<(), VectorError> {
+        self.heap.freeze_to_disk(path)
+    }
+
+    fn replace_heap(&mut self, heap: crate::primitives::vector::VectorHeap) {
+        self.heap = heap;
+    }
+
+    fn register_mmap_vector(&mut self, id: VectorId, created_at: u64) {
+        self.pending_timestamps.insert(id, created_at);
+    }
+
+    fn is_heap_mmap(&self) -> bool {
+        self.heap.is_mmap()
     }
 }
 
@@ -1224,7 +1816,7 @@ mod tests {
             .unwrap();
 
         // Graph is empty at this point
-        assert!(backend.entry_point.is_none());
+        assert!(backend.graph.entry_point.is_none());
 
         // Rebuild
         backend.rebuild_graph();

@@ -610,6 +610,13 @@ impl Database {
         self.persistence_mode == PersistenceMode::Ephemeral
     }
 
+    /// Get the data directory path.
+    ///
+    /// Returns an empty path for ephemeral (cache) databases.
+    pub fn data_dir(&self) -> &Path {
+        &self.data_dir
+    }
+
     /// Get current WAL counters snapshot.
     ///
     /// Returns `None` for ephemeral databases (no WAL).

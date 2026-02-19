@@ -27,6 +27,8 @@ pub mod error;
 pub mod filter;
 pub mod heap;
 pub mod hnsw;
+pub(crate) mod mmap;
+pub(crate) mod mmap_graph;
 pub mod recovery;
 pub mod segmented;
 pub mod snapshot;
@@ -43,6 +45,7 @@ pub use error::{VectorError, VectorResult};
 pub use filter::{FilterCondition, FilterOp, JsonScalar, MetadataFilter};
 pub use heap::VectorHeap;
 pub use hnsw::{HnswBackend, HnswConfig};
+pub(crate) use hnsw::HnswGraph;
 pub use segmented::{SegmentedHnswBackend, SegmentedHnswConfig};
 pub use recovery::register_vector_recovery;
 pub use snapshot::{CollectionSnapshotHeader, VECTOR_SNAPSHOT_VERSION};
@@ -56,3 +59,16 @@ pub use wal::{
     create_wal_upsert, create_wal_upsert_with_source, VectorWalReplayer, WalVectorCollectionCreate,
     WalVectorCollectionDelete, WalVectorDelete, WalVectorUpsert,
 };
+
+/// Compute the directory for sealed-segment graph mmap files.
+pub(crate) fn graph_dir(
+    data_dir: &std::path::Path,
+    branch_id: strata_core::types::BranchId,
+    collection_name: &str,
+) -> std::path::PathBuf {
+    let branch_hex = format!("{:032x}", u128::from_be_bytes(*branch_id.as_bytes()));
+    data_dir
+        .join("vectors")
+        .join(branch_hex)
+        .join(format!("{}_graphs", collection_name))
+}

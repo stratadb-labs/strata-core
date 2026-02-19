@@ -2236,8 +2236,51 @@ impl strata_storage::PrimitiveStorageExt for VectorStore {
             .map_err(|e| strata_storage::PrimitiveExtError::InvalidOperation(e.to_string()))?;
         let mut backends = state.backends.write();
 
-        for (_collection_id, backend) in backends.iter_mut() {
-            backend.rebuild_index();
+        let data_dir = self.db.data_dir();
+        let use_mmap = !data_dir.as_os_str().is_empty();
+
+        for (collection_id, backend) in backends.iter_mut() {
+            // Try to load pre-built graphs from mmap files (skips rebuild)
+            let mut loaded_from_mmap = false;
+            if use_mmap {
+                let gdir = super::graph_dir(data_dir, collection_id.branch_id, &collection_id.name);
+                match backend.load_graphs_from_disk(&gdir) {
+                    Ok(true) => {
+                        loaded_from_mmap = true;
+                        tracing::debug!(
+                            target: "strata::vector",
+                            collection = %collection_id.name,
+                            "Loaded sealed graphs from mmap cache"
+                        );
+                    }
+                    Ok(false) => {} // No mmap files, will rebuild
+                    Err(e) => {
+                        tracing::warn!(
+                            target: "strata::vector",
+                            collection = %collection_id.name,
+                            error = %e,
+                            "Failed to load graph mmap, falling back to rebuild"
+                        );
+                    }
+                }
+            }
+
+            if !loaded_from_mmap {
+                backend.rebuild_index();
+
+                // Freeze newly-built graphs to disk for next startup
+                if use_mmap {
+                    let gdir = super::graph_dir(data_dir, collection_id.branch_id, &collection_id.name);
+                    if let Err(e) = backend.freeze_graphs_to_disk(&gdir) {
+                        tracing::warn!(
+                            target: "strata::vector",
+                            collection = %collection_id.name,
+                            error = %e,
+                            "Failed to freeze graphs to mmap cache"
+                        );
+                    }
+                }
+            }
         }
 
         Ok(())

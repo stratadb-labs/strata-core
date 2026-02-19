@@ -11,11 +11,25 @@
 //! 4. For each collection config found, it creates a backend and loads embeddings
 //! 5. The Database is ready with all vector embeddings restored
 //!
-//! ## KV-Based Recovery (Phase 3)
+//! ## mmap Acceleration
 //!
-//! Vector data is already persisted through KV transactions. Recovery rebuilds
-//! in-memory indices by scanning the KV store after KV recovery completes.
-//! This eliminates the need for separate WALEntry::Vector* variants.
+//! After KV-based recovery, the global VectorHeap is frozen to a `.vec` mmap
+//! file under `{data_dir}/vectors/{branch_hex}/{collection}.vec`.
+//!
+//! On subsequent opens the recovery path tries to load the heap from the mmap
+//! cache first.  If the file is present and valid, the KV scan for vector
+//! entries is replaced by a lightweight timestamp-only scan: the heap is
+//! already populated from the mmap, and we only register each vector's
+//! ID + timestamp so that `rebuild_index()` can rebuild the HNSW graph.
+//!
+//! Sealed segment graphs are also frozen to `.hgr` files under
+//! `{data_dir}/vectors/{branch_hex}/{collection}_graphs/seg_{id}.hgr`.
+//! On subsequent opens, `load_graphs_from_disk()` loads the pre-built graphs
+//! (with neighbor data mmap-backed), skipping the expensive `rebuild_index()`.
+//!
+//! All mmap files are **caches** — if missing, corrupt, or with a dimension
+//! mismatch, recovery falls back transparently to full KV-based rebuild
+//! with no data loss.
 
 use crate::database::Database;
 use crate::recovery::{register_recovery_participant, RecoveryParticipant};
@@ -29,9 +43,23 @@ fn recover_vector_state(db: &Database) -> StrataResult<()> {
     recover_from_db(db)
 }
 
+/// Compute the `.vec` mmap cache path for a given collection.
+fn mmap_path(
+    data_dir: &std::path::Path,
+    branch_id: strata_core::types::BranchId,
+    collection_name: &str,
+) -> std::path::PathBuf {
+    let branch_hex = format!("{:032x}", u128::from_be_bytes(*branch_id.as_bytes()));
+    data_dir
+        .join("vectors")
+        .join(branch_hex)
+        .join(format!("{}.vec", collection_name))
+}
+
 /// Internal recovery implementation that works with &Database
 fn recover_from_db(db: &Database) -> StrataResult<()> {
     use super::{CollectionId, IndexBackendFactory, VectorBackendState, VectorConfig, VectorId};
+    use crate::primitives::vector::heap::VectorHeap;
     use strata_core::traits::SnapshotView;
     use strata_core::types::{Key, Namespace};
     use strata_core::value::Value;
@@ -47,6 +75,8 @@ fn recover_from_db(db: &Database) -> StrataResult<()> {
 
     let snapshot = db.storage().create_snapshot();
     let mut stats = super::RecoveryStats::default();
+    let data_dir = db.data_dir();
+    let use_mmap = !data_dir.as_os_str().is_empty();
 
     // Iterate all branch_ids in storage
     for branch_id in db.storage().branch_ids() {
@@ -109,14 +139,40 @@ fn recover_from_db(db: &Database) -> StrataResult<()> {
             let collection_id = CollectionId::new(branch_id, &collection_name);
 
             // Create backend for this collection
-            let backend = factory.create(&config);
-            state
-                .backends
-                .write()
-                .insert(collection_id.clone(), backend);
-            stats.collections_created += 1;
+            let mut backend = factory.create(&config);
 
-            // Scan for all vector entries in this collection
+            // -----------------------------------------------------------
+            // Try mmap-accelerated recovery: load heap from disk cache.
+            // -----------------------------------------------------------
+            let mut loaded_from_mmap = false;
+            if use_mmap {
+                let vec_path = mmap_path(data_dir, branch_id, &collection_name);
+                if vec_path.exists() {
+                    match VectorHeap::from_mmap(&vec_path, config.clone()) {
+                        Ok(heap) => {
+                            backend.replace_heap(heap);
+                            loaded_from_mmap = true;
+                            tracing::debug!(
+                                target: "strata::vector",
+                                collection = %collection_name,
+                                "Loaded heap from mmap cache"
+                            );
+                        }
+                        Err(e) => {
+                            tracing::warn!(
+                                target: "strata::vector",
+                                collection = %collection_name,
+                                error = %e,
+                                "Failed to load mmap cache, falling back to KV"
+                            );
+                        }
+                    }
+                }
+            }
+
+            // -----------------------------------------------------------
+            // Scan KV for vector entries
+            // -----------------------------------------------------------
             let vector_prefix = Key::new_vector(ns.clone(), &collection_name, "");
             let vector_entries = match snapshot.scan_prefix(&vector_prefix) {
                 Ok(entries) => entries,
@@ -127,6 +183,13 @@ fn recover_from_db(db: &Database) -> StrataResult<()> {
                         error = %e,
                         "Failed to scan vectors during recovery"
                     );
+                    // If mmap loaded, the backend has embeddings but no timestamps;
+                    // proceed anyway so rebuild_index() at least builds the graph.
+                    state
+                        .backends
+                        .write()
+                        .insert(collection_id.clone(), backend);
+                    stats.collections_created += 1;
                     continue;
                 }
             };
@@ -150,17 +213,47 @@ fn recover_from_db(db: &Database) -> StrataResult<()> {
                     }
                 };
 
-                // Insert into the backend with timestamp for temporal tracking
                 let vid = VectorId::new(vec_record.vector_id);
-                let mut backends = state.backends.write();
-                if let Some(backend) = backends.get_mut(&collection_id) {
+
+                if loaded_from_mmap {
+                    // Heap already has the embedding — just register ID + timestamp
+                    backend.register_mmap_vector(vid, vec_record.created_at);
+                } else {
+                    // Full KV-based recovery: insert embedding + timestamp
                     let _ = backend.insert_with_id_and_timestamp(
                         vid,
                         &vec_record.embedding,
                         vec_record.created_at,
                     );
-                    stats.vectors_upserted += 1;
                 }
+                stats.vectors_upserted += 1;
+            }
+
+            state
+                .backends
+                .write()
+                .insert(collection_id.clone(), backend);
+            stats.collections_created += 1;
+        }
+    }
+
+    // -----------------------------------------------------------
+    // Freeze heaps to mmap cache for disk-backed databases
+    // -----------------------------------------------------------
+    if use_mmap {
+        let backends = state.backends.read();
+        for (cid, backend) in backends.iter() {
+            if backend.is_heap_mmap() {
+                continue; // Already on disk
+            }
+            let vec_path = mmap_path(data_dir, cid.branch_id, &cid.name);
+            if let Err(e) = backend.freeze_heap_to_disk(&vec_path) {
+                tracing::warn!(
+                    target: "strata::vector",
+                    collection = %cid.name,
+                    error = %e,
+                    "Failed to freeze heap to mmap cache"
+                );
             }
         }
     }
@@ -170,7 +263,8 @@ fn recover_from_db(db: &Database) -> StrataResult<()> {
             target: "strata::vector",
             collections_created = stats.collections_created,
             vectors_upserted = stats.vectors_upserted,
-            "Vector recovery complete (KV-based)"
+            mmap_cache = use_mmap,
+            "Vector recovery complete"
         );
     }
 

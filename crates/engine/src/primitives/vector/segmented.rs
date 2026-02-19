@@ -5,19 +5,20 @@
 //! - Periodic sealing into small HNSW segments at a configurable threshold
 //! - Fan-out search across all segments with merged results
 //!
-//! ## Dual Heap Design
+//! ## Single Heap Design
 //!
 //! A global `VectorHeap` is the authoritative source for embeddings, ID allocation,
-//! and snapshot state. Each `SealedSegment` wraps an `HnswBackend` (unchanged) which
-//! has its own internal heap with embeddings copied at seal time. This avoids
-//! modifying `HnswBackend` to accept external heap references.
+//! and snapshot state. Each `SealedSegment` contains a `CompactHnswGraph` (graph-only,
+//! no embedding ownership, flat `Vec<u64>` neighbor storage) which references the global
+//! heap for distance computation. This eliminates both the dual-heap duplication and
+//! the BTreeSet-per-layer overhead (~48→8 bytes per neighbor).
 //!
 //! ## Determinism
 //!
 //! - BTreeMap for timestamps, sorted VectorId within segments
 //! - Segments ordered by segment_id
 //! - All search merges use (score desc, VectorId asc) comparator
-//! - Each sealed segment's HnswBackend uses seed=42, vectors inserted in VectorId order
+//! - Each sealed segment's HnswGraph uses seed=42, vectors inserted in VectorId order
 
 use std::cmp::Ordering;
 use std::collections::BTreeMap;
@@ -25,7 +26,7 @@ use std::collections::BTreeMap;
 use crate::primitives::vector::backend::VectorIndexBackend;
 use crate::primitives::vector::distance::compute_similarity;
 use crate::primitives::vector::heap::VectorHeap;
-use crate::primitives::vector::hnsw::{HnswBackend, HnswConfig};
+use crate::primitives::vector::hnsw::{CompactHnswGraph, HnswConfig, HnswGraph};
 use crate::primitives::vector::{DistanceMetric, VectorConfig, VectorError, VectorId};
 
 /// Segmented HNSW configuration
@@ -113,13 +114,17 @@ impl ActiveBuffer {
     }
 }
 
-/// A sealed segment wrapping an HnswBackend
+/// A sealed segment containing a compact HNSW graph
+///
+/// Uses `CompactHnswGraph` instead of `HnswBackend` to avoid duplicating embeddings
+/// and to reduce per-neighbor overhead from ~48 bytes (BTreeSet) to 8 bytes (u64).
+/// All distance computations use the global `VectorHeap` passed at search time.
 struct SealedSegment {
     /// Monotonically increasing segment identifier
     #[allow(dead_code)]
     segment_id: u64,
-    /// The underlying HNSW index (has its own internal VectorHeap)
-    hnsw: HnswBackend,
+    /// Compact graph index (sorted Vec<u64> neighbors, no BTreeSet overhead)
+    graph: CompactHnswGraph,
     /// Count of live (non-deleted) vectors in this segment
     live_count: usize,
     /// Which branch produced this segment (Phase 2: merge awareness)
@@ -184,23 +189,21 @@ impl SegmentedHnswBackend {
 
         let (ids, timestamps) = self.active.drain_sorted();
 
-        // Create a new HnswBackend for this segment
-        let mut hnsw = HnswBackend::new(&self.vector_config, self.config.hnsw.clone());
+        // Create a graph-only HNSW structure (no embedding duplication)
+        let mut graph = HnswGraph::new(&self.vector_config, self.config.hnsw.clone());
         let mut live_count = 0;
 
-        // Insert each vector: copy embedding from global heap into the segment's heap
+        // Insert each vector into the graph, using global heap for distance computation
         for &id in &ids {
             if let Some(embedding) = self.heap.get(id) {
                 let embedding = embedding.to_vec();
                 let created_at = timestamps.get(&id).map(|t| t.0).unwrap_or(0);
-                // insert_with_timestamp builds the HNSW graph immediately
-                if hnsw.insert_with_timestamp(id, &embedding, created_at).is_ok() {
-                    // Apply soft-delete if marked
-                    if let Some(&(_, Some(deleted_at))) = timestamps.get(&id) {
-                        let _ = hnsw.delete_with_timestamp(id, deleted_at);
-                    } else {
-                        live_count += 1;
-                    }
+                graph.insert_into_graph(id, &embedding, created_at, &self.heap);
+                // Apply soft-delete if marked
+                if let Some(&(_, Some(deleted_at))) = timestamps.get(&id) {
+                    graph.delete_with_timestamp(id, deleted_at);
+                } else {
+                    live_count += 1;
                 }
             }
             // else: vector was deleted from global heap between insert and seal — skip
@@ -211,7 +214,7 @@ impl SegmentedHnswBackend {
 
         self.sealed.push(SealedSegment {
             segment_id,
-            hnsw,
+            graph: CompactHnswGraph::from_graph(&graph),
             live_count,
             source_branch: None,
         });
@@ -322,11 +325,11 @@ impl SegmentedHnswBackend {
     ///
     /// Used during branch merge to transfer pre-built HNSW graphs from
     /// the source branch to the target branch without full rebuild.
-    pub fn extract_segments(&mut self) -> Vec<(u64, HnswBackend, usize, Option<strata_core::BranchId>)> {
+    pub(crate) fn extract_segments(&mut self) -> Vec<(u64, CompactHnswGraph, usize, Option<strata_core::BranchId>)> {
         let sealed = std::mem::take(&mut self.sealed);
         sealed
             .into_iter()
-            .map(|s| (s.segment_id, s.hnsw, s.live_count, s.source_branch))
+            .map(|s| (s.segment_id, s.graph, s.live_count, s.source_branch))
             .collect()
     }
 
@@ -341,16 +344,16 @@ impl SegmentedHnswBackend {
     /// post_merge_reload_vectors() rebuilds from KV which is simpler and
     /// always correct. This method is provided for future O(metadata)
     /// segment adoption with VectorId remapping.
-    pub fn adopt_segments(
+    pub(crate) fn adopt_segments(
         &mut self,
-        segments: Vec<(HnswBackend, usize, Option<strata_core::BranchId>)>,
+        segments: Vec<(CompactHnswGraph, usize, Option<strata_core::BranchId>)>,
     ) {
-        for (hnsw, live_count, source_branch) in segments {
+        for (graph, live_count, source_branch) in segments {
             let segment_id = self.next_segment_id;
             self.next_segment_id += 1;
             self.sealed.push(SealedSegment {
                 segment_id,
-                hnsw,
+                graph,
                 live_count,
                 source_branch,
             });
@@ -425,8 +428,8 @@ impl VectorIndexBackend for SegmentedHnswBackend {
             } else {
                 // Find in sealed segments and soft-delete
                 for seg in &mut self.sealed {
-                    if seg.hnsw.contains(id) {
-                        if seg.hnsw.delete_with_timestamp(id, created_at)? {
+                    if seg.graph.contains(id) {
+                        if seg.graph.delete_with_timestamp(id, created_at) {
                             seg.live_count = seg.live_count.saturating_sub(1);
                         }
                         break;
@@ -480,8 +483,8 @@ impl VectorIndexBackend for SegmentedHnswBackend {
             // Mark deleted in active buffer or sealed segments
             if !self.active.soft_delete(id, deleted_at) {
                 for seg in &mut self.sealed {
-                    if seg.hnsw.contains(id) {
-                        if seg.hnsw.delete_with_timestamp(id, deleted_at)? {
+                    if seg.graph.contains(id) {
+                        if seg.graph.delete_with_timestamp(id, deleted_at) {
                             seg.live_count = seg.live_count.saturating_sub(1);
                         }
                         break;
@@ -508,10 +511,10 @@ impl VectorIndexBackend for SegmentedHnswBackend {
             result_sets.push(active_results);
         }
 
-        // Search each sealed segment
+        // Search each sealed segment (using global heap for distance computation)
         for seg in &self.sealed {
             if seg.live_count > 0 {
-                let seg_results = seg.hnsw.search(query, k);
+                let seg_results = seg.graph.search_with_heap(query, k, &self.heap);
                 if !seg_results.is_empty() {
                     result_sets.push(seg_results);
                 }
@@ -537,9 +540,9 @@ impl VectorIndexBackend for SegmentedHnswBackend {
             result_sets.push(active_results);
         }
 
-        // Sealed segments: delegate temporal search
+        // Sealed segments: delegate temporal search (using global heap)
         for seg in &self.sealed {
-            let seg_results = seg.hnsw.search_at(query, k, as_of_ts);
+            let seg_results = seg.graph.search_at_with_heap(query, k, as_of_ts, &self.heap);
             if !seg_results.is_empty() {
                 result_sets.push(seg_results);
             }
@@ -570,7 +573,7 @@ impl VectorIndexBackend for SegmentedHnswBackend {
         }
 
         for seg in &self.sealed {
-            let seg_results = seg.hnsw.search_in_range(query, k, start_ts, end_ts);
+            let seg_results = seg.graph.search_in_range_with_heap(query, k, start_ts, end_ts, &self.heap);
             if !seg_results.is_empty() {
                 result_sets.push(seg_results);
             }
@@ -608,18 +611,22 @@ impl VectorIndexBackend for SegmentedHnswBackend {
     }
 
     fn memory_usage(&self) -> usize {
-        // Global heap embedding storage
-        let heap_bytes = std::mem::size_of_val(self.heap.raw_data());
+        // Global heap embedding storage (0 for mmap — OS manages those pages)
+        let heap_bytes = if self.heap.is_mmap() {
+            0
+        } else {
+            self.heap.raw_data().len() * std::mem::size_of::<f32>()
+        };
         let heap_overhead =
             self.heap.len() * (std::mem::size_of::<VectorId>() + std::mem::size_of::<usize>() + 64);
-        let free_slots_bytes = std::mem::size_of_val(self.heap.free_slots());
+        let free_slots_bytes = self.heap.free_slots().len() * std::mem::size_of::<usize>();
 
         // Active buffer
         let active_bytes = self.active.ids.capacity() * std::mem::size_of::<VectorId>()
             + self.active.timestamps.len() * (std::mem::size_of::<VectorId>() + 16 + 64);
 
-        // Sealed segments
-        let sealed_bytes: usize = self.sealed.iter().map(|seg| seg.hnsw.memory_usage()).sum();
+        // Sealed segments (graph-only — no embedding duplication)
+        let sealed_bytes: usize = self.sealed.iter().map(|seg| seg.graph.memory_usage()).sum();
 
         heap_bytes + heap_overhead + free_slots_bytes + active_bytes + sealed_bytes
     }
@@ -666,9 +673,9 @@ impl VectorIndexBackend for SegmentedHnswBackend {
                         self.active.timestamps.insert(id, ts);
                     }
                 } else {
-                    // Build sealed segment
-                    let mut hnsw =
-                        HnswBackend::new(&self.vector_config, self.config.hnsw.clone());
+                    // Build sealed segment (graph-only, no embedding duplication)
+                    let mut graph =
+                        HnswGraph::new(&self.vector_config, self.config.hnsw.clone());
                     let mut live_count = 0;
 
                     for &id in chunk {
@@ -676,16 +683,11 @@ impl VectorIndexBackend for SegmentedHnswBackend {
                             let embedding = embedding.to_vec();
                             let created_at =
                                 all_timestamps.get(&id).map(|t| t.0).unwrap_or(0);
-                            if hnsw
-                                .insert_with_timestamp(id, &embedding, created_at)
-                                .is_ok()
-                            {
-                                if let Some(&(_, Some(deleted_at))) = all_timestamps.get(&id)
-                                {
-                                    let _ = hnsw.delete_with_timestamp(id, deleted_at);
-                                } else {
-                                    live_count += 1;
-                                }
+                            graph.insert_into_graph(id, &embedding, created_at, &self.heap);
+                            if let Some(&(_, Some(deleted_at))) = all_timestamps.get(&id) {
+                                graph.delete_with_timestamp(id, deleted_at);
+                            } else {
+                                live_count += 1;
                             }
                         }
                     }
@@ -695,7 +697,7 @@ impl VectorIndexBackend for SegmentedHnswBackend {
 
                     self.sealed.push(SealedSegment {
                         segment_id,
-                        hnsw,
+                        graph: CompactHnswGraph::from_graph(&graph),
                         live_count,
                         source_branch: None,
                     });
@@ -721,6 +723,165 @@ impl VectorIndexBackend for SegmentedHnswBackend {
 
     fn restore_snapshot_state(&mut self, next_id: u64, free_slots: Vec<usize>) {
         self.heap.restore_snapshot_state(next_id, free_slots);
+    }
+
+    fn freeze_heap_to_disk(&self, path: &std::path::Path) -> Result<(), VectorError> {
+        self.heap.freeze_to_disk(path)
+    }
+
+    fn replace_heap(&mut self, heap: crate::primitives::vector::VectorHeap) {
+        self.heap = heap;
+    }
+
+    fn register_mmap_vector(&mut self, id: VectorId, created_at: u64) {
+        self.active.insert(id, created_at);
+        self.pending_timestamps.insert(id, created_at);
+    }
+
+    fn is_heap_mmap(&self) -> bool {
+        self.heap.is_mmap()
+    }
+
+    fn freeze_graphs_to_disk(&self, dir: &std::path::Path) -> Result<(), VectorError> {
+        use crate::primitives::vector::mmap_graph;
+
+        // Always write every segment — even previously mmap-backed ones may
+        // have in-memory deletions (deleted_at updates) that must be persisted.
+        for seg in &self.sealed {
+            let path = dir.join(format!("seg_{}.hgr", seg.segment_id));
+            mmap_graph::write_graph_file(&path, &seg.graph)?;
+        }
+
+        // Write a manifest recording the total vector count in the heap so
+        // that load_graphs_from_disk() can detect staleness (e.g., vectors
+        // deleted via WAL replay after graphs were frozen).
+        let manifest_path = dir.join("segments.manifest");
+        let heap_vector_count = self.heap.len() as u64;
+        let mut manifest = Vec::with_capacity(8 + self.sealed.len() * 24);
+        // First 8 bytes: heap vector count at freeze time (staleness check)
+        manifest.extend_from_slice(&heap_vector_count.to_le_bytes());
+        for seg in &self.sealed {
+            manifest.extend_from_slice(&seg.segment_id.to_le_bytes());
+            manifest.extend_from_slice(&(seg.live_count as u64).to_le_bytes());
+            manifest.extend_from_slice(&0u64.to_le_bytes()); // reserved
+        }
+        if let Some(parent) = manifest_path.parent() {
+            std::fs::create_dir_all(parent).map_err(|e| VectorError::Io(e.to_string()))?;
+        }
+        std::fs::write(&manifest_path, &manifest)
+            .map_err(|e| VectorError::Io(e.to_string()))?;
+
+        Ok(())
+    }
+
+    fn load_graphs_from_disk(&mut self, dir: &std::path::Path) -> Result<bool, VectorError> {
+        use crate::primitives::vector::mmap_graph;
+
+        let manifest_path = dir.join("segments.manifest");
+        if !manifest_path.exists() {
+            return Ok(false);
+        }
+
+        let manifest_data =
+            std::fs::read(&manifest_path).map_err(|e| VectorError::Io(e.to_string()))?;
+
+        // Manifest format: [heap_vector_count: u64 LE (8 bytes)] + N * 24-byte entries
+        if manifest_data.len() < 8 || (manifest_data.len() - 8) % 24 != 0 {
+            tracing::warn!(
+                target: "strata::vector",
+                "Corrupt segment manifest, falling back to rebuild"
+            );
+            return Ok(false);
+        }
+
+        // Staleness check: if the heap vector count changed since the graphs
+        // were frozen (e.g. vectors deleted via WAL replay), the graphs are
+        // stale and must be rebuilt.
+        let frozen_heap_count =
+            u64::from_le_bytes(manifest_data[0..8].try_into().unwrap()) as usize;
+        if frozen_heap_count != self.heap.len() {
+            tracing::info!(
+                target: "strata::vector",
+                frozen = frozen_heap_count,
+                current = self.heap.len(),
+                "Graph mmap stale (heap size changed), rebuilding"
+            );
+            return Ok(false);
+        }
+
+        let segment_count = (manifest_data.len() - 8) / 24;
+        let mut loaded_segments = Vec::with_capacity(segment_count);
+        let mut max_segment_id = 0u64;
+
+        for i in 0..segment_count {
+            let offset = 8 + i * 24;
+            let segment_id =
+                u64::from_le_bytes(manifest_data[offset..offset + 8].try_into().unwrap());
+            let live_count =
+                u64::from_le_bytes(manifest_data[offset + 8..offset + 16].try_into().unwrap())
+                    as usize;
+            // offset+16..offset+24 reserved
+
+            let graph_path = dir.join(format!("seg_{}.hgr", segment_id));
+            if !graph_path.exists() {
+                tracing::warn!(
+                    target: "strata::vector",
+                    segment_id,
+                    "Missing graph file, falling back to rebuild"
+                );
+                return Ok(false);
+            }
+
+            match mmap_graph::open_graph_file(
+                &graph_path,
+                self.config.hnsw.clone(),
+                self.vector_config.clone(),
+            ) {
+                Ok(graph) => {
+                    loaded_segments.push(SealedSegment {
+                        segment_id,
+                        graph,
+                        live_count,
+                        source_branch: None,
+                    });
+                    if segment_id >= max_segment_id {
+                        max_segment_id = segment_id + 1;
+                    }
+                }
+                Err(e) => {
+                    tracing::warn!(
+                        target: "strata::vector",
+                        segment_id,
+                        error = %e,
+                        "Failed to load graph from mmap, falling back to rebuild"
+                    );
+                    return Ok(false);
+                }
+            }
+        }
+
+        // Success: replace sealed segments and clear pending timestamps
+        self.sealed = loaded_segments;
+        self.next_segment_id = max_segment_id;
+        self.pending_timestamps.clear();
+
+        // Move any remaining active buffer entries that belong to loaded
+        // segments out of the active buffer (they're already in sealed graphs).
+        // On recovery, all vectors start in active buffer; after loading graphs,
+        // only vectors NOT in any sealed segment should remain in active.
+        let sealed_ids: std::collections::BTreeSet<VectorId> = self
+            .sealed
+            .iter()
+            .flat_map(|seg| seg.graph.nodes.keys().copied())
+            .collect();
+        self.active
+            .ids
+            .retain(|id| !sealed_ids.contains(id));
+        self.active
+            .timestamps
+            .retain(|id, _| !sealed_ids.contains(id));
+
+        Ok(true)
     }
 }
 
@@ -1424,10 +1585,10 @@ mod tests {
         assert_eq!(backend.segment_count(), 0, "Sealed list should be drained");
 
         // Extracted segment should have 2 live vectors
-        let (_seg_id, ref hnsw, live_count, ref source_branch) = extracted[0];
+        let (_seg_id, ref graph, live_count, ref source_branch) = extracted[0];
         assert_eq!(live_count, 2);
         assert!(source_branch.is_none());
-        assert_eq!(hnsw.len(), 2);
+        assert_eq!(graph.len(), 2);
     }
 
     #[test]
@@ -1457,7 +1618,7 @@ mod tests {
         let extracted = source.extract_segments();
         let to_adopt: Vec<_> = extracted
             .into_iter()
-            .map(|(_, hnsw, live, branch)| (hnsw, live, branch))
+            .map(|(_, graph, live, branch)| (graph, live, branch))
             .collect();
         target.adopt_segments(to_adopt);
 
@@ -1488,5 +1649,121 @@ mod tests {
             .unwrap();
         assert_eq!(backend.segment_count(), 1);
         assert_eq!(backend.active_buffer_len(), 0);
+    }
+
+    #[test]
+    fn test_freeze_and_load_graphs_roundtrip() {
+        let temp_dir = tempfile::TempDir::new().unwrap();
+        let dir = temp_dir.path().join("graphs");
+
+        let mut backend = make_backend_with_threshold(3, DistanceMetric::Cosine, 3);
+
+        // Insert enough vectors to seal a segment (insert_with_timestamp triggers seal)
+        backend
+            .insert_with_timestamp(VectorId::new(1), &[1.0, 0.0, 0.0], 10)
+            .unwrap();
+        backend
+            .insert_with_timestamp(VectorId::new(2), &[0.0, 1.0, 0.0], 20)
+            .unwrap();
+        backend
+            .insert_with_timestamp(VectorId::new(3), &[0.0, 0.0, 1.0], 30)
+            .unwrap();
+        assert_eq!(backend.segment_count(), 1);
+
+        // Search before freeze
+        let results_before = backend.search(&[1.0, 0.0, 0.0], 3);
+
+        // Freeze graphs to disk
+        backend.freeze_graphs_to_disk(&dir).unwrap();
+
+        // Create a new backend that simulates recovery: use insert_with_id_and_timestamp
+        // (recovery path) which adds to active buffer without sealing, then load graphs.
+        let mut backend2 = make_backend_with_threshold(3, DistanceMetric::Cosine, 3);
+        backend2
+            .insert_with_id_and_timestamp(VectorId::new(1), &[1.0, 0.0, 0.0], 10)
+            .unwrap();
+        backend2
+            .insert_with_id_and_timestamp(VectorId::new(2), &[0.0, 1.0, 0.0], 20)
+            .unwrap();
+        backend2
+            .insert_with_id_and_timestamp(VectorId::new(3), &[0.0, 0.0, 1.0], 30)
+            .unwrap();
+        assert_eq!(backend2.segment_count(), 0); // Not yet sealed
+        assert_eq!(backend2.len(), 3); // All in active buffer
+
+        // Load graphs from disk — should replace active buffer with sealed segments
+        let loaded = backend2.load_graphs_from_disk(&dir).unwrap();
+        assert!(loaded);
+        assert_eq!(backend2.segment_count(), 1);
+        assert_eq!(backend2.active_buffer_len(), 0); // Vectors moved to sealed
+
+        // Search after load should match
+        let results_after = backend2.search(&[1.0, 0.0, 0.0], 3);
+        assert_eq!(results_before.len(), results_after.len());
+        for (a, b) in results_before.iter().zip(results_after.iter()) {
+            assert_eq!(a.0, b.0, "VectorId mismatch");
+        }
+    }
+
+    #[test]
+    fn test_load_graphs_staleness_detection() {
+        let temp_dir = tempfile::TempDir::new().unwrap();
+        let dir = temp_dir.path().join("graphs");
+
+        let mut backend = make_backend_with_threshold(3, DistanceMetric::Cosine, 3);
+
+        // Insert and seal (use insert_with_timestamp to trigger sealing)
+        backend
+            .insert_with_timestamp(VectorId::new(1), &[1.0, 0.0, 0.0], 10)
+            .unwrap();
+        backend
+            .insert_with_timestamp(VectorId::new(2), &[0.0, 1.0, 0.0], 20)
+            .unwrap();
+        backend
+            .insert_with_timestamp(VectorId::new(3), &[0.0, 0.0, 1.0], 30)
+            .unwrap();
+
+        // Freeze with 3 vectors in heap
+        backend.freeze_graphs_to_disk(&dir).unwrap();
+
+        // Create a new backend with DIFFERENT heap size (simulate a vector
+        // being deleted via WAL replay before graph load)
+        let mut backend2 = make_backend_with_threshold(3, DistanceMetric::Cosine, 3);
+        backend2
+            .insert_with_id_and_timestamp(VectorId::new(1), &[1.0, 0.0, 0.0], 10)
+            .unwrap();
+        backend2
+            .insert_with_id_and_timestamp(VectorId::new(2), &[0.0, 1.0, 0.0], 20)
+            .unwrap();
+        // Only 2 vectors in heap (not 3) — stale!
+
+        let loaded = backend2.load_graphs_from_disk(&dir).unwrap();
+        assert!(!loaded, "Should detect stale graphs and return false");
+    }
+
+    #[test]
+    fn test_load_graphs_missing_manifest() {
+        let temp_dir = tempfile::TempDir::new().unwrap();
+        let dir = temp_dir.path().join("empty_dir");
+        std::fs::create_dir_all(&dir).unwrap();
+
+        let mut backend = make_backend_with_threshold(3, DistanceMetric::Cosine, 3);
+        let loaded = backend.load_graphs_from_disk(&dir).unwrap();
+        assert!(!loaded, "Should return false when manifest is missing");
+    }
+
+    #[test]
+    fn test_load_graphs_corrupt_manifest() {
+        let temp_dir = tempfile::TempDir::new().unwrap();
+        let dir = temp_dir.path().join("corrupt");
+        std::fs::create_dir_all(&dir).unwrap();
+
+        // Write a manifest with an invalid size (not 8 + N*24)
+        let manifest_path = dir.join("segments.manifest");
+        std::fs::write(&manifest_path, &[0u8; 13]).unwrap(); // 13 bytes — invalid
+
+        let mut backend = make_backend_with_threshold(3, DistanceMetric::Cosine, 3);
+        let loaded = backend.load_graphs_from_disk(&dir).unwrap();
+        assert!(!loaded, "Should return false on corrupt manifest");
     }
 }
