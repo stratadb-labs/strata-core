@@ -1357,6 +1357,56 @@ impl Database {
 
     /// Graceful shutdown - ensures all data is persisted
     ///
+    /// Freeze all vector heaps to mmap files for crash-safe recovery.
+    ///
+    /// With lite KV records (embedding stripped), the mmap cache is required
+    /// for the next recovery to reconstruct embeddings. This is called during
+    /// shutdown and drop.
+    fn freeze_vector_heaps(&self) {
+        use crate::primitives::vector::VectorBackendState;
+
+        let data_dir = self.data_dir();
+        if data_dir.as_os_str().is_empty() {
+            return; // Ephemeral database — no mmap
+        }
+
+        let state = match self.extension::<VectorBackendState>() {
+            Ok(s) => s,
+            Err(_) => return, // No vector state registered
+        };
+
+        let backends = state.backends.read();
+        for (cid, backend) in backends.iter() {
+            let branch_hex = format!("{:032x}", u128::from_be_bytes(*cid.branch_id.as_bytes()));
+            let vec_path = data_dir
+                .join("vectors")
+                .join(&branch_hex)
+                .join(format!("{}.vec", cid.name));
+            if let Err(e) = backend.freeze_heap_to_disk(&vec_path) {
+                tracing::warn!(
+                    target: "strata::vector",
+                    collection = %cid.name,
+                    error = %e,
+                    "Failed to freeze vector heap at shutdown"
+                );
+            }
+
+            // Also freeze graphs
+            let gdir = data_dir
+                .join("vectors")
+                .join(&branch_hex)
+                .join(format!("{}_graphs", cid.name));
+            if let Err(e) = backend.freeze_graphs_to_disk(&gdir) {
+                tracing::warn!(
+                    target: "strata::vector",
+                    collection = %cid.name,
+                    error = %e,
+                    "Failed to freeze vector graphs at shutdown"
+                );
+            }
+        }
+    }
+
     /// This method:
     /// 1. Stops accepting new transactions
     /// 2. Waits for pending operations to complete
@@ -1396,6 +1446,9 @@ impl Database {
         // Final flush to ensure all data is persisted
         self.flush()?;
 
+        // Freeze vector heaps to mmap so lite KV records can recover
+        self.freeze_vector_heaps();
+
         Ok(())
     }
 }
@@ -1413,6 +1466,9 @@ impl Drop for Database {
 
         // Final flush to persist any remaining data
         let _ = self.flush();
+
+        // Freeze vector heaps to mmap so lite KV records can recover
+        self.freeze_vector_heaps();
 
         // Remove from registry if we're disk-backed
         if self.persistence_mode == PersistenceMode::Disk && !self.data_dir.as_os_str().is_empty() {

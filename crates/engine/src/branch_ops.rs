@@ -285,7 +285,7 @@ pub fn fork_branch(db: &Arc<Database>, source: &str, destination: &str) -> Strat
     {
         use crate::primitives::vector::store::VectorStore;
         let vector_store = VectorStore::new(db.clone());
-        if let Err(e) = vector_store.post_merge_reload_vectors(dest_id) {
+        if let Err(e) = vector_store.post_merge_reload_vectors_from(dest_id, Some(source_id)) {
             tracing::warn!(
                 target: "strata::branch_ops",
                 error = %e,
@@ -603,7 +603,7 @@ pub fn merge_branches(
     {
         use crate::primitives::vector::store::VectorStore;
         let vector_store = VectorStore::new(db.clone());
-        if let Err(e) = vector_store.post_merge_reload_vectors(target_id) {
+        if let Err(e) = vector_store.post_merge_reload_vectors_from(target_id, Some(source_id)) {
             tracing::warn!(
                 target: "strata::branch_ops",
                 error = %e,

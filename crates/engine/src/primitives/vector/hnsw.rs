@@ -1531,11 +1531,7 @@ impl VectorIndexBackend for HnswBackend {
 
     fn memory_usage(&self) -> usize {
         // Embedding storage (0 for mmap — OS manages those pages)
-        let embedding_bytes = if self.heap.is_mmap() {
-            0
-        } else {
-            self.heap.raw_data().len() * std::mem::size_of::<f32>()
-        };
+        let embedding_bytes = self.heap.anon_data_bytes();
         // Graph structure
         let graph_bytes = self.graph.memory_usage();
         let heap_overhead =

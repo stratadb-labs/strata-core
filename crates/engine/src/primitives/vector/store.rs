@@ -50,10 +50,14 @@ pub struct RecoveryStats {
     pub collections_created: usize,
     /// Number of collections deleted during recovery
     pub collections_deleted: usize,
-    /// Number of vectors upserted during recovery
+    /// Number of vectors upserted during recovery (full KV path)
     pub vectors_upserted: usize,
+    /// Number of vectors registered from mmap cache
+    pub vectors_mmap_registered: usize,
     /// Number of vectors deleted during recovery
     pub vectors_deleted: usize,
+    /// Number of lite records skipped (no mmap cache available)
+    pub lite_records_skipped: usize,
 }
 
 /// Shared backend state for VectorStore
@@ -485,18 +489,16 @@ impl VectorStore {
             // Update existing: keep the same VectorId
             let mut updated = existing_record;
             match source_ref {
-                Some(sr) => updated.update_with_source(embedding.to_vec(), metadata, Some(sr)),
-                None => updated.update(embedding.to_vec(), metadata),
+                Some(sr) => updated.update_lite_with_source(metadata, Some(sr)),
+                None => updated.update_lite(metadata),
             }
             (VectorId(updated.vector_id), updated)
         } else {
             // New vector: allocate VectorId from backend's per-collection counter
             let vector_id = backend.allocate_id();
             let record = match source_ref {
-                Some(sr) => {
-                    VectorRecord::new_with_source(vector_id, embedding.to_vec(), metadata, sr)
-                }
-                None => VectorRecord::new(vector_id, embedding.to_vec(), metadata),
+                Some(sr) => VectorRecord::new_lite_with_source(vector_id, metadata, sr),
+                None => VectorRecord::new_lite(vector_id, metadata),
             };
             (vector_id, record)
         };
@@ -764,11 +766,11 @@ impl VectorStore {
 
             let (vector_id, record) = if let Some(existing_record) = existing {
                 let mut updated = existing_record;
-                updated.update(embedding.clone(), metadata);
+                updated.update_lite(metadata);
                 (VectorId(updated.vector_id), updated)
             } else {
                 let vector_id = backend.allocate_id();
-                let record = VectorRecord::new(vector_id, embedding.clone(), metadata);
+                let record = VectorRecord::new_lite(vector_id, metadata);
                 (vector_id, record)
             };
 
@@ -1905,6 +1907,16 @@ impl VectorStore {
     ///
     /// Collections on other branches are left untouched.
     pub fn post_merge_reload_vectors(&self, branch_id: BranchId) -> VectorResult<()> {
+        self.post_merge_reload_vectors_from(branch_id, None)
+    }
+
+    /// Reload vector backends for a branch, optionally reading embeddings
+    /// from a source branch's backend when KV records are lite.
+    pub fn post_merge_reload_vectors_from(
+        &self,
+        branch_id: BranchId,
+        source_branch_id: Option<BranchId>,
+    ) -> VectorResult<()> {
         use strata_core::traits::SnapshotView;
 
         let state = self.state()?;
@@ -1979,6 +1991,34 @@ impl VectorStore {
 
                 let collection_id = CollectionId::new(branch_id, &collection_name);
 
+                // Grab the old backend (if any) so we can read embeddings
+                // from it for lite records that don't store them in KV.
+                let old_backend = state.backends.write().remove(&collection_id);
+
+                // If we have a source branch, build a map from user_key → VectorId
+                // for the source collection. This lets us determine which backend
+                // to read from when VectorIds collide between source and target.
+                let source_key_to_vid: BTreeMap<Vec<u8>, u64> = if let Some(src_bid) = source_branch_id {
+                    let src_ns = Namespace::for_branch_space(src_bid, space);
+                    let src_prefix = Key::new_vector(src_ns, &collection_name, "");
+                    if let Ok(src_entries) = snapshot.scan_prefix(&src_prefix) {
+                        src_entries
+                            .iter()
+                            .filter_map(|(k, vv)| {
+                                if let Value::Bytes(b) = &vv.value {
+                                    VectorRecord::from_bytes(b).ok().map(|r| (k.user_key.clone(), r.vector_id))
+                                } else {
+                                    None
+                                }
+                            })
+                            .collect()
+                    } else {
+                        BTreeMap::new()
+                    }
+                } else {
+                    BTreeMap::new()
+                };
+
                 // Create fresh backend
                 let mut backend = factory.create(&config);
 
@@ -2020,12 +2060,88 @@ impl VectorStore {
                         }
                     };
 
+                    // Resolve the embedding: use KV record if present, else
+                    // fall back to the appropriate backend based on provenance.
+                    let embedding = if !vec_record.embedding.is_empty() {
+                        vec_record.embedding.clone()
+                    } else {
+                        let old_vid = VectorId(vec_record.vector_id);
+
+                        // Determine provenance: did this key come from the source branch?
+                        // Check by matching user_key + VectorId against source KV scan.
+                        let is_from_source = source_key_to_vid
+                            .get(&vec_key.user_key)
+                            .map_or(false, |&src_vid| src_vid == vec_record.vector_id);
+
+                        if is_from_source {
+                            if let Some(src_bid) = source_branch_id {
+                                let src_cid = CollectionId::new(src_bid, &collection_name);
+                                let backends = state.backends.read();
+                                match backends.get(&src_cid).and_then(|b| b.get(old_vid)) {
+                                    Some(emb) => emb.to_vec(),
+                                    None => match old_backend.as_ref().and_then(|b| b.get(old_vid)) {
+                                        Some(emb) => emb.to_vec(),
+                                        None => {
+                                            tracing::warn!(
+                                                target: "strata::vector",
+                                                vector_id = vec_record.vector_id,
+                                                "Lite record: embedding not found, skipping"
+                                            );
+                                            continue;
+                                        }
+                                    },
+                                }
+                            } else {
+                                match old_backend.as_ref().and_then(|b| b.get(old_vid)) {
+                                    Some(emb) => emb.to_vec(),
+                                    None => {
+                                        tracing::warn!(
+                                            target: "strata::vector",
+                                            vector_id = vec_record.vector_id,
+                                            "Lite record without backend embedding, skipping"
+                                        );
+                                        continue;
+                                    }
+                                }
+                            }
+                        } else {
+                            // Target-originated: try old target backend first, then source
+                            match old_backend.as_ref().and_then(|b| b.get(old_vid)) {
+                                Some(emb) => emb.to_vec(),
+                                None => {
+                                    if let Some(src_bid) = source_branch_id {
+                                        let src_cid = CollectionId::new(src_bid, &collection_name);
+                                        let backends = state.backends.read();
+                                        match backends.get(&src_cid).and_then(|b| b.get(old_vid)) {
+                                            Some(emb) => emb.to_vec(),
+                                            None => {
+                                                tracing::warn!(
+                                                    target: "strata::vector",
+                                                    vector_id = vec_record.vector_id,
+                                                    "Lite record: embedding not found, skipping"
+                                                );
+                                                continue;
+                                            }
+                                        }
+                                    } else {
+                                        tracing::warn!(
+                                            target: "strata::vector",
+                                            vector_id = vec_record.vector_id,
+                                            "Lite record without old backend embedding, skipping"
+                                        );
+                                        continue;
+                                    }
+                                }
+                            }
+                        }
+                    };
+
                     // Allocate a fresh VectorId to avoid collisions between
                     // independently-created branches that share the same ID space.
                     let new_vid = backend.allocate_id();
                     let _ = backend.insert_with_timestamp(
                         new_vid,
-                        &vec_record.embedding,
+                        &embedding,
                         vec_record.created_at,
                     );
 
@@ -3235,24 +3351,10 @@ mod tests {
             .insert(branch_id, "default", "test", "c", &[0.0, 0.0, 1.0], None)
             .unwrap();
 
-        // Simulate what happens during a merge: wipe backend state,
-        // then call post_merge_reload to rebuild from KV
-        {
-            let state = store.state().unwrap();
-            state.backends.write().clear();
-        }
-
-        // Verify search fails after backend wipe
         let collection_id = CollectionId::new(branch_id, "test");
-        {
-            let state = store.state().unwrap();
-            assert!(
-                !state.backends.read().contains_key(&collection_id),
-                "Backend should be wiped"
-            );
-        }
 
-        // Reload from KV
+        // Call post_merge_reload — the old backend will be extracted
+        // per-collection and used to resolve lite record embeddings.
         store.post_merge_reload_vectors(branch_id).unwrap();
 
         // Verify backends are restored
