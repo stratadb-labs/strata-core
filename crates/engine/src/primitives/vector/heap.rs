@@ -337,12 +337,6 @@ impl VectorHeap {
     /// Returns None if the vector doesn't exist.
     /// Works for both InMemory and Mmap backing.
     pub fn get(&self, id: VectorId) -> Option<&[f32]> {
-        // id_to_offset is the sole source of truth for active vectors (S7).
-        // For mmap-backed heaps, a vector may have been deleted at runtime
-        // (removed from id_to_offset) while still present in the mmap file.
-        if !self.id_to_offset.contains_key(&id) {
-            return None;
-        }
         match &self.data {
             VectorData::InMemory(vec) => {
                 let offset = *self.id_to_offset.get(&id)?;
@@ -350,7 +344,15 @@ impl VectorHeap {
                 let end = offset + self.config.dimension;
                 Some(&vec[start..end])
             }
-            VectorData::Mmap(mmap) => mmap.get(id),
+            VectorData::Mmap(mmap) => {
+                // id_to_offset is the sole source of truth for active vectors (S7).
+                // A vector may have been deleted at runtime (removed from
+                // id_to_offset) while still present in the mmap file.
+                if !self.id_to_offset.contains_key(&id) {
+                    return None;
+                }
+                mmap.get(id)
+            }
         }
     }
 
