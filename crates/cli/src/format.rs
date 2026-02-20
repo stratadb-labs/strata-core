@@ -307,6 +307,15 @@ fn format_raw(output: &Output) -> String {
                 info.scheduler_queue_depth
             )
         }
+        Output::BatchResults(results) => results
+            .iter()
+            .map(|r| match (&r.version, &r.error) {
+                (Some(v), _) => v.to_string(),
+                (_, Some(e)) => format!("ERR:{}", e),
+                _ => "ERR".to_string(),
+            })
+            .collect::<Vec<_>>()
+            .join("\n"),
     }
 }
 
@@ -570,6 +579,22 @@ fn format_human(output: &Output) -> String {
                 info.scheduler_queue_depth,
                 info.scheduler_active_tasks
             )
+        }
+        Output::BatchResults(results) => {
+            if results.is_empty() {
+                "(empty list)".to_string()
+            } else {
+                results
+                    .iter()
+                    .enumerate()
+                    .map(|(i, r)| match (&r.version, &r.error) {
+                        (Some(v), _) => format!("{}) OK (v{})", i + 1, v),
+                        (_, Some(e)) => format!("{}) ERR: {}", i + 1, e),
+                        _ => format!("{}) ERR", i + 1),
+                    })
+                    .collect::<Vec<_>>()
+                    .join("\n")
+            }
         }
     }
 }
