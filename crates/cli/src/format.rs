@@ -296,6 +296,17 @@ fn format_raw(output: &Output) -> String {
             (None, Some(l)) => format!("\t{}", l),
             (None, None) => String::new(),
         },
+        Output::EmbedStatus(info) => {
+            format!(
+                "{}\t{}\t{}\t{}\t{}\t{}",
+                info.auto_embed,
+                info.pending,
+                info.total_queued,
+                info.total_embedded,
+                info.total_failed,
+                info.scheduler_queue_depth
+            )
+        }
     }
 }
 
@@ -548,6 +559,18 @@ fn format_human(output: &Output) -> String {
             (None, Some(l)) => format!("oldest: (none)  latest: {}", l),
             (None, None) => "(no data)".to_string(),
         },
+        Output::EmbedStatus(info) => {
+            format!(
+                "auto_embed: {}\npending: {}\ntotal_queued: {}\ntotal_embedded: {}\ntotal_failed: {}\nscheduler_queue_depth: {}\nscheduler_active_tasks: {}",
+                info.auto_embed,
+                info.pending,
+                info.total_queued,
+                info.total_embedded,
+                info.total_failed,
+                info.scheduler_queue_depth,
+                info.scheduler_active_tasks
+            )
+        }
     }
 }
 
