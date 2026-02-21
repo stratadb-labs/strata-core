@@ -18,16 +18,17 @@ use strata_core::types::{Key, Namespace, BranchId};
 use strata_core::value::Value;
 use strata_engine::Database;
 use strata_engine::vector::{DistanceMetric, VectorConfig, VectorStore};
-use strata_engine::register_vector_recovery;
+use strata_engine::{register_search_recovery, register_vector_recovery};
 use std::sync::{Arc, Once};
 use tempfile::TempDir;
 
-// Ensure vector recovery is registered exactly once
+// Ensure recovery participants are registered exactly once
 static INIT_RECOVERY: Once = Once::new();
 
 fn ensure_recovery_registered() {
     INIT_RECOVERY.call_once(|| {
         register_vector_recovery();
+        register_search_recovery();
     });
 }
 

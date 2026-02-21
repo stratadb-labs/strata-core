@@ -62,12 +62,13 @@ use std::sync::Once;
 use crate::types::BranchId;
 use crate::{Command, Error, Executor, Output, Result, Session};
 
-/// Ensure vector recovery is registered before opening any database.
-static VECTOR_RECOVERY_INIT: Once = Once::new();
+/// Ensure recovery participants are registered before opening any database.
+static RECOVERY_INIT: Once = Once::new();
 
 fn ensure_vector_recovery() {
-    VECTOR_RECOVERY_INIT.call_once(|| {
+    RECOVERY_INIT.call_once(|| {
         strata_engine::register_vector_recovery();
+        strata_engine::register_search_recovery();
     });
 }
 

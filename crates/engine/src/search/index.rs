@@ -5,6 +5,7 @@
 //! - Enable/disable functionality
 //! - Synchronous index updates on commit
 //! - Version watermark for consistency
+//! - Segmented architecture with sealed mmap-backed segments
 //!
 //! See `docs/architecture/M6_ARCHITECTURE.md` for authoritative specification.
 //!
@@ -20,15 +21,26 @@
 //! A single bidirectional `DocIdMap` holds one copy of each EntityRef,
 //! reducing memory from O(terms × docs) to O(docs) for EntityRef storage.
 //!
+//! # Segmented Architecture
+//!
+//! The index uses a Lucene-inspired segmented design:
+//! - **Active segment**: DashMap-based, mutable, absorbs writes
+//! - **Sealed segments**: Immutable, mmap-backed `.sidx` files
+//! - When active hits `seal_threshold` docs → seal → flush to disk
+//! - `score_top_k()` merges results across all segments
+//!
 //! # Usage
 //!
 //! Indexing is OPTIONAL. Search works without it (via full scan).
 //! When enabled, search uses the index for candidate lookup.
 
+use super::manifest::{self, ManifestData, SegmentManifestEntry};
+use super::segment::{self, SealedSegment};
 use super::tokenizer::tokenize;
 use super::types::EntityRef;
 use dashmap::DashMap;
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap, HashSet};
+use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
 use std::sync::RwLock;
 use std::time::{Duration, Instant};
@@ -89,9 +101,9 @@ pub struct ScoredDocId {
 ///
 /// Stores exactly one copy of each EntityRef (not 60× per term).
 /// Memory at 5.4M docs: ~918 MB (vs 28 GB with per-posting clones).
-struct DocIdMap {
+pub(crate) struct DocIdMap {
     /// doc_id -> EntityRef (append-only, indexed by doc_id)
-    id_to_ref: RwLock<Vec<EntityRef>>,
+    pub(crate) id_to_ref: RwLock<Vec<EntityRef>>,
     /// EntityRef -> doc_id (for O(1) lookup on index/remove)
     ref_to_id: DashMap<EntityRef, u32>,
 }
@@ -124,7 +136,7 @@ impl DocIdMap {
     }
 
     /// Look up a doc_id, returning None if the EntityRef is unknown.
-    fn get(&self, doc_ref: &EntityRef) -> Option<u32> {
+    pub(crate) fn get(&self, doc_ref: &EntityRef) -> Option<u32> {
         self.ref_to_id.get(doc_ref).map(|r| *r)
     }
 
@@ -137,6 +149,22 @@ impl DocIdMap {
     fn clear(&self) {
         self.id_to_ref.write().unwrap().clear();
         self.ref_to_id.clear();
+    }
+
+    /// Restore from a serialized Vec of EntityRefs.
+    fn restore_from_vec(&self, entries: Vec<EntityRef>) {
+        let mut vec = self.id_to_ref.write().unwrap();
+        vec.clear();
+        self.ref_to_id.clear();
+        for (id, entity_ref) in entries.iter().enumerate() {
+            self.ref_to_id.insert(entity_ref.clone(), id as u32);
+        }
+        *vec = entries;
+    }
+
+    /// Get the current number of entries.
+    fn len(&self) -> usize {
+        self.id_to_ref.read().unwrap().len()
     }
 }
 
@@ -181,6 +209,13 @@ impl PostingList {
 }
 
 // ============================================================================
+// Default seal threshold
+// ============================================================================
+
+/// Default number of documents in active segment before sealing
+const DEFAULT_SEAL_THRESHOLD: usize = 100_000;
+
+// ============================================================================
 // InvertedIndex
 // ============================================================================
 
@@ -198,30 +233,41 @@ impl PostingList {
 /// The version field tracks index state for consistency checking.
 /// Incremented on every update operation.
 pub struct InvertedIndex {
-    /// Term -> PostingList mapping
+    // --- Active segment (DashMap-based, mutable) ---
+    /// Term -> PostingList mapping (active segment)
     postings: DashMap<String, PostingList>,
-
-    /// Term -> document frequency
+    /// Term -> document frequency (active segment only)
     doc_freqs: DashMap<String, usize>,
+    /// doc_id -> document length (indexed by u32 doc_id, active segment)
+    doc_lengths: RwLock<Vec<Option<u32>>>,
 
-    /// Total documents indexed
+    // --- Sealed segments (immutable, mmap-backed) ---
+    /// Sealed segments ordered by segment_id
+    sealed: RwLock<Vec<SealedSegment>>,
+
+    // --- Shared state (spans all segments) ---
+    /// Bidirectional EntityRef <-> u32 mapping (one copy per doc, not per term)
+    doc_id_map: DocIdMap,
+    /// Total documents indexed (across ALL segments)
     total_docs: AtomicUsize,
-
+    /// Sum of all document lengths (across ALL segments)
+    total_doc_len: AtomicUsize,
     /// Whether index is enabled
     enabled: AtomicBool,
-
     /// Version watermark for consistency
     version: AtomicU64,
 
-    /// Sum of all document lengths (for average calculation)
-    total_doc_len: AtomicUsize,
-
-    /// doc_id -> document length (indexed by u32 doc_id, 4 bytes per doc)
-    /// Replaces DashMap<EntityRef, u32> which cost ~578 MB at 5.4M docs.
-    doc_lengths: RwLock<Vec<Option<u32>>>,
-
-    /// Bidirectional EntityRef <-> u32 mapping (one copy per doc, not per term)
-    doc_id_map: DocIdMap,
+    // --- Persistence ---
+    /// Next segment ID to assign
+    next_segment_id: AtomicU64,
+    /// Number of active docs before sealing
+    seal_threshold: usize,
+    /// Data directory for persistence (None for ephemeral)
+    data_dir: RwLock<Option<PathBuf>>,
+    /// Number of docs currently in the active segment
+    active_doc_count: AtomicUsize,
+    /// Guard to prevent concurrent auto-seals
+    sealing: AtomicBool,
 }
 
 impl Default for InvertedIndex {
@@ -242,6 +288,12 @@ impl InvertedIndex {
             total_doc_len: AtomicUsize::new(0),
             doc_lengths: RwLock::new(Vec::new()),
             doc_id_map: DocIdMap::new(),
+            sealed: RwLock::new(Vec::new()),
+            next_segment_id: AtomicU64::new(0),
+            seal_threshold: DEFAULT_SEAL_THRESHOLD,
+            data_dir: RwLock::new(None),
+            active_doc_count: AtomicUsize::new(0),
+            sealing: AtomicBool::new(false),
         }
     }
 
@@ -272,9 +324,30 @@ impl InvertedIndex {
         self.doc_freqs.clear();
         self.doc_lengths.write().unwrap().clear();
         self.doc_id_map.clear();
+        self.sealed.write().unwrap().clear();
         self.total_docs.store(0, Ordering::Relaxed);
         self.total_doc_len.store(0, Ordering::Relaxed);
+        self.active_doc_count.store(0, Ordering::Relaxed);
+        self.sealing.store(false, Ordering::Relaxed);
         self.version.fetch_add(1, Ordering::Release);
+    }
+
+    // ========================================================================
+    // Configuration
+    // ========================================================================
+
+    /// Set the data directory for persistence.
+    pub fn set_data_dir(&self, path: PathBuf) {
+        *self.data_dir.write().unwrap() = Some(path);
+    }
+
+    /// Get the search directory path (data_dir/search/).
+    fn search_dir(&self) -> Option<PathBuf> {
+        self.data_dir
+            .read()
+            .unwrap()
+            .as_ref()
+            .map(|d| d.join("search"))
     }
 
     // ========================================================================
@@ -311,16 +384,23 @@ impl InvertedIndex {
     // Statistics
     // ========================================================================
 
-    /// Get total number of indexed documents
+    /// Get total number of indexed documents (across all segments)
     ///
     /// Uses Acquire ordering to ensure visibility of updates from other threads.
     pub fn total_docs(&self) -> usize {
         self.total_docs.load(Ordering::Acquire)
     }
 
-    /// Get document frequency for a term
+    /// Get document frequency for a term (across all segments)
     pub fn doc_freq(&self, term: &str) -> usize {
-        self.doc_freqs.get(term).map(|r| *r).unwrap_or(0)
+        // Active segment df
+        let active_df = self.doc_freqs.get(term).map(|r| *r).unwrap_or(0);
+
+        // Sum df from sealed segments
+        let sealed = self.sealed.read().unwrap();
+        let sealed_df: usize = sealed.iter().map(|seg| seg.doc_freq(term) as usize).sum();
+
+        active_df + sealed_df
     }
 
     /// Get average document length
@@ -364,12 +444,9 @@ impl InvertedIndex {
 
     /// Score documents using BM25 entirely within the index.
     ///
-    /// Key optimizations over the previous approach:
-    /// - Posting lists iterated by DashMap reference (zero clone)
-    /// - doc_id_map RwLock acquired ONCE for entire search
-    /// - Scores accumulated by u32 doc_id (not String keys)
-    /// - Top-k extracted via sort + truncate
-    /// - No EntityRef resolution except for final top-k (done by caller)
+    /// Searches across both the active segment and all sealed segments.
+    /// Global stats (total_docs, avg_doc_len) span all segments.
+    /// Per-term IDF is computed from the sum of df across all segments.
     pub fn score_top_k(
         &self,
         query_terms: &[String],
@@ -385,7 +462,7 @@ impl InvertedIndex {
         let total_docs = self.total_docs.load(Ordering::Acquire) as f32;
         let avg_doc_len = self.avg_doc_len().max(1.0);
 
-        // Precompute IDF for each query term
+        // Precompute IDF for each query term (across all segments)
         let term_idfs: Vec<(&str, f32)> = query_terms
             .iter()
             .map(|t| {
@@ -401,29 +478,52 @@ impl InvertedIndex {
         // Accumulate BM25 scores by doc_id (u32 key = fast hashing)
         let mut scores: HashMap<u32, f32> = HashMap::new();
 
+        // --- Score active segment ---
         for (term, idf) in &term_idfs {
-            // Iterate posting list by reference — NO clone
             if let Some(posting_list) = self.postings.get(*term) {
                 for entry in &posting_list.entries {
-                    // Branch filter using held lock — no per-entry lock acquisition
                     match id_to_ref.get(entry.doc_id as usize) {
                         Some(entity_ref) if entity_ref.branch_id() == *branch_id => {}
                         _ => continue,
                     }
-
-                    // BM25 partial score for this term
                     let tf = entry.tf as f32;
                     let dl = entry.doc_len as f32;
                     let tf_component = (tf * (scorer_k1 + 1.0))
                         / (tf + scorer_k1 * (1.0 - scorer_b + scorer_b * dl / avg_doc_len));
                     let partial = idf * tf_component;
-
                     *scores.entry(entry.doc_id).or_insert(0.0) += partial;
                 }
             }
         }
 
-        drop(id_to_ref); // Release lock before sorting
+        // --- Score sealed segments ---
+        let sealed = self.sealed.read().unwrap();
+        for seg in sealed.iter() {
+            for (term, idf) in &term_idfs {
+                if let Some(entries) = seg.posting_entries(term) {
+                    for entry in &entries {
+                        // Skip tombstoned docs
+                        if seg.is_tombstoned(entry.doc_id) {
+                            continue;
+                        }
+                        // Branch filter
+                        match id_to_ref.get(entry.doc_id as usize) {
+                            Some(entity_ref) if entity_ref.branch_id() == *branch_id => {}
+                            _ => continue,
+                        }
+                        let tf = entry.tf as f32;
+                        let dl = entry.doc_len as f32;
+                        let tf_component = (tf * (scorer_k1 + 1.0))
+                            / (tf
+                                + scorer_k1 * (1.0 - scorer_b + scorer_b * dl / avg_doc_len));
+                        let partial = idf * tf_component;
+                        *scores.entry(entry.doc_id).or_insert(0.0) += partial;
+                    }
+                }
+            }
+        }
+        drop(sealed);
+        drop(id_to_ref);
 
         if scores.is_empty() {
             return Vec::new();
@@ -502,13 +602,24 @@ impl InvertedIndex {
         self.total_docs.fetch_add(1, Ordering::Relaxed);
         self.total_doc_len
             .fetch_add(doc_len as usize, Ordering::Relaxed);
+        self.active_doc_count.fetch_add(1, Ordering::Relaxed);
         self.version.fetch_add(1, Ordering::Release);
+
+        // Check if we should seal the active segment
+        let active_count = self.active_doc_count.load(Ordering::Relaxed);
+        if active_count >= self.seal_threshold {
+            self.try_seal_active();
+        }
     }
 
     /// Remove a document from the index
     ///
     /// NOOP if index is disabled.
-    /// Properly decrements total_doc_len using tracked document length (fixes #608).
+    /// Handles both active and sealed segments:
+    /// - Active: removes from DashMap directly
+    /// - Sealed: adds to tombstone set
+    /// - doc_lengths is a global map (persists across seals), so doc_len
+    ///   is always available for accurate total_doc_len adjustment.
     pub fn remove_document(&self, doc_ref: &EntityRef) {
         if !self.is_enabled() {
             return;
@@ -520,7 +631,7 @@ impl InvertedIndex {
             None => return, // Not indexed
         };
 
-        // Fix #608: Get document length before removal for proper total_doc_len update
+        // Retrieve doc_len from global tracking (persists across seals)
         let doc_len = {
             let mut lengths = self.doc_lengths.write().unwrap();
             let idx = doc_id as usize;
@@ -531,12 +642,12 @@ impl InvertedIndex {
             }
         };
 
-        let mut removed = false;
-
+        // Try removing from active segment (no-op if doc not in active)
+        let mut active_removed = false;
         for mut entry in self.postings.iter_mut() {
             let count = entry.remove_by_id(doc_id);
             if count > 0 {
-                removed = true;
+                active_removed = true;
                 let term = entry.key().clone();
                 self.doc_freqs
                     .entry(term)
@@ -544,15 +655,251 @@ impl InvertedIndex {
             }
         }
 
-        if removed || doc_len.is_some() {
+        // Add tombstone to all sealed segments (harmless if doc not in segment)
+        {
+            let sealed = self.sealed.read().unwrap();
+            for seg in sealed.iter() {
+                seg.add_tombstone(doc_id);
+            }
+        }
+
+        // Update global stats
+        if active_removed || doc_len.is_some() {
             self.total_docs.fetch_sub(1, Ordering::Relaxed);
-            // Fix #608: Properly decrement total_doc_len using tracked length
             if let Some(len) = doc_len {
                 self.total_doc_len
                     .fetch_sub(len as usize, Ordering::Relaxed);
             }
+            if active_removed {
+                self.active_doc_count.fetch_sub(1, Ordering::Relaxed);
+            }
             self.version.fetch_add(1, Ordering::Release);
         }
+    }
+
+    // ========================================================================
+    // Seal & Persistence
+    // ========================================================================
+
+    /// Try to seal the active segment if it has enough documents.
+    ///
+    /// Uses CAS on `sealing` to prevent concurrent auto-seals.
+    fn try_seal_active(&self) {
+        let active_count = self.active_doc_count.load(Ordering::Relaxed);
+        if active_count < self.seal_threshold {
+            return;
+        }
+        // Prevent concurrent auto-seals
+        if self
+            .sealing
+            .compare_exchange(false, true, Ordering::Acquire, Ordering::Relaxed)
+            .is_err()
+        {
+            return; // Another thread is already sealing
+        }
+        self.seal_active();
+        self.sealing.store(false, Ordering::Release);
+    }
+
+    /// Seal the active segment into an immutable sealed segment.
+    ///
+    /// Drains the active DashMap → builds sorted term dict + delta-encodes
+    /// postings → creates `SealedSegment`. Optionally flushes to disk.
+    ///
+    /// NOTE: `doc_lengths` is NOT cleared — it is a global map that persists
+    /// across seals, enabling re-index detection and accurate `total_doc_len`
+    /// adjustment when removing docs from sealed segments.
+    pub fn seal_active(&self) {
+        let active_count = self.active_doc_count.load(Ordering::Relaxed);
+        if active_count == 0 {
+            return;
+        }
+
+        // Drain active segment into sorted term map
+        let mut term_postings: BTreeMap<String, Vec<PostingEntry>> = BTreeMap::new();
+
+        // Collect and remove all entries from active postings
+        let keys: Vec<String> = self.postings.iter().map(|r| r.key().clone()).collect();
+        for key in keys {
+            if let Some((term, posting_list)) = self.postings.remove(&key) {
+                if !posting_list.entries.is_empty() {
+                    term_postings.insert(term, posting_list.entries);
+                }
+            }
+        }
+        self.doc_freqs.clear();
+
+        // Compute total doc len from unique doc_ids in the drained postings.
+        // This is more accurate than iterating doc_lengths (which contains
+        // entries from prior seals too).
+        let mut seen_docs: HashSet<u32> = HashSet::new();
+        let mut active_total_doc_len: u64 = 0;
+        for entries in term_postings.values() {
+            for entry in entries {
+                if seen_docs.insert(entry.doc_id) {
+                    active_total_doc_len += entry.doc_len as u64;
+                }
+            }
+        }
+        let actual_doc_count = seen_docs.len() as u32;
+
+        let segment_id = self.next_segment_id.fetch_add(1, Ordering::Relaxed);
+
+        // Build the sealed segment
+        let seg = segment::build_sealed_segment(
+            segment_id,
+            term_postings,
+            actual_doc_count,
+            active_total_doc_len,
+        );
+
+        // Flush to disk if we have a data directory
+        if let Some(search_dir) = self.search_dir() {
+            let path = search_dir.join(format!("seg_{}.sidx", segment_id));
+            if let Err(e) = seg.write_to_file(&path) {
+                tracing::warn!(
+                    target: "strata::search",
+                    segment_id = segment_id,
+                    error = %e,
+                    "Failed to flush sealed segment to disk"
+                );
+            }
+        }
+
+        // Add to sealed list
+        self.sealed.write().unwrap().push(seg);
+        self.active_doc_count.store(0, Ordering::Relaxed);
+    }
+
+    /// Freeze the entire index to disk for recovery.
+    ///
+    /// 1. Seal active segment if non-empty
+    /// 2. Flush any in-memory sealed segments to .sidx files
+    /// 3. Write search.manifest with DocIdMap + stats
+    pub fn freeze_to_disk(&self) -> std::io::Result<()> {
+        let search_dir = match self.search_dir() {
+            Some(d) => d,
+            None => return Ok(()), // No data dir — ephemeral
+        };
+
+        // Seal active segment if it has data
+        self.seal_active();
+
+        // Ensure all segments are flushed to disk
+        let sealed = self.sealed.read().unwrap();
+        for seg in sealed.iter() {
+            let path = search_dir.join(format!("seg_{}.sidx", seg.segment_id()));
+            if !path.exists() {
+                seg.write_to_file(&path)?;
+            }
+        }
+
+        // Build manifest data
+        let segment_entries: Vec<SegmentManifestEntry> = sealed
+            .iter()
+            .map(|seg| SegmentManifestEntry {
+                segment_id: seg.segment_id(),
+                doc_count: seg.doc_count(),
+                total_doc_len: seg.total_doc_len(),
+                tombstones: seg.tombstones(),
+            })
+            .collect();
+        drop(sealed);
+
+        let doc_id_map_vec = self.doc_id_map.id_to_ref.read().unwrap().clone();
+        let doc_lengths_vec = self.doc_lengths.read().unwrap().clone();
+
+        let manifest_data = ManifestData {
+            version: 1,
+            total_docs: self.total_docs.load(Ordering::Acquire) as u64,
+            total_doc_len: self.total_doc_len.load(Ordering::Acquire) as u64,
+            next_segment_id: self.next_segment_id.load(Ordering::Relaxed),
+            segments: segment_entries,
+            doc_id_map: doc_id_map_vec,
+            doc_lengths: doc_lengths_vec,
+        };
+
+        let manifest_path = search_dir.join("search.manifest");
+        manifest::write_manifest(&manifest_path, &manifest_data)?;
+
+        tracing::info!(
+            target: "strata::search",
+            segments = manifest_data.segments.len(),
+            total_docs = manifest_data.total_docs,
+            "Search index frozen to disk"
+        );
+
+        Ok(())
+    }
+
+    /// Load index state from manifest and mmap'd segments.
+    ///
+    /// Returns true if successfully loaded, false if no manifest found.
+    pub fn load_from_disk(&self) -> std::io::Result<bool> {
+        let search_dir = match self.search_dir() {
+            Some(d) => d,
+            None => return Ok(false),
+        };
+
+        let manifest_path = search_dir.join("search.manifest");
+        if !manifest_path.exists() {
+            return Ok(false);
+        }
+
+        let data = manifest::load_manifest(&manifest_path)?;
+
+        // Restore DocIdMap
+        self.doc_id_map.restore_from_vec(data.doc_id_map);
+
+        // Restore global stats
+        self.total_docs
+            .store(data.total_docs as usize, Ordering::Relaxed);
+        self.total_doc_len
+            .store(data.total_doc_len as usize, Ordering::Relaxed);
+        self.next_segment_id
+            .store(data.next_segment_id, Ordering::Relaxed);
+
+        // Load sealed segments from mmap
+        let mut sealed = self.sealed.write().unwrap();
+        sealed.clear();
+
+        for entry in &data.segments {
+            let seg_path = search_dir.join(format!("seg_{}.sidx", entry.segment_id));
+            match SealedSegment::from_mmap(&seg_path) {
+                Ok(seg) => {
+                    seg.set_tombstones(entry.tombstones.clone());
+                    sealed.push(seg);
+                }
+                Err(e) => {
+                    tracing::warn!(
+                        target: "strata::search",
+                        segment_id = entry.segment_id,
+                        error = %e,
+                        "Failed to load sealed segment from mmap"
+                    );
+                    return Err(e);
+                }
+            }
+        }
+
+        // Active segment starts empty
+        self.postings.clear();
+        self.doc_freqs.clear();
+        self.active_doc_count.store(0, Ordering::Relaxed);
+
+        // Restore global doc_lengths from manifest (persists across seals
+        // for re-index detection and accurate total_doc_len on removal)
+        *self.doc_lengths.write().unwrap() = data.doc_lengths;
+
+        tracing::info!(
+            target: "strata::search",
+            segments = sealed.len(),
+            total_docs = data.total_docs,
+            doc_id_map_size = self.doc_id_map.len(),
+            "Search index loaded from disk"
+        );
+
+        Ok(true)
     }
 
     // ========================================================================
@@ -1217,5 +1564,334 @@ mod tests {
 
         // Both should match since we filter by branch_id, not entity type
         assert_eq!(result.len(), 2);
+    }
+
+    // ====================================================================
+    // Segmented index tests
+    // ====================================================================
+
+    #[test]
+    fn test_seal_active_segment() {
+        let index = InvertedIndex::new();
+        index.enable();
+        let branch_id = BranchId::new();
+
+        // Index some documents
+        for i in 0..10 {
+            let doc = kv_ref(branch_id, &format!("doc{}", i));
+            index.index_document(&doc, &format!("hello world extra{}", i), None);
+        }
+
+        assert_eq!(index.total_docs(), 10);
+        assert_eq!(index.active_doc_count.load(Ordering::Relaxed), 10);
+
+        // Seal the active segment
+        index.seal_active();
+
+        // Active segment should be empty now
+        assert_eq!(index.active_doc_count.load(Ordering::Relaxed), 0);
+        assert!(index.postings.is_empty());
+
+        // But sealed segment should have the data
+        let sealed = index.sealed.read().unwrap();
+        assert_eq!(sealed.len(), 1);
+        assert_eq!(sealed[0].doc_count(), 10);
+
+        // Total docs should be unchanged
+        assert_eq!(index.total_docs(), 10);
+
+        // doc_freq should still work (from sealed segment)
+        assert_eq!(index.doc_freq("hello"), 10);
+
+        // score_top_k should find results in sealed segment
+        let terms = vec!["hello".to_string()];
+        let result = index.score_top_k(&terms, &branch_id, 20, 0.9, 0.4);
+        assert_eq!(result.len(), 10);
+    }
+
+    #[test]
+    fn test_cross_segment_search() {
+        let index = InvertedIndex::new();
+        index.enable();
+        let branch_id = BranchId::new();
+
+        // Index 5 docs, seal, then index 5 more
+        for i in 0..5 {
+            let doc = kv_ref(branch_id, &format!("doc{}", i));
+            index.index_document(&doc, "hello world", None);
+        }
+        index.seal_active();
+
+        for i in 5..10 {
+            let doc = kv_ref(branch_id, &format!("doc{}", i));
+            index.index_document(&doc, "hello planet", None);
+        }
+
+        // Should find results from both segments
+        let terms = vec!["hello".to_string()];
+        let result = index.score_top_k(&terms, &branch_id, 20, 0.9, 0.4);
+        assert_eq!(result.len(), 10);
+
+        // doc_freq should sum across segments
+        assert_eq!(index.doc_freq("hello"), 10);
+        assert_eq!(index.doc_freq("world"), 5);
+        assert_eq!(index.doc_freq("planet"), 5);
+    }
+
+    #[test]
+    fn test_reindex_after_seal() {
+        let index = InvertedIndex::new();
+        index.enable();
+        let branch_id = BranchId::new();
+
+        // Index a doc with initial content
+        let doc = kv_ref(branch_id, "doc1");
+        index.index_document(&doc, "hello world", None);
+        assert_eq!(index.total_docs(), 1);
+
+        // Seal the active segment
+        index.seal_active();
+
+        // Re-index same doc with different content (use stemming-stable words)
+        index.index_document(&doc, "alpha planet", None);
+
+        // total_docs should still be 1 (re-index, not new doc)
+        assert_eq!(index.total_docs(), 1);
+
+        // Old terms should not match (tombstoned in sealed segment)
+        let terms = vec!["hello".to_string()];
+        let result = index.score_top_k(&terms, &branch_id, 10, 0.9, 0.4);
+        assert!(
+            result.is_empty(),
+            "Old term 'hello' should not match after re-index"
+        );
+
+        // New terms should match (in active segment)
+        let terms = vec!["alpha".to_string()];
+        let result = index.score_top_k(&terms, &branch_id, 10, 0.9, 0.4);
+        assert_eq!(result.len(), 1, "New term 'alpha' should match");
+
+        let resolved = index.resolve_doc_id(result[0].doc_id).unwrap();
+        assert_eq!(resolved, doc);
+    }
+
+    #[test]
+    fn test_remove_from_sealed_segment() {
+        let index = InvertedIndex::new();
+        index.enable();
+        let branch_id = BranchId::new();
+
+        let doc1 = kv_ref(branch_id, "doc1");
+        let doc2 = kv_ref(branch_id, "doc2");
+        index.index_document(&doc1, "hello world", None);
+        index.index_document(&doc2, "hello planet", None);
+        assert_eq!(index.total_docs(), 2);
+
+        // Seal
+        index.seal_active();
+
+        // Remove doc1 (from sealed segment)
+        index.remove_document(&doc1);
+
+        // total_docs should be 1
+        assert_eq!(index.total_docs(), 1);
+
+        // Search should only find doc2
+        let terms = vec!["hello".to_string()];
+        let result = index.score_top_k(&terms, &branch_id, 10, 0.9, 0.4);
+        assert_eq!(result.len(), 1);
+        let resolved = index.resolve_doc_id(result[0].doc_id).unwrap();
+        assert_eq!(resolved, doc2);
+    }
+
+    #[test]
+    fn test_total_doc_len_after_sealed_removal() {
+        let index = InvertedIndex::new();
+        index.enable();
+        let branch_id = BranchId::new();
+
+        let doc1 = kv_ref(branch_id, "doc1");
+        let doc2 = kv_ref(branch_id, "doc2");
+        // "hello world" = 2 tokens, "goodbye planet earth" = 3 tokens
+        index.index_document(&doc1, "hello world", None);
+        index.index_document(&doc2, "goodbye planet earth", None);
+        assert_eq!(index.total_doc_len.load(Ordering::Relaxed), 5); // 2 + 3
+
+        // Seal
+        index.seal_active();
+
+        // Remove doc1 (2 tokens) — should decrement total_doc_len
+        index.remove_document(&doc1);
+        assert_eq!(index.total_doc_len.load(Ordering::Relaxed), 3); // 5 - 2
+        assert_eq!(index.total_docs(), 1);
+    }
+
+    #[test]
+    fn test_multiple_seals_with_interleaved_searches() {
+        let index = InvertedIndex::new();
+        index.enable();
+        let branch_id = BranchId::new();
+
+        // First batch: 5 docs
+        for i in 0..5 {
+            let doc = kv_ref(branch_id, &format!("batch1_doc{}", i));
+            index.index_document(&doc, "alpha beta", None);
+        }
+        index.seal_active();
+
+        // Search after first seal
+        let terms = vec!["alpha".to_string()];
+        let result = index.score_top_k(&terms, &branch_id, 20, 0.9, 0.4);
+        assert_eq!(result.len(), 5);
+
+        // Second batch: 5 more docs
+        for i in 0..5 {
+            let doc = kv_ref(branch_id, &format!("batch2_doc{}", i));
+            index.index_document(&doc, "alpha gamma", None);
+        }
+        index.seal_active();
+
+        // Search after second seal — should span both sealed segments
+        let result = index.score_top_k(&terms, &branch_id, 20, 0.9, 0.4);
+        assert_eq!(result.len(), 10);
+
+        // Third batch: 3 more docs still in active
+        for i in 0..3 {
+            let doc = kv_ref(branch_id, &format!("batch3_doc{}", i));
+            index.index_document(&doc, "alpha delta", None);
+        }
+
+        // Search across 2 sealed + 1 active
+        let result = index.score_top_k(&terms, &branch_id, 20, 0.9, 0.4);
+        assert_eq!(result.len(), 13);
+
+        assert_eq!(index.total_docs(), 13);
+        assert_eq!(index.doc_freq("alpha"), 13);
+        assert_eq!(index.doc_freq("beta"), 5);
+        assert_eq!(index.doc_freq("gamma"), 5);
+        assert_eq!(index.doc_freq("delta"), 3);
+    }
+
+    #[test]
+    fn test_tombstone_persistence_roundtrip() {
+        let tmp = tempfile::tempdir().unwrap();
+        let branch_id = BranchId::new();
+
+        // Create index, add docs, seal, tombstone one, freeze
+        {
+            let index = InvertedIndex::new();
+            index.enable();
+            index.set_data_dir(tmp.path().to_path_buf());
+
+            let doc1 = kv_ref(branch_id, "doc1");
+            let doc2 = kv_ref(branch_id, "doc2");
+            index.index_document(&doc1, "hello world", None);
+            index.index_document(&doc2, "hello planet", None);
+
+            index.seal_active();
+            index.remove_document(&doc1);
+            assert_eq!(index.total_docs(), 1);
+
+            index.freeze_to_disk().unwrap();
+        }
+
+        // Load from disk and verify tombstones survived
+        {
+            let index = InvertedIndex::new();
+            index.set_data_dir(tmp.path().to_path_buf());
+            let loaded = index.load_from_disk().unwrap();
+            assert!(loaded);
+            index.enable();
+
+            // total_docs should reflect the tombstone
+            assert_eq!(index.total_docs(), 1);
+
+            // Search should only find doc2
+            let terms = vec!["hello".to_string()];
+            let result = index.score_top_k(&terms, &branch_id, 10, 0.9, 0.4);
+            assert_eq!(result.len(), 1);
+            let resolved = index.resolve_doc_id(result[0].doc_id).unwrap();
+            assert_eq!(resolved, kv_ref(branch_id, "doc2"));
+        }
+    }
+
+    #[test]
+    fn test_freeze_and_load_preserves_doc_id_identity() {
+        let tmp = tempfile::tempdir().unwrap();
+        let branch_id = BranchId::new();
+
+        let doc1 = kv_ref(branch_id, "key_alpha");
+        let doc2 = kv_ref(branch_id, "key_beta");
+
+        {
+            let index = InvertedIndex::new();
+            index.enable();
+            index.set_data_dir(tmp.path().to_path_buf());
+
+            index.index_document(&doc1, "hello world", None);
+            index.index_document(&doc2, "hello planet", None);
+
+            index.freeze_to_disk().unwrap();
+        }
+
+        {
+            let index = InvertedIndex::new();
+            index.set_data_dir(tmp.path().to_path_buf());
+            index.load_from_disk().unwrap();
+            index.enable();
+
+            let terms = vec!["hello".to_string()];
+            let result = index.score_top_k(&terms, &branch_id, 10, 0.9, 0.4);
+            assert_eq!(result.len(), 2);
+
+            // Verify exact EntityRef identity (not just is_some)
+            let resolved: Vec<EntityRef> = result
+                .iter()
+                .map(|r| index.resolve_doc_id(r.doc_id).unwrap())
+                .collect();
+            assert!(resolved.contains(&doc1));
+            assert!(resolved.contains(&doc2));
+        }
+    }
+
+    #[test]
+    fn test_freeze_and_load() {
+        let tmp = tempfile::tempdir().unwrap();
+        let branch_id = BranchId::new();
+
+        // Create index, add docs, freeze
+        {
+            let index = InvertedIndex::new();
+            index.enable();
+            index.set_data_dir(tmp.path().to_path_buf());
+
+            for i in 0..20 {
+                let doc = kv_ref(branch_id, &format!("doc{}", i));
+                index.index_document(&doc, &format!("hello world extra{}", i), None);
+            }
+
+            index.freeze_to_disk().unwrap();
+        }
+
+        // Create new index, load from disk
+        {
+            let index = InvertedIndex::new();
+            index.set_data_dir(tmp.path().to_path_buf());
+            let loaded = index.load_from_disk().unwrap();
+            assert!(loaded);
+
+            assert_eq!(index.total_docs(), 20);
+            assert_eq!(index.doc_freq("hello"), 20);
+
+            // Enable and search
+            index.enable();
+            let terms = vec!["hello".to_string()];
+            let result = index.score_top_k(&terms, &branch_id, 30, 0.9, 0.4);
+            assert_eq!(result.len(), 20);
+
+            // Verify doc_id resolution works
+            let resolved = index.resolve_doc_id(result[0].doc_id);
+            assert!(resolved.is_some());
+        }
     }
 }

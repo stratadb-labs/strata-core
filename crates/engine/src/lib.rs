@@ -54,6 +54,9 @@ pub mod search;
 // Re-export search types at crate root for convenience
 pub use search::{SearchBudget, SearchHit, SearchMode, SearchRequest, SearchResponse, SearchStats};
 
+// Re-export search recovery registration
+pub use search::register_search_recovery;
+
 // Re-export submodules for `strata_engine::vector::*` and `strata_engine::extensions::*` access
 pub use primitives::extensions;
 pub use primitives::vector;

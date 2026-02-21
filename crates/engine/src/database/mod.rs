@@ -462,14 +462,19 @@ impl Database {
         // Release lock before running primitive recovery (may be slow)
         drop(registry);
 
-        // Run primitive recovery (e.g., VectorStore)
+        // Run primitive recovery (e.g., VectorStore, Search Index)
         // This must happen AFTER KV recovery completes, as primitives may
         // depend on config data stored in KV.
         crate::recovery::recover_all_participants(&db)?;
 
-        // Enable the inverted index for keyword/BM25 search
+        // Ensure the inverted index is enabled. If the search recovery
+        // participant was registered, it already loaded state and enabled it.
+        // If not (e.g., unit tests that don't register participants), we
+        // enable it here as a fallback.
         let index = db.extension::<crate::search::InvertedIndex>()?;
-        index.enable();
+        if !index.is_enabled() {
+            index.enable();
+        }
 
         Ok(db)
     }
@@ -539,7 +544,9 @@ impl Database {
         // Note: Ephemeral databases are NOT registered in the global registry
         // because they have no path and should always be independent instances
 
-        // Enable the inverted index for keyword/BM25 search
+        // Enable the inverted index for keyword/BM25 search.
+        // Cache databases skip recovery participants (nothing to recover),
+        // so we enable the index directly.
         let index = db.extension::<crate::search::InvertedIndex>()?;
         index.enable();
 
@@ -1407,6 +1414,24 @@ impl Database {
         }
     }
 
+    /// Freeze the search index to disk for fast recovery on next open.
+    fn freeze_search_index(&self) {
+        let data_dir = self.data_dir();
+        if data_dir.as_os_str().is_empty() {
+            return; // Ephemeral database — no persistence
+        }
+
+        if let Ok(index) = self.extension::<crate::search::InvertedIndex>() {
+            if let Err(e) = index.freeze_to_disk() {
+                tracing::warn!(
+                    target: "strata::search",
+                    error = %e,
+                    "Failed to freeze search index at shutdown"
+                );
+            }
+        }
+    }
+
     /// This method:
     /// 1. Stops accepting new transactions
     /// 2. Waits for pending operations to complete
@@ -1449,6 +1474,9 @@ impl Database {
         // Freeze vector heaps to mmap so lite KV records can recover
         self.freeze_vector_heaps();
 
+        // Freeze search index to disk for fast recovery
+        self.freeze_search_index();
+
         Ok(())
     }
 }
@@ -1469,6 +1497,9 @@ impl Drop for Database {
 
         // Freeze vector heaps to mmap so lite KV records can recover
         self.freeze_vector_heaps();
+
+        // Freeze search index to disk for fast recovery
+        self.freeze_search_index();
 
         // Remove from registry if we're disk-backed
         if self.persistence_mode == PersistenceMode::Disk && !self.data_dir.as_os_str().is_empty() {

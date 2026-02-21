@@ -17,8 +17,8 @@ use std::thread::{self, JoinHandle};
 use std::time::{Duration, Instant};
 pub use strata_core::{BranchId, JsonPath, JsonValue, Value, Version};
 pub use strata_engine::{
-    register_vector_recovery, BranchIndex, Database, DistanceMetric, EventLog, JsonStore, KVStore,
-    StateCell, StorageDtype, StrataConfig, VectorConfig, VectorStore,
+    register_search_recovery, register_vector_recovery, BranchIndex, Database, DistanceMetric,
+    EventLog, JsonStore, KVStore, StateCell, StorageDtype, StrataConfig, VectorConfig, VectorStore,
 };
 use tempfile::TempDir;
 
@@ -31,6 +31,7 @@ static INIT_RECOVERY: Once = Once::new();
 fn ensure_recovery_registered() {
     INIT_RECOVERY.call_once(|| {
         register_vector_recovery();
+        register_search_recovery();
     });
 }
 
