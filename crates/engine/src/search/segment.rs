@@ -37,6 +37,7 @@
 use std::collections::{BTreeMap, HashSet};
 use std::io::{self, Write};
 use std::path::Path;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{RwLock, RwLockReadGuard};
 
 use super::index::PostingEntry;
@@ -123,6 +124,8 @@ pub struct SealedSegment {
     postings_offset: u64,
     /// Deleted doc_ids (not physically removed until compaction)
     tombstones: RwLock<HashSet<u32>>,
+    /// Fast check: true if any tombstones exist (avoids RwLock read)
+    has_tombstones: AtomicBool,
 }
 
 #[allow(dead_code)]
@@ -176,6 +179,7 @@ impl SealedSegment {
             term_offsets_offset,
             postings_offset,
             tombstones: RwLock::new(HashSet::new()),
+            has_tombstones: AtomicBool::new(false),
         })
     }
 
@@ -207,6 +211,7 @@ impl SealedSegment {
     /// Mark a doc_id as deleted in this segment
     pub fn add_tombstone(&self, doc_id: u32) {
         self.tombstones.write().unwrap().insert(doc_id);
+        self.has_tombstones.store(true, Ordering::Release);
     }
 
     /// Check if a doc_id is tombstoned
@@ -226,7 +231,14 @@ impl SealedSegment {
 
     /// Set tombstones (for manifest deserialization)
     pub fn set_tombstones(&self, tombstones: HashSet<u32>) {
+        self.has_tombstones
+            .store(!tombstones.is_empty(), Ordering::Release);
         *self.tombstones.write().unwrap() = tombstones;
+    }
+
+    /// Check if any tombstones exist (lock-free fast path).
+    pub fn has_tombstones(&self) -> bool {
+        self.has_tombstones.load(Ordering::Acquire)
     }
 
     // ========================================================================
@@ -266,6 +278,40 @@ impl SealedSegment {
         let bytes = self.data.as_bytes();
         let abs_offset = self.postings_offset as usize + posting_offset as usize;
         let end = abs_offset + posting_len as usize;
+        if end > bytes.len() {
+            return None;
+        }
+        let posting_bytes = &bytes[abs_offset..end];
+        if posting_bytes.len() < 4 {
+            return None;
+        }
+        let num_entries = u32::from_le_bytes(posting_bytes[0..4].try_into().unwrap());
+        Some(PostingIter {
+            data: posting_bytes,
+            pos: 4,
+            remaining: num_entries,
+            prev_doc_id: 0,
+        })
+    }
+
+    /// Single binary search returning (df, posting_offset, posting_byte_len).
+    ///
+    /// Callers can cache the result and later use `posting_iter_from_offset()`
+    /// to avoid a redundant binary search.
+    pub fn find_term_info(&self, term: &str) -> Option<(u32, u32, u32)> {
+        let (_, df, offset, len) = self.find_term(term)?;
+        Some((df, offset, len))
+    }
+
+    /// Create a PostingIter from pre-cached offset and length (skips binary search).
+    pub fn posting_iter_from_offset(
+        &self,
+        posting_offset: u32,
+        posting_byte_len: u32,
+    ) -> Option<PostingIter<'_>> {
+        let bytes = self.data.as_bytes();
+        let abs_offset = self.postings_offset as usize + posting_offset as usize;
+        let end = abs_offset + posting_byte_len as usize;
         if end > bytes.len() {
             return None;
         }
@@ -474,6 +520,7 @@ pub fn build_sealed_segment(
         term_offsets_offset,
         postings_offset,
         tombstones: RwLock::new(HashSet::new()),
+        has_tombstones: AtomicBool::new(false),
     }
 }
 
@@ -812,6 +859,73 @@ mod tests {
     // ------------------------------------------------------------------
     // tombstone_guard tests
     // ------------------------------------------------------------------
+
+    // ------------------------------------------------------------------
+    // has_tombstones / find_term_info / posting_iter_from_offset tests
+    // ------------------------------------------------------------------
+
+    #[test]
+    fn test_has_tombstones_flag() {
+        let mut terms = BTreeMap::new();
+        terms.insert(
+            "hello".to_string(),
+            vec![PostingEntry::new(0, 1, 5), PostingEntry::new(1, 1, 5)],
+        );
+        let seg = build_sealed_segment(1, terms, 2, 10);
+
+        assert!(!seg.has_tombstones());
+        seg.add_tombstone(0);
+        assert!(seg.has_tombstones());
+    }
+
+    #[test]
+    fn test_has_tombstones_via_set_tombstones() {
+        let seg = build_sealed_segment(0, BTreeMap::new(), 0, 0);
+
+        assert!(!seg.has_tombstones());
+        let mut ts = HashSet::new();
+        ts.insert(42);
+        seg.set_tombstones(ts);
+        assert!(seg.has_tombstones());
+
+        seg.set_tombstones(HashSet::new());
+        assert!(!seg.has_tombstones());
+    }
+
+    #[test]
+    fn test_posting_iter_from_offset_matches_posting_iter() {
+        let mut terms = BTreeMap::new();
+        terms.insert(
+            "hello".to_string(),
+            vec![PostingEntry::new(0, 2, 5), PostingEntry::new(3, 1, 3)],
+        );
+        terms.insert(
+            "world".to_string(),
+            vec![PostingEntry::new(1, 4, 7)],
+        );
+        let seg = build_sealed_segment(1, terms, 3, 15);
+
+        for term in &["hello", "world"] {
+            let info = seg.find_term_info(term).unwrap();
+            let (df, offset, len) = info;
+
+            // df should match doc_freq
+            assert_eq!(df, seg.doc_freq(term));
+
+            // posting_iter_from_offset should produce identical results to posting_iter
+            let direct: Vec<_> = seg.posting_iter(term).unwrap().collect();
+            let cached: Vec<_> = seg.posting_iter_from_offset(offset, len).unwrap().collect();
+            assert_eq!(direct.len(), cached.len(), "term={}", term);
+            for (a, b) in direct.iter().zip(cached.iter()) {
+                assert_eq!(a.doc_id, b.doc_id, "term={}", term);
+                assert_eq!(a.tf, b.tf, "term={}", term);
+                assert_eq!(a.doc_len, b.doc_len, "term={}", term);
+            }
+        }
+
+        // Missing term
+        assert!(seg.find_term_info("missing").is_none());
+    }
 
     #[test]
     fn test_tombstone_guard_batch_lookup() {

@@ -268,6 +268,9 @@ pub struct InvertedIndex {
     active_doc_count: AtomicUsize,
     /// Guard to prevent concurrent auto-seals
     sealing: AtomicBool,
+    /// Set of branch IDs seen across all indexed documents.
+    /// When only one branch exists, score_top_k can skip per-doc branch checks.
+    branch_ids: RwLock<HashSet<BranchId>>,
 }
 
 impl Default for InvertedIndex {
@@ -294,6 +297,7 @@ impl InvertedIndex {
             data_dir: RwLock::new(None),
             active_doc_count: AtomicUsize::new(0),
             sealing: AtomicBool::new(false),
+            branch_ids: RwLock::new(HashSet::new()),
         }
     }
 
@@ -329,6 +333,7 @@ impl InvertedIndex {
         self.total_doc_len.store(0, Ordering::Relaxed);
         self.active_doc_count.store(0, Ordering::Relaxed);
         self.sealing.store(false, Ordering::Relaxed);
+        self.branch_ids.write().unwrap().clear();
         self.version.fetch_add(1, Ordering::Release);
     }
 
@@ -447,6 +452,15 @@ impl InvertedIndex {
     /// Searches across both the active segment and all sealed segments.
     /// Global stats (total_docs, avg_doc_len) span all segments.
     /// Per-term IDF is computed from the sum of df across all segments.
+    ///
+    /// Optimizations over naive approach:
+    /// - **Cached find_term**: single binary search per (segment, term), reused for
+    ///   both IDF computation and posting iteration.
+    /// - **Tombstone AtomicBool**: skips RwLock read on segments with no tombstones.
+    /// - **Single-branch detection**: skips per-doc branch_id check when only one
+    ///   branch exists in the index.
+    /// - **Dense Vec accumulator**: uses `Vec<f32>` indexed by doc_id instead of
+    ///   HashMap for score accumulation.
     pub fn score_top_k(
         &self,
         query_terms: &[String],
@@ -464,83 +478,145 @@ impl InvertedIndex {
 
         // Acquire sealed lock ONCE — used for both IDF and scoring
         let sealed = self.sealed.read().unwrap();
+        let num_sealed = sealed.len();
 
-        // Precompute IDF inline (avoids doc_freq() re-acquiring sealed lock per term)
-        let term_idfs: Vec<(&str, f32)> = query_terms
+        // [Opt 2] Combined IDF + posting location caching.
+        // One find_term per (segment, term) — result cached for posting iteration.
+        // Each entry: (term_str, idf, Vec<Option<(posting_offset, posting_byte_len)>>)
+        let term_data: Vec<(&str, f32, Vec<Option<(u32, u32)>>)> = query_terms
             .iter()
             .map(|t| {
                 let active_df = self.doc_freqs.get(t.as_str()).map(|r| *r).unwrap_or(0);
-                let sealed_df: usize =
-                    sealed.iter().map(|seg| seg.doc_freq(t) as usize).sum();
+                let mut seg_locations = Vec::with_capacity(num_sealed);
+                let mut sealed_df: usize = 0;
+                for seg in sealed.iter() {
+                    match seg.find_term_info(t) {
+                        Some((df, offset, len)) => {
+                            sealed_df += df as usize;
+                            seg_locations.push(Some((offset, len)));
+                        }
+                        None => {
+                            seg_locations.push(None);
+                        }
+                    }
+                }
                 let df = (active_df + sealed_df) as f32;
                 let idf = ((total_docs - df + 0.5) / (df + 0.5) + 1.0).ln();
-                (t.as_str(), idf)
+                (t.as_str(), idf, seg_locations)
             })
             .collect();
 
         // Acquire doc_id_map read lock ONCE for the entire search
         let id_to_ref = self.doc_id_map.id_to_ref.read().unwrap();
+        let num_docs = id_to_ref.len();
 
-        // Pre-size score accumulator
-        let mut scores: HashMap<u32, f32> = HashMap::with_capacity(256);
+        // [Opt 3] Single-branch detection: skip per-doc branch check
+        let skip_branch_check = {
+            let bids = self.branch_ids.read().unwrap();
+            if bids.len() <= 1 {
+                // If single branch and it doesn't match → empty result
+                if bids.len() == 1 && !bids.contains(branch_id) {
+                    return Vec::new();
+                }
+                true
+            } else {
+                false
+            }
+        };
 
-        // Precompute the BM25 denominator constant: k1 * (1 - b + b / avg_doc_len)
+        // [Opt 4] Dense Vec<f32> accumulator sized to id_to_ref.len()
+        // Doc IDs are contiguous 0..N-1 by design.
+        let mut scores = vec![0.0f32; num_docs];
+        let mut seen = vec![false; num_docs];
+        let mut touched: Vec<u32> = Vec::new();
+
+        // Precompute BM25 constants
         let k1_times_b_over_avg = scorer_k1 * scorer_b / avg_doc_len;
         let k1_times_one_minus_b = scorer_k1 * (1.0 - scorer_b);
         let k1_plus_1 = scorer_k1 + 1.0;
 
         // --- Score active segment ---
-        for (term, idf) in &term_idfs {
+        for (term, idf, _) in &term_data {
             if let Some(posting_list) = self.postings.get(*term) {
                 for entry in &posting_list.entries {
-                    match id_to_ref.get(entry.doc_id as usize) {
-                        Some(entity_ref) if entity_ref.branch_id() == *branch_id => {}
-                        _ => continue,
+                    if !skip_branch_check {
+                        match id_to_ref.get(entry.doc_id as usize) {
+                            Some(entity_ref) if entity_ref.branch_id() == *branch_id => {}
+                            _ => continue,
+                        }
                     }
                     let tf = entry.tf as f32;
                     let dl = entry.doc_len as f32;
                     let tf_component =
                         (tf * k1_plus_1) / (tf + k1_times_one_minus_b + k1_times_b_over_avg * dl);
-                    *scores.entry(entry.doc_id).or_insert(0.0) += idf * tf_component;
+                    let did = entry.doc_id as usize;
+                    if !seen[did] {
+                        seen[did] = true;
+                        touched.push(entry.doc_id);
+                    }
+                    scores[did] += idf * tf_component;
                 }
             }
         }
 
         // --- Score sealed segments ---
-        // Zero-copy iteration: posting_iter avoids Vec allocation,
-        // tombstone_guard avoids per-entry RwLock acquisition.
-        for seg in sealed.iter() {
-            let tombstones = seg.tombstone_guard();
-            for (term, idf) in &term_idfs {
-                if let Some(iter) = seg.posting_iter(term) {
-                    for entry in iter {
-                        if tombstones.contains(&entry.doc_id) {
+        for (seg_idx, seg) in sealed.iter().enumerate() {
+            // [Opt 1] Skip tombstone lock if has_tombstones() == false
+            let tombstone_guard = if seg.has_tombstones() {
+                Some(seg.tombstone_guard())
+            } else {
+                None
+            };
+
+            for (_term, idf, seg_locations) in &term_data {
+                // [Opt 2] Use cached offset — no second binary search
+                let (offset, len) = match seg_locations[seg_idx] {
+                    Some(v) => v,
+                    None => continue,
+                };
+                let iter = match seg.posting_iter_from_offset(offset, len) {
+                    Some(it) => it,
+                    None => continue,
+                };
+                for entry in iter {
+                    if let Some(ref ts) = tombstone_guard {
+                        if ts.contains(&entry.doc_id) {
                             continue;
                         }
+                    }
+                    if !skip_branch_check {
                         match id_to_ref.get(entry.doc_id as usize) {
                             Some(entity_ref) if entity_ref.branch_id() == *branch_id => {}
                             _ => continue,
                         }
-                        let tf = entry.tf as f32;
-                        let dl = entry.doc_len as f32;
-                        let tf_component = (tf * k1_plus_1)
-                            / (tf + k1_times_one_minus_b + k1_times_b_over_avg * dl);
-                        *scores.entry(entry.doc_id).or_insert(0.0) += idf * tf_component;
                     }
+                    let tf = entry.tf as f32;
+                    let dl = entry.doc_len as f32;
+                    let tf_component =
+                        (tf * k1_plus_1) / (tf + k1_times_one_minus_b + k1_times_b_over_avg * dl);
+                    let did = entry.doc_id as usize;
+                    if !seen[did] {
+                        seen[did] = true;
+                        touched.push(entry.doc_id);
+                    }
+                    scores[did] += idf * tf_component;
                 }
             }
         }
         drop(sealed);
         drop(id_to_ref);
 
-        if scores.is_empty() {
+        if touched.is_empty() {
             return Vec::new();
         }
 
-        // Collect and select top-k (partial sort is O(n) vs O(n log n) full sort)
-        let mut result: Vec<ScoredDocId> = scores
+        // Collect top-k from touched (partial sort is O(n) vs O(n log n) full sort)
+        let mut result: Vec<ScoredDocId> = touched
             .into_iter()
-            .map(|(doc_id, score)| ScoredDocId { doc_id, score })
+            .map(|doc_id| ScoredDocId {
+                doc_id,
+                score: scores[doc_id as usize],
+            })
             .collect();
 
         let cmp =
@@ -575,6 +651,15 @@ impl InvertedIndex {
 
         // Get or assign a compact doc_id
         let doc_id = self.doc_id_map.get_or_insert(doc_ref);
+
+        // Track branch ID for single-branch fast path in score_top_k.
+        // Fast path: skip write lock if already present.
+        {
+            let bid = doc_ref.branch_id();
+            if !self.branch_ids.read().unwrap().contains(&bid) {
+                self.branch_ids.write().unwrap().insert(bid);
+            }
+        }
 
         // Fix #609: Check if document already indexed, remove first to prevent double-counting
         {
@@ -907,6 +992,16 @@ impl InvertedIndex {
         // Restore global doc_lengths from manifest (persists across seals
         // for re-index detection and accurate total_doc_len on removal)
         *self.doc_lengths.write().unwrap() = data.doc_lengths;
+
+        // Rebuild branch_ids from restored DocIdMap
+        {
+            let id_to_ref = self.doc_id_map.id_to_ref.read().unwrap();
+            let mut bids = self.branch_ids.write().unwrap();
+            bids.clear();
+            for entity_ref in id_to_ref.iter() {
+                bids.insert(entity_ref.branch_id());
+            }
+        }
 
         tracing::info!(
             target: "strata::search",
@@ -1942,6 +2037,72 @@ mod tests {
     }
 
     #[test]
+    fn test_single_branch_detection() {
+        let index = InvertedIndex::new();
+        index.enable();
+        let branch_id = BranchId::new();
+
+        for i in 0..5 {
+            let doc = kv_ref(branch_id, &format!("doc{}", i));
+            index.index_document(&doc, "hello world", None);
+        }
+
+        // Only one branch — branch_ids should have exactly 1 entry
+        assert_eq!(index.branch_ids.read().unwrap().len(), 1);
+        assert!(index.branch_ids.read().unwrap().contains(&branch_id));
+
+        // Search should still work correctly
+        let terms = vec!["hello".to_string()];
+        let result = index.score_top_k(&terms, &branch_id, 10, 0.9, 0.4);
+        assert_eq!(result.len(), 5);
+    }
+
+    #[test]
+    fn test_multi_branch_detection() {
+        let index = InvertedIndex::new();
+        index.enable();
+        let branch_a = BranchId::new();
+        let branch_b = BranchId::new();
+
+        // Index docs on two branches
+        for i in 0..3 {
+            let doc = kv_ref(branch_a, &format!("a_doc{}", i));
+            index.index_document(&doc, "hello world", None);
+        }
+        for i in 0..3 {
+            let doc = kv_ref(branch_b, &format!("b_doc{}", i));
+            index.index_document(&doc, "hello planet", None);
+        }
+
+        // Two branches — branch_ids should have exactly 2 entries
+        assert_eq!(index.branch_ids.read().unwrap().len(), 2);
+
+        // Search should filter correctly per branch
+        let terms = vec!["hello".to_string()];
+        let result_a = index.score_top_k(&terms, &branch_a, 10, 0.9, 0.4);
+        assert_eq!(result_a.len(), 3);
+        let result_b = index.score_top_k(&terms, &branch_b, 10, 0.9, 0.4);
+        assert_eq!(result_b.len(), 3);
+    }
+
+    #[test]
+    fn test_single_branch_wrong_branch_returns_empty() {
+        let index = InvertedIndex::new();
+        index.enable();
+        let branch_a = BranchId::new();
+        let branch_b = BranchId::new();
+
+        // Index only on branch_a
+        let doc = kv_ref(branch_a, "doc1");
+        index.index_document(&doc, "hello world", None);
+
+        // Search for branch_b (not in index) — should return empty via early return
+        let terms = vec!["hello".to_string()];
+        let result = index.score_top_k(&terms, &branch_b, 10, 0.9, 0.4);
+        assert!(result.is_empty());
+    }
+
+    #[test]
     fn test_freeze_and_load() {
         let tmp = tempfile::tempdir().unwrap();
         let branch_id = BranchId::new();
@@ -1980,5 +2141,283 @@ mod tests {
             let resolved = index.resolve_doc_id(result[0].doc_id);
             assert!(resolved.is_some());
         }
+    }
+
+    // ====================================================================
+    // Deeper tests for QPS optimizations
+    // ====================================================================
+
+    #[test]
+    fn test_multi_term_sealed_bm25_formula() {
+        // Verify multi-term BM25 through sealed segments produces correct
+        // accumulated scores (tests Vec accumulator + cached find_term).
+        let index = InvertedIndex::new();
+        index.enable();
+        let branch_id = BranchId::new();
+
+        let doc = kv_ref(branch_id, "doc1");
+        index.index_document(&doc, "hello hello world", None);
+        index.seal_active();
+
+        let k1 = 1.2_f32;
+        let b = 0.75_f32;
+        let terms = vec!["hello".to_string(), "world".to_string()];
+        let result = index.score_top_k(&terms, &branch_id, 10, k1, b);
+        assert_eq!(result.len(), 1);
+
+        // Manual BM25: N=1, avg_dl=3
+        let n = 1.0_f32;
+        let avg_dl = 3.0_f32;
+        let dl = 3.0_f32;
+
+        // "hello": tf=2, df=1
+        let idf_hello = ((n - 1.0 + 0.5) / (1.0 + 0.5) + 1.0).ln();
+        let tf_hello = (2.0 * (k1 + 1.0)) / (2.0 + k1 * (1.0 - b + b * dl / avg_dl));
+
+        // "world": tf=1, df=1
+        let idf_world = ((n - 1.0 + 0.5) / (1.0 + 0.5) + 1.0).ln();
+        let tf_world = (1.0 * (k1 + 1.0)) / (1.0 + k1 * (1.0 - b + b * dl / avg_dl));
+
+        let expected = idf_hello * tf_hello + idf_world * tf_world;
+        assert!(
+            (result[0].score - expected).abs() < 1e-5,
+            "Multi-term sealed score {} should match expected {}",
+            result[0].score,
+            expected
+        );
+    }
+
+    #[test]
+    fn test_mixed_tombstone_segments() {
+        // Test scoring across segments where some have tombstones and some don't.
+        // Note: remove_document() adds tombstones to ALL sealed segments (harmless
+        // if doc not present in that segment's postings). The has_tombstones() fast
+        // path helps when NO removals have happened at all.
+        let index = InvertedIndex::new();
+        index.enable();
+        let branch_id = BranchId::new();
+
+        // Segment 0: 2 docs, no tombstones
+        let doc1 = kv_ref(branch_id, "doc1");
+        let doc2 = kv_ref(branch_id, "doc2");
+        index.index_document(&doc1, "hello world", None);
+        index.index_document(&doc2, "hello planet", None);
+        index.seal_active();
+
+        // Segment 1: 2 docs, no tombstones
+        let doc3 = kv_ref(branch_id, "doc3");
+        let doc4 = kv_ref(branch_id, "doc4");
+        index.index_document(&doc3, "hello earth", None);
+        index.index_document(&doc4, "hello mars", None);
+        index.seal_active();
+
+        // Before any removals: both segments have no tombstones
+        {
+            let sealed = index.sealed.read().unwrap();
+            assert!(!sealed[0].has_tombstones(), "Segment 0 should have no tombstones before removal");
+            assert!(!sealed[1].has_tombstones(), "Segment 1 should have no tombstones before removal");
+        }
+
+        // All 4 docs found
+        let terms = vec!["hello".to_string()];
+        let result = index.score_top_k(&terms, &branch_id, 10, 0.9, 0.4);
+        assert_eq!(result.len(), 4);
+
+        // Now remove doc2 — sets has_tombstones on all segments
+        index.remove_document(&doc2);
+
+        {
+            let sealed = index.sealed.read().unwrap();
+            // remove_document adds tombstones to all segments
+            assert!(sealed[0].has_tombstones());
+            assert!(sealed[1].has_tombstones());
+        }
+
+        // Search should find 3 docs (doc2 tombstoned)
+        let result = index.score_top_k(&terms, &branch_id, 10, 0.9, 0.4);
+        assert_eq!(result.len(), 3);
+
+        let resolved: Vec<EntityRef> = result
+            .iter()
+            .map(|r| index.resolve_doc_id(r.doc_id).unwrap())
+            .collect();
+        assert!(!resolved.contains(&doc2), "Tombstoned doc2 should not appear");
+        assert!(resolved.contains(&doc1));
+        assert!(resolved.contains(&doc3));
+        assert!(resolved.contains(&doc4));
+    }
+
+    #[test]
+    fn test_single_branch_sealed_search() {
+        // Verify single-branch optimization works through sealed segments.
+        let index = InvertedIndex::new();
+        index.enable();
+        let branch_id = BranchId::new();
+
+        for i in 0..10 {
+            let doc = kv_ref(branch_id, &format!("doc{}", i));
+            index.index_document(&doc, "hello world", None);
+        }
+        index.seal_active();
+
+        // Single branch, all docs sealed
+        assert_eq!(index.branch_ids.read().unwrap().len(), 1);
+
+        let terms = vec!["hello".to_string()];
+        let result = index.score_top_k(&terms, &branch_id, 20, 0.9, 0.4);
+        assert_eq!(result.len(), 10);
+
+        // Wrong branch should still return empty
+        let other_branch = BranchId::new();
+        let result = index.score_top_k(&terms, &other_branch, 20, 0.9, 0.4);
+        assert!(result.is_empty());
+    }
+
+    #[test]
+    fn test_branch_ids_after_load_from_disk() {
+        let tmp = tempfile::tempdir().unwrap();
+        let branch_id = BranchId::new();
+
+        {
+            let index = InvertedIndex::new();
+            index.enable();
+            index.set_data_dir(tmp.path().to_path_buf());
+
+            for i in 0..5 {
+                let doc = kv_ref(branch_id, &format!("doc{}", i));
+                index.index_document(&doc, "hello world", None);
+            }
+            index.freeze_to_disk().unwrap();
+        }
+
+        {
+            let index = InvertedIndex::new();
+            index.set_data_dir(tmp.path().to_path_buf());
+            index.load_from_disk().unwrap();
+            index.enable();
+
+            // branch_ids should be rebuilt from DocIdMap
+            assert_eq!(index.branch_ids.read().unwrap().len(), 1);
+            assert!(index.branch_ids.read().unwrap().contains(&branch_id));
+
+            // Single-branch optimization should work after load
+            let terms = vec!["hello".to_string()];
+            let result = index.score_top_k(&terms, &branch_id, 10, 0.9, 0.4);
+            assert_eq!(result.len(), 5);
+
+            let other_branch = BranchId::new();
+            let result = index.score_top_k(&terms, &other_branch, 10, 0.9, 0.4);
+            assert!(result.is_empty());
+        }
+    }
+
+    #[test]
+    fn test_has_tombstones_after_load_from_disk() {
+        let tmp = tempfile::tempdir().unwrap();
+        let branch_id = BranchId::new();
+
+        {
+            let index = InvertedIndex::new();
+            index.enable();
+            index.set_data_dir(tmp.path().to_path_buf());
+
+            let doc1 = kv_ref(branch_id, "doc1");
+            let doc2 = kv_ref(branch_id, "doc2");
+            index.index_document(&doc1, "hello world", None);
+            index.index_document(&doc2, "hello planet", None);
+            index.seal_active();
+            index.remove_document(&doc1);
+            index.freeze_to_disk().unwrap();
+        }
+
+        {
+            let index = InvertedIndex::new();
+            index.set_data_dir(tmp.path().to_path_buf());
+            index.load_from_disk().unwrap();
+            index.enable();
+
+            // has_tombstones should be true after loading tombstoned segment
+            let sealed = index.sealed.read().unwrap();
+            assert!(sealed[0].has_tombstones());
+            drop(sealed);
+
+            // Search should still work correctly (only doc2)
+            let terms = vec!["hello".to_string()];
+            let result = index.score_top_k(&terms, &branch_id, 10, 0.9, 0.4);
+            assert_eq!(result.len(), 1);
+            let resolved = index.resolve_doc_id(result[0].doc_id).unwrap();
+            assert_eq!(resolved, kv_ref(branch_id, "doc2"));
+        }
+    }
+
+    #[test]
+    fn test_multi_branch_sealed_filtering() {
+        // Verify branch filtering works through sealed segments
+        // (exercises the !skip_branch_check path in sealed scoring).
+        let index = InvertedIndex::new();
+        index.enable();
+        let branch_a = BranchId::new();
+        let branch_b = BranchId::new();
+
+        let doc_a1 = kv_ref(branch_a, "a1");
+        let doc_a2 = kv_ref(branch_a, "a2");
+        let doc_b1 = kv_ref(branch_b, "b1");
+        index.index_document(&doc_a1, "hello world", None);
+        index.index_document(&doc_a2, "hello planet", None);
+        index.index_document(&doc_b1, "hello galaxy", None);
+        index.seal_active();
+
+        // multi-branch, so skip_branch_check = false
+        assert_eq!(index.branch_ids.read().unwrap().len(), 2);
+
+        let terms = vec!["hello".to_string()];
+        let result_a = index.score_top_k(&terms, &branch_a, 10, 0.9, 0.4);
+        assert_eq!(result_a.len(), 2);
+
+        let result_b = index.score_top_k(&terms, &branch_b, 10, 0.9, 0.4);
+        assert_eq!(result_b.len(), 1);
+        let resolved = index.resolve_doc_id(result_b[0].doc_id).unwrap();
+        assert_eq!(resolved, doc_b1);
+    }
+
+    #[test]
+    fn test_cross_segment_multi_term_accumulation() {
+        // A doc's terms are in one segment, but different query terms hit
+        // different docs across sealed + active segments.
+        // Verifies the dense Vec accumulator works across segment boundaries.
+        let index = InvertedIndex::new();
+        index.enable();
+        let branch_id = BranchId::new();
+
+        // Sealed segment: doc1 has "alpha beta", doc2 has "alpha"
+        let doc1 = kv_ref(branch_id, "doc1");
+        let doc2 = kv_ref(branch_id, "doc2");
+        index.index_document(&doc1, "alpha beta", None);
+        index.index_document(&doc2, "alpha gamma", None);
+        index.seal_active();
+
+        // Active segment: doc3 has "alpha beta gamma"
+        let doc3 = kv_ref(branch_id, "doc3");
+        index.index_document(&doc3, "alpha beta gamma", None);
+
+        // Multi-term query: "alpha beta"
+        let terms = vec!["alpha".to_string(), "beta".to_string()];
+        let result = index.score_top_k(&terms, &branch_id, 10, 0.9, 0.4);
+
+        // All 3 docs match "alpha", doc1 and doc3 also match "beta"
+        assert_eq!(result.len(), 3);
+
+        // doc1 and doc3 match both terms, doc2 only matches "alpha"
+        let doc1_id = index.doc_id_map.get(&doc1).unwrap();
+        let doc2_id = index.doc_id_map.get(&doc2).unwrap();
+        let doc3_id = index.doc_id_map.get(&doc3).unwrap();
+
+        let doc1_score = result.iter().find(|r| r.doc_id == doc1_id).unwrap().score;
+        let doc2_score = result.iter().find(|r| r.doc_id == doc2_id).unwrap().score;
+        let doc3_score = result.iter().find(|r| r.doc_id == doc3_id).unwrap().score;
+
+        // Both-term docs should score higher than single-term doc
+        assert!(doc1_score > doc2_score, "doc1 ({}) > doc2 ({})", doc1_score, doc2_score);
+        assert!(doc3_score > doc2_score, "doc3 ({}) > doc2 ({})", doc3_score, doc2_score);
     }
 }
