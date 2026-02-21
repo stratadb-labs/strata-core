@@ -780,6 +780,93 @@ pub enum Command {
         search: SearchQuery,
     },
 
+    // ==================== Embedding (2) ====================
+    /// Embed a single text string.
+    /// Returns: `Output::Embedding`
+    Embed {
+        /// Text to embed.
+        text: String,
+    },
+
+    /// Embed a batch of text strings.
+    /// Returns: `Output::Embeddings`
+    EmbedBatch {
+        /// Texts to embed.
+        texts: Vec<String>,
+    },
+
+    // ==================== Model Management (2) ====================
+    /// List all available models in the registry.
+    /// Returns: `Output::ModelsList`
+    ModelsList,
+
+    /// Download a model by name.
+    /// Returns: `Output::ModelsPulled`
+    ModelsPull {
+        /// Model name to download (e.g., "miniLM", "nomic-embed").
+        name: String,
+    },
+
+    // ==================== Generation (3) ====================
+    /// Generate text from a prompt using a local model.
+    /// Returns: `Output::Generated`
+    Generate {
+        /// Model name (e.g. "qwen3:8b").
+        model: String,
+        /// Input prompt text.
+        prompt: String,
+        /// Maximum tokens to generate.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        max_tokens: Option<usize>,
+        /// Sampling temperature (0.0 = greedy).
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        temperature: Option<f32>,
+        /// Top-K sampling (0 = disabled).
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        top_k: Option<usize>,
+        /// Top-P (nucleus) sampling (1.0 = disabled).
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        top_p: Option<f32>,
+        /// Random seed for reproducibility.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        seed: Option<u64>,
+        /// Stop generation when any of these token IDs are produced.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        stop_tokens: Option<Vec<u32>>,
+    },
+
+    /// Tokenize text into token IDs using a model's tokenizer.
+    /// Returns: `Output::TokenIds`
+    Tokenize {
+        /// Model name.
+        model: String,
+        /// Text to tokenize.
+        text: String,
+        /// Whether to add special tokens (default: true).
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        add_special_tokens: Option<bool>,
+    },
+
+    /// Detokenize token IDs back to text.
+    /// Returns: `Output::Text`
+    Detokenize {
+        /// Model name.
+        model: String,
+        /// Token IDs to decode.
+        ids: Vec<u32>,
+    },
+
+    /// Unload a generation model from memory.
+    /// Returns: `Output::Bool` (true if model was loaded)
+    GenerateUnload {
+        /// Model name to unload.
+        model: String,
+    },
+
+    /// List locally downloaded models.
+    /// Returns: `Output::ModelsList`
+    ModelsLocal,
+
     // ==================== Space (4) ====================
     /// List spaces in a branch.
     /// Returns: `Output::SpaceList`
@@ -866,6 +953,7 @@ impl Command {
                 | Command::BranchExport { .. }
                 | Command::BranchImport { .. }
                 | Command::ConfigureModel { .. }
+                | Command::ModelsPull { .. }
         )
     }
 
@@ -933,6 +1021,15 @@ impl Command {
             Command::ConfigureModel { .. } => "ConfigureModel",
             Command::Search { .. } => "Search",
             Command::EmbedStatus => "EmbedStatus",
+            Command::Embed { .. } => "Embed",
+            Command::EmbedBatch { .. } => "EmbedBatch",
+            Command::ModelsList => "ModelsList",
+            Command::ModelsPull { .. } => "ModelsPull",
+            Command::Generate { .. } => "Generate",
+            Command::Tokenize { .. } => "Tokenize",
+            Command::Detokenize { .. } => "Detokenize",
+            Command::GenerateUnload { .. } => "GenerateUnload",
+            Command::ModelsLocal => "ModelsLocal",
             Command::SpaceList { .. } => "SpaceList",
             Command::SpaceCreate { .. } => "SpaceCreate",
             Command::SpaceDelete { .. } => "SpaceDelete",
@@ -1039,6 +1136,15 @@ impl Command {
             | Command::Flush
             | Command::Compact
             | Command::EmbedStatus
+            | Command::Embed { .. }
+            | Command::EmbedBatch { .. }
+            | Command::ModelsList
+            | Command::ModelsPull { .. }
+            | Command::Generate { .. }
+            | Command::Tokenize { .. }
+            | Command::Detokenize { .. }
+            | Command::GenerateUnload { .. }
+            | Command::ModelsLocal
             | Command::BranchExport { .. }
             | Command::BranchImport { .. }
             | Command::BranchBundleValidate { .. }

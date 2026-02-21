@@ -157,6 +157,32 @@ pub enum Output {
 
     /// Embedding pipeline status
     EmbedStatus(EmbedStatusInfo),
+
+    /// Single embedding vector
+    Embedding(Vec<f32>),
+
+    /// Batch of embedding vectors
+    Embeddings(Vec<Vec<f32>>),
+
+    /// List of available models
+    ModelsList(Vec<ModelInfoOutput>),
+
+    /// Text generation result
+    Generated(GenerationResult),
+
+    /// Tokenization result (text → token IDs)
+    TokenIds(TokenizeResult),
+
+    /// Plain text result (detokenization)
+    Text(String),
+
+    /// Model successfully pulled/downloaded
+    ModelsPulled {
+        /// Name of the model that was pulled.
+        name: String,
+        /// Local file path where the model was saved.
+        path: String,
+    },
 }
 
 /// Snapshot of the embedding pipeline status.

@@ -16,10 +16,13 @@
 
 pub mod branch;
 pub mod configure_model;
+pub mod embed;
 pub mod embed_hook;
 pub mod event;
+pub mod generate;
 pub mod json;
 pub mod kv;
+pub mod models;
 pub mod search;
 pub mod space;
 pub mod state;

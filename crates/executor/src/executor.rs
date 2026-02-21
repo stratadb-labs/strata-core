@@ -871,6 +871,57 @@ impl Executor {
                 crate::handlers::branch::branch_bundle_validate(path)
             }
 
+            // Embedding commands
+            Command::Embed { text } => crate::handlers::embed::embed(&self.primitives, text),
+            Command::EmbedBatch { texts } => {
+                crate::handlers::embed::embed_batch(&self.primitives, texts)
+            }
+
+            // Model management commands
+            Command::ModelsList => crate::handlers::models::models_list(&self.primitives),
+            Command::ModelsPull { name } => {
+                crate::handlers::models::models_pull(&self.primitives, name)
+            }
+            Command::ModelsLocal => crate::handlers::models::models_local(&self.primitives),
+
+            // Generation commands
+            Command::Generate {
+                model,
+                prompt,
+                max_tokens,
+                temperature,
+                top_k,
+                top_p,
+                seed,
+                stop_tokens,
+            } => crate::handlers::generate::generate(
+                &self.primitives,
+                model,
+                prompt,
+                max_tokens,
+                temperature,
+                top_k,
+                top_p,
+                seed,
+                stop_tokens,
+            ),
+            Command::Tokenize {
+                model,
+                text,
+                add_special_tokens,
+            } => crate::handlers::generate::tokenize(
+                &self.primitives,
+                model,
+                text,
+                add_special_tokens,
+            ),
+            Command::Detokenize { model, ids } => {
+                crate::handlers::generate::detokenize(&self.primitives, model, ids)
+            }
+            Command::GenerateUnload { model } => {
+                crate::handlers::generate::generate_unload(&self.primitives, model)
+            }
+
             // Intelligence commands
             Command::ConfigureModel {
                 endpoint,

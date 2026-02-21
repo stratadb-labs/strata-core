@@ -422,6 +422,55 @@ pub struct SearchQuery {
     pub rerank: Option<bool>,
 }
 
+/// Information about a model in the registry (serializable output type).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ModelInfoOutput {
+    /// Model name (e.g., "miniLM", "qwen3:8b").
+    pub name: String,
+    /// Model task ("embed" or "generate").
+    pub task: String,
+    /// Architecture (e.g., "bert", "llama").
+    pub architecture: String,
+    /// Default quantization variant.
+    pub default_quant: String,
+    /// Embedding dimension (0 for generation models).
+    pub embedding_dim: usize,
+    /// Whether the model has been downloaded locally.
+    pub is_local: bool,
+    /// Approximate model size in bytes.
+    pub size_bytes: u64,
+}
+
+// =============================================================================
+// Generation Types
+// =============================================================================
+
+/// Result of text generation.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct GenerationResult {
+    /// Generated text.
+    pub text: String,
+    /// Why generation stopped ("eos", "max_tokens", "context_length", "cancelled").
+    pub stop_reason: String,
+    /// Number of tokens in the prompt.
+    pub prompt_tokens: usize,
+    /// Number of tokens generated.
+    pub completion_tokens: usize,
+    /// Model name used for generation.
+    pub model: String,
+}
+
+/// Result of tokenization (text → token IDs).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct TokenizeResult {
+    /// Token IDs.
+    pub ids: Vec<u32>,
+    /// Number of tokens.
+    pub count: usize,
+    /// Model name used for tokenization.
+    pub model: String,
+}
+
 /// A single hit from a cross-primitive search
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct SearchResultHit {

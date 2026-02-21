@@ -316,6 +316,38 @@ fn format_raw(output: &Output) -> String {
             })
             .collect::<Vec<_>>()
             .join("\n"),
+        Output::Embedding(vec) => vec
+            .iter()
+            .map(|v| v.to_string())
+            .collect::<Vec<_>>()
+            .join(" "),
+        Output::Embeddings(vecs) => vecs
+            .iter()
+            .map(|v| {
+                v.iter()
+                    .map(|f| f.to_string())
+                    .collect::<Vec<_>>()
+                    .join(" ")
+            })
+            .collect::<Vec<_>>()
+            .join("\n"),
+        Output::ModelsList(models) => models
+            .iter()
+            .map(|m| {
+                let local = if m.is_local { "local" } else { "remote" };
+                format!("{}\t{}\t{}\t{}", m.name, m.task, m.architecture, local)
+            })
+            .collect::<Vec<_>>()
+            .join("\n"),
+        Output::ModelsPulled { name, path } => format!("{}\t{}", name, path),
+        Output::Generated(r) => r.text.clone(),
+        Output::TokenIds(r) => r
+            .ids
+            .iter()
+            .map(|id| id.to_string())
+            .collect::<Vec<_>>()
+            .join(" "),
+        Output::Text(t) => t.clone(),
     }
 }
 
@@ -596,6 +628,91 @@ fn format_human(output: &Output) -> String {
                     .join("\n")
             }
         }
+        Output::Embedding(vec) => {
+            if vec.is_empty() {
+                "(empty embedding)".to_string()
+            } else {
+                let preview: Vec<String> =
+                    vec.iter().take(5).map(|v| format!("{:.6}", v)).collect();
+                format!(
+                    "(embedding) [{} dimensions] [{}{}]",
+                    vec.len(),
+                    preview.join(", "),
+                    if vec.len() > 5 { ", ..." } else { "" }
+                )
+            }
+        }
+        Output::Embeddings(vecs) => {
+            if vecs.is_empty() {
+                "(empty list)".to_string()
+            } else {
+                vecs.iter()
+                    .enumerate()
+                    .map(|(i, v)| {
+                        let preview: Vec<String> =
+                            v.iter().take(5).map(|f| format!("{:.6}", f)).collect();
+                        format!(
+                            "{}) [{} dimensions] [{}{}]",
+                            i + 1,
+                            v.len(),
+                            preview.join(", "),
+                            if v.len() > 5 { ", ..." } else { "" }
+                        )
+                    })
+                    .collect::<Vec<_>>()
+                    .join("\n")
+            }
+        }
+        Output::ModelsList(models) => {
+            if models.is_empty() {
+                "(empty list)".to_string()
+            } else {
+                models
+                    .iter()
+                    .enumerate()
+                    .map(|(i, m)| {
+                        let local_indicator = if m.is_local { " [local]" } else { "" };
+                        let dim_info = if m.embedding_dim > 0 {
+                            format!(", dim: {}", m.embedding_dim)
+                        } else {
+                            String::new()
+                        };
+                        format!(
+                            "{}) \"{}\" ({}, {}{}){}",
+                            i + 1,
+                            m.name,
+                            m.task,
+                            m.architecture,
+                            dim_info,
+                            local_indicator
+                        )
+                    })
+                    .collect::<Vec<_>>()
+                    .join("\n")
+            }
+        }
+        Output::ModelsPulled { name, path } => {
+            format!("Model \"{}\" downloaded to {}", name, path)
+        }
+        Output::Generated(r) => {
+            format!(
+                "(generated) [{}, stop: {}, prompt: {} tok, completion: {} tok]\n{}",
+                r.model, r.stop_reason, r.prompt_tokens, r.completion_tokens, r.text
+            )
+        }
+        Output::TokenIds(r) => {
+            format!(
+                "(tokens) [{}, {} tokens] [{}]",
+                r.model,
+                r.count,
+                r.ids
+                    .iter()
+                    .map(|id| id.to_string())
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            )
+        }
+        Output::Text(t) => format!("\"{}\"", t),
     }
 }
 
