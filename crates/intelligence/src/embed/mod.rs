@@ -36,11 +36,15 @@ impl EmbedModelState {
     /// The `_model_dir` parameter is accepted for backwards compatibility but
     /// ignored — the registry manages model storage in `~/.strata/models/`.
     /// Caches the result (success or failure) so loading is attempted at most once.
-    pub fn get_or_load(&self, _model_dir: &std::path::Path) -> Result<Arc<EmbeddingEngine>, String> {
+    pub fn get_or_load(
+        &self,
+        _model_dir: &std::path::Path,
+    ) -> Result<Arc<EmbeddingEngine>, String> {
         self.engine
             .get_or_init(|| {
-                let engine = EmbeddingEngine::from_registry(DEFAULT_MODEL)
-                    .map_err(|e| format!("Failed to load embedding model '{}': {}", DEFAULT_MODEL, e))?;
+                let engine = EmbeddingEngine::from_registry(DEFAULT_MODEL).map_err(|e| {
+                    format!("Failed to load embedding model '{}': {}", DEFAULT_MODEL, e)
+                })?;
                 Ok(Arc::new(engine))
             })
             .clone()

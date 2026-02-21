@@ -146,6 +146,9 @@ pub fn matches_to_action(matches: &ArgMatches, state: &SessionState) -> Result<C
         "configure-model" => parse_configure_model(sub_matches),
         "embed" => parse_embed(sub_matches),
         "models" => parse_models(sub_matches),
+        "generate" => parse_generate(sub_matches),
+        "tokenize" => parse_tokenize(sub_matches),
+        "detokenize" => parse_detokenize(sub_matches),
         other => Err(format!("Unknown command: {}", other)),
     }
 }
@@ -970,12 +973,76 @@ fn parse_models(matches: &ArgMatches) -> Result<CliAction, String> {
     let (sub, m) = matches.subcommand().ok_or("No models subcommand")?;
     match sub {
         "list" => Ok(CliAction::Execute(Command::ModelsList)),
+        "local" => Ok(CliAction::Execute(Command::ModelsLocal)),
         "pull" => {
             let name = m.get_one::<String>("name").unwrap().clone();
             Ok(CliAction::Execute(Command::ModelsPull { name }))
         }
         other => Err(format!("Unknown models subcommand: {}", other)),
     }
+}
+
+fn parse_generate(matches: &ArgMatches) -> Result<CliAction, String> {
+    let model = matches.get_one::<String>("model").unwrap().clone();
+    let prompt = matches.get_one::<String>("prompt").unwrap().clone();
+    let max_tokens = matches
+        .get_one::<String>("max-tokens")
+        .map(|s| s.parse::<usize>())
+        .transpose()
+        .map_err(|e| format!("Invalid max-tokens: {}", e))?;
+    let temperature = matches
+        .get_one::<String>("temperature")
+        .map(|s| s.parse::<f32>())
+        .transpose()
+        .map_err(|e| format!("Invalid temperature: {}", e))?;
+    let top_k = matches
+        .get_one::<String>("top-k")
+        .map(|s| s.parse::<usize>())
+        .transpose()
+        .map_err(|e| format!("Invalid top-k: {}", e))?;
+    let top_p = matches
+        .get_one::<String>("top-p")
+        .map(|s| s.parse::<f32>())
+        .transpose()
+        .map_err(|e| format!("Invalid top-p: {}", e))?;
+    let seed = matches
+        .get_one::<String>("seed")
+        .map(|s| s.parse::<u64>())
+        .transpose()
+        .map_err(|e| format!("Invalid seed: {}", e))?;
+    Ok(CliAction::Execute(Command::Generate {
+        model,
+        prompt,
+        max_tokens,
+        temperature,
+        top_k,
+        top_p,
+        seed,
+        stop_tokens: None,
+    }))
+}
+
+fn parse_tokenize(matches: &ArgMatches) -> Result<CliAction, String> {
+    let model = matches.get_one::<String>("model").unwrap().clone();
+    let text = matches.get_one::<String>("text").unwrap().clone();
+    let no_special = matches.get_flag("no-special");
+    let add_special_tokens = if no_special { Some(false) } else { None };
+    Ok(CliAction::Execute(Command::Tokenize {
+        model,
+        text,
+        add_special_tokens,
+    }))
+}
+
+fn parse_detokenize(matches: &ArgMatches) -> Result<CliAction, String> {
+    let model = matches.get_one::<String>("model").unwrap().clone();
+    let ids: Vec<u32> = matches
+        .get_many::<String>("ids")
+        .ok_or("Missing token IDs")?
+        .map(|s| s.parse::<u32>())
+        .collect::<std::result::Result<Vec<_>, _>>()
+        .map_err(|e| format!("Invalid token ID: {}", e))?;
+    Ok(CliAction::Execute(Command::Detokenize { model, ids }))
 }
 
 fn parse_search(matches: &ArgMatches, state: &SessionState) -> Result<CliAction, String> {

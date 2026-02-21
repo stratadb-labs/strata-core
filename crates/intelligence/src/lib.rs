@@ -7,12 +7,20 @@
 
 #[cfg(feature = "embed")]
 pub mod embed;
+#[cfg(feature = "embed")]
+pub mod generate;
 
 // Re-export key strata-inference types so that the executor depends only on
 // strata-intelligence, not directly on strata-inference.
 #[cfg(feature = "embed")]
+pub use strata_inference::engine::generate::{GenerationConfig, GenerationOutput};
+#[cfg(feature = "embed")]
+pub use strata_inference::engine::sampler::SamplingConfig;
+#[cfg(feature = "embed")]
 pub use strata_inference::EmbeddingEngine;
 #[cfg(feature = "embed")]
-pub use strata_inference::ModelRegistry;
+pub use strata_inference::GenerationEngine;
 #[cfg(feature = "embed")]
 pub use strata_inference::InferenceError;
+#[cfg(feature = "embed")]
+pub use strata_inference::ModelRegistry;

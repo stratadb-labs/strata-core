@@ -37,11 +37,7 @@ fn test_extract_positive_cases_produce_nonempty_text() {
     ];
     for value in &cases {
         let text = extract_text(value);
-        assert!(
-            text.is_some(),
-            "expected Some for {:?}, got None",
-            value
-        );
+        assert!(text.is_some(), "expected Some for {:?}, got None", value);
         assert!(
             !text.as_ref().unwrap().is_empty(),
             "expected non-empty text for {:?}",
@@ -121,7 +117,9 @@ fn test_embed_model_state_default_then_load() {
     // After load attempt, embedding_dim should be consistent with the result.
     match &result {
         Ok(_) => {
-            let dim = state.embedding_dim().expect("dim should be Some after successful load");
+            let dim = state
+                .embedding_dim()
+                .expect("dim should be Some after successful load");
             assert!(dim > 0, "dimension should be positive, got {}", dim);
         }
         Err(_) => {
@@ -204,7 +202,10 @@ fn test_extract_then_embed_roundtrip() {
 #[ignore]
 fn test_extract_object_then_embed_produces_valid_vector() {
     let mut map = HashMap::new();
-    map.insert("title".to_string(), Value::String("Rust programming".into()));
+    map.insert(
+        "title".to_string(),
+        Value::String("Rust programming".into()),
+    );
     map.insert("year".to_string(), Value::Int(2024));
     let obj = Value::Object(map);
 
@@ -231,11 +232,13 @@ fn test_embed_model_state_produces_same_result_as_direct_engine() {
         .get_or_load(std::path::Path::new("/unused"))
         .expect("load via state failed");
 
-    let engine_direct = strata_intelligence::EmbeddingEngine::from_registry("miniLM")
-        .expect("direct load failed");
+    let engine_direct =
+        strata_intelligence::EmbeddingEngine::from_registry("miniLM").expect("direct load failed");
 
     let text = "consistency check";
-    let v1 = engine_via_state.embed(text).expect("embed via state failed");
+    let v1 = engine_via_state
+        .embed(text)
+        .expect("embed via state failed");
     let v2 = engine_direct.embed(text).expect("embed direct failed");
 
     assert_eq!(v1.len(), v2.len());

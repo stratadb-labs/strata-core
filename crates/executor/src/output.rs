@@ -167,6 +167,15 @@ pub enum Output {
     /// List of available models
     ModelsList(Vec<ModelInfoOutput>),
 
+    /// Text generation result
+    Generated(GenerationResult),
+
+    /// Tokenization result (text → token IDs)
+    TokenIds(TokenizeResult),
+
+    /// Plain text result (detokenization)
+    Text(String),
+
     /// Model successfully pulled/downloaded
     ModelsPulled {
         /// Name of the model that was pulled.

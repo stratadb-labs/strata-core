@@ -340,6 +340,14 @@ fn format_raw(output: &Output) -> String {
             .collect::<Vec<_>>()
             .join("\n"),
         Output::ModelsPulled { name, path } => format!("{}\t{}", name, path),
+        Output::Generated(r) => r.text.clone(),
+        Output::TokenIds(r) => r
+            .ids
+            .iter()
+            .map(|id| id.to_string())
+            .collect::<Vec<_>>()
+            .join(" "),
+        Output::Text(t) => t.clone(),
     }
 }
 
@@ -624,7 +632,8 @@ fn format_human(output: &Output) -> String {
             if vec.is_empty() {
                 "(empty embedding)".to_string()
             } else {
-                let preview: Vec<String> = vec.iter().take(5).map(|v| format!("{:.6}", v)).collect();
+                let preview: Vec<String> =
+                    vec.iter().take(5).map(|v| format!("{:.6}", v)).collect();
                 format!(
                     "(embedding) [{} dimensions] [{}{}]",
                     vec.len(),
@@ -685,6 +694,25 @@ fn format_human(output: &Output) -> String {
         Output::ModelsPulled { name, path } => {
             format!("Model \"{}\" downloaded to {}", name, path)
         }
+        Output::Generated(r) => {
+            format!(
+                "(generated) [{}, stop: {}, prompt: {} tok, completion: {} tok]\n{}",
+                r.model, r.stop_reason, r.prompt_tokens, r.completion_tokens, r.text
+            )
+        }
+        Output::TokenIds(r) => {
+            format!(
+                "(tokens) [{}, {} tokens] [{}]",
+                r.model,
+                r.count,
+                r.ids
+                    .iter()
+                    .map(|id| id.to_string())
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            )
+        }
+        Output::Text(t) => format!("\"{}\"", t),
     }
 }
 

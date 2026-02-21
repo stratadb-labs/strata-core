@@ -114,9 +114,7 @@ fn test_dissimilar_texts_have_low_similarity() {
     let engine =
         EmbeddingEngine::from_registry("miniLM").expect("failed to load miniLM from registry");
     let a = engine.embed("quantum physics").expect("embed failed");
-    let b = engine
-        .embed("chocolate cake recipe")
-        .expect("embed failed");
+    let b = engine.embed("chocolate cake recipe").expect("embed failed");
     let sim = cosine_similarity(&a, &b);
     assert!(
         sim < 0.5,
@@ -153,7 +151,9 @@ fn test_embed_model_state_dim_after_load() {
         .expect("load failed");
 
     // After load, dim should match what the engine reports.
-    let dim = state.embedding_dim().expect("dim should be Some after load");
+    let dim = state
+        .embedding_dim()
+        .expect("dim should be Some after load");
     assert_eq!(dim, engine.embedding_dim());
     assert!(dim > 0, "dimension should be positive");
 }

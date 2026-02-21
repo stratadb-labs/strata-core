@@ -14,12 +14,11 @@ pub fn embed(p: &Arc<Primitives>, text: String) -> Result<Output> {
     use strata_intelligence::embed::EmbedModelState;
 
     let model_dir = p.db.model_dir();
-    let state = p
-        .db
-        .extension::<EmbedModelState>()
-        .map_err(|e| Error::Internal {
-            reason: format!("Failed to get embed model state: {}", e),
-        })?;
+    let state =
+        p.db.extension::<EmbedModelState>()
+            .map_err(|e| Error::Internal {
+                reason: format!("Failed to get embed model state: {}", e),
+            })?;
 
     let engine = state.get_or_load(&model_dir).map_err(|e| Error::Internal {
         reason: format!("Failed to load embedding model: {}", e),
@@ -38,12 +37,11 @@ pub fn embed_batch(p: &Arc<Primitives>, texts: Vec<String>) -> Result<Output> {
     use strata_intelligence::embed::EmbedModelState;
 
     let model_dir = p.db.model_dir();
-    let state = p
-        .db
-        .extension::<EmbedModelState>()
-        .map_err(|e| Error::Internal {
-            reason: format!("Failed to get embed model state: {}", e),
-        })?;
+    let state =
+        p.db.extension::<EmbedModelState>()
+            .map_err(|e| Error::Internal {
+                reason: format!("Failed to get embed model state: {}", e),
+            })?;
 
     let engine = state.get_or_load(&model_dir).map_err(|e| Error::Internal {
         reason: format!("Failed to load embedding model: {}", e),

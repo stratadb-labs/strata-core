@@ -441,6 +441,36 @@ pub struct ModelInfoOutput {
     pub size_bytes: u64,
 }
 
+// =============================================================================
+// Generation Types
+// =============================================================================
+
+/// Result of text generation.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct GenerationResult {
+    /// Generated text.
+    pub text: String,
+    /// Why generation stopped ("eos", "max_tokens", "context_length", "cancelled").
+    pub stop_reason: String,
+    /// Number of tokens in the prompt.
+    pub prompt_tokens: usize,
+    /// Number of tokens generated.
+    pub completion_tokens: usize,
+    /// Model name used for generation.
+    pub model: String,
+}
+
+/// Result of tokenization (text → token IDs).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct TokenizeResult {
+    /// Token IDs.
+    pub ids: Vec<u32>,
+    /// Number of tokens.
+    pub count: usize,
+    /// Model name used for tokenization.
+    pub model: String,
+}
+
 /// A single hit from a cross-primitive search
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct SearchResultHit {
