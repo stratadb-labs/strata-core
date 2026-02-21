@@ -316,10 +316,19 @@ fn format_raw(output: &Output) -> String {
             })
             .collect::<Vec<_>>()
             .join("\n"),
-        Output::Embedding(vec) => format!("{:?}", vec),
+        Output::Embedding(vec) => vec
+            .iter()
+            .map(|v| v.to_string())
+            .collect::<Vec<_>>()
+            .join(" "),
         Output::Embeddings(vecs) => vecs
             .iter()
-            .map(|v| format!("{:?}", v))
+            .map(|v| {
+                v.iter()
+                    .map(|f| f.to_string())
+                    .collect::<Vec<_>>()
+                    .join(" ")
+            })
             .collect::<Vec<_>>()
             .join("\n"),
         Output::ModelsList(models) => models
@@ -612,7 +621,17 @@ fn format_human(output: &Output) -> String {
             }
         }
         Output::Embedding(vec) => {
-            format!("(embedding) [{} dimensions] {:?}", vec.len(), &vec[..vec.len().min(5)])
+            if vec.is_empty() {
+                "(empty embedding)".to_string()
+            } else {
+                let preview: Vec<String> = vec.iter().take(5).map(|v| format!("{:.6}", v)).collect();
+                format!(
+                    "(embedding) [{} dimensions] [{}{}]",
+                    vec.len(),
+                    preview.join(", "),
+                    if vec.len() > 5 { ", ..." } else { "" }
+                )
+            }
         }
         Output::Embeddings(vecs) => {
             if vecs.is_empty() {
@@ -621,11 +640,14 @@ fn format_human(output: &Output) -> String {
                 vecs.iter()
                     .enumerate()
                     .map(|(i, v)| {
+                        let preview: Vec<String> =
+                            v.iter().take(5).map(|f| format!("{:.6}", f)).collect();
                         format!(
-                            "{}) [{} dimensions] {:?}",
+                            "{}) [{} dimensions] [{}{}]",
                             i + 1,
                             v.len(),
-                            &v[..v.len().min(5)]
+                            preview.join(", "),
+                            if v.len() > 5 { ", ..." } else { "" }
                         )
                     })
                     .collect::<Vec<_>>()

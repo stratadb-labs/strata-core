@@ -93,32 +93,70 @@ mod tests {
     use std::path::Path;
 
     #[test]
-    fn test_default_state_is_empty() {
+    fn test_embedding_dim_none_before_load() {
         let state = EmbedModelState::default();
-        // Loading from a nonexistent path should fail (model not in registry cache).
-        // This test just verifies the OnceCell is initially empty and we get
-        // a deterministic error on first access.
-        let result = state.get_or_load(Path::new("/nonexistent/path"));
-        // Either loads successfully (if model is cached) or fails — both are valid.
-        // The important thing is it doesn't panic.
-        let _ = result;
+        assert!(
+            state.embedding_dim().is_none(),
+            "dim should be None before any load attempt"
+        );
     }
 
     #[test]
-    fn test_error_is_cached() {
+    fn test_get_or_load_returns_deterministic_result() {
+        let state = EmbedModelState::default();
+        let result = state.get_or_load(Path::new("/nonexistent/path"));
+        // On CI without model files this will be Err; locally with model it may be Ok.
+        // Either way, calling it again must return the exact same outcome.
+        let result2 = state.get_or_load(Path::new("/different/path"));
+        assert_eq!(
+            result.is_ok(),
+            result2.is_ok(),
+            "OnceCell should return the same result regardless of path arg"
+        );
+    }
+
+    #[test]
+    fn test_error_is_cached_with_identical_message() {
         let state = EmbedModelState::default();
         let r1 = state.get_or_load(Path::new("/nonexistent"));
         let r2 = state.get_or_load(Path::new("/nonexistent"));
-        // Same result both times (OnceCell caching).
         assert_eq!(r1.is_ok(), r2.is_ok());
         if let (Err(e1), Err(e2)) = (&r1, &r2) {
-            assert_eq!(e1, e2, "error should be cached and identical");
+            assert_eq!(e1, e2, "cached error message must be identical");
+            assert!(
+                e1.contains(DEFAULT_MODEL),
+                "error should mention model name '{}', got: {}",
+                DEFAULT_MODEL,
+                e1
+            );
         }
     }
 
     #[test]
-    fn test_embedding_dim_none_before_load() {
+    fn test_embedding_dim_none_after_failed_load() {
         let state = EmbedModelState::default();
-        assert!(state.embedding_dim().is_none());
+        // Trigger a load attempt (may fail if model not installed).
+        let _ = state.get_or_load(Path::new("/nonexistent"));
+        // If load failed, dim should still be None.
+        if state.get_or_load(Path::new("/unused")).is_err() {
+            assert!(
+                state.embedding_dim().is_none(),
+                "dim should be None after a failed load"
+            );
+        }
+    }
+
+    #[test]
+    fn test_model_dir_param_is_ignored() {
+        // Two calls with different paths must return the same result,
+        // proving the path argument is truly ignored.
+        let state = EmbedModelState::default();
+        let r1 = state.get_or_load(Path::new("/path/a"));
+        let r2 = state.get_or_load(Path::new("/path/b"));
+        match (&r1, &r2) {
+            (Ok(a), Ok(b)) => assert!(Arc::ptr_eq(a, b), "same Arc regardless of path"),
+            (Err(a), Err(b)) => assert_eq!(a, b, "same error regardless of path"),
+            _ => panic!("r1 and r2 should have same Ok/Err variant"),
+        }
     }
 }
