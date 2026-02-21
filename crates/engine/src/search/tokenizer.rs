@@ -1,9 +1,10 @@
 //! Text tokenizer for search operations
 //!
-//! Pipeline: lowercase → split on non-alphanumeric → filter short tokens
-//!           → remove stopwords → Porter stem
+//! Pipeline: UAX#29 word boundaries → strip possessives → remove non-alpha
+//!           → lowercase → filter short tokens → remove stopwords → Porter stem
 
 use super::stemmer;
+use unicode_segmentation::UnicodeSegmentation;
 
 /// Standard English stopwords (Lucene's default set).
 ///
@@ -22,14 +23,24 @@ fn is_stopword(token: &str) -> bool {
     STOPWORDS.contains(&token)
 }
 
+/// Strip English possessive suffix (`'s` / `\u{2019}s`).
+#[inline]
+fn strip_possessive(word: &str) -> &str {
+    word.strip_suffix("'s")
+        .or_else(|| word.strip_suffix("\u{2019}s"))
+        .unwrap_or(word)
+}
+
 /// Tokenize text into searchable terms.
 ///
-/// Pipeline:
-/// 1. Lowercase
-/// 2. Split on non-alphanumeric characters
-/// 3. Filter tokens shorter than 2 characters
-/// 4. Remove stopwords
-/// 5. Porter-stem each token
+/// Pipeline (matches Lucene's StandardTokenizer + analysis chain):
+/// 1. UAX#29 word boundaries (`unicode_words`)
+/// 2. Strip English possessives (`'s`)
+/// 3. Remove non-alphanumeric characters (e.g. internal apostrophes)
+/// 4. Lowercase
+/// 5. Filter tokens shorter than 2 characters
+/// 6. Remove stopwords
+/// 7. Porter-stem each token
 ///
 /// # Example
 ///
@@ -40,11 +51,17 @@ fn is_stopword(token: &str) -> bool {
 /// assert_eq!(tokens, vec!["quick", "brown", "fox"]);
 /// ```
 pub fn tokenize(text: &str) -> Vec<String> {
-    text.to_lowercase()
-        .split(|c: char| !c.is_alphanumeric())
+    text.unicode_words()
+        .map(strip_possessive)
+        .map(|w| {
+            w.chars()
+                .filter(|c| c.is_alphanumeric())
+                .collect::<String>()
+        })
+        .map(|w| w.to_lowercase())
         .filter(|s| s.len() >= 2)
         .filter(|s| !is_stopword(s))
-        .map(stemmer::stem)
+        .map(|s| stemmer::stem(&s))
         .collect()
 }
 
@@ -175,5 +192,59 @@ mod tests {
         // "run", "running", "runs" all stem to "run"
         let tokens = tokenize_unique("run running runs");
         assert_eq!(tokens, vec!["run"]);
+    }
+
+    // ------------------------------------------------------------------
+    // UAX#29 word boundary tests
+    // ------------------------------------------------------------------
+
+    #[test]
+    fn test_contractions() {
+        // UAX#29 keeps "don't" as one word; apostrophe stripped → "dont"
+        let tokens = tokenize("don't stop");
+        assert_eq!(tokens, vec!["dont", "stop"]);
+    }
+
+    #[test]
+    fn test_possessives() {
+        // Possessive filter strips 's before further processing
+        let tokens = tokenize("John's book");
+        assert_eq!(tokens, vec!["john", "book"]);
+    }
+
+    #[test]
+    fn test_curly_possessive() {
+        let tokens = tokenize("John\u{2019}s book");
+        assert_eq!(tokens, vec!["john", "book"]);
+    }
+
+    #[test]
+    fn test_decimal_numbers() {
+        // UAX#29 keeps "3.14" as one word
+        let tokens = tokenize("3.14 seconds");
+        assert_eq!(tokens, vec!["314", "second"]);
+    }
+
+    #[test]
+    fn test_abbreviation() {
+        // UAX#29 keeps "U.S.A." together; dots stripped → "usa"
+        let tokens = tokenize("U.S.A. policy");
+        assert_eq!(tokens, vec!["usa", "polici"]);
+    }
+
+    #[test]
+    fn test_hyphens() {
+        // UAX#29 splits on hyphens
+        let tokens = tokenize("state-of-the-art");
+        // "of" and "the" are stopwords
+        assert_eq!(tokens, vec!["state", "art"]);
+    }
+
+    #[test]
+    fn test_email_like() {
+        // UAX#29 keeps "example.com" as one word; dots stripped → "examplecom"
+        let tokens = tokenize("user@example.com");
+        assert!(tokens.contains(&"user".to_string()));
+        assert!(tokens.contains(&"examplecom".to_string()));
     }
 }
